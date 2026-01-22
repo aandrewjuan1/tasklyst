@@ -14,6 +14,7 @@ export default defineConfig({
     ],
     server: {
         cors: true,
+        host: 'tasklyst.test',
         watch: {
             ignored: ['**/storage/framework/views/**'],
         },
