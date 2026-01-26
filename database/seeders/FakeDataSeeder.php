@@ -11,6 +11,7 @@ use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
+use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -27,16 +28,26 @@ class FakeDataSeeder extends Seeder
 
         $currentYear = Carbon::now()->year;
 
+        // Create tags
+        $artTag = Tag::firstOrCreate(['name' => 'art']);
+        $creativeTag = Tag::firstOrCreate(['name' => 'creative']);
+        $healthTag = Tag::firstOrCreate(['name' => 'health']);
+        $exerciseTag = Tag::firstOrCreate(['name' => 'exercise']);
+        $financeTag = Tag::firstOrCreate(['name' => 'finance']);
+        $workTag = Tag::firstOrCreate(['name' => 'work']);
+        $learningTag = Tag::firstOrCreate(['name' => 'learning']);
+        $personalTag = Tag::firstOrCreate(['name' => 'personal']);
+
         // Create recurring yearly events (birthdays)
         $this->createBirthdayEvent($user, 'My Birthday', $currentYear, 1, 31);
         $this->createBirthdayEvent($user, "Girlfriend's Birthday", $currentYear, 6, 16);
 
-        // Create recurring daily tasks
-        $this->createDailyTask($user, 'Drawing', 60, null, null);
-        $this->createDailyTask($user, 'Walking', 120, null, null);
-        $this->createDailyTask($user, 'Day Trading', 480, Carbon::today()->setTime(15, 0), Carbon::today()->setTime(23, 0));
-        $this->createDailyTask($user, 'Read', 60, null, null);
-        $this->createDailyTask($user, 'Workout', 120, null, null);
+        // Create recurring daily tasks with tags
+        $this->createDailyTask($user, 'Drawing', 60, null, null, [$artTag, $creativeTag]);
+        $this->createDailyTask($user, 'Walking', 120, null, null, [$healthTag, $exerciseTag]);
+        $this->createDailyTask($user, 'Day Trading', 480, Carbon::today()->setTime(15, 0), Carbon::today()->setTime(23, 0), [$financeTag, $workTag]);
+        $this->createDailyTask($user, 'Read', 60, null, null, [$learningTag, $personalTag]);
+        $this->createDailyTask($user, 'Workout', 120, null, null, [$healthTag, $exerciseTag]);
     }
 
     /**
@@ -78,7 +89,7 @@ class FakeDataSeeder extends Seeder
     /**
      * Create a recurring daily task.
      */
-    private function createDailyTask(User $user, string $title, int $durationMinutes, ?Carbon $startTime, ?Carbon $endTime): void
+    private function createDailyTask(User $user, string $title, int $durationMinutes, ?Carbon $startTime, ?Carbon $endTime, array $tags = []): void
     {
         $taskStartDatetime = $startTime ? $startTime->copy() : null;
         $taskEndDatetime = $endTime ? $endTime->copy() : null;
@@ -106,5 +117,10 @@ class FakeDataSeeder extends Seeder
             'end_datetime' => null,
             'days_of_week' => null,
         ]);
+
+        // Attach tags to the task
+        if (! empty($tags)) {
+            $task->tags()->attach(collect($tags)->pluck('id')->toArray());
+        }
     }
 }
