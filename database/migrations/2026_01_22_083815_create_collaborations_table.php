@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('collaboratable_type');
             $table->unsignedBigInteger('collaboratable_id');
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->string('permission', 20);
+            $table->enum('permission', ['view', 'edit']);
             $table->timestamps();
 
             $table->index(['collaboratable_type', 'collaboratable_id']);

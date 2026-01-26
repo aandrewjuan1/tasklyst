@@ -3,14 +3,26 @@
 namespace App\Models;
 
 use App\Enums\EventStatus;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Event extends Model
 {
-    use SoftDeletes;
+    use HasFactory, SoftDeletes;
+
+    protected static function boot(): void
+    {
+        parent::boot();
+
+        static::deleting(function (Event $event) {
+            $event->collaborations()->delete();
+        });
+    }
 
     protected $fillable = [
         'user_id',
@@ -43,5 +55,17 @@ class Event extends Model
     public function recurringEvent(): HasOne
     {
         return $this->hasOne(RecurringEvent::class);
+    }
+
+    public function collaborations(): MorphMany
+    {
+        return $this->morphMany(Collaboration::class, 'collaboratable');
+    }
+
+    public function collaborators(): MorphToMany
+    {
+        return $this->morphToMany(User::class, 'collaboratable', 'collaborations')
+            ->withPivot('permission')
+            ->withTimestamps();
     }
 }

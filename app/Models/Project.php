@@ -2,18 +2,15 @@
 
 namespace App\Models;
 
-use App\Enums\TaskComplexity;
-use App\Enums\TaskPriority;
-use App\Enums\TaskStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Task extends Model
+class Project extends Model
 {
     use HasFactory, SoftDeletes;
 
@@ -21,35 +18,24 @@ class Task extends Model
     {
         parent::boot();
 
-        static::deleting(function (Task $task) {
-            $task->collaborations()->delete();
+        static::deleting(function (Project $project) {
+            $project->collaborations()->delete();
         });
     }
 
     protected $fillable = [
         'user_id',
-        'title',
+        'name',
         'description',
-        'status',
-        'priority',
-        'complexity',
-        'duration',
         'start_datetime',
         'end_datetime',
-        'project_id',
-        'event_id',
-        'completed_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'status' => TaskStatus::class,
-            'priority' => TaskPriority::class,
-            'complexity' => TaskComplexity::class,
             'start_datetime' => 'datetime',
             'end_datetime' => 'datetime',
-            'completed_at' => 'datetime',
         ];
     }
 
@@ -58,14 +44,9 @@ class Task extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function recurringTask(): HasOne
+    public function tasks(): HasMany
     {
-        return $this->hasOne(RecurringTask::class);
-    }
-
-    public function tags(): MorphToMany
-    {
-        return $this->morphToMany(Tag::class, 'taggable');
+        return $this->hasMany(Task::class);
     }
 
     public function collaborations(): MorphMany

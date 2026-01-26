@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use App\Enums\TaskRecurrenceType;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RecurringTask extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'task_id',
         'recurrence_type',
