@@ -3,14 +3,14 @@
 use Illuminate\Support\Facades\Route;
 use Laravel\WorkOS\Http\Middleware\ValidateSessionWithWorkOS;
 
-Route::redirect('/', 'dashboard');
+Route::livewire('/', 'pages::workspace.index');
 
 Route::middleware([
     'auth',
     ValidateSessionWithWorkOS::class,
 ])->group(function () {
     Route::view('dashboard', 'dashboard')->name('dashboard');
-    Route::view('dashboard', 'dashboard')->name('dashboard');
+    Route::livewire('workspace', 'pages::workspace.index')->name('workspace');
 });
 
 require __DIR__.'/settings.php';
