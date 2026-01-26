@@ -13,21 +13,20 @@
 
 **Quick Setup:**
 ```blade
-<div wire:ignore x-data="{ items: @js($this->items) }">
+<div wire:ignore x-data="{
+  items: @js($this->items),
+  async deleteItem(item) {
+    const snapshot = { ...item }
+    try {
+      this.items = this.items.filter(i => i.id !== item.id)  // Update instantly
+      await $wire.call('deleteItem', item.id)  // Call server
+    } catch (error) {
+      this.items.push(snapshot)  // Rollback on error
+    }
+  }
+}">
   <button @click="deleteItem(item)">Delete</button>
 </div>
-
-<script>
-function deleteItem(item) {
-  const snapshot = { ...item }
-  try {
-    this.items = this.items.filter(i => i.id !== item.id)  // Update instantly
-    await $wire.call('deleteItem', item.id)  // Call server
-  } catch (error) {
-    this.items.push(snapshot)  // Rollback on error
-  }
-}
-</script>
 ```
 
 **When to use:** ✅ High-frequency actions (toggle, edit, delete with undo) | ❌ Critical operations (payments, account deletion)
@@ -458,15 +457,23 @@ async action() {
 catch (error) {
   this.item = snapshot
 
+  // Livewire errors may have different structures:
+  // - error.message (string) - always available
+  // - error.status (number) - HTTP status code if available
+  // - error.data (object) - additional error data if available
+
   if (error.status === 422) {
-    this.error = 'Validation error: ' + error.data.message
+    // Validation error
+    const message = error.data?.message || error.message || 'Validation failed'
+    this.error = 'Validation error: ' + message
   } else if (error.status === 403) {
     this.error = 'Permission denied'
   } else if (error.status === 404) {
     this.items = this.items.filter(i => i.id !== this.item.id)
     this.error = 'Item no longer exists'
   } else {
-    this.error = 'Something went wrong. Please try again.'
+    // Fallback to error message or generic message
+    this.error = error.message || 'Something went wrong. Please try again.'
   }
 }
 ```
@@ -507,6 +514,51 @@ Prevent rapid-fire actions:
   @click.throttle.250ms="deleteItem()"
   :disabled="loading"
   class="disabled:opacity-50"
+>
+  Delete
+</button>
+```
+
+## Preventing Race Conditions
+
+When multiple actions can be triggered rapidly, prevent race conditions by tracking pending requests:
+
+```javascript
+async deleteItem(item) {
+  // Prevent multiple simultaneous deletions
+  if (this.deletingIds?.has(item.id)) {
+    return
+  }
+
+  // Track pending deletion
+  this.deletingIds = this.deletingIds || new Set()
+  this.deletingIds.add(item.id)
+
+  const snapshot = { ...item }
+  const itemIndex = this.items.indexOf(item)
+
+  try {
+    this.items = this.items.filter(i => i.id !== item.id)
+    this.error = null
+
+    await $wire.call('deleteItem', item.id)
+
+  } catch (error) {
+    this.items.splice(itemIndex, 0, snapshot)
+    this.error = `Failed to delete: ${error.message}`
+  } finally {
+    // Always remove from pending set
+    this.deletingIds.delete(item.id)
+  }
+}
+```
+
+**Alternative: Disable button during action**
+```blade
+<button
+  @click="deleteItem(item)"
+  :disabled="deletingIds?.has(item.id)"
+  class="disabled:opacity-50 disabled:cursor-not-allowed"
 >
   Delete
 </button>
@@ -640,6 +692,7 @@ async createTask(title) {
 - [ ] `await` promise AFTER UI updates
 - [ ] Update UI with server response if needed
 - [ ] Show error message to user on failure
+- [ ] Prevent race conditions (disable button or track pending requests)
 
 **Testing:**
 - [ ] Verify UI updates instantly before server response
@@ -667,3 +720,4 @@ async createTask(title) {
 8. **Use Alpine events** - `@click` not `wire:click`, `@submit` not `wire:submit`
 9. **Always use try-catch** - Never let errors fail silently
 10. **Show user feedback** - Display error messages on failure
+11. **Prevent race conditions** - Track pending requests or disable buttons during actions
