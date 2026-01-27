@@ -18,6 +18,9 @@
                 </p>
             @endif
         </div>
+        <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {{ __('Task') }}
+        </span>
     </div>
 
     <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -48,15 +51,37 @@
             </span>
         @endif
 
+        @if(! is_null($task->duration))
+            @php
+                $durationMinutes = $task->duration;
+                $durationHours = (int) ceil($durationMinutes / 60);
+                $durationRemainderMinutes = $durationMinutes % 60;
+            @endphp
+            <span class="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                <flux:icon name="clock" class="size-3" />
+                <span>
+                    @if($durationMinutes < 59)
+                        {{ $durationMinutes }} {{ __('min') }}
+                    @else
+                        {{ $durationHours }}
+                        {{ \Illuminate\Support\Str::plural(__('hour'), $durationHours) }}
+                        @if($durationRemainderMinutes)
+                            {{ $durationRemainderMinutes }} {{ __('min') }}
+                        @endif
+                    @endif
+                </span>
+            </span>
+        @endif
+
         @if($task->start_datetime || $task->end_datetime)
             <span class="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
                 <span>
                     @if($task->start_datetime)
-                        {{ $task->start_datetime->format('H:i') }}
+                        {{ $task->start_datetime->translatedFormat('M j, Y · g:i A') }}
                     @endif
                     @if($task->end_datetime)
-                        – {{ $task->end_datetime->format('H:i') }}
+                        – {{ $task->end_datetime->translatedFormat('M j, Y · g:i A') }}
                     @endif
                 </span>
             </span>
@@ -73,6 +98,36 @@
             <span class="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-purple-500">
                 <flux:icon name="calendar" class="size-3" />
                 <span class="truncate max-w-[120px]">{{ $task->event->title }}</span>
+            </span>
+        @endif
+
+        @if($task->tags->isNotEmpty())
+            <span class="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-500">
+                <flux:icon name="tag" class="size-3" />
+                <span class="truncate max-w-[140px]">
+                    {{ $task->tags->pluck('name')->join(', ') }}
+                </span>
+            </span>
+        @endif
+
+        @if($task->collaborators->isNotEmpty())
+            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-500">
+                <flux:icon name="users" class="size-3" />
+                <span>
+                    {{ trans_choice(':count collaborator|:count collaborators', $task->collaborators->count(), ['count' => $task->collaborators->count()]) }}
+                </span>
+            </span>
+        @endif
+
+        @if($task->completed_at)
+            <span class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-700">
+                <flux:icon name="check-circle" class="size-3" />
+                <span>
+                    {{ __('Completed') }}
+                    <span class="opacity-80">
+                        {{ $task->completed_at->format('Y-m-d') }}
+                    </span>
+                </span>
             </span>
         @endif
     </div>
