@@ -4,7 +4,6 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use Carbon\Carbon;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
@@ -20,22 +19,6 @@ class extends Component
     {
         $this->selectedDate = now()->toDateString();
     }
-
-    public function goToToday(): void
-    {
-        $this->selectedDate = now()->toDateString();
-    }
-
-    public function goToPreviousDay(): void
-    {
-        $this->selectedDate = Carbon::parse($this->selectedDate)->subDay()->toDateString();
-    }
-
-    public function goToNextDay(): void
-    {
-        $this->selectedDate = Carbon::parse($this->selectedDate)->addDay()->toDateString();
-    }
-
     /**
      * Get tasks for the selected date for the authenticated user.
      */

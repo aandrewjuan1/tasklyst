@@ -16,4 +16,3 @@
         </flux:button>
     </form>
 </section>
-

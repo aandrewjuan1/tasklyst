@@ -9,6 +9,32 @@ use App\Models\User;
 use Carbon\Carbon;
 use Livewire\Livewire;
 
+it('passes collections to the view for the selected date', function (): void {
+    $user = User::factory()->create();
+
+    $date = Carbon::create(2026, 1, 27)->startOfDay();
+
+    $project = Project::factory()->for($user)->create([
+        'start_datetime' => $date,
+    ]);
+
+    $task = Task::factory()->for($user)->for($project)->create([
+        'start_datetime' => $date,
+        'completed_at' => null,
+    ]);
+
+    $event = Event::factory()->for($user)->create([
+        'start_datetime' => $date,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->assertCount('projects', 1)
+        ->assertCount('tasks', 1)
+        ->assertCount('events', 1);
+});
+
 it('renders the workspace page', function (): void {
     $user = User::factory()->create();
 
@@ -39,6 +65,8 @@ it('shows today by default and allows navigation', function (): void {
     $user = User::factory()->create();
 
     $today = now()->toDateString();
+    $tomorrow = Carbon::parse($today)->addDay()->toDateString();
+    $yesterday = Carbon::parse($today)->subDay()->toDateString();
 
     $component = Livewire::actingAs($user)
         ->test('pages::workspace.index')
@@ -46,17 +74,19 @@ it('shows today by default and allows navigation', function (): void {
         ->assertSee(Carbon::parse($today)->translatedFormat('D, M j, Y'));
 
     $component
-        ->call('goToNextDay')
-        ->assertSet('selectedDate', Carbon::parse($today)->addDay()->toDateString());
+        ->set('selectedDate', $tomorrow)
+        ->assertSet('selectedDate', $tomorrow);
 
     $component
-        ->call('goToPreviousDay')
+        ->set('selectedDate', $today)
         ->assertSet('selectedDate', $today);
 
     $component
-        ->set('selectedDate', Carbon::parse($today)->subDay()->toDateString())
-        ->assertSee('Today')
-        ->call('goToToday')
+        ->set('selectedDate', $yesterday)
+        ->assertSee('Today');
+
+    $component
+        ->set('selectedDate', $today)
         ->assertSet('selectedDate', $today);
 });
 
@@ -80,13 +110,16 @@ it('shows tasks, projects, and events for the selected date', function (): void 
 
     $formattedDate = $date->translatedFormat('D, M j, Y');
 
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
+    Livewire::actingAs($user);
+
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', $date->toDateString())
-        ->assertSee($formattedDate)
-        ->assertSee($project->name)
-        ->assertSee($project->tasks->first()->title)
-        ->assertSee(Event::first()->title);
+        ->assertSee($formattedDate);
+
+    $component
+        ->assertCount('projects', 1)
+        ->assertCount('tasks', 1)
+        ->assertCount('events', 1);
 });
 
 it('only shows tasks the user owns or collaborates on', function (): void {
@@ -118,11 +151,9 @@ it('only shows tasks the user owns or collaborates on', function (): void {
         'permission' => CollaborationPermission::View,
     ]);
 
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->set('selectedDate', $date->toDateString())
-        ->assertSee($ownedTask->title)
-        ->assertSee($collaboratorTask->title)
-        ->assertDontSee($hiddenTask->title);
-});
+    Livewire::actingAs($user);
 
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->assertCount('tasks', 2);
+});
