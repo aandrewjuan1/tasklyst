@@ -13,11 +13,11 @@ enum EventRecurrenceType: string
     public function color(): string
     {
         return match ($this) {
-            self::Daily => 'blue-500',
-            self::Weekly => 'purple-500',
-            self::Monthly => 'indigo-500',
-            self::Yearly => 'pink-500',
-            self::Custom => 'gray-500',
+            self::Daily => 'blue-800',
+            self::Weekly => 'purple-800',
+            self::Monthly => 'indigo-800',
+            self::Yearly => 'pink-800',
+            self::Custom => 'gray-800',
         };
     }
 }

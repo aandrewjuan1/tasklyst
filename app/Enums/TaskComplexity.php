@@ -11,9 +11,9 @@ enum TaskComplexity: string
     public function color(): string
     {
         return match ($this) {
-            self::Simple => 'green-400',
-            self::Moderate => 'yellow-400',
-            self::Complex => 'red-400',
+            self::Simple => 'green-800',
+            self::Moderate => 'yellow-800',
+            self::Complex => 'red-800',
         };
     }
 }

@@ -12,10 +12,10 @@ enum TaskPriority: string
     public function color(): string
     {
         return match ($this) {
-            self::Low => 'gray-400',
-            self::Medium => 'yellow-500',
-            self::High => 'orange-500',
-            self::Urgent => 'red-500',
+            self::Low => 'gray-800',
+            self::Medium => 'yellow-800',
+            self::High => 'orange-800',
+            self::Urgent => 'red-800',
         };
     }
 }
