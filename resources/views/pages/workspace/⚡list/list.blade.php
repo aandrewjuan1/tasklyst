@@ -55,7 +55,7 @@
     "
 >
     <flux:dropdown position="right" align="start">
-        <flux:button icon:trailing="plus-circle">Add new item</flux:button>
+        <flux:button icon:trailing="plus-circle">Add</flux:button>
         <flux:navmenu>
             <flux:navmenu.item
                 icon="rectangle-stack"

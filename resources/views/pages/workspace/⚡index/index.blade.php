@@ -18,6 +18,4 @@
         :events="$this->events"
         :tasks="$this->tasks"
     />
-
-    <livewire:pages::workspace.create/>
 </section>
