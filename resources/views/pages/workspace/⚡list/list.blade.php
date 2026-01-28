@@ -9,7 +9,7 @@
                 status: 'to_do',
                 priority: 'medium',
                 complexity: 'moderate',
-                duration: 60,
+                duration: '60',
                 startDatetime: null,
                 endDatetime: null,
                 projectId: null,
@@ -24,6 +24,10 @@
         },
         resetForm() {
             this.formData.task.title = '';
+            this.formData.task.status = 'to_do';
+            this.formData.task.priority = 'medium';
+            this.formData.task.complexity = 'moderate';
+            this.formData.task.duration = '60';
         },
         submitTask() {
             if (this.isSubmitting) {
@@ -83,17 +87,102 @@
     >
         <div class="flex items-start justify-between gap-3">
             <form class="min-w-0 flex-1" @submit.prevent="submitTask()">
-                <flux:input
-                    x-model="formData.task.title"
-                    x-ref="taskTitle"
-                    x-bind:disabled="isSubmitting"
-                    placeholder="{{ __('Enter task title...') }}"
-                    class="text-sm font-medium"
-                />
+                <div class="flex flex-col gap-2">
+                    <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {{ __('Task') }}
+                    </span>
+
+                    <div class="flex items-center gap-2">
+                        <flux:input
+                            x-model="formData.task.title"
+                            x-ref="taskTitle"
+                            x-bind:disabled="isSubmitting"
+                            placeholder="{{ __('Enter task title...') }}"
+                            class="flex-1 text-sm font-medium"
+                        />
+
+                        <flux:button
+                            type="button"
+                            variant="primary"
+                            icon="paper-airplane"
+                            class="shrink-0 rounded-full"
+                            x-bind:disabled="isSubmitting || !formData.task.title || !formData.task.title.trim()"
+                            @click="submitTask()"
+                        />
+                    </div>
+
+                    <div class="flex flex-wrap gap-2">
+                        <flux:dropdown>
+                            <flux:button icon:trailing="chevron-down" size="sm">
+                                <span x-text="formData.task.status === 'to_do' ? '{{ __('To Do') }}' : formData.task.status === 'doing' ? '{{ __('Doing') }}' : '{{ __('Done') }}'"></span>
+                            </flux:button>
+                            <flux:menu>
+                                <flux:menu.radio.group x-model="formData.task.status">
+                                    <flux:menu.radio value="to_do">{{ __('To Do') }}</flux:menu.radio>
+                                    <flux:menu.radio value="doing">{{ __('Doing') }}</flux:menu.radio>
+                                    <flux:menu.radio value="done">{{ __('Done') }}</flux:menu.radio>
+                                </flux:menu.radio.group>
+                            </flux:menu>
+                        </flux:dropdown>
+
+                        <flux:dropdown>
+                            <flux:button icon:trailing="chevron-down" size="sm">
+                                <span x-text="formData.task.priority === 'low' ? '{{ __('Low') }}' : formData.task.priority === 'medium' ? '{{ __('Medium') }}' : formData.task.priority === 'high' ? '{{ __('High') }}' : '{{ __('Urgent') }}'"></span>
+                            </flux:button>
+                            <flux:menu>
+                                <flux:menu.radio.group x-model="formData.task.priority">
+                                    <flux:menu.radio value="low">{{ __('Low') }}</flux:menu.radio>
+                                    <flux:menu.radio value="medium">{{ __('Medium') }}</flux:menu.radio>
+                                    <flux:menu.radio value="high">{{ __('High') }}</flux:menu.radio>
+                                    <flux:menu.radio value="urgent">{{ __('Urgent') }}</flux:menu.radio>
+                                </flux:menu.radio.group>
+                            </flux:menu>
+                        </flux:dropdown>
+
+                        <flux:dropdown>
+                            <flux:button icon:trailing="chevron-down" size="sm">
+                                <span x-text="formData.task.complexity === 'simple' ? '{{ __('Simple') }}' : formData.task.complexity === 'moderate' ? '{{ __('Moderate') }}' : '{{ __('Complex') }}'"></span>
+                            </flux:button>
+                            <flux:menu>
+                                <flux:menu.radio.group x-model="formData.task.complexity">
+                                    <flux:menu.radio value="simple">{{ __('Simple') }}</flux:menu.radio>
+                                    <flux:menu.radio value="moderate">{{ __('Moderate') }}</flux:menu.radio>
+                                    <flux:menu.radio value="complex">{{ __('Complex') }}</flux:menu.radio>
+                                </flux:menu.radio.group>
+                            </flux:menu>
+                        </flux:dropdown>
+
+                        <flux:dropdown>
+                            <flux:button icon:trailing="chevron-down" size="sm">
+                                <span x-text="formData.task.duration == '15'
+                                    ? '15 min'
+                                    : formData.task.duration == '30'
+                                        ? '30 min'
+                                        : formData.task.duration == '60'
+                                            ? '1 hour'
+                                            : formData.task.duration == '90'
+                                                ? '1.5 hours'
+                                                : formData.task.duration == '120'
+                                                    ? '2 hours'
+                                                    : formData.task.duration == '180'
+                                                        ? '3 hours'
+                                                        : '4 hours'"></span>
+                            </flux:button>
+                            <flux:menu>
+                                <flux:menu.radio.group x-model="formData.task.duration">
+                                    <flux:menu.radio value="15">15 min</flux:menu.radio>
+                                    <flux:menu.radio value="30">30 min</flux:menu.radio>
+                                    <flux:menu.radio value="60">1 hour</flux:menu.radio>
+                                    <flux:menu.radio value="90">1.5 hours</flux:menu.radio>
+                                    <flux:menu.radio value="120">2 hours</flux:menu.radio>
+                                    <flux:menu.radio value="180">3 hours</flux:menu.radio>
+                                    <flux:menu.radio value="240">4 hours</flux:menu.radio>
+                                </flux:menu.radio.group>
+                            </flux:menu>
+                        </flux:dropdown>
+                    </div>
+                </div>
             </form>
-            <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                {{ __('Task') }}
-            </span>
         </div>
     </div>
 

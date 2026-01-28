@@ -63,7 +63,7 @@ it('displays add new item dropdown button', function (): void {
             'events' => collect(),
             'tasks' => collect(),
         ])
-        ->assertSee('Add new item');
+        ->assertSee('Add');
 });
 
 it('displays only projects when events and tasks are empty', function (): void {
@@ -177,7 +177,8 @@ it('displays newly created task after task creation through parent component', f
             'endDatetime' => null,
             'projectId' => null,
         ])
-        ->assertSee('New Task from List Component');
+        ->assertSee('New Task from List Component')
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
 });
 
 it('creates task with project association through parent component', function (): void {
@@ -202,7 +203,8 @@ it('creates task with project association through parent component', function ()
             'endDatetime' => null,
             'projectId' => $project->id,
         ])
-        ->assertSee('Task with Project');
+        ->assertSee('Task with Project')
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
 
     $this->assertDatabaseHas('tasks', [
         'title' => 'Task with Project',
@@ -231,7 +233,8 @@ it('creates task with datetime through parent component', function (): void {
             'endDatetime' => $endDatetime,
             'projectId' => null,
         ])
-        ->assertSee('Task with Datetime');
+        ->assertSee('Task with Datetime')
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
 
     $this->assertDatabaseHas('tasks', [
         'title' => 'Task with Datetime',

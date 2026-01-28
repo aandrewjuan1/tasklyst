@@ -110,7 +110,8 @@ it('can create a task from the workspace component', function (): void {
             'endDatetime' => null,
             'projectId' => null,
         ])
-        ->assertSee('Inline created task');
+        ->assertSee('Inline created task')
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
 });
 
 it('only shows tasks the user owns or collaborates on', function (): void {
@@ -148,4 +149,40 @@ it('only shows tasks the user owns or collaborates on', function (): void {
         ->assertSee($ownedTask->title)
         ->assertSee($collaboratorTask->title)
         ->assertDontSee($hiddenTask->title);
+});
+
+it('dispatches success toast when task is created successfully', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('createTask', [
+            'title' => 'Test Task',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'projectId' => null,
+        ])
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+});
+
+it('dispatches error toast when task validation fails', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('createTask', [
+            'title' => '',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'projectId' => null,
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('Please fix the task details and try again.'));
 });
