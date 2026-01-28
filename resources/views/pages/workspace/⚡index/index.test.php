@@ -95,6 +95,24 @@ it('shows tasks, projects, and events for the selected date', function (): void 
         ->assertSee(Event::first()->title);
 });
 
+it('can create a task from the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('createTask', [
+            'title' => 'Inline created task',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'projectId' => null,
+        ])
+        ->assertSee('Inline created task');
+});
+
 it('only shows tasks the user owns or collaborates on', function (): void {
     $user = User::factory()->create();
     $owner = User::factory()->create();

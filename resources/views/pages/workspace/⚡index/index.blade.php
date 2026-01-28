@@ -1,6 +1,6 @@
-<section class="space-y-8">
+<section class="space-y-6">
     <div class="flex items-center justify-between">
-        <div class="space-y-1">
+        <div class="space-y-2">
             <flux:heading size="lg">
                 {{ __('Workspace') }}
             </flux:heading>
@@ -13,7 +13,7 @@
     </div>
 
     <livewire:pages::workspace.list
-        :key="'workspace-list-'.$this->selectedDate"
+        :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"
         :projects="$this->projects"
         :events="$this->events"
         :tasks="$this->tasks"
