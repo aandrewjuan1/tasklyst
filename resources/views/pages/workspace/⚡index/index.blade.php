@@ -10,6 +10,17 @@
 
             <x-workspace.date-switcher :selected-date="$this->selectedDate" />
         </div>
+
+        <div x-data>
+            <flux:button
+                type="button"
+                variant="primary"
+                size="sm"
+                x-on:click="$dispatch('open-create-modal')"
+            >
+                {{ __('Open Create') }}
+            </flux:button>
+        </div>
     </div>
 
     <livewire:pages::workspace.list
@@ -18,4 +29,6 @@
         :events="$this->events"
         :tasks="$this->tasks"
     />
+
+    <livewire:pages::workspace.create defer/>
 </section>

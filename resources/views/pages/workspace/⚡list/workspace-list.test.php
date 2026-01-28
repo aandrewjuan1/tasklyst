@@ -40,4 +40,3 @@ it('displays provided projects events and tasks', function (): void {
         ->assertSee($event->title)
         ->assertSee($task->title);
 });
-
