@@ -74,18 +74,21 @@
 
                 <div class="flex flex-wrap gap-2">
                     <flux:dropdown position="top" align="end">
-                        <flux:button
-                            icon:trailing="chevron-down"
-                            size="sm"
+                        <button
                             type="button"
-                            class="inline-flex items-center gap-1"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                            x-bind:class="formData.task.status === 'to_do' ? 'bg-gray-800/10 text-gray-800' : formData.task.status === 'doing' ? 'bg-blue-800/10 text-blue-800' : 'bg-green-800/10 text-green-800'"
                             data-task-creation-safe
                         >
-                            <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('Status:') }}
+                            <flux:icon name="check-circle" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Status') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="formData.task.status === 'to_do' ? '{{ __('To Do') }}' : formData.task.status === 'doing' ? '{{ __('Doing') }}' : '{{ __('Done') }}'"></span>
                             </span>
-                            <span x-text="formData.task.status === 'to_do' ? '{{ __('To Do') }}' : formData.task.status === 'doing' ? '{{ __('Doing') }}' : '{{ __('Done') }}'"></span>
-                        </flux:button>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
 
                         <flux:menu data-task-creation-safe>
                             <flux:menu.radio.group>
@@ -120,18 +123,21 @@
                     </flux:dropdown>
 
                     <flux:dropdown position="top" align="end">
-                        <flux:button
-                            icon:trailing="chevron-down"
-                            size="sm"
+                        <button
                             type="button"
-                            class="inline-flex items-center gap-1"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                            x-bind:class="formData.task.priority === 'low' ? 'bg-gray-800/10 text-gray-800' : formData.task.priority === 'medium' ? 'bg-yellow-800/10 text-yellow-800' : formData.task.priority === 'high' ? 'bg-orange-800/10 text-orange-800' : 'bg-red-800/10 text-red-800'"
                             data-task-creation-safe
                         >
-                            <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('Priority:') }}
+                            <flux:icon name="bolt" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Priority') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="formData.task.priority === 'low' ? '{{ __('Low') }}' : formData.task.priority === 'medium' ? '{{ __('Medium') }}' : formData.task.priority === 'high' ? '{{ __('High') }}' : '{{ __('Urgent') }}'"></span>
                             </span>
-                            <span x-text="formData.task.priority === 'low' ? '{{ __('Low') }}' : formData.task.priority === 'medium' ? '{{ __('Medium') }}' : formData.task.priority === 'high' ? '{{ __('High') }}' : '{{ __('Urgent') }}'"></span>
-                        </flux:button>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
 
                         <flux:menu data-task-creation-safe>
                             <flux:menu.radio.group>
@@ -175,18 +181,21 @@
                     </flux:dropdown>
 
                     <flux:dropdown position="top" align="end">
-                        <flux:button
-                            icon:trailing="chevron-down"
-                            size="sm"
+                        <button
                             type="button"
-                            class="inline-flex items-center gap-1"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                            x-bind:class="formData.task.complexity === 'simple' ? 'bg-green-800/10 text-green-800' : formData.task.complexity === 'moderate' ? 'bg-yellow-800/10 text-yellow-800' : 'bg-red-800/10 text-red-800'"
                             data-task-creation-safe
                         >
-                            <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('Complexity:') }}
+                            <flux:icon name="squares-2x2" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Complexity') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="formData.task.complexity === 'simple' ? '{{ __('Simple') }}' : formData.task.complexity === 'moderate' ? '{{ __('Moderate') }}' : '{{ __('Complex') }}'"></span>
                             </span>
-                            <span x-text="formData.task.complexity === 'simple' ? '{{ __('Simple') }}' : formData.task.complexity === 'moderate' ? '{{ __('Moderate') }}' : '{{ __('Complex') }}'"></span>
-                        </flux:button>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
 
                         <flux:menu data-task-creation-safe>
                             <flux:menu.radio.group>
@@ -221,32 +230,34 @@
                     </flux:dropdown>
 
                     <flux:dropdown position="top" align="end">
-                        <flux:button
-                            icon:trailing="chevron-down"
-                            size="sm"
+                        <button
                             type="button"
-                            class="inline-flex items-center gap-1"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
                             data-task-creation-safe
                         >
-                            <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('Duration:') }}
+                            <flux:icon name="clock" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Duration') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="formData.task.duration == '15'
+                                    ? '15 min'
+                                    : formData.task.duration == '30'
+                                        ? '30 min'
+                                        : formData.task.duration == '60'
+                                            ? '1 hour'
+                                            : formData.task.duration == '90'
+                                                ? '1.5 hours'
+                                                : formData.task.duration == '120'
+                                                    ? '2 hours'
+                                                    : formData.task.duration == '180'
+                                                        ? '3 hours'
+                                                        : formData.task.duration == '240'
+                                                            ? '4 hours'
+                                                            : '8+ hours'"></span>
                             </span>
-                            <span x-text="formData.task.duration == '15'
-                                ? '15 min'
-                                : formData.task.duration == '30'
-                                    ? '30 min'
-                                    : formData.task.duration == '60'
-                                        ? '1 hour'
-                                        : formData.task.duration == '90'
-                                            ? '1.5 hours'
-                                            : formData.task.duration == '120'
-                                                ? '2 hours'
-                                                : formData.task.duration == '180'
-                                                    ? '3 hours'
-                                                    : formData.task.duration == '240'
-                                                        ? '4 hours'
-                                                        : '8+ hours'"></span>
-                        </flux:button>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
 
                         <flux:menu data-task-creation-safe>
                             <flux:menu.radio.group>
@@ -326,17 +337,20 @@
                     </flux:dropdown>
 
                     <flux:dropdown position="top" align="end">
-                        <flux:button
-                            icon:trailing="chevron-down"
-                            size="sm"
+                        <button
                             type="button"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
                             data-task-creation-safe
                         >
-                            <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('Start:') }}
+                            <flux:icon name="clock" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Start') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="formatDatetime(formData.task.startDatetime)"></span>
                             </span>
-                            <span x-text="formatDatetime(formData.task.startDatetime)"></span>
-                        </flux:button>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
 
                         <flux:menu data-task-creation-safe>
                             <div class="p-3">
@@ -350,17 +364,20 @@
                     </flux:dropdown>
 
                     <flux:dropdown>
-                        <flux:button
-                            icon:trailing="chevron-down"
-                            size="sm"
+                        <button
                             type="button"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
                             data-task-creation-safe
                         >
-                            <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('End:') }}
+                            <flux:icon name="clock" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('End') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="formatDatetime(formData.task.endDatetime)"></span>
                             </span>
-                            <span x-text="formatDatetime(formData.task.endDatetime)"></span>
-                        </flux:button>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
 
                         <flux:menu data-task-creation-safe>
                             <div class="p-3">
