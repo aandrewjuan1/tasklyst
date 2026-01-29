@@ -6,11 +6,11 @@ use App\Models\Task;
 use App\Services\TaskService;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Carbon as SupportCarbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -53,6 +53,7 @@ class extends Component
 
         if ($user === null) {
             $this->dispatch('toast', type: 'error', message: __('You must be logged in to create tasks.'));
+
             return;
         }
 
@@ -63,8 +64,13 @@ class extends Component
         try {
             /** @var array{taskPayload: array<string, mixed>} $validated */
             $validated = $this->validate();
-        } catch (\Illuminate\Validation\ValidationException) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Task validation failed', [
+                'errors' => $e->errors(),
+                'payload' => $this->taskPayload,
+            ]);
             $this->dispatch('toast', type: 'error', message: __('Please fix the task details and try again.'));
+
             return;
         }
 
@@ -74,17 +80,19 @@ class extends Component
         $startDatetime = $this->parseOptionalDatetime($validatedTask['startDatetime'] ?? null);
         $endDatetime = $this->parseOptionalDatetime($validatedTask['endDatetime'] ?? null);
 
+        $taskAttributes = [
+            'title' => $title,
+            'status' => $validatedTask['status'] ?? null,
+            'priority' => $validatedTask['priority'] ?? null,
+            'complexity' => $validatedTask['complexity'] ?? null,
+            'duration' => $validatedTask['duration'] ?? null,
+            'start_datetime' => $startDatetime,
+            'end_datetime' => $endDatetime,
+            'project_id' => $validatedTask['projectId'] ?? null,
+        ];
+
         try {
-            $task = $this->taskService->createTask($user, [
-                'title' => $title,
-                'status' => $validatedTask['status'] ?? null,
-                'priority' => $validatedTask['priority'] ?? null,
-                'complexity' => $validatedTask['complexity'] ?? null,
-                'duration' => $validatedTask['duration'] ?? null,
-                'start_datetime' => $startDatetime,
-                'end_datetime' => $endDatetime,
-                'project_id' => $validatedTask['projectId'] ?? null,
-            ]);
+            $task = $this->taskService->createTask($user, $taskAttributes);
         } catch (\Throwable $e) {
             Log::error('Failed to create task from workspace.', [
                 'user_id' => $user->id,
@@ -93,6 +101,7 @@ class extends Component
             ]);
 
             $this->dispatch('toast', type: 'error', message: __('Something went wrong creating the task.'));
+
             return;
         }
 
@@ -163,11 +172,19 @@ class extends Component
         }
 
         try {
-            return SupportCarbon::parse((string) $value);
-        } catch (\Throwable) {
+            $parsed = SupportCarbon::parse((string) $value);
+
+            return $parsed;
+        } catch (\Throwable $e) {
+            Log::error('Failed to parse datetime', [
+                'input' => $value,
+                'error' => $e->getMessage(),
+            ]);
+
             return null;
         }
     }
+
     /**
      * Get tasks for the selected date for the authenticated user.
      */

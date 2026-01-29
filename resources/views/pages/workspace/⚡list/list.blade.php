@@ -1,5 +1,5 @@
 <div
-    class="space-y-4"
+    class="space-y-4 scroll-smooth"
     x-data="{
         showTaskCreation: false,
         isSubmitting: false,
@@ -28,6 +28,8 @@
             this.formData.task.priority = 'medium';
             this.formData.task.complexity = 'moderate';
             this.formData.task.duration = '60';
+            this.formData.task.startDatetime = null;
+            this.formData.task.endDatetime = null;
         },
         submitTask() {
             if (this.isSubmitting) {
@@ -78,6 +80,33 @@
                 window.dispatchEvent(new CustomEvent('task-creation-outside-clicked'));
             }
         },
+        formatDatetime(datetimeString) {
+            if (!datetimeString) {
+                return 'Not set';
+            }
+
+            try {
+                const date = new Date(datetimeString);
+                if (isNaN(date.getTime())) {
+                    return 'Not set';
+                }
+
+                const dateStr = date.toLocaleDateString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                });
+
+                const timeStr = date.toLocaleTimeString(undefined, {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                });
+
+                return dateStr + ' ' + timeStr;
+            } catch (e) {
+                return 'Not set';
+            }
+        },
     }"
     x-init="
         window.addEventListener('task-created', () => {
@@ -86,6 +115,20 @@
 
         window.addEventListener('click', (event) => {
             handleGlobalClick(event);
+        });
+
+        // Listen for date picker updates
+        window.addEventListener('date-picker-updated', (event) => {
+            const { path, value } = event.detail;
+            const pathParts = path.split('.');
+            let target = this;
+            for (let i = 0; i < pathParts.length - 1; i++) {
+                if (!target[pathParts[i]]) {
+                    target[pathParts[i]] = {};
+                }
+                target = target[pathParts[i]];
+            }
+            target[pathParts[pathParts.length - 1]] = value;
         });
     "
 >
@@ -226,6 +269,38 @@
                                     <flux:menu.radio value="240">4 hours</flux:menu.radio>
                                     <flux:menu.radio value="480">8+ hours</flux:menu.radio>
                                 </flux:menu.radio.group>
+                            </flux:menu>
+                        </flux:dropdown>
+
+                        <flux:dropdown>
+                            <flux:button icon:trailing="chevron-down" size="sm" data-task-creation-safe>
+                                <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('Start:') }}
+                                </span>
+                                <span x-text="formatDatetime(formData.task.startDatetime)"></span>
+                            </flux:button>
+                            <flux:menu keep-open data-task-creation-safe>
+                                <x-date-picker
+                                    label="{{ __('Start Date') }}"
+                                    model="formData.task.startDatetime"
+                                    type="datetime-local"
+                                />
+                            </flux:menu>
+                        </flux:dropdown>
+
+                        <flux:dropdown>
+                            <flux:button icon:trailing="chevron-down" size="sm" data-task-creation-safe>
+                                <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('End:') }}
+                                </span>
+                                <span x-text="formatDatetime(formData.task.endDatetime)"></span>
+                            </flux:button>
+                            <flux:menu keep-open data-task-creation-safe>
+                                <x-date-picker
+                                    label="{{ __('End Date') }}"
+                                    model="formData.task.endDatetime"
+                                    type="datetime-local"
+                                />
                             </flux:menu>
                         </flux:dropdown>
                     </div>
