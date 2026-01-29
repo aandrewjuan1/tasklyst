@@ -18,9 +18,26 @@
                 </p>
             @endif
         </div>
-        <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {{ __('Task') }}
-        </span>
+        <div class="flex items-center gap-2">
+            <span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {{ __('Task') }}
+            </span>
+            <flux:dropdown>
+                <flux:button size="xs" icon="ellipsis-horizontal" />
+
+                <flux:menu>
+                    <flux:menu.separator />
+
+                    <flux:menu.item
+                        variant="danger"
+                        icon="trash"
+                        @click="$wire.$parent.$call('deleteTask', {{ $task->id }})"
+                    >
+                        Delete
+                    </flux:menu.item>
+                </flux:menu>
+            </flux:dropdown>
+        </div>
     </div>
 
     <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -132,4 +149,3 @@
         @endif
     </div>
 </div>
-

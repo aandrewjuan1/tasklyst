@@ -102,6 +102,53 @@ class extends Component
     }
 
     /**
+     * Delete a task for the authenticated user.
+     */
+    public function deleteTask(int $taskId): void
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete tasks.'));
+
+            return;
+        }
+
+        $task = Task::query()->find($taskId);
+
+        if ($task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return;
+        }
+
+        $this->authorize('delete', $task);
+
+        try {
+            $deleted = $this->taskService->deleteTask($task);
+        } catch (\Throwable $e) {
+            Log::error('Failed to delete task from workspace.', [
+                'user_id' => $user->id,
+                'task_id' => $taskId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the task.'));
+
+            return;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the task.'));
+
+            return;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('toast', type: 'success', message: __('Task deleted.'));
+    }
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     protected function rules(): array

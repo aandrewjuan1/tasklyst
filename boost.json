@@ -3,8 +3,8 @@
         "cursor"
     ],
     "editors": [
-        "cursor",
-        "vscode"
+        "cursor"
     ],
-    "guidelines": []
+    "guidelines": [],
+    "herd_mcp": true
 }

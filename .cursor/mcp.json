@@ -6,6 +6,15 @@
                 "artisan",
                 "boost:mcp"
             ]
+        },
+        "herd": {
+            "command": "php",
+            "args": [
+                "C:/Users/WINDOWS 10/.config/herd/bin/herd-mcp.phar"
+            ],
+            "env": {
+                "SITE_PATH": "C:\\Users\\WINDOWS 10\\Herd\\tasklyst"
+            }
         }
     }
 }

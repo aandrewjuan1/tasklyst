@@ -51,10 +51,41 @@
                     this.isSubmitting = false;
                 });
         },
+        handleGlobalClick(event) {
+            if (! this.showTaskCreation) {
+                return;
+            }
+
+            const card = this.$refs.taskCreationCard;
+
+            if (! card) {
+                return;
+            }
+
+            const rect = card.getBoundingClientRect();
+            const clickX = event.clientX;
+            const clickY = event.clientY;
+
+            const isWithinCardBounds =
+                clickX >= rect.left
+                && clickX <= rect.right
+                && clickY >= rect.top
+                && clickY <= rect.bottom;
+
+            const isSafe = event.target.closest('[data-task-creation-safe]');
+
+            if (! isWithinCardBounds && ! isSafe) {
+                window.dispatchEvent(new CustomEvent('task-creation-outside-clicked'));
+            }
+        },
     }"
     x-init="
         window.addEventListener('task-created', () => {
             resetForm();
+        });
+
+        window.addEventListener('click', (event) => {
+            handleGlobalClick(event);
         });
     "
 >
@@ -63,6 +94,7 @@
         <flux:navmenu>
             <flux:navmenu.item
                 icon="rectangle-stack"
+                data-task-creation-safe
                 @click="
                     showTaskCreation = !showTaskCreation;
                     if (showTaskCreation) {
@@ -81,7 +113,8 @@
     <div
         x-show="showTaskCreation"
         x-transition
-        @click.outside="showTaskCreation = false"
+        x-ref="taskCreationCard"
+        @task-creation-outside-clicked.window="showTaskCreation = false"
         class="mt-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/60 px-4 py-3 shadow-sm backdrop-blur"
         x-cloak
     >
@@ -114,9 +147,12 @@
                     <div class="flex flex-wrap gap-2">
                         <flux:dropdown>
                             <flux:button icon:trailing="chevron-down" size="sm">
+                                <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('Status:') }}
+                                </span>
                                 <span x-text="formData.task.status === 'to_do' ? '{{ __('To Do') }}' : formData.task.status === 'doing' ? '{{ __('Doing') }}' : '{{ __('Done') }}'"></span>
                             </flux:button>
-                            <flux:menu>
+                            <flux:menu data-task-creation-safe>
                                 <flux:menu.radio.group x-model="formData.task.status">
                                     <flux:menu.radio value="to_do">{{ __('To Do') }}</flux:menu.radio>
                                     <flux:menu.radio value="doing">{{ __('Doing') }}</flux:menu.radio>
@@ -127,9 +163,12 @@
 
                         <flux:dropdown>
                             <flux:button icon:trailing="chevron-down" size="sm">
+                                <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('Priority:') }}
+                                </span>
                                 <span x-text="formData.task.priority === 'low' ? '{{ __('Low') }}' : formData.task.priority === 'medium' ? '{{ __('Medium') }}' : formData.task.priority === 'high' ? '{{ __('High') }}' : '{{ __('Urgent') }}'"></span>
                             </flux:button>
-                            <flux:menu>
+                            <flux:menu data-task-creation-safe>
                                 <flux:menu.radio.group x-model="formData.task.priority">
                                     <flux:menu.radio value="low">{{ __('Low') }}</flux:menu.radio>
                                     <flux:menu.radio value="medium">{{ __('Medium') }}</flux:menu.radio>
@@ -141,9 +180,12 @@
 
                         <flux:dropdown>
                             <flux:button icon:trailing="chevron-down" size="sm">
+                                <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('Complexity:') }}
+                                </span>
                                 <span x-text="formData.task.complexity === 'simple' ? '{{ __('Simple') }}' : formData.task.complexity === 'moderate' ? '{{ __('Moderate') }}' : '{{ __('Complex') }}'"></span>
                             </flux:button>
-                            <flux:menu>
+                            <flux:menu data-task-creation-safe>
                                 <flux:menu.radio.group x-model="formData.task.complexity">
                                     <flux:menu.radio value="simple">{{ __('Simple') }}</flux:menu.radio>
                                     <flux:menu.radio value="moderate">{{ __('Moderate') }}</flux:menu.radio>
@@ -154,6 +196,9 @@
 
                         <flux:dropdown>
                             <flux:button icon:trailing="chevron-down" size="sm">
+                                <span class="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('Duration:') }}
+                                </span>
                                 <span x-text="formData.task.duration == '15'
                                     ? '15 min'
                                     : formData.task.duration == '30'
@@ -166,9 +211,11 @@
                                                     ? '2 hours'
                                                     : formData.task.duration == '180'
                                                         ? '3 hours'
-                                                        : '4 hours'"></span>
+                                                        : formData.task.duration == '240'
+                                                            ? '4 hours'
+                                                            : '8+ hours'"></span>
                             </flux:button>
-                            <flux:menu>
+                            <flux:menu data-task-creation-safe>
                                 <flux:menu.radio.group x-model="formData.task.duration">
                                     <flux:menu.radio value="15">15 min</flux:menu.radio>
                                     <flux:menu.radio value="30">30 min</flux:menu.radio>
@@ -177,6 +224,7 @@
                                     <flux:menu.radio value="120">2 hours</flux:menu.radio>
                                     <flux:menu.radio value="180">3 hours</flux:menu.radio>
                                     <flux:menu.radio value="240">4 hours</flux:menu.radio>
+                                    <flux:menu.radio value="480">8+ hours</flux:menu.radio>
                                 </flux:menu.radio.group>
                             </flux:menu>
                         </flux:dropdown>
