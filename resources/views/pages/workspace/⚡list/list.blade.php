@@ -154,6 +154,68 @@
                 return 'Not set';
             }
         },
+        statusLabel(status) {
+            switch (status) {
+                case 'to_do':
+                    return '{{ __('To Do') }}';
+                case 'doing':
+                    return '{{ __('Doing') }}';
+                case 'done':
+                    return '{{ __('Done') }}';
+                default:
+                    return '{{ __('To Do') }}';
+            }
+        },
+        priorityLabel(priority) {
+            switch (priority) {
+                case 'low':
+                    return '{{ __('Low') }}';
+                case 'medium':
+                    return '{{ __('Medium') }}';
+                case 'high':
+                    return '{{ __('High') }}';
+                case 'urgent':
+                    return '{{ __('Urgent') }}';
+                default:
+                    return '{{ __('Medium') }}';
+            }
+        },
+        complexityLabel(complexity) {
+            switch (complexity) {
+                case 'simple':
+                    return '{{ __('Simple') }}';
+                case 'moderate':
+                    return '{{ __('Moderate') }}';
+                case 'complex':
+                    return '{{ __('Complex') }}';
+                default:
+                    return '{{ __('Moderate') }}';
+            }
+        },
+        formatDurationLabel(duration) {
+            const value = String(duration ?? '');
+
+            switch (value) {
+                case '15':
+                    return '15 {{ __('min') }}';
+                case '30':
+                    return '30 {{ __('min') }}';
+                case '60':
+                    return '1 {{ __('hour') }}';
+                case '90':
+                    return '1.5 {{ \Illuminate\Support\Str::plural(__('hour'), 2) }}';
+                case '120':
+                    return '2 {{ \Illuminate\Support\Str::plural(__('hour'), 2) }}';
+                case '180':
+                    return '3 {{ \Illuminate\Support\Str::plural(__('hour'), 3) }}';
+                case '240':
+                    return '4 {{ \Illuminate\Support\Str::plural(__('hour'), 4) }}';
+                case '480':
+                    return '8+ {{ \Illuminate\Support\Str::plural(__('hour'), 8) }}';
+                default:
+                    return '{{ __('Not set') }}';
+            }
+        },
     }"
     x-init="
         window.addEventListener('task-created', () => {

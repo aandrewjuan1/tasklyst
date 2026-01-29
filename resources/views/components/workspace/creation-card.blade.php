@@ -60,6 +60,7 @@
                         x-bind:disabled="isSubmitting"
                         placeholder="{{ __('Enter task title...') }}"
                         class="flex-1 text-sm font-medium"
+                        @keydown.enter.prevent="if (!isSubmitting && formData.task.title && formData.task.title.trim()) submitTask()"
                     />
 
                     <flux:button
@@ -79,13 +80,14 @@
                             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
                             x-bind:class="formData.task.status === 'to_do' ? 'bg-gray-800/10 text-gray-800' : formData.task.status === 'doing' ? 'bg-blue-800/10 text-blue-800' : 'bg-green-800/10 text-green-800'"
                             data-task-creation-safe
+                            aria-haspopup="menu"
                         >
                             <flux:icon name="check-circle" class="size-3" />
                             <span class="inline-flex items-baseline gap-1">
                                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                     {{ __('Status') }}:
                                 </span>
-                                <span class="text-xs uppercase" x-text="formData.task.status === 'to_do' ? '{{ __('To Do') }}' : formData.task.status === 'doing' ? '{{ __('Doing') }}' : '{{ __('Done') }}'"></span>
+                                <span class="text-xs uppercase" x-text="statusLabel(formData.task.status)"></span>
                             </span>
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
@@ -128,13 +130,14 @@
                             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
                             x-bind:class="formData.task.priority === 'low' ? 'bg-gray-800/10 text-gray-800' : formData.task.priority === 'medium' ? 'bg-yellow-800/10 text-yellow-800' : formData.task.priority === 'high' ? 'bg-orange-800/10 text-orange-800' : 'bg-red-800/10 text-red-800'"
                             data-task-creation-safe
+                            aria-haspopup="menu"
                         >
                             <flux:icon name="bolt" class="size-3" />
                             <span class="inline-flex items-baseline gap-1">
                                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                     {{ __('Priority') }}:
                                 </span>
-                                <span class="text-xs uppercase" x-text="formData.task.priority === 'low' ? '{{ __('Low') }}' : formData.task.priority === 'medium' ? '{{ __('Medium') }}' : formData.task.priority === 'high' ? '{{ __('High') }}' : '{{ __('Urgent') }}'"></span>
+                                <span class="text-xs uppercase" x-text="priorityLabel(formData.task.priority)"></span>
                             </span>
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
@@ -186,13 +189,14 @@
                             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
                             x-bind:class="formData.task.complexity === 'simple' ? 'bg-green-800/10 text-green-800' : formData.task.complexity === 'moderate' ? 'bg-yellow-800/10 text-yellow-800' : 'bg-red-800/10 text-red-800'"
                             data-task-creation-safe
+                            aria-haspopup="menu"
                         >
                             <flux:icon name="squares-2x2" class="size-3" />
                             <span class="inline-flex items-baseline gap-1">
                                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                     {{ __('Complexity') }}:
                                 </span>
-                                <span class="text-xs uppercase" x-text="formData.task.complexity === 'simple' ? '{{ __('Simple') }}' : formData.task.complexity === 'moderate' ? '{{ __('Moderate') }}' : '{{ __('Complex') }}'"></span>
+                                <span class="text-xs uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
                             </span>
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
@@ -234,27 +238,14 @@
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
                             data-task-creation-safe
+                            aria-haspopup="menu"
                         >
                             <flux:icon name="clock" class="size-3" />
                             <span class="inline-flex items-baseline gap-1">
                                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                     {{ __('Duration') }}:
                                 </span>
-                                <span class="text-xs uppercase" x-text="formData.task.duration == '15'
-                                    ? '15 min'
-                                    : formData.task.duration == '30'
-                                        ? '30 min'
-                                        : formData.task.duration == '60'
-                                            ? '1 hour'
-                                            : formData.task.duration == '90'
-                                                ? '1.5 hours'
-                                                : formData.task.duration == '120'
-                                                    ? '2 hours'
-                                                    : formData.task.duration == '180'
-                                                        ? '3 hours'
-                                                        : formData.task.duration == '240'
-                                                            ? '4 hours'
-                                                            : '8+ hours'"></span>
+                                <span class="text-xs uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
                             </span>
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
@@ -341,6 +332,7 @@
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
                             data-task-creation-safe
+                            aria-haspopup="menu"
                         >
                             <flux:icon name="clock" class="size-3" />
                             <span class="inline-flex items-baseline gap-1">
@@ -368,6 +360,7 @@
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
                             data-task-creation-safe
+                            aria-haspopup="menu"
                         >
                             <flux:icon name="clock" class="size-3" />
                             <span class="inline-flex items-baseline gap-1">
