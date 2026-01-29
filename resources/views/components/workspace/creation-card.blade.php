@@ -1,44 +1,45 @@
-<flux:dropdown position="right" align="start">
-    <flux:button icon:trailing="plus-circle" data-task-creation-safe>
-        {{ __('Add') }}
-    </flux:button>
+<div>
+    <flux:dropdown position="right" align="start">
+        <flux:button icon:trailing="plus-circle" data-task-creation-safe>
+            {{ __('Add') }}
+        </flux:button>
 
-    <flux:menu data-task-creation-safe>
-        <div class="flex flex-col py-1">
-            <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                @click="
-                    showTaskCreation = !showTaskCreation;
-                    if (showTaskCreation) {
-                        $nextTick(() => $refs.taskTitle?.focus());
-                    }
-                "
-            >
-                <flux:icon name="rectangle-stack" class="size-4 text-muted-foreground" />
-                <span>{{ __('Task') }}</span>
-            </button>
+        <flux:menu data-task-creation-safe>
+            <div class="flex flex-col py-1">
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    @click="
+                        showTaskCreation = !showTaskCreation;
+                        if (showTaskCreation) {
+                            $nextTick(() => $refs.taskTitle?.focus());
+                        }
+                    "
+                >
+                    <flux:icon name="rectangle-stack" class="size-4 text-muted-foreground" />
+                    <span>{{ __('Task') }}</span>
+                </button>
 
-            <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-                <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
-                <span>{{ __('Event') }}</span>
-            </button>
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                    <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
+                    <span>{{ __('Event') }}</span>
+                </button>
 
-            <button
-                type="button"
-                class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
-            >
-                <flux:icon name="clipboard-document-list" class="size-4 text-destructive" />
-                <span>{{ __('Project') }}</span>
-            </button>
-        </div>
-    </flux:menu>
-</flux:dropdown>
+                <button
+                    type="button"
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
+                >
+                    <flux:icon name="clipboard-document-list" class="size-4 text-destructive" />
+                    <span>{{ __('Project') }}</span>
+                </button>
+            </div>
+        </flux:menu>
+    </flux:dropdown>
 
-<div
+    <div
     x-show="showTaskCreation"
     x-transition
     x-ref="taskCreationCard"
@@ -74,7 +75,7 @@
                 </div>
 
                 <div class="flex flex-wrap gap-2">
-                    <flux:dropdown position="top" align="end">
+                    <flux:dropdown position="top" align="end" x-ref="statusDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
@@ -92,7 +93,29 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe>
+                        <flux:menu 
+                            data-task-creation-safe
+                            x-ref="statusMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.statusMenu;
+                                const dropdown = $refs.statusDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <flux:menu.radio.group>
                                 <flux:menu.item
                                     as="button"
@@ -124,7 +147,7 @@
                         </flux:menu>
                     </flux:dropdown>
 
-                    <flux:dropdown position="top" align="end">
+                    <flux:dropdown position="top" align="end" x-ref="priorityDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
@@ -142,7 +165,29 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe>
+                        <flux:menu 
+                            data-task-creation-safe
+                            x-ref="priorityMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.priorityMenu;
+                                const dropdown = $refs.priorityDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <flux:menu.radio.group>
                                 <flux:menu.item
                                     as="button"
@@ -183,7 +228,7 @@
                         </flux:menu>
                     </flux:dropdown>
 
-                    <flux:dropdown position="top" align="end">
+                    <flux:dropdown position="top" align="end" x-ref="complexityDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
@@ -201,7 +246,29 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe>
+                        <flux:menu 
+                            data-task-creation-safe
+                            x-ref="complexityMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.complexityMenu;
+                                const dropdown = $refs.complexityDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <flux:menu.radio.group>
                                 <flux:menu.item
                                     as="button"
@@ -233,7 +300,7 @@
                         </flux:menu>
                     </flux:dropdown>
 
-                    <flux:dropdown position="top" align="end">
+                    <flux:dropdown position="top" align="end" x-ref="durationDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
@@ -250,7 +317,29 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe>
+                        <flux:menu 
+                            data-task-creation-safe
+                            x-ref="durationMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.durationMenu;
+                                const dropdown = $refs.durationDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <flux:menu.radio.group>
                                 <flux:menu.item
                                     as="button"
@@ -327,7 +416,7 @@
                         </flux:menu>
                     </flux:dropdown>
 
-                    <flux:dropdown position="top" align="end">
+                    <flux:dropdown position="top" align="end" x-ref="startDateDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
@@ -344,7 +433,30 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe>
+                        <flux:menu 
+                            data-task-creation-safe 
+                            keep-open
+                            x-ref="startDateMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.startDateMenu;
+                                const dropdown = $refs.startDateDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <div class="p-3">
                                 <x-date-picker
                                     label="{{ __('Start Date') }}"
@@ -355,7 +467,7 @@
                         </flux:menu>
                     </flux:dropdown>
 
-                    <flux:dropdown>
+                    <flux:dropdown x-ref="endDateDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
@@ -372,7 +484,30 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe>
+                        <flux:menu 
+                            data-task-creation-safe 
+                            keep-open
+                            x-ref="endDateMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.endDateMenu;
+                                const dropdown = $refs.endDateDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <div class="p-3">
                                 <x-date-picker
                                     label="{{ __('End Date') }}"
@@ -383,7 +518,7 @@
                         </flux:menu>
                     </flux:dropdown>
 
-                    <flux:dropdown position="top" align="end">
+                    <flux:dropdown position="top" align="end" x-ref="tagsDropdown">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
@@ -400,7 +535,30 @@
                             <flux:icon name="chevron-down" class="size-3" />
                         </button>
 
-                        <flux:menu data-task-creation-safe keep-open>
+                        <flux:menu 
+                            data-task-creation-safe 
+                            keep-open
+                            x-ref="tagsMenu"
+                            x-data="{ closeTimeout: null }"
+                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
+                            @mouseleave="
+                                const menu = $refs.tagsMenu;
+                                const dropdown = $refs.tagsDropdown;
+                                const relatedTarget = event.relatedTarget;
+                                if (!menu || !dropdown) return;
+                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
+                                if (!isMovingToChild) {
+                                    closeTimeout = setTimeout(() => {
+                                        if (!menu || !dropdown) return;
+                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
+                                        if (!isVisible) return;
+                                        const button = dropdown.querySelector('button');
+                                        if (button) button.click();
+                                        closeTimeout = null;
+                                    }, 350);
+                                }
+                            "
+                        >
                             <div class="max-h-60 overflow-y-auto py-1">
                                 @forelse($tags as $tag)
                                     <flux:menu.checkbox
@@ -425,4 +583,5 @@
             </div>
         </form>
     </div>
+</div>
 </div>

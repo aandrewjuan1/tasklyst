@@ -359,6 +359,7 @@
 <div
     class="space-y-3 px-3 pb-3 pt-1"
     x-data="datePicker(@js($type), @js($model))"
+    @click.stop
 >
     <div class="pt-1 pb-2">
         <!-- Header -->
@@ -415,7 +416,7 @@
                                 ? 'text-pink-600 dark:text-pink-400'
                                 : 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'))
                         : 'pointer-events-none bg-transparent'"
-                    @click.prevent="selectDay(day.date)"
+                    @click.prevent.stop="selectDay(day.date)"
                     x-text="day.label"
                 ></button>
             </template>
@@ -465,7 +466,7 @@
                 <button
                     type="button"
                     class="rounded-full px-3 py-1 text-xs font-medium text-pink-600 hover:bg-pink-50 dark:text-pink-400 dark:hover:bg-pink-900/20"
-                    @click.prevent="selectToday()"
+                    @click.prevent.stop="selectToday()"
                 >
                     Today
                 </button>
@@ -474,7 +475,7 @@
                     type="button"
                     class="rounded-full px-3 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                     x-show="selectedDate"
-                    @click.prevent="clearSelection()"
+                    @click.prevent.stop="clearSelection()"
                 >
                     Clear
                 </button>
