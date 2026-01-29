@@ -44,7 +44,7 @@
                             return $root;
                         }
                     }
-                    
+
                     // Method 2: Use Alpine's closestDataStack if available
                     if (typeof Alpine !== 'undefined' && Alpine.closestDataStack) {
                         try {
@@ -58,17 +58,17 @@
                             // closestDataStack might not be available
                         }
                     }
-                    
+
                     // Method 3: Traverse DOM to find parent Alpine component
                     const el = this.$el;
                     if (!el) {
                         return null;
                     }
-                    
+
                     let element = el.parentElement;
                     let maxDepth = 50; // Increased depth
                     let depth = 0;
-                    
+
                     while (element && depth < maxDepth) {
                         // Check if this element has Alpine data
                         if (element.__x && element.__x.$data) {
@@ -77,7 +77,7 @@
                                 return data;
                             }
                         }
-                        
+
                         // Also check for x-data attribute
                         if (element.hasAttribute && element.hasAttribute('x-data')) {
                             const xDataAttr = element.getAttribute('x-data');
@@ -87,11 +87,11 @@
                                 }
                             }
                         }
-                        
+
                         element = element.parentElement;
                         depth++;
                     }
-                    
+
                     return null;
                 } catch (e) {
                     console.error('Error in getParentScope:', e);
@@ -105,7 +105,7 @@
                     if (!parentScope) {
                         return null;
                     }
-                    
+
                     const pathParts = this.modelPath.split('.');
                     let value = parentScope;
                     for (const part of pathParts) {
@@ -135,10 +135,10 @@
                         }));
                         return;
                     }
-                    
+
                     const pathParts = this.modelPath.split('.');
                     let target = parentScope;
-                    
+
                     for (let i = 0; i < pathParts.length - 1; i++) {
                         if (!target[pathParts[i]]) {
                             target[pathParts[i]] = {};
