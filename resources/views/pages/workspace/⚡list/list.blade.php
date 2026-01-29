@@ -1,8 +1,15 @@
 <div
-    class="space-y-4 scroll-smooth"
+    class="space-y-4"
     x-data="{
         showTaskCreation: false,
         isSubmitting: false,
+        messages: {
+            taskEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
+            taskEndTooSoon: @js(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes'])),
+        },
+        errors: {
+            taskDateRange: null,
+        },
         formData: {
             task: {
                 title: '',
@@ -22,6 +29,41 @@
                 },
             },
         },
+        validateTaskDateRange() {
+            this.errors.taskDateRange = null;
+
+            const start = this.formData.task.startDatetime;
+            const end = this.formData.task.endDatetime;
+            const durationMinutes = parseInt(this.formData.task.duration ?? '0', 10);
+
+            if (!start || !end) {
+                return true;
+            }
+
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+
+            if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+                return true;
+            }
+
+            if (endDate.getTime() < startDate.getTime()) {
+                this.errors.taskDateRange = this.messages.taskEndBeforeStart;
+                return false;
+            }
+
+            const isSameDay = startDate.toDateString() === endDate.toDateString();
+            if (isSameDay && Number.isFinite(durationMinutes) && durationMinutes > 0) {
+                const minimumEnd = new Date(startDate.getTime() + (durationMinutes * 60 * 1000));
+
+                if (endDate.getTime() < minimumEnd.getTime()) {
+                    this.errors.taskDateRange = this.messages.taskEndTooSoon.replace(':minutes', String(durationMinutes));
+                    return false;
+                }
+            }
+
+            return true;
+        },
         resetForm() {
             this.formData.task.title = '';
             this.formData.task.status = 'to_do';
@@ -30,6 +72,7 @@
             this.formData.task.duration = '60';
             this.formData.task.startDatetime = null;
             this.formData.task.endDatetime = null;
+            this.errors.taskDateRange = null;
         },
         submitTask() {
             if (this.isSubmitting) {
@@ -37,6 +80,10 @@
             }
 
             if (!this.formData.task.title || !this.formData.task.title.trim()) {
+                return;
+            }
+
+            if (!this.validateTaskDateRange()) {
                 return;
             }
 
@@ -129,7 +176,15 @@
                 target = target[pathParts[i]];
             }
             target[pathParts[pathParts.length - 1]] = value;
+
+            validateTaskDateRange();
         });
+    "
+    x-effect="
+        formData.task.startDatetime;
+        formData.task.endDatetime;
+        formData.task.duration;
+        validateTaskDateRange();
     "
 >
     <flux:dropdown position="right" align="start">
@@ -303,6 +358,10 @@
                                 />
                             </flux:menu>
                         </flux:dropdown>
+
+                        <div class="w-full" x-show="errors.taskDateRange" x-cloak>
+                            <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.taskDateRange"></p>
+                        </div>
                     </div>
                 </div>
             </form>

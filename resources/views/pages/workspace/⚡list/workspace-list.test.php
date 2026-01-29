@@ -66,6 +66,30 @@ it('displays add new item dropdown button', function (): void {
         ->assertSee('Add');
 });
 
+it('includes inline task date range validation message', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => collect(),
+            'events' => collect(),
+            'tasks' => collect(),
+        ])
+        ->assertSee(__('End date must be the same as or after the start date.'));
+});
+
+it('includes inline task duration vs end time validation message', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => collect(),
+            'events' => collect(),
+            'tasks' => collect(),
+        ])
+        ->assertSee(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes']));
+});
+
 it('displays only projects when events and tasks are empty', function (): void {
     $user = User::factory()->create();
 
