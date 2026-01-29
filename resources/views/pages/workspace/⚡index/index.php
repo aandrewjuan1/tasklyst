@@ -3,6 +3,8 @@
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
+use App\Services\EventService;
+use App\Services\ProjectService;
 use App\Services\TaskService;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
@@ -27,14 +29,20 @@ class extends Component
 
     protected TaskService $taskService;
 
+    protected ProjectService $projectService;
+
+    protected EventService $eventService;
+
     /**
      * @var array<string, mixed>
      */
     public array $taskPayload = [];
 
-    public function boot(TaskService $taskService): void
+    public function boot(TaskService $taskService, ProjectService $projectService, EventService $eventService): void
     {
         $this->taskService = $taskService;
+        $this->projectService = $projectService;
+        $this->eventService = $eventService;
     }
 
     public function mount(): void
@@ -155,6 +163,100 @@ class extends Component
 
         $this->listRefresh++;
         $this->dispatch('toast', type: 'success', message: __('Task deleted.'));
+    }
+
+    /**
+     * Delete a project for the authenticated user.
+     */
+    public function deleteProject(int $projectId): void
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete projects.'));
+
+            return;
+        }
+
+        $project = Project::query()->find($projectId);
+
+        if ($project === null) {
+            $this->dispatch('toast', type: 'error', message: __('Project not found.'));
+
+            return;
+        }
+
+        $this->authorize('delete', $project);
+
+        try {
+            $deleted = $this->projectService->deleteProject($project);
+        } catch (\Throwable $e) {
+            Log::error('Failed to delete project from workspace.', [
+                'user_id' => $user->id,
+                'project_id' => $projectId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the project.'));
+
+            return;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the project.'));
+
+            return;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('toast', type: 'success', message: __('Project deleted.'));
+    }
+
+    /**
+     * Delete an event for the authenticated user.
+     */
+    public function deleteEvent(int $eventId): void
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete events.'));
+
+            return;
+        }
+
+        $event = Event::query()->find($eventId);
+
+        if ($event === null) {
+            $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+            return;
+        }
+
+        $this->authorize('delete', $event);
+
+        try {
+            $deleted = $this->eventService->deleteEvent($event);
+        } catch (\Throwable $e) {
+            Log::error('Failed to delete event from workspace.', [
+                'user_id' => $user->id,
+                'event_id' => $eventId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the event.'));
+
+            return;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the event.'));
+
+            return;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('toast', type: 'success', message: __('Event deleted.'));
     }
 
     /**

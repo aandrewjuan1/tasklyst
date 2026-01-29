@@ -41,6 +41,26 @@ it('displays provided projects events and tasks', function (): void {
         ->assertSee($task->title);
 });
 
+it('styles item properties as visible pill badges', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->for($user)->create();
+    $event = Event::factory()->for($user)->create();
+    $task = Task::factory()->for($user)->for($project)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => Collection::make([$project]),
+            'events' => Collection::make([$event]),
+            'tasks' => Collection::make([$task]),
+        ])
+        ->assertSee($project->name)
+        ->assertSee($event->title)
+        ->assertSee($task->title)
+        ->assertSee('rounded-full border', escape: false)
+        ->assertSee('px-2.5 py-0.5', escape: false);
+});
+
 it('displays empty state when all collections are empty', function (): void {
     $user = User::factory()->create();
 
@@ -264,4 +284,71 @@ it('creates task with datetime through parent component', function (): void {
         'title' => 'Task with Datetime',
         'user_id' => $user->id,
     ]);
+});
+
+it('deletes a project through the parent workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()
+        ->for($user)
+        ->create([
+            'name' => 'Project To Delete',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'end_datetime' => now()->startOfDay()->addHours(10),
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('deleteProject', $project->id)
+        ->assertDispatched('toast', type: 'success', message: __('Project deleted.'));
+
+    $this->assertSoftDeleted('projects', [
+        'id' => $project->id,
+    ]);
+});
+
+it('deletes an event through the parent workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $event = Event::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Event To Delete',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'end_datetime' => now()->startOfDay()->addHours(10),
+            'all_day' => false,
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('deleteEvent', $event->id)
+        ->assertDispatched('toast', type: 'success', message: __('Event deleted.'));
+
+    $this->assertSoftDeleted('events', [
+        'id' => $event->id,
+    ]);
+});
+
+it('renders delete actions for project event and task cards', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->for($user)->create();
+    $event = Event::factory()->for($user)->create();
+    $task = Task::factory()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => Collection::make([$project]),
+            'events' => Collection::make([$event]),
+            'tasks' => Collection::make([$task]),
+        ])
+        ->assertSee('deleteProject')
+        ->assertSee('deleteEvent')
+        ->assertSee('deleteTask');
 });
