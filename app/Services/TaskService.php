@@ -14,10 +14,19 @@ class TaskService
     public function createTask(User $user, array $attributes): Task
     {
         return DB::transaction(function () use ($user, $attributes): Task {
-            return Task::query()->create([
+            $tagIds = $attributes['tagIds'] ?? [];
+            unset($attributes['tagIds']);
+
+            $task = Task::query()->create([
                 ...$attributes,
                 'user_id' => $user->id,
             ]);
+
+            if (! empty($tagIds)) {
+                $task->tags()->attach($tagIds);
+            }
+
+            return $task;
         });
     }
 

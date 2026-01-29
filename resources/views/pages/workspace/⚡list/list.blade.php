@@ -72,7 +72,27 @@
             this.formData.task.duration = '60';
             this.formData.task.startDatetime = null;
             this.formData.task.endDatetime = null;
+            this.formData.task.tagIds = [];
             this.errors.taskDateRange = null;
+        },
+        toggleTag(tagId) {
+            const index = this.formData.task.tagIds.indexOf(tagId);
+            if (index === -1) {
+                this.formData.task.tagIds.push(tagId);
+            } else {
+                this.formData.task.tagIds.splice(index, 1);
+            }
+        },
+        isTagSelected(tagId) {
+            return this.formData.task.tagIds.includes(tagId);
+        },
+        getSelectedTagNames() {
+            if (!window.tags || !this.formData.task.tagIds || this.formData.task.tagIds.length === 0) {
+                return '';
+            }
+            const selectedIds = this.formData.task.tagIds;
+            const selectedTags = window.tags.filter(tag => selectedIds.includes(tag.id));
+            return selectedTags.map(tag => tag.name).join(', ');
         },
         submitTask() {
             if (this.isSubmitting) {
@@ -218,8 +238,25 @@
         },
     }"
     x-init="
+        window.tags = @js($tags);
+
         window.addEventListener('task-created', () => {
             resetForm();
+        });
+
+        window.addEventListener('tag-created', (event) => {
+            const { id, name } = event.detail;
+            
+            // Add new tag to local tags array immediately
+            if (window.tags && !window.tags.find(tag => tag.id === id)) {
+                window.tags.push({ id, name });
+                window.tags.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            
+            // Automatically select the newly created tag
+            if (!this.formData.task.tagIds.includes(id)) {
+                this.formData.task.tagIds.push(id);
+            }
         });
 
         window.addEventListener('click', (event) => {
@@ -249,7 +286,7 @@
         validateTaskDateRange();
     "
 >
-    <x-workspace.creation-card />
+    <x-workspace.creation-card :tags="$tags" />
 
     @if($projects->isEmpty() && $events->isEmpty() && $tasks->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">

@@ -2,9 +2,11 @@
 
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\Tag;
 use App\Models\Task;
 use App\Services\EventService;
 use App\Services\ProjectService;
+use App\Services\TagService;
 use App\Services\TaskService;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
@@ -13,6 +15,7 @@ use Illuminate\Support\Carbon as SupportCarbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -33,16 +36,19 @@ class extends Component
 
     protected EventService $eventService;
 
+    protected TagService $tagService;
+
     /**
      * @var array<string, mixed>
      */
     public array $taskPayload = [];
 
-    public function boot(TaskService $taskService, ProjectService $projectService, EventService $eventService): void
+    public function boot(TaskService $taskService, ProjectService $projectService, EventService $eventService, TagService $tagService): void
     {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
         $this->eventService = $eventService;
+        $this->tagService = $tagService;
     }
 
     public function mount(): void
@@ -97,6 +103,7 @@ class extends Component
             'start_datetime' => $startDatetime,
             'end_datetime' => $endDatetime,
             'project_id' => $validatedTask['projectId'] ?? null,
+            'tagIds' => $validatedTask['tagIds'] ?? [],
         ];
 
         try {
@@ -116,6 +123,81 @@ class extends Component
         $this->listRefresh++;
         $this->dispatch('task-created', id: $task->id, title: $task->title);
         $this->dispatch('toast', type: 'success', message: __('Task created.'));
+    }
+
+    /**
+     * Create a new tag for the authenticated user.
+     */
+    public function createTag(string $name): void
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to create tags.'));
+
+            return;
+        }
+
+        $this->authorize('create', Tag::class);
+
+        $name = trim($name);
+
+        $validator = Validator::make(
+            ['name' => $name],
+            [
+                'name' => ['required', 'string', 'max:255', 'regex:/\S/'],
+            ],
+            [
+                'name.required' => __('Tag name is required.'),
+                'name.max' => __('Tag name cannot exceed 255 characters.'),
+                'name.regex' => __('Tag name cannot be empty.'),
+            ]
+        );
+
+        if ($validator->fails()) {
+            Log::error('Tag validation failed', [
+                'errors' => $validator->errors()->all(),
+                'name' => $name,
+            ]);
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first('name') ?: __('Please fix the tag name and try again.'));
+
+            return;
+        }
+
+        $validatedName = $validator->validated()['name'];
+
+        try {
+            // Check if tag already exists for this user
+            $existingTag = Tag::query()
+                ->where('user_id', $user->id)
+                ->where('name', $validatedName)
+                ->first();
+
+            if ($existingTag !== null) {
+                $this->dispatch('tag-created', id: $existingTag->id, name: $existingTag->name);
+                $this->dispatch('toast', type: 'info', message: __('Tag already exists.'));
+
+                return;
+            }
+
+            $tag = $this->tagService->createTag($user, [
+                'name' => $validatedName,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to create tag from workspace.', [
+                'user_id' => $user->id,
+                'name' => $name,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong creating the tag.'));
+
+            return;
+        }
+
+        $this->dispatch('tag-created', id: $tag->id, name: $tag->name);
+        $this->dispatch('toast', type: 'success', message: __('Tag created.'));
+        $this->dispatch('$refresh');
     }
 
     /**
@@ -367,6 +449,24 @@ class extends Component
             ->activeForDate($date)
             ->orderBy('start_datetime')
             ->limit(50)
+            ->get();
+    }
+
+    /**
+     * Get tags for the authenticated user.
+     */
+    #[Computed]
+    public function tags(): Collection
+    {
+        $userId = Auth::id();
+
+        if ($userId === null) {
+            return collect();
+        }
+
+        return Tag::query()
+            ->forUser($userId)
+            ->orderBy('name')
             ->get();
     }
 };

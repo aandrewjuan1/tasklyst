@@ -383,6 +383,41 @@
                         </flux:menu>
                     </flux:dropdown>
 
+                    <flux:dropdown position="top" align="end">
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                            data-task-creation-safe
+                            aria-haspopup="menu"
+                        >
+                            <flux:icon name="tag" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Tags') }}:
+                                </span>
+                                <span class="text-xs uppercase" x-text="getSelectedTagNames() || '{{ __('None') }}'"></span>
+                            </span>
+                            <flux:icon name="chevron-down" class="size-3" />
+                        </button>
+
+                        <flux:menu data-task-creation-safe keep-open>
+                            <div class="max-h-60 overflow-y-auto py-1">
+                                @forelse($tags as $tag)
+                                    <flux:menu.checkbox
+                                        x-bind:checked="isTagSelected({{ $tag->id }})"
+                                        @click="toggleTag({{ $tag->id }})"
+                                    >
+                                        {{ $tag->name }}
+                                    </flux:menu.checkbox>
+                                @empty
+                                    <div class="px-3 py-2 text-sm text-muted-foreground">
+                                        {{ __('No tags available') }}
+                                    </div>
+                                @endforelse
+                            </div>
+                        </flux:menu>
+                    </flux:dropdown>
+
                     <div class="w-full" x-show="errors.taskDateRange" x-cloak>
                         <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.taskDateRange"></p>
                     </div>

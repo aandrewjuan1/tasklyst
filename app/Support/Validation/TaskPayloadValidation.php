@@ -6,6 +6,7 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 final class TaskPayloadValidation
@@ -54,7 +55,15 @@ final class TaskPayloadValidation
 
             'taskPayload.projectId' => ['nullable', 'integer', 'exists:projects,id'],
             'taskPayload.tagIds' => ['array'],
-            'taskPayload.tagIds.*' => ['integer', 'exists:tags,id'],
+            'taskPayload.tagIds.*' => [
+                'integer',
+                Rule::exists('tags', 'id')->where(function ($query) {
+                    $userId = Auth::id();
+                    if ($userId !== null) {
+                        $query->where('user_id', $userId);
+                    }
+                }),
+            ],
 
             'taskPayload.recurrence' => ['array'],
             'taskPayload.recurrence.enabled' => ['boolean'],

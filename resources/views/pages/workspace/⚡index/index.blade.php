@@ -17,5 +17,6 @@
         :projects="$this->projects"
         :events="$this->events"
         :tasks="$this->tasks"
+        :tags="$this->tags"
     />
 </section>

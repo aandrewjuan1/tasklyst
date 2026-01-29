@@ -10,4 +10,6 @@ new class extends Component
     public Collection $events;
 
     public Collection $tasks;
+
+    public Collection $tags;
 };

@@ -1,0 +1,73 @@
+<?php
+
+namespace App\Policies;
+
+use App\Models\Tag;
+use App\Models\User;
+
+class TagPolicy
+{
+    /**
+     * Determine whether the user can view any models.
+     */
+    public function viewAny(User $user): bool
+    {
+        return true;
+    }
+
+    /**
+     * Determine whether the user can view the model.
+     */
+    public function view(User $user, Tag $tag): bool
+    {
+        return $this->isOwner($user, $tag);
+    }
+
+    /**
+     * Determine whether the user can create models.
+     */
+    public function create(User $user): bool
+    {
+        return true;
+    }
+
+    /**
+     * Determine whether the user can update the model.
+     */
+    public function update(User $user, Tag $tag): bool
+    {
+        return $this->isOwner($user, $tag);
+    }
+
+    /**
+     * Determine whether the user can delete the model.
+     */
+    public function delete(User $user, Tag $tag): bool
+    {
+        return $this->isOwner($user, $tag);
+    }
+
+    /**
+     * Determine whether the user can restore the model.
+     */
+    public function restore(User $user, Tag $tag): bool
+    {
+        return $this->isOwner($user, $tag);
+    }
+
+    /**
+     * Determine whether the user can permanently delete the model.
+     */
+    public function forceDelete(User $user, Tag $tag): bool
+    {
+        return $this->isOwner($user, $tag);
+    }
+
+    /**
+     * Check if the user is the owner of the tag.
+     */
+    protected function isOwner(User $user, Tag $tag): bool
+    {
+        return $tag->user_id === $user->id;
+    }
+}

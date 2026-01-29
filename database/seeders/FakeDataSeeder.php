@@ -29,14 +29,14 @@ class FakeDataSeeder extends Seeder
         $currentYear = Carbon::now()->year;
 
         // Create tags
-        $artTag = Tag::firstOrCreate(['name' => 'art']);
-        $creativeTag = Tag::firstOrCreate(['name' => 'creative']);
-        $healthTag = Tag::firstOrCreate(['name' => 'health']);
-        $exerciseTag = Tag::firstOrCreate(['name' => 'exercise']);
-        $financeTag = Tag::firstOrCreate(['name' => 'finance']);
-        $workTag = Tag::firstOrCreate(['name' => 'work']);
-        $learningTag = Tag::firstOrCreate(['name' => 'learning']);
-        $personalTag = Tag::firstOrCreate(['name' => 'personal']);
+        $artTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'art']);
+        $creativeTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'creative']);
+        $healthTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'health']);
+        $exerciseTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'exercise']);
+        $financeTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'finance']);
+        $workTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'work']);
+        $learningTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'learning']);
+        $personalTag = Tag::firstOrCreate(['user_id' => $user->id, 'name' => 'personal']);
 
         // Create recurring yearly events (birthdays)
         $this->createBirthdayEvent($user, 'My Birthday', $currentYear, 1, 31);
