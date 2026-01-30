@@ -12,6 +12,7 @@
         preferredAlign: @js($align),
         effectivePosition: @js($position),
         effectiveAlign: @js($align),
+        panelPositionClasses: '',
         positionClasses: {
             top: 'bottom-full mb-1',
             bottom: 'top-full mt-1',
@@ -28,30 +29,41 @@
             end: 'bottom-0',
             center: 'top-1/2 -translate-y-1/2',
         },
-        updatePlacement() {
-            const trigger = this.$el.querySelector('[aria-haspopup]');
-            if (!trigger) return;
-            const rect = trigger.getBoundingClientRect();
-            const spaceAbove = rect.top;
-            const spaceBelow = window.innerHeight - rect.bottom;
-            const spaceLeft = rect.left;
-            const spaceRight = window.innerWidth - rect.right;
-            const isVertical = this.preferredPosition === 'top' || this.preferredPosition === 'bottom';
-            if (isVertical) {
-                this.effectivePosition = spaceBelow >= spaceAbove ? 'bottom' : 'top';
-                this.effectiveAlign = spaceRight >= spaceLeft ? 'start' : 'end';
-            } else {
-                this.effectivePosition = spaceRight >= spaceLeft ? 'right' : 'left';
-                this.effectiveAlign = spaceBelow >= spaceAbove ? 'start' : 'end';
-            }
-        },
-        getPanelPositionClasses() {
+        computePanelClasses() {
             const p = this.effectivePosition;
             const a = this.effectiveAlign;
             const base = this.positionClasses[p] || this.positionClasses.bottom;
             const isVertical = p === 'top' || p === 'bottom';
             const align = isVertical ? this.alignClassesVertical[a] : this.alignClassesHorizontal[a];
-            return base + ' ' + (align || this.alignClassesVertical.start);
+            this.panelPositionClasses = base + ' ' + (align || this.alignClassesVertical.start);
+        },
+        updatePlacement() {
+            const trigger = this.$el.querySelector('[aria-haspopup]');
+            if (!trigger) return;
+            
+            requestAnimationFrame(() => {
+                const rect = trigger.getBoundingClientRect();
+                const spaceAbove = rect.top;
+                const spaceBelow = window.innerHeight - rect.bottom;
+                const spaceLeft = rect.left;
+                const spaceRight = window.innerWidth - rect.right;
+                const isVertical = this.preferredPosition === 'top' || this.preferredPosition === 'bottom';
+                
+                let newPosition, newAlign;
+                if (isVertical) {
+                    newPosition = spaceBelow >= spaceAbove ? 'bottom' : 'top';
+                    newAlign = spaceRight >= spaceLeft ? 'start' : 'end';
+                } else {
+                    newPosition = spaceRight >= spaceLeft ? 'right' : 'left';
+                    newAlign = spaceBelow >= spaceAbove ? 'start' : 'end';
+                }
+                
+                if (this.effectivePosition !== newPosition || this.effectiveAlign !== newAlign) {
+                    this.effectivePosition = newPosition;
+                    this.effectiveAlign = newAlign;
+                    this.computePanelClasses();
+                }
+            });
         },
         toggle() {
             if (!this.open) {
@@ -93,6 +105,7 @@
             }
         }
     }"
+    x-effect="computePanelClasses()"
     @click.outside="close()"
     @keydown.escape.window="close()"
     @mouseleave="onRootMouseLeave($event)"
@@ -103,6 +116,9 @@
         @click="toggle()"
         aria-haspopup="true"
         :aria-expanded="open"
+        :data-open="open"
+        :class="open ? '[&>*]:bg-primary/10 [&>*]:dark:bg-primary/20 [&>*]:shadow-lg [&>*]:shadow-primary/20 [&>*]:border-primary/40 [&>*]:dark:border-primary/50 [&>*]:scale-[0.98]' : ''"
+        class="transition-all duration-200 ease-out"
     >
         {{ $trigger }}
     </div>
@@ -116,7 +132,7 @@
             @click="close()"
         @endif
         class="absolute z-50 min-w-32 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900"
-        :class="getPanelPositionClasses()"
+        :class="panelPositionClasses"
     >
         {{ $slot }}
     </div>

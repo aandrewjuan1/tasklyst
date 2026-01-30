@@ -161,6 +161,54 @@ trait HandlesWorkspaceItems
     }
 
     /**
+     * Delete a tag for the authenticated user.
+     */
+    public function deleteTag(int $tagId): void
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete tags.'));
+
+            return;
+        }
+
+        $tag = Tag::query()->find($tagId);
+
+        if ($tag === null) {
+            $this->dispatch('toast', type: 'error', message: __('Tag not found.'));
+
+            return;
+        }
+
+        $this->authorize('delete', $tag);
+
+        try {
+            $deleted = $this->tagService->deleteTag($tag);
+        } catch (\Throwable $e) {
+            Log::error('Failed to delete tag from workspace.', [
+                'user_id' => $user->id,
+                'tag_id' => $tagId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the tag.'));
+
+            return;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the tag.'));
+
+            return;
+        }
+
+        $this->dispatch('tag-deleted', id: $tagId);
+        $this->dispatch('toast', type: 'success', message: __('Tag deleted.'));
+        $this->dispatch('$refresh');
+    }
+
+    /**
      * Delete a task for the authenticated user.
      */
     public function deleteTask(int $taskId): void

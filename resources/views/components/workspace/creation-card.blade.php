@@ -38,8 +38,16 @@
     x-show="showTaskCreation"
     x-transition
     x-ref="taskCreationCard"
-    @task-creation-outside-clicked.window="showTaskCreation = false"
-    class="mt-4 flex flex-col gap-3 rounded-xl border border-border/60 bg-background/60 px-4 py-3 shadow-sm backdrop-blur"
+    @click.outside="
+        const target = $event.target;
+        const isSafe = target.closest('[data-task-creation-safe]');
+        // Also check if clicking on a dropdown panel (which might be positioned outside the card)
+        const isDropdownPanel = target.closest('.absolute.z-50');
+        if (!isSafe && !isDropdownPanel) {
+            showTaskCreation = false;
+        }
+    "
+    class="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 shadow-md backdrop-blur ring-1 ring-border/20"
     x-cloak
 >
     <div class="flex items-start justify-between gap-3">
@@ -191,24 +199,55 @@
                             </button>
                         </x-slot:trigger>
 
-                        <div class="max-h-60 overflow-y-auto py-1" data-task-creation-safe>
-                            @forelse($tags as $tag)
-                                <label
-                                    class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        <div wire:ignore class="flex flex-col gap-2 py-1" data-task-creation-safe>
+                            <!-- Inline tag creation -->
+                            <div class="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/60">
+                                <flux:input
+                                    x-model="newTagName"
+                                    x-ref="newTagInput"
+                                    placeholder="{{ __('Create tag...') }}"
+                                    size="sm"
+                                    class="flex-1"
+                                    @keydown.enter.prevent="createTagOptimistic()"
+                                />
+                                <button
+                                    type="button"
+                                    @click="createTagOptimistic()"
+                                    x-bind:disabled="!newTagName || !newTagName.trim() || creatingTag"
+                                    class="shrink-0 rounded-md p-1 hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <input
-                                        type="checkbox"
-                                        class="size-4 rounded border-border"
-                                        x-bind:checked="isTagSelected({{ $tag->id }})"
-                                        @click="toggleTag({{ $tag->id }})"
-                                    />
-                                    <span>{{ $tag->name }}</span>
-                                </label>
-                            @empty
-                                <div class="px-3 py-2 text-sm text-muted-foreground">
+                                    <flux:icon name="paper-airplane" class="size-3.5" />
+                                </button>
+                            </div>
+
+                            <!-- Tag list with checkboxes -->
+                            <div class="max-h-40 overflow-y-auto">
+                                <template x-for="tag in tags || []" :key="tag.id">
+                                    <label
+                                        class="group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        @click="toggleTag(tag.id); $event.preventDefault()"
+                                    >
+                                        <flux:checkbox
+                                            x-bind:checked="isTagSelected(tag.id)"
+                                        />
+                                        <span x-text="tag.name" class="flex-1"></span>
+                                        <flux:tooltip :content="__('Delete tag')" position="right">
+                                            <button
+                                                type="button"
+                                                @click.stop="deleteTagOptimistic(tag)"
+                                                x-bind:disabled="deletingTagIds?.has(tag.id)"
+                                                class="shrink-0 rounded p-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                aria-label="{{ __('Delete tag') }}"
+                                            >
+                                                <flux:icon name="x-mark" class="size-3.5" />
+                                            </button>
+                                        </flux:tooltip>
+                                    </label>
+                                </template>
+                                <div x-show="!tags || tags.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
                                     {{ __('No tags available') }}
                                 </div>
-                            @endforelse
+                            </div>
                         </div>
                     </x-dropdown>
 

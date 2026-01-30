@@ -12,6 +12,7 @@
         errors: {
             taskDateRange: null,
         },
+        tags: @js($tags),
         formData: {
             task: {
                 title: '',
@@ -75,26 +76,155 @@
             this.formData.task.startDatetime = null;
             this.formData.task.endDatetime = null;
             this.formData.task.tagIds = [];
+            this.newTagName = '';
             this.errors.taskDateRange = null;
         },
         toggleTag(tagId) {
-            const index = this.formData.task.tagIds.indexOf(tagId);
+            // Ensure tagIds array exists
+            if (!this.formData.task.tagIds) {
+                this.formData.task.tagIds = [];
+            }
+
+            // Convert tagId to string for consistent comparison (handles both number and string IDs)
+            const tagIdStr = String(tagId);
+
+            // Find index using string comparison to handle type mismatches
+            const index = this.formData.task.tagIds.findIndex(id => String(id) === tagIdStr);
+
             if (index === -1) {
+                // Add the tag ID (preserve original type - number if it's a number, string if it's a string)
                 this.formData.task.tagIds.push(tagId);
             } else {
+                // Remove the tag ID
                 this.formData.task.tagIds.splice(index, 1);
             }
         },
         isTagSelected(tagId) {
-            return this.formData.task.tagIds.includes(tagId);
+            if (!this.formData.task.tagIds || !Array.isArray(this.formData.task.tagIds)) {
+                return false;
+            }
+            // Use string comparison to handle type mismatches (number vs string IDs)
+            const tagIdStr = String(tagId);
+            return this.formData.task.tagIds.some(id => String(id) === tagIdStr);
         },
         getSelectedTagNames() {
-            if (!window.tags || !this.formData.task.tagIds || this.formData.task.tagIds.length === 0) {
+            if (!this.tags || !this.formData.task.tagIds || this.formData.task.tagIds.length === 0) {
                 return '';
             }
             const selectedIds = this.formData.task.tagIds;
-            const selectedTags = window.tags.filter(tag => selectedIds.includes(tag.id));
+            const selectedTags = this.tags.filter(tag => selectedIds.includes(tag.id));
             return selectedTags.map(tag => tag.name).join(', ');
+        },
+        newTagName: '',
+        creatingTag: false,
+        deletingTagIds: new Set(),
+        async deleteTagOptimistic(tag) {
+            // Prevent duplicate deletions
+            if (this.deletingTagIds?.has(tag.id)) {
+                return;
+            }
+
+            // Check if this is a temporary tag (not yet created on server)
+            const isTempTag = String(tag.id).startsWith('temp-');
+
+            // Snapshot for rollback
+            const snapshot = { ...tag };
+            const tagsBackup = this.tags ? [...this.tags] : [];
+            const tagIdsBackup = [...this.formData.task.tagIds];
+            const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
+
+            try {
+                // Track pending deletion
+                this.deletingTagIds = this.deletingTagIds || new Set();
+                this.deletingTagIds.add(tag.id);
+
+                // Optimistic update - remove immediately
+                if (this.tags && tagIndex !== -1) {
+                    this.tags = this.tags.filter(t => t.id !== tag.id);
+                }
+
+                // Remove from selection if selected
+                const selectedIndex = this.formData.task.tagIds?.indexOf(tag.id);
+                if (selectedIndex !== undefined && selectedIndex !== -1) {
+                    this.formData.task.tagIds.splice(selectedIndex, 1);
+                }
+
+                // For temporary tags, no server call needed
+                if (isTempTag) {
+                    return;
+                }
+
+                // Call server for real tags
+                const promise = $wire.$parent.$call('deleteTag', tag.id);
+
+                // Handle response
+                await promise;
+
+            } catch (error) {
+                // Rollback - restore tag
+                if (tagIndex !== -1 && this.tags) {
+                    this.tags.splice(tagIndex, 0, snapshot);
+                    this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                // Restore selection if it was selected
+                if (tagIdsBackup.includes(tag.id) && !this.formData.task.tagIds.includes(tag.id)) {
+                    this.formData.task.tagIds.push(tag.id);
+                }
+            } finally {
+                // Always remove from pending set
+                this.deletingTagIds?.delete(tag.id);
+            }
+        },
+        async createTagOptimistic() {
+            if (!this.newTagName || !this.newTagName.trim() || this.creatingTag) {
+                return;
+            }
+
+            const tagName = this.newTagName.trim();
+            const tempId = `temp-${Date.now()}`;
+
+            // Snapshot for rollback
+            const tagsBackup = this.tags ? [...this.tags] : [];
+            const tagIdsBackup = [...this.formData.task.tagIds];
+            const newTagNameBackup = this.newTagName;
+
+            try {
+                // Optimistic update - add tag immediately
+                if (!this.tags) {
+                    this.tags = [];
+                }
+                this.tags.push({ id: tempId, name: tagName });
+                this.tags.sort((a, b) => a.name.localeCompare(b.name));
+
+                // Auto-select the new tag
+                if (!this.formData.task.tagIds.includes(tempId)) {
+                    this.formData.task.tagIds.push(tempId);
+                }
+
+                this.newTagName = '';
+                this.creatingTag = true;
+
+                // Call server
+                const promise = $wire.$parent.$call('createTag', tagName);
+
+                // Handle response - the tag-created event will update with real ID
+                await promise;
+
+            } catch (error) {
+                // Rollback
+                this.tags = tagsBackup;
+                this.formData.task.tagIds = tagIdsBackup;
+                this.newTagName = newTagNameBackup;
+            } finally {
+                this.creatingTag = false;
+            }
+        },
+        removeTagFromSelection(tagId) {
+            const index = this.formData.task.tagIds.indexOf(tagId);
+            if (index !== -1) {
+                this.formData.task.tagIds.splice(index, 1);
+            }
         },
         submitTask() {
             if (this.isSubmitting) {
@@ -117,6 +247,17 @@
             this.loadingStartedAt = Date.now();
 
             const payload = JSON.parse(JSON.stringify(this.formData.task));
+            // Filter out temporary tag IDs (those starting with 'temp-') before submission
+            // Only send valid integer tag IDs that exist in the database
+            if (payload.tagIds && Array.isArray(payload.tagIds)) {
+                payload.tagIds = payload.tagIds
+                    .filter(tagId => {
+                        const idStr = String(tagId);
+                        // Filter out temporary IDs and non-numeric values
+                        return !idStr.startsWith('temp-') && !isNaN(Number(tagId));
+                    })
+                    .map(tagId => Number(tagId)); // Ensure all IDs are numbers
+            }
             const minLoadingMs = 500;
 
             $wire.$parent.$call('createTask', payload)
@@ -128,33 +269,6 @@
                         this.isSubmitting = false;
                     }, remaining);
                 });
-        },
-        handleGlobalClick(event) {
-            if (! this.showTaskCreation) {
-                return;
-            }
-
-            const card = this.$refs.taskCreationCard;
-
-            if (! card) {
-                return;
-            }
-
-            const rect = card.getBoundingClientRect();
-            const clickX = event.clientX;
-            const clickY = event.clientY;
-
-            const isWithinCardBounds =
-                clickX >= rect.left
-                && clickX <= rect.right
-                && clickY >= rect.top
-                && clickY <= rect.bottom;
-
-            const isSafe = event.target.closest('[data-task-creation-safe]');
-
-            if (! isWithinCardBounds && ! isSafe) {
-                window.dispatchEvent(new CustomEvent('task-creation-outside-clicked'));
-            }
         },
         formatDatetime(datetimeString) {
             const notSet = 'Not set';
@@ -245,30 +359,78 @@
         },
     }"
     x-init="
-        window.tags = @js($tags);
+        // Keep window.tags for backward compatibility
+        window.tags = this.tags;
 
         window.addEventListener('task-created', () => {
-            resetForm();
+            if (typeof this.resetForm === 'function') {
+                this.resetForm();
+            }
         });
 
         window.addEventListener('tag-created', (event) => {
             const { id, name } = event.detail;
-            
-            // Add new tag to local tags array immediately
-            if (window.tags && !window.tags.find(tag => tag.id === id)) {
-                window.tags.push({ id, name });
-                window.tags.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Check if we have a temp tag that needs to be replaced
+            const tempTag = this.tags?.find(tag => tag.name === name && String(tag.id).startsWith('temp-'));
+            if (tempTag) {
+                // Get temp ID before replacing
+                const tempId = tempTag.id;
+
+                // Replace temp tag with real tag
+                const tempTagIndex = this.tags.findIndex(tag => tag.id === tempId);
+                if (tempTagIndex !== -1) {
+                    this.tags[tempTagIndex] = { id, name };
+                    this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                // Replace temp ID in tagIds array with real ID
+                if (this.formData?.task?.tagIds) {
+                    const tempIdIndex = this.formData.task.tagIds.indexOf(tempId);
+                    if (tempIdIndex !== -1) {
+                        this.formData.task.tagIds[tempIdIndex] = id;
+                    }
+                }
+            } else {
+                // Add new tag if it doesn't exist
+                if (this.tags && !this.tags.find(tag => tag.id === id)) {
+                    this.tags.push({ id, name });
+                    this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                // Automatically select the newly created tag
+                if (this.formData?.task?.tagIds && !this.formData.task.tagIds.includes(id)) {
+                    this.formData.task.tagIds.push(id);
+                }
             }
-            
-            // Automatically select the newly created tag
-            if (!this.formData.task.tagIds.includes(id)) {
-                this.formData.task.tagIds.push(id);
-            }
+
+            // Sync with window.tags for backward compatibility
+            window.tags = this.tags;
         });
 
-        window.addEventListener('click', (event) => {
-            handleGlobalClick(event);
+        window.addEventListener('tag-deleted', (event) => {
+            const { id } = event.detail;
+
+            // Remove tag from tags array if still present (handles edge cases)
+            if (this.tags) {
+                const tagIndex = this.tags.findIndex(tag => tag.id === id);
+                if (tagIndex !== -1) {
+                    this.tags.splice(tagIndex, 1);
+                }
+            }
+
+            // Remove tag from selection if selected
+            if (this.formData?.task?.tagIds) {
+                const selectedIndex = this.formData.task.tagIds.indexOf(id);
+                if (selectedIndex !== -1) {
+                    this.formData.task.tagIds.splice(selectedIndex, 1);
+                }
+            }
+
+            // Sync with window.tags for backward compatibility
+            window.tags = this.tags;
         });
+
 
         // Listen for date picker updates
         window.addEventListener('date-picker-updated', (event) => {
@@ -283,7 +445,9 @@
             }
             target[pathParts[pathParts.length - 1]] = value;
 
-            validateTaskDateRange();
+            if (typeof this.validateTaskDateRange === 'function') {
+                this.validateTaskDateRange();
+            }
         });
     "
     x-effect="
