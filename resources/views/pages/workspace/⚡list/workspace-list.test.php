@@ -15,6 +15,7 @@ it('renders the workspace list component', function (): void {
             'projects' => collect(),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertStatus(200);
 });
@@ -35,6 +36,7 @@ it('displays provided projects events and tasks', function (): void {
             'projects' => $projects,
             'events' => $events,
             'tasks' => $tasks,
+            'tags' => collect(),
         ])
         ->assertSee($project->name)
         ->assertSee($event->title)
@@ -53,6 +55,7 @@ it('styles item properties as visible pill badges', function (): void {
             'projects' => Collection::make([$project]),
             'events' => Collection::make([$event]),
             'tasks' => Collection::make([$task]),
+            'tags' => collect(),
         ])
         ->assertSee($project->name)
         ->assertSee($event->title)
@@ -69,6 +72,7 @@ it('displays empty state when all collections are empty', function (): void {
             'projects' => collect(),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertSee(__('No items yet'))
         ->assertSee(__('Create your first task, project, or event to get started'));
@@ -82,6 +86,7 @@ it('displays add new item dropdown button', function (): void {
             'projects' => collect(),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertSee('Add');
 });
@@ -94,6 +99,7 @@ it('includes inline task date range validation message', function (): void {
             'projects' => collect(),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertSee(__('End date must be the same as or after the start date.'));
 });
@@ -106,6 +112,7 @@ it('includes inline task duration vs end time validation message', function (): 
             'projects' => collect(),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertSee(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes']));
 });
@@ -121,6 +128,7 @@ it('displays only projects when events and tasks are empty', function (): void {
             'projects' => Collection::make([$project1, $project2]),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertSee('First Project')
         ->assertSee('Second Project')
@@ -138,6 +146,7 @@ it('displays only events when projects and tasks are empty', function (): void {
             'projects' => collect(),
             'events' => Collection::make([$event1, $event2]),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertSee('First Event')
         ->assertSee('Second Event')
@@ -155,6 +164,7 @@ it('displays only tasks when projects and events are empty', function (): void {
             'projects' => collect(),
             'events' => collect(),
             'tasks' => Collection::make([$task1, $task2]),
+            'tags' => collect(),
         ])
         ->assertSee('First Task')
         ->assertSee('Second Task')
@@ -173,6 +183,7 @@ it('displays multiple items in each category', function (): void {
             'projects' => $projects,
             'events' => $events,
             'tasks' => $tasks,
+            'tags' => collect(),
         ]);
 
     foreach ($projects as $project) {
@@ -198,141 +209,10 @@ it('does not display empty state when at least one collection has items', functi
             'projects' => Collection::make([$project]),
             'events' => collect(),
             'tasks' => collect(),
+            'tags' => collect(),
         ])
         ->assertDontSee(__('No items yet'))
         ->assertDontSee(__('Create your first task, project, or event to get started'));
-});
-
-it('displays newly created task after task creation through parent component', function (): void {
-    $user = User::factory()->create();
-
-    $date = now()->toDateString();
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->set('selectedDate', $date)
-        ->call('createTask', [
-            'title' => 'New Task from List Component',
-            'status' => 'to_do',
-            'priority' => 'medium',
-            'complexity' => 'moderate',
-            'duration' => 60,
-            'startDatetime' => null,
-            'endDatetime' => null,
-            'projectId' => null,
-        ])
-        ->assertSee('New Task from List Component')
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
-});
-
-it('creates task with project association through parent component', function (): void {
-    $user = User::factory()->create();
-
-    $project = Project::factory()->for($user)->create([
-        'start_datetime' => now()->startOfDay(),
-    ]);
-
-    $date = now()->toDateString();
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->set('selectedDate', $date)
-        ->call('createTask', [
-            'title' => 'Task with Project',
-            'status' => 'to_do',
-            'priority' => 'medium',
-            'complexity' => 'moderate',
-            'duration' => 60,
-            'startDatetime' => null,
-            'endDatetime' => null,
-            'projectId' => $project->id,
-        ])
-        ->assertSee('Task with Project')
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
-
-    $this->assertDatabaseHas('tasks', [
-        'title' => 'Task with Project',
-        'user_id' => $user->id,
-        'project_id' => $project->id,
-    ]);
-});
-
-it('creates task with datetime through parent component', function (): void {
-    $user = User::factory()->create();
-
-    $startDatetime = now()->startOfDay()->addHours(9)->toIso8601String();
-    $endDatetime = now()->startOfDay()->addHours(10)->toIso8601String();
-    $date = now()->toDateString();
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->set('selectedDate', $date)
-        ->call('createTask', [
-            'title' => 'Task with Datetime',
-            'status' => 'to_do',
-            'priority' => 'medium',
-            'complexity' => 'moderate',
-            'duration' => 60,
-            'startDatetime' => $startDatetime,
-            'endDatetime' => $endDatetime,
-            'projectId' => null,
-        ])
-        ->assertSee('Task with Datetime')
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
-
-    $this->assertDatabaseHas('tasks', [
-        'title' => 'Task with Datetime',
-        'user_id' => $user->id,
-    ]);
-});
-
-it('deletes a project through the parent workspace component', function (): void {
-    $user = User::factory()->create();
-
-    $project = Project::factory()
-        ->for($user)
-        ->create([
-            'name' => 'Project To Delete',
-            'start_datetime' => now()->startOfDay()->addHours(9),
-            'end_datetime' => now()->startOfDay()->addHours(10),
-        ]);
-
-    $date = now()->toDateString();
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->set('selectedDate', $date)
-        ->call('deleteProject', $project->id)
-        ->assertDispatched('toast', type: 'success', message: __('Project deleted.'));
-
-    $this->assertSoftDeleted('projects', [
-        'id' => $project->id,
-    ]);
-});
-
-it('deletes an event through the parent workspace component', function (): void {
-    $user = User::factory()->create();
-
-    $event = Event::factory()
-        ->for($user)
-        ->create([
-            'title' => 'Event To Delete',
-            'start_datetime' => now()->startOfDay()->addHours(9),
-            'end_datetime' => now()->startOfDay()->addHours(10),
-            'all_day' => false,
-        ]);
-
-    $date = now()->toDateString();
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->set('selectedDate', $date)
-        ->call('deleteEvent', $event->id)
-        ->assertDispatched('toast', type: 'success', message: __('Event deleted.'));
-
-    $this->assertSoftDeleted('events', [
-        'id' => $event->id,
-    ]);
 });
 
 it('renders delete actions for project event and task cards', function (): void {
@@ -347,6 +227,7 @@ it('renders delete actions for project event and task cards', function (): void 
             'projects' => Collection::make([$project]),
             'events' => Collection::make([$event]),
             'tasks' => Collection::make([$task]),
+            'tags' => collect(),
         ])
         ->assertSee('deleteProject')
         ->assertSee('deleteEvent')

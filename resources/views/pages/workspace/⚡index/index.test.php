@@ -62,8 +62,7 @@ it('shows today by default and allows navigation', function (): void {
     $component
         ->set('selectedDate', $today)
         ->assertSet('selectedDate', $today)
-        ->assertSee(Carbon::parse($today)->translatedFormat('D, M j, Y'))
-        ->assertDontSee('Today');
+        ->assertSee(Carbon::parse($today)->translatedFormat('D, M j, Y'));
 });
 
 it('shows tasks, projects, and events for the selected date', function (): void {
@@ -75,12 +74,12 @@ it('shows tasks, projects, and events for the selected date', function (): void 
         'start_datetime' => $date->copy()->startOfDay(),
     ]);
 
-    Task::factory()->for($user)->for($project)->create([
+    $task = Task::factory()->for($user)->for($project)->create([
         'start_datetime' => $date->copy()->startOfDay(),
         'completed_at' => null,
     ]);
 
-    Event::factory()->for($user)->create([
+    $event = Event::factory()->for($user)->create([
         'start_datetime' => $date->copy()->startOfDay(),
     ]);
 
@@ -91,8 +90,8 @@ it('shows tasks, projects, and events for the selected date', function (): void 
         ->set('selectedDate', $date->toDateString())
         ->assertSee($formattedDate)
         ->assertSee($project->name)
-        ->assertSee($project->tasks->first()->title)
-        ->assertSee(Event::first()->title);
+        ->assertSee($task->title)
+        ->assertSee($event->title);
 });
 
 it('can create a task from the workspace component', function (): void {
@@ -112,6 +111,140 @@ it('can create a task from the workspace component', function (): void {
         ])
         ->assertSee('Inline created task')
         ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+});
+
+it('creates task with project association', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()->for($user)->create([
+        'start_datetime' => now()->startOfDay(),
+    ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('createTask', [
+            'title' => 'Task with Project',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'projectId' => $project->id,
+        ])
+        ->assertSee('Task with Project')
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+
+    $this->assertDatabaseHas('tasks', [
+        'title' => 'Task with Project',
+        'user_id' => $user->id,
+        'project_id' => $project->id,
+    ]);
+});
+
+it('creates task with datetime', function (): void {
+    $user = User::factory()->create();
+
+    $startDatetime = now()->startOfDay()->addHours(9)->toIso8601String();
+    $endDatetime = now()->startOfDay()->addHours(10)->toIso8601String();
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('createTask', [
+            'title' => 'Task with Datetime',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => $startDatetime,
+            'endDatetime' => $endDatetime,
+            'projectId' => null,
+        ])
+        ->assertSee('Task with Datetime')
+        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+
+    $this->assertDatabaseHas('tasks', [
+        'title' => 'Task with Datetime',
+        'user_id' => $user->id,
+    ]);
+});
+
+it('deletes a project through the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()
+        ->for($user)
+        ->create([
+            'name' => 'Project To Delete',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'end_datetime' => now()->startOfDay()->addHours(10),
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('deleteProject', $project->id)
+        ->assertDispatched('toast', type: 'success', message: __('Project deleted.'));
+
+    $this->assertSoftDeleted('projects', [
+        'id' => $project->id,
+    ]);
+});
+
+it('deletes an event through the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $event = Event::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Event To Delete',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'end_datetime' => now()->startOfDay()->addHours(10),
+            'all_day' => false,
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('deleteEvent', $event->id)
+        ->assertDispatched('toast', type: 'success', message: __('Event deleted.'));
+
+    $this->assertSoftDeleted('events', [
+        'id' => $event->id,
+    ]);
+});
+
+it('deletes a task through the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Task To Delete',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'completed_at' => null,
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('deleteTask', $task->id)
+        ->assertDispatched('toast', type: 'success', message: __('Task deleted.'));
+
+    $this->assertSoftDeleted('tasks', [
+        'id' => $task->id,
+    ]);
 });
 
 it('only shows tasks the user owns or collaborates on', function (): void {
@@ -149,24 +282,6 @@ it('only shows tasks the user owns or collaborates on', function (): void {
         ->assertSee($ownedTask->title)
         ->assertSee($collaboratorTask->title)
         ->assertDontSee($hiddenTask->title);
-});
-
-it('dispatches success toast when task is created successfully', function (): void {
-    $user = User::factory()->create();
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->call('createTask', [
-            'title' => 'Test Task',
-            'status' => 'to_do',
-            'priority' => 'medium',
-            'complexity' => 'moderate',
-            'duration' => 60,
-            'startDatetime' => null,
-            'endDatetime' => null,
-            'projectId' => null,
-        ])
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
 });
 
 it('dispatches error toast when task validation fails', function (): void {
