@@ -354,7 +354,7 @@ trait HandlesWorkspaceItems
             ->forUser($userId)
             ->incomplete()
             ->relevantForDate($date)
-            ->orderBy('start_datetime')
+            ->orderByDesc('created_at')
             ->limit(50)
             ->get();
     }
@@ -381,7 +381,7 @@ trait HandlesWorkspaceItems
             ->forUser($userId)
             ->notArchived()
             ->activeForDate($date)
-            ->orderBy('start_datetime')
+            ->orderByDesc('created_at')
             ->limit(50)
             ->get();
     }
@@ -407,7 +407,7 @@ trait HandlesWorkspaceItems
             ])
             ->forUser($userId)
             ->activeForDate($date)
-            ->orderBy('start_datetime')
+            ->orderByDesc('created_at')
             ->limit(50)
             ->get();
     }

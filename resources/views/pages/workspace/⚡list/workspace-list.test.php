@@ -215,6 +215,19 @@ it('does not display empty state when at least one collection has items', functi
         ->assertDontSee(__('Create your first task, project, or event to get started'));
 });
 
+it('renders loading card structure for task creation', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => collect(),
+            'events' => collect(),
+            'tasks' => collect(),
+            'tags' => collect(),
+        ])
+        ->assertSee('data-test="task-loading-card"', escape: false);
+});
+
 it('renders delete actions for project event and task cards', function (): void {
     $user = User::factory()->create();
 

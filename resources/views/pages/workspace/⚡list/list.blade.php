@@ -2,6 +2,8 @@
     class="space-y-4"
     x-data="{
         showTaskCreation: false,
+        showTaskLoading: false,
+        loadingStartedAt: null,
         isSubmitting: false,
         messages: {
             taskEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
@@ -110,14 +112,21 @@
             this.isSubmitting = true;
             this.formData.task.title = this.formData.task.title.trim();
 
+            this.showTaskCreation = false;
+            this.showTaskLoading = true;
+            this.loadingStartedAt = Date.now();
+
             const payload = JSON.parse(JSON.stringify(this.formData.task));
+            const minLoadingMs = 500;
 
             $wire.$parent.$call('createTask', payload)
-                .then(() => {
-                    this.showTaskCreation = false;
-                })
                 .finally(() => {
-                    this.isSubmitting = false;
+                    const elapsed = Date.now() - this.loadingStartedAt;
+                    const remaining = Math.max(0, minLoadingMs - elapsed);
+                    setTimeout(() => {
+                        this.showTaskLoading = false;
+                        this.isSubmitting = false;
+                    }, remaining);
                 });
         },
         handleGlobalClick(event) {
@@ -236,6 +245,31 @@
                     return '{{ __('Not set') }}';
             }
         },
+        statusColor(status) {
+            switch (status) {
+                case 'to_do': return 'gray-800';
+                case 'doing': return 'blue-800';
+                case 'done': return 'green-800';
+                default: return 'gray-800';
+            }
+        },
+        priorityColor(priority) {
+            switch (priority) {
+                case 'low': return 'gray-800';
+                case 'medium': return 'yellow-800';
+                case 'high': return 'orange-800';
+                case 'urgent': return 'red-800';
+                default: return 'yellow-800';
+            }
+        },
+        complexityColor(complexity) {
+            switch (complexity) {
+                case 'simple': return 'green-800';
+                case 'moderate': return 'yellow-800';
+                case 'complex': return 'red-800';
+                default: return 'yellow-800';
+            }
+        },
     }"
     x-init="
         window.tags = @js($tags);
@@ -287,6 +321,94 @@
     "
 >
     <x-workspace.creation-card :tags="$tags" />
+
+    <div
+        x-show="showTaskLoading"
+        x-cloak
+        data-test="task-loading-card"
+        class="mt-4 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm opacity-95 blur-[1px]"
+    >
+        <div class="flex items-start justify-between gap-2">
+            <div class="flex min-w-0 flex-1 items-center gap-2">
+                <flux:icon name="loading" class="size-5 shrink-0 animate-spin text-muted-foreground" />
+                <p class="truncate text-base font-semibold leading-tight" x-text="formData.task.title"></p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ __('Task') }}
+                </span>
+            </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+            <span
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                :class="formData.task.status === 'to_do' ? 'bg-gray-800/10 text-gray-800' : (formData.task.status === 'doing' ? 'bg-blue-800/10 text-blue-800' : 'bg-green-800/10 text-green-800')"
+            >
+                <flux:icon name="check-circle" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
+                    <span class="uppercase" x-text="statusLabel(formData.task.status)"></span>
+                </span>
+            </span>
+            <span
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                :class="formData.task.priority === 'low' ? 'bg-gray-800/10 text-gray-800' : (formData.task.priority === 'medium' ? 'bg-yellow-800/10 text-yellow-800' : (formData.task.priority === 'high' ? 'bg-orange-800/10 text-orange-800' : 'bg-red-800/10 text-red-800'))"
+            >
+                <flux:icon name="bolt" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Priority') }}:</span>
+                    <span class="uppercase" x-text="priorityLabel(formData.task.priority)"></span>
+                </span>
+            </span>
+            <span
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                :class="formData.task.complexity === 'simple' ? 'bg-green-800/10 text-green-800' : (formData.task.complexity === 'moderate' ? 'bg-yellow-800/10 text-yellow-800' : 'bg-red-800/10 text-red-800')"
+            >
+                <flux:icon name="squares-2x2" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Complexity') }}:</span>
+                    <span class="uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
+                </span>
+            </span>
+            <span
+                x-show="formData.task.tagIds && formData.task.tagIds.length > 0"
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10"
+            >
+                <flux:icon name="tag" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Tags') }}:</span>
+                    <span class="truncate max-w-[140px] uppercase" x-text="getSelectedTagNames()"></span>
+                </span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Duration') }}:</span>
+                    <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
+                </span>
+            </span>
+            <span
+                x-show="formData.task.startDatetime"
+                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+            >
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
+                    <span class="uppercase" x-text="formatDatetime(formData.task.startDatetime)"></span>
+                </span>
+            </span>
+            <span
+                x-show="formData.task.endDatetime"
+                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+            >
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Due') }}:</span>
+                    <span class="uppercase" x-text="formatDatetime(formData.task.endDatetime)"></span>
+                </span>
+            </span>
+        </div>
+    </div>
 
     @if($projects->isEmpty() && $events->isEmpty() && $tasks->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
