@@ -157,30 +157,16 @@
             }
         },
         formatDatetime(datetimeString) {
-            if (!datetimeString) {
-                return 'Not set';
-            }
-
+            const notSet = 'Not set';
+            if (!datetimeString) return notSet;
             try {
                 const date = new Date(datetimeString);
-                if (isNaN(date.getTime())) {
-                    return 'Not set';
-                }
-
-                const dateStr = date.toLocaleDateString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                });
-
-                const timeStr = date.toLocaleTimeString(undefined, {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                });
-
+                if (isNaN(date.getTime())) return notSet;
+                const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                const timeStr = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
                 return dateStr + ' ' + timeStr;
             } catch (e) {
-                return 'Not set';
+                return notSet;
             }
         },
         statusLabel(status) {
@@ -245,30 +231,17 @@
                     return '{{ __('Not set') }}';
             }
         },
-        statusColor(status) {
-            switch (status) {
-                case 'to_do': return 'gray-800';
-                case 'doing': return 'blue-800';
-                case 'done': return 'green-800';
-                default: return 'gray-800';
-            }
+        getStatusBadgeClass(status) {
+            const map = { to_do: 'bg-gray-800/10 text-gray-800', doing: 'bg-blue-800/10 text-blue-800', done: 'bg-green-800/10 text-green-800' };
+            return map[status] || map.to_do;
         },
-        priorityColor(priority) {
-            switch (priority) {
-                case 'low': return 'gray-800';
-                case 'medium': return 'yellow-800';
-                case 'high': return 'orange-800';
-                case 'urgent': return 'red-800';
-                default: return 'yellow-800';
-            }
+        getPriorityBadgeClass(priority) {
+            const map = { low: 'bg-gray-800/10 text-gray-800', medium: 'bg-yellow-800/10 text-yellow-800', high: 'bg-orange-800/10 text-orange-800', urgent: 'bg-red-800/10 text-red-800' };
+            return map[priority] || map.medium;
         },
-        complexityColor(complexity) {
-            switch (complexity) {
-                case 'simple': return 'green-800';
-                case 'moderate': return 'yellow-800';
-                case 'complex': return 'red-800';
-                default: return 'yellow-800';
-            }
+        getComplexityBadgeClass(complexity) {
+            const map = { simple: 'bg-green-800/10 text-green-800', moderate: 'bg-yellow-800/10 text-yellow-800', complex: 'bg-red-800/10 text-red-800' };
+            return map[complexity] || map.moderate;
         },
     }"
     x-init="
@@ -342,7 +315,7 @@
         <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
             <span
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                :class="formData.task.status === 'to_do' ? 'bg-gray-800/10 text-gray-800' : (formData.task.status === 'doing' ? 'bg-blue-800/10 text-blue-800' : 'bg-green-800/10 text-green-800')"
+                :class="getStatusBadgeClass(formData.task.status)"
             >
                 <flux:icon name="check-circle" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
@@ -352,7 +325,7 @@
             </span>
             <span
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                :class="formData.task.priority === 'low' ? 'bg-gray-800/10 text-gray-800' : (formData.task.priority === 'medium' ? 'bg-yellow-800/10 text-yellow-800' : (formData.task.priority === 'high' ? 'bg-orange-800/10 text-orange-800' : 'bg-red-800/10 text-red-800'))"
+                :class="getPriorityBadgeClass(formData.task.priority)"
             >
                 <flux:icon name="bolt" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
@@ -362,7 +335,7 @@
             </span>
             <span
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                :class="formData.task.complexity === 'simple' ? 'bg-green-800/10 text-green-800' : (formData.task.complexity === 'moderate' ? 'bg-yellow-800/10 text-yellow-800' : 'bg-red-800/10 text-red-800')"
+                :class="getComplexityBadgeClass(formData.task.complexity)"
             >
                 <flux:icon name="squares-2x2" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
@@ -424,35 +397,17 @@
         </div>
     @else
         <div class="space-y-4">
-            <div class="space-y-3">
-                @foreach ($projects as $project)
-                    <x-workspace.list-item-card
-                        kind="project"
-                        :item="$project"
-                        wire:key="project-{{ $project->id }}"
-                    />
-                @endforeach
-            </div>
-
-            <div class="space-y-3">
-                @foreach ($events as $event)
-                    <x-workspace.list-item-card
-                        kind="event"
-                        :item="$event"
-                        wire:key="event-{{ $event->id }}"
-                    />
-                @endforeach
-            </div>
-
-            <div class="space-y-3">
-                @foreach ($tasks as $task)
-                    <x-workspace.list-item-card
-                        kind="task"
-                        :item="$task"
-                        wire:key="task-{{ $task->id }}"
-                    />
-                @endforeach
-            </div>
+            @foreach ([['kind' => 'project', 'items' => $projects], ['kind' => 'event', 'items' => $events], ['kind' => 'task', 'items' => $tasks]] as $group)
+                <div class="space-y-3">
+                    @foreach ($group['items'] as $item)
+                        <x-workspace.list-item-card
+                            :kind="$group['kind']"
+                            :item="$item"
+                            wire:key="{{ $group['kind'] }}-{{ $item->id }}"
+                        />
+                    @endforeach
+                </div>
+            @endforeach
         </div>
     @endif
 </div>

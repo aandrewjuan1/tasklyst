@@ -357,13 +357,13 @@
 </script>
 
 <div
-    class="space-y-3 px-3 pb-3 pt-1"
+    class="space-y-3 px-3 pb-1 pt-2"
     x-data="datePicker(@js($type), @js($model))"
     @click.stop
 >
-    <div class="pt-1 pb-2">
+    <div class="pt-1 pb-1">
         <!-- Header -->
-        <div class="mb-3 flex items-center justify-between px-1">
+        <div class="mb-4 flex items-center justify-between px-1">
             <button
                 type="button"
                 class="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
@@ -393,7 +393,7 @@
         </div>
 
         <!-- Weekday headings -->
-        <div class="mb-2 grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-zinc-400 dark:text-zinc-500">
+        <div class="mb-3 grid grid-cols-7 gap-1 text-center text-[11px] font-medium text-zinc-400 dark:text-zinc-500">
             <span>Su</span>
             <span>Mo</span>
             <span>Tu</span>
@@ -423,16 +423,33 @@
         </div>
 
         <!-- Time controls -->
-        <div class="mt-3 border-t border-zinc-100 pt-3 text-xs dark:border-zinc-800">
+        <div class="mt-4 border-t border-zinc-100 pt-3 pb-2 text-xs dark:border-zinc-800">
+            <div class="mb-3 flex items-center justify-center gap-2">
+                <button
+                    type="button"
+                    class="rounded-full px-2.5 py-1 text-[11px] font-medium text-pink-600 hover:bg-pink-50 dark:text-pink-400 dark:hover:bg-pink-900/20"
+                    @click.prevent.stop="selectToday()"
+                >
+                    Today
+                </button>
+                <button
+                    type="button"
+                    class="rounded-full px-2.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:disabled:hover:bg-transparent"
+                    x-bind:disabled="!selectedDate"
+                    @click.prevent.stop="clearSelection()"
+                >
+                    Clear
+                </button>
+            </div>
             <div
-                class="flex items-center justify-between"
+                class="flex items-center justify-between gap-4"
                 x-show="type === 'datetime-local'"
             >
                 <span class="font-medium text-zinc-500 dark:text-zinc-400">
                     Time
                 </span>
 
-                <div class="flex items-center gap-1.5">
+                <div class="flex items-center gap-2">
                     <input
                         type="number"
                         min="1"
@@ -460,25 +477,6 @@
                         <option value="PM">PM</option>
                     </select>
                 </div>
-            </div>
-
-            <div class="mt-3 flex items-center justify-between">
-                <button
-                    type="button"
-                    class="rounded-full px-3 py-1 text-xs font-medium text-pink-600 hover:bg-pink-50 dark:text-pink-400 dark:hover:bg-pink-900/20"
-                    @click.prevent.stop="selectToday()"
-                >
-                    Today
-                </button>
-
-                <button
-                    type="button"
-                    class="rounded-full px-3 py-1 text-xs text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                    x-show="selectedDate"
-                    @click.prevent.stop="clearSelection()"
-                >
-                    Clear
-                </button>
             </div>
         </div>
     </div>

@@ -1,43 +1,38 @@
-<div>
-    <flux:dropdown position="right" align="start">
-        <flux:button icon:trailing="plus-circle" data-task-creation-safe>
-            {{ __('Add') }}
-        </flux:button>
+@php
+    $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+@endphp
+<div class="relative z-10">
+    <x-dropdown position="right" align="start">
+        <x-slot:trigger>
+            <flux:button icon:trailing="plus-circle" data-task-creation-safe>
+                {{ __('Add') }}
+            </flux:button>
+        </x-slot:trigger>
 
-        <flux:menu data-task-creation-safe>
-            <div class="flex flex-col py-1">
+        <div class="flex flex-col py-1" data-task-creation-safe>
+            @foreach ([
+                ['icon' => 'rectangle-stack', 'label' => __('Task'), 'variant' => 'default', 'taskClick' => true],
+                ['icon' => 'calendar-days', 'label' => __('Event'), 'variant' => 'default', 'taskClick' => false],
+                ['icon' => 'clipboard-document-list', 'label' => __('Project'), 'variant' => 'destructive', 'taskClick' => false],
+            ] as $addItem)
                 <button
                     type="button"
-                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    @click="
-                        showTaskCreation = !showTaskCreation;
-                        if (showTaskCreation) {
-                            $nextTick(() => $refs.taskTitle?.focus());
-                        }
-                    "
+                    @if ($addItem['taskClick'])
+                        @click="
+                            showTaskCreation = !showTaskCreation;
+                            if (showTaskCreation) {
+                                $nextTick(() => $refs.taskTitle?.focus());
+                            }
+                        "
+                    @endif
+                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left {{ $addItem['variant'] === 'destructive' ? 'hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive' : 'hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' }}"
                 >
-                    <flux:icon name="rectangle-stack" class="size-4 text-muted-foreground" />
-                    <span>{{ __('Task') }}</span>
+                    <flux:icon name="{{ $addItem['icon'] }}" class="size-4 {{ $addItem['variant'] === 'destructive' ? 'text-destructive' : 'text-muted-foreground' }}" />
+                    <span>{{ $addItem['label'] }}</span>
                 </button>
-
-                <button
-                    type="button"
-                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                    <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
-                    <span>{{ __('Event') }}</span>
-                </button>
-
-                <button
-                    type="button"
-                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive"
-                >
-                    <flux:icon name="clipboard-document-list" class="size-4 text-destructive" />
-                    <span>{{ __('Project') }}</span>
-                </button>
-            </div>
-        </flux:menu>
-    </flux:dropdown>
+            @endforeach
+        </div>
+    </x-dropdown>
 
     <div
     x-show="showTaskCreation"
@@ -75,506 +70,210 @@
                 </div>
 
                 <div class="flex flex-wrap gap-2">
-                    <flux:dropdown position="top" align="end" x-ref="statusDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                            x-bind:class="formData.task.status === 'to_do' ? 'bg-gray-800/10 text-gray-800' : formData.task.status === 'doing' ? 'bg-blue-800/10 text-blue-800' : 'bg-green-800/10 text-green-800'"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="check-circle" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Status') }}:
+                    <x-dropdown position="top" align="end" x-ref="statusDropdown">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                                x-bind:class="getStatusBadgeClass(formData.task.status)"
+                                data-task-creation-safe
+                                aria-haspopup="menu"
+                            >
+                                <flux:icon name="check-circle" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                        {{ __('Status') }}:
+                                    </span>
+                                    <span class="text-xs uppercase" x-text="statusLabel(formData.task.status)"></span>
                                 </span>
-                                <span class="text-xs uppercase" x-text="statusLabel(formData.task.status)"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
+                                <flux:icon name="chevron-down" class="size-3" />
+                            </button>
+                        </x-slot:trigger>
 
-                        <flux:menu 
-                            data-task-creation-safe
-                            x-ref="statusMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.statusMenu;
-                                const dropdown = $refs.statusDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <flux:menu.radio.group>
-                                <flux:menu.item
-                                    as="button"
+                        <div class="flex flex-col py-1" data-task-creation-safe>
+                            @foreach ([['value' => 'to_do', 'label' => __('To Do')], ['value' => 'doing', 'label' => __('Doing')], ['value' => 'done', 'label' => __('Done')]] as $opt)
+                                <button
                                     type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.status === 'to_do' }"
-                                    @click="formData.task.status = 'to_do'"
+                                    class="{{ $dropdownItemClass }}"
+                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.status === '{{ $opt['value'] }}' }"
+                                    @click="formData.task.status = '{{ $opt['value'] }}'"
                                 >
-                                    {{ __('To Do') }}
-                                </flux:menu.item>
+                                    {{ $opt['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-dropdown>
 
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.status === 'doing' }"
-                                    @click="formData.task.status = 'doing'"
-                                >
-                                    {{ __('Doing') }}
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.status === 'done' }"
-                                    @click="formData.task.status = 'done'"
-                                >
-                                    {{ __('Done') }}
-                                </flux:menu.item>
-                            </flux:menu.radio.group>
-                        </flux:menu>
-                    </flux:dropdown>
-
-                    <flux:dropdown position="top" align="end" x-ref="priorityDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                            x-bind:class="formData.task.priority === 'low' ? 'bg-gray-800/10 text-gray-800' : formData.task.priority === 'medium' ? 'bg-yellow-800/10 text-yellow-800' : formData.task.priority === 'high' ? 'bg-orange-800/10 text-orange-800' : 'bg-red-800/10 text-red-800'"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="bolt" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Priority') }}:
+                    <x-dropdown position="top" align="end" x-ref="priorityDropdown">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                                x-bind:class="getPriorityBadgeClass(formData.task.priority)"
+                                data-task-creation-safe
+                                aria-haspopup="menu"
+                            >
+                                <flux:icon name="bolt" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                        {{ __('Priority') }}:
+                                    </span>
+                                    <span class="text-xs uppercase" x-text="priorityLabel(formData.task.priority)"></span>
                                 </span>
-                                <span class="text-xs uppercase" x-text="priorityLabel(formData.task.priority)"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
+                                <flux:icon name="chevron-down" class="size-3" />
+                            </button>
+                        </x-slot:trigger>
 
-                        <flux:menu 
-                            data-task-creation-safe
-                            x-ref="priorityMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.priorityMenu;
-                                const dropdown = $refs.priorityDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <flux:menu.radio.group>
-                                <flux:menu.item
-                                    as="button"
+                        <div class="flex flex-col py-1" data-task-creation-safe>
+                            @foreach ([['value' => 'low', 'label' => __('Low')], ['value' => 'medium', 'label' => __('Medium')], ['value' => 'high', 'label' => __('High')], ['value' => 'urgent', 'label' => __('Urgent')]] as $opt)
+                                <button
                                     type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === 'low' }"
-                                    @click="formData.task.priority = 'low'"
+                                    class="{{ $dropdownItemClass }}"
+                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === '{{ $opt['value'] }}' }"
+                                    @click="formData.task.priority = '{{ $opt['value'] }}'"
                                 >
-                                    {{ __('Low') }}
-                                </flux:menu.item>
+                                    {{ $opt['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-dropdown>
 
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === 'medium' }"
-                                    @click="formData.task.priority = 'medium'"
-                                >
-                                    {{ __('Medium') }}
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === 'high' }"
-                                    @click="formData.task.priority = 'high'"
-                                >
-                                    {{ __('High') }}
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === 'urgent' }"
-                                    @click="formData.task.priority = 'urgent'"
-                                >
-                                    {{ __('Urgent') }}
-                                </flux:menu.item>
-                            </flux:menu.radio.group>
-                        </flux:menu>
-                    </flux:dropdown>
-
-                    <flux:dropdown position="top" align="end" x-ref="complexityDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                            x-bind:class="formData.task.complexity === 'simple' ? 'bg-green-800/10 text-green-800' : formData.task.complexity === 'moderate' ? 'bg-yellow-800/10 text-yellow-800' : 'bg-red-800/10 text-red-800'"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="squares-2x2" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Complexity') }}:
+                    <x-dropdown position="top" align="end" x-ref="complexityDropdown">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                                x-bind:class="getComplexityBadgeClass(formData.task.complexity)"
+                                data-task-creation-safe
+                                aria-haspopup="menu"
+                            >
+                                <flux:icon name="squares-2x2" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                        {{ __('Complexity') }}:
+                                    </span>
+                                    <span class="text-xs uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
                                 </span>
-                                <span class="text-xs uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
+                                <flux:icon name="chevron-down" class="size-3" />
+                            </button>
+                        </x-slot:trigger>
 
-                        <flux:menu 
-                            data-task-creation-safe
-                            x-ref="complexityMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.complexityMenu;
-                                const dropdown = $refs.complexityDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <flux:menu.radio.group>
-                                <flux:menu.item
-                                    as="button"
+                        <div class="flex flex-col py-1" data-task-creation-safe>
+                            @foreach ([['value' => 'simple', 'label' => __('Simple')], ['value' => 'moderate', 'label' => __('Moderate')], ['value' => 'complex', 'label' => __('Complex')]] as $opt)
+                                <button
                                     type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.complexity === 'simple' }"
-                                    @click="formData.task.complexity = 'simple'"
+                                    class="{{ $dropdownItemClass }}"
+                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.complexity === '{{ $opt['value'] }}' }"
+                                    @click="formData.task.complexity = '{{ $opt['value'] }}'"
                                 >
-                                    {{ __('Simple') }}
-                                </flux:menu.item>
+                                    {{ $opt['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-dropdown>
 
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.complexity === 'moderate' }"
-                                    @click="formData.task.complexity = 'moderate'"
-                                >
-                                    {{ __('Moderate') }}
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.complexity === 'complex' }"
-                                    @click="formData.task.complexity = 'complex'"
-                                >
-                                    {{ __('Complex') }}
-                                </flux:menu.item>
-                            </flux:menu.radio.group>
-                        </flux:menu>
-                    </flux:dropdown>
-
-                    <flux:dropdown position="top" align="end" x-ref="tagsDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="tag" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Tags') }}:
+                    <x-dropdown position="top" align="end" :keep-open="true" x-ref="tagsDropdown">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                data-task-creation-safe
+                                aria-haspopup="menu"
+                            >
+                                <flux:icon name="tag" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                        {{ __('Tags') }}:
+                                    </span>
+                                    <span class="text-xs uppercase" x-text="formData.task.tagIds && formData.task.tagIds.length > 0 ? formData.task.tagIds.length : '{{ __('None') }}'"></span>
                                 </span>
-                                <span class="text-xs uppercase" x-text="getSelectedTagNames() || '{{ __('None') }}'"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
+                                <flux:icon name="chevron-down" class="size-3" />
+                            </button>
+                        </x-slot:trigger>
 
-                        <flux:menu 
-                            data-task-creation-safe 
-                            keep-open
-                            x-ref="tagsMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.tagsMenu;
-                                const dropdown = $refs.tagsDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <div class="max-h-60 overflow-y-auto py-1">
-                                @forelse($tags as $tag)
-                                    <flux:menu.checkbox
+                        <div class="max-h-60 overflow-y-auto py-1" data-task-creation-safe>
+                            @forelse($tags as $tag)
+                                <label
+                                    class="flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        class="size-4 rounded border-border"
                                         x-bind:checked="isTagSelected({{ $tag->id }})"
                                         @click="toggleTag({{ $tag->id }})"
-                                    >
-                                        {{ $tag->name }}
-                                    </flux:menu.checkbox>
-                                @empty
-                                    <div class="px-3 py-2 text-sm text-muted-foreground">
-                                        {{ __('No tags available') }}
-                                    </div>
-                                @endforelse
-                            </div>
-                        </flux:menu>
-                    </flux:dropdown>
+                                    />
+                                    <span>{{ $tag->name }}</span>
+                                </label>
+                            @empty
+                                <div class="px-3 py-2 text-sm text-muted-foreground">
+                                    {{ __('No tags available') }}
+                                </div>
+                            @endforelse
+                        </div>
+                    </x-dropdown>
 
-                    <flux:dropdown position="top" align="end" x-ref="durationDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="clock" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Duration') }}:
+                    <x-dropdown position="top" align="end" x-ref="durationDropdown">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                data-task-creation-safe
+                                aria-haspopup="menu"
+                            >
+                                <flux:icon name="clock" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                        {{ __('Duration') }}:
+                                    </span>
+                                    <span class="text-xs uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
                                 </span>
-                                <span class="text-xs uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
+                                <flux:icon name="chevron-down" class="size-3" />
+                            </button>
+                        </x-slot:trigger>
 
-                        <flux:menu 
-                            data-task-creation-safe
-                            x-ref="durationMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.durationMenu;
-                                const dropdown = $refs.durationDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <flux:menu.radio.group>
-                                <flux:menu.item
-                                    as="button"
+                        <div class="flex flex-col py-1" data-task-creation-safe>
+                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '90', 'label' => '1.5 hours'], ['value' => '120', 'label' => '2 hours'], ['value' => '180', 'label' => '3 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
+                                <button
                                     type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '15' }"
-                                    @click="formData.task.duration = '15'"
+                                    class="{{ $dropdownItemClass }}"
+                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '{{ $dur['value'] }}' }"
+                                    @click="formData.task.duration = '{{ $dur['value'] }}'"
                                 >
-                                    15 min
-                                </flux:menu.item>
+                                    {{ $dur['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-dropdown>
 
-                                <flux:menu.item
-                                    as="button"
+                    @foreach ([['label' => __('Start'), 'model' => 'formData.task.startDatetime', 'ref' => 'startDateDropdown', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.task.endDatetime', 'ref' => 'endDateDropdown', 'datePickerLabel' => __('End Date')]] as $dateField)
+                        <x-dropdown position="top" align="end" :keep-open="true" x-ref="{{ $dateField['ref'] }}">
+                            <x-slot:trigger>
+                                <button
                                     type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '30' }"
-                                    @click="formData.task.duration = '30'"
+                                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                    data-task-creation-safe
+                                    aria-haspopup="menu"
                                 >
-                                    30 min
-                                </flux:menu.item>
+                                    <flux:icon name="clock" class="size-3" />
+                                    <span class="inline-flex items-baseline gap-1">
+                                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                            {{ $dateField['label'] }}:
+                                        </span>
+                                        <span class="text-xs uppercase" x-text="formatDatetime({{ $dateField['model'] }})"></span>
+                                    </span>
+                                    <flux:icon name="chevron-down" class="size-3" />
+                                </button>
+                            </x-slot:trigger>
 
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '60' }"
-                                    @click="formData.task.duration = '60'"
-                                >
-                                    1 hour
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '90' }"
-                                    @click="formData.task.duration = '90'"
-                                >
-                                    1.5 hours
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '120' }"
-                                    @click="formData.task.duration = '120'"
-                                >
-                                    2 hours
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '180' }"
-                                    @click="formData.task.duration = '180'"
-                                >
-                                    3 hours
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '240' }"
-                                    @click="formData.task.duration = '240'"
-                                >
-                                    4 hours
-                                </flux:menu.item>
-
-                                <flux:menu.item
-                                    as="button"
-                                    type="button"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '480' }"
-                                    @click="formData.task.duration = '480'"
-                                >
-                                    8+ hours
-                                </flux:menu.item>
-                            </flux:menu.radio.group>
-                        </flux:menu>
-                    </flux:dropdown>
-
-                    <flux:dropdown position="top" align="end" x-ref="startDateDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="clock" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Start') }}:
-                                </span>
-                                <span class="text-xs uppercase" x-text="formatDatetime(formData.task.startDatetime)"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
-
-                        <flux:menu 
-                            data-task-creation-safe 
-                            keep-open
-                            x-ref="startDateMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.startDateMenu;
-                                const dropdown = $refs.startDateDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <div class="p-3">
+                            <div class="p-3" data-task-creation-safe>
                                 <x-date-picker
-                                    label="{{ __('Start Date') }}"
-                                    model="formData.task.startDatetime"
+                                    label="{{ $dateField['datePickerLabel'] }}"
+                                    :model="$dateField['model']"
                                     type="datetime-local"
                                 />
                             </div>
-                        </flux:menu>
-                    </flux:dropdown>
-
-                    <flux:dropdown x-ref="endDateDropdown">
-                        <button
-                            type="button"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-                            data-task-creation-safe
-                            aria-haspopup="menu"
-                        >
-                            <flux:icon name="clock" class="size-3" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('End') }}:
-                                </span>
-                                <span class="text-xs uppercase" x-text="formatDatetime(formData.task.endDatetime)"></span>
-                            </span>
-                            <flux:icon name="chevron-down" class="size-3" />
-                        </button>
-
-                        <flux:menu 
-                            data-task-creation-safe 
-                            keep-open
-                            x-ref="endDateMenu"
-                            x-data="{ closeTimeout: null }"
-                            @mouseenter="if (closeTimeout) { clearTimeout(closeTimeout); closeTimeout = null; }"
-                            @mouseleave="
-                                const menu = $refs.endDateMenu;
-                                const dropdown = $refs.endDateDropdown;
-                                const relatedTarget = event.relatedTarget;
-                                if (!menu || !dropdown) return;
-                                const isMovingToChild = relatedTarget && (menu.contains(relatedTarget) || dropdown.contains(relatedTarget));
-                                if (!isMovingToChild) {
-                                    closeTimeout = setTimeout(() => {
-                                        if (!menu || !dropdown) return;
-                                        const isVisible = menu.offsetParent !== null || menu.hasAttribute('data-open');
-                                        if (!isVisible) return;
-                                        const button = dropdown.querySelector('button');
-                                        if (button) button.click();
-                                        closeTimeout = null;
-                                    }, 350);
-                                }
-                            "
-                        >
-                            <div class="p-3">
-                                <x-date-picker
-                                    label="{{ __('End Date') }}"
-                                    model="formData.task.endDatetime"
-                                    type="datetime-local"
-                                />
-                            </div>
-                        </flux:menu>
-                    </flux:dropdown>
+                        </x-dropdown>
+                    @endforeach
 
                     <div class="flex w-full items-center gap-1.5" x-show="errors.taskDateRange" x-cloak>
                         <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
