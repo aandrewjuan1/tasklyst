@@ -304,20 +304,6 @@
             </span>
         @endif
 
-        @if($item->tags->isNotEmpty())
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10">
-                <flux:icon name="tag" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Tags') }}:
-                    </span>
-                    <span class="truncate max-w-[140px] uppercase">
-                        {{ $item->tags->pluck('name')->join(', ') }}
-                    </span>
-                </span>
-            </span>
-        @endif
-
         @if(! is_null($item->duration))
             @php
                 $durationMinutes = $item->duration;
@@ -340,6 +326,20 @@
                                 {{ $durationRemainderMinutes }} {{ __('min') }}
                             @endif
                         @endif
+                    </span>
+                </span>
+            </span>
+        @endif
+
+        @if($item->tags->isNotEmpty())
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10">
+                <flux:icon name="tag" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Tags') }}:
+                    </span>
+                    <span class="truncate max-w-[140px] uppercase">
+                        {{ $item->tags->pluck('name')->join(', ') }}
                     </span>
                 </span>
             </span>

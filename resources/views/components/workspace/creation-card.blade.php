@@ -78,7 +78,7 @@
                 </div>
 
                 <div class="flex flex-wrap gap-2">
-                    <x-dropdown position="top" align="end" x-ref="statusDropdown">
+                    <x-simple-select-dropdown position="top" align="end">
                         <x-slot:trigger>
                             <button
                                 type="button"
@@ -110,9 +110,9 @@
                                 </button>
                             @endforeach
                         </div>
-                    </x-dropdown>
+                    </x-simple-select-dropdown>
 
-                    <x-dropdown position="top" align="end" x-ref="priorityDropdown">
+                    <x-simple-select-dropdown position="top" align="end">
                         <x-slot:trigger>
                             <button
                                 type="button"
@@ -144,9 +144,9 @@
                                 </button>
                             @endforeach
                         </div>
-                    </x-dropdown>
+                    </x-simple-select-dropdown>
 
-                    <x-dropdown position="top" align="end" x-ref="complexityDropdown">
+                    <x-simple-select-dropdown position="top" align="end">
                         <x-slot:trigger>
                             <button
                                 type="button"
@@ -178,7 +178,40 @@
                                 </button>
                             @endforeach
                         </div>
-                    </x-dropdown>
+                    </x-simple-select-dropdown>
+
+                    <x-simple-select-dropdown position="top" align="end">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                data-task-creation-safe
+                                aria-haspopup="menu"
+                            >
+                                <flux:icon name="clock" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                        {{ __('Duration') }}:
+                                    </span>
+                                    <span class="text-xs uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
+                                </span>
+                                <flux:icon name="chevron-down" class="size-3" />
+                            </button>
+                        </x-slot:trigger>
+
+                        <div class="flex flex-col py-1" data-task-creation-safe>
+                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '120', 'label' => '2 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
+                                <button
+                                    type="button"
+                                    class="{{ $dropdownItemClass }}"
+                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '{{ $dur['value'] }}' }"
+                                    @click="formData.task.duration = '{{ $dur['value'] }}'"
+                                >
+                                    {{ $dur['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-simple-select-dropdown>
 
                     <x-dropdown position="top" align="end" :keep-open="true" x-ref="tagsDropdown">
                         <x-slot:trigger>
@@ -248,39 +281,6 @@
                                     {{ __('No tags available') }}
                                 </div>
                             </div>
-                        </div>
-                    </x-dropdown>
-
-                    <x-dropdown position="top" align="end" x-ref="durationDropdown">
-                        <x-slot:trigger>
-                            <button
-                                type="button"
-                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-                                data-task-creation-safe
-                                aria-haspopup="menu"
-                            >
-                                <flux:icon name="clock" class="size-3" />
-                                <span class="inline-flex items-baseline gap-1">
-                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                        {{ __('Duration') }}:
-                                    </span>
-                                    <span class="text-xs uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
-                                </span>
-                                <flux:icon name="chevron-down" class="size-3" />
-                            </button>
-                        </x-slot:trigger>
-
-                        <div class="flex flex-col py-1" data-task-creation-safe>
-                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '90', 'label' => '1.5 hours'], ['value' => '120', 'label' => '2 hours'], ['value' => '180', 'label' => '3 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
-                                <button
-                                    type="button"
-                                    class="{{ $dropdownItemClass }}"
-                                    x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '{{ $dur['value'] }}' }"
-                                    @click="formData.task.duration = '{{ $dur['value'] }}'"
-                                >
-                                    {{ $dur['label'] }}
-                                </button>
-                            @endforeach
                         </div>
                     </x-dropdown>
 
