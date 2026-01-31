@@ -234,12 +234,6 @@
                 this.creatingTag = false;
             }
         },
-        removeTagFromSelection(tagId) {
-            const index = this.formData.task.tagIds.indexOf(tagId);
-            if (index !== -1) {
-                this.formData.task.tagIds.splice(index, 1);
-            }
-        },
         submitTask() {
             if (this.isSubmitting) {
                 return;
@@ -403,9 +397,6 @@
         // Capture Alpine scope for window event callbacks (this is the event target when callback runs)
         const scope = this;
 
-        // Keep window.tags for backward compatibility
-        window.tags = this.tags;
-
         window.addEventListener('task-created', () => {
             if (typeof this.resetForm === 'function') {
                 this.resetForm();
@@ -450,9 +441,6 @@
                     this.formData.task.tagIds.push(id);
                 }
             }
-
-            // Sync with window.tags for backward compatibility
-            window.tags = this.tags;
         });
 
         window.addEventListener('tag-deleted', (event) => {
@@ -473,9 +461,6 @@
                     this.formData.task.tagIds.splice(selectedIndex, 1);
                 }
             }
-
-            // Sync with window.tags for backward compatibility
-            window.tags = this.tags;
         });
 
 
@@ -503,7 +488,7 @@
         validateTaskDateRange();
     "
 >
-    <x-workspace.creation-card :tags="$tags" />
+    <x-workspace.creation-card />
 
     <div
         x-show="showTaskLoading"

@@ -72,7 +72,7 @@
             @endif
         </div>
 
-        @if($type || $kind === 'task')
+        @if($type)
             <div class="flex items-center gap-2">
                 @if($type)
                     <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -157,19 +157,7 @@
             </span>
         </span>
 
-        @if($item->collaborators->isNotEmpty())
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-500 dark:border-white/10">
-                <flux:icon name="users" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Collaborators') }}:
-                    </span>
-                    <span>
-                        {{ $item->collaborators->count() }}
-                    </span>
-                </span>
-            </span>
-        @endif
+        <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
 
     @elseif($kind === 'event')
         @if($item->timezone)
@@ -268,19 +256,7 @@
             </span>
         @endif
 
-        @if($item->collaborators->isNotEmpty())
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-500 dark:border-white/10">
-                <flux:icon name="users" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Collaborators') }}:
-                    </span>
-                    <span>
-                        {{ $item->collaborators->count() }}
-                    </span>
-                </span>
-            </span>
-        @endif
+        <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
     @elseif($kind === 'task')
         @if($item->status)
             <span
@@ -359,7 +335,7 @@
                         {{ __('Tags') }}:
                     </span>
                     <span class="truncate max-w-[140px] uppercase">
-                        {{ $item->tags->pluck('name')->join(', ') }}
+                        {{ $item->tags->sortBy('name')->pluck('name')->join(', ') }}
                     </span>
                 </span>
             </span>
@@ -417,19 +393,7 @@
             </span>
         @endif
 
-        @if($item->collaborators->isNotEmpty())
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-500 dark:border-white/10">
-                <flux:icon name="users" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Collaborators') }}:
-                    </span>
-                    <span>
-                        {{ $item->collaborators->count() }}
-                    </span>
-                </span>
-            </span>
-        @endif
+        <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
 
         @if($item->completed_at)
             <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-700 dark:border-white/10">

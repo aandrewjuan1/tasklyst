@@ -194,7 +194,7 @@
                         </x-slot:trigger>
 
                         <div class="flex flex-col py-1" data-task-creation-safe>
-                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '120', 'label' => '2 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
+                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '90', 'label' => '1.5 hours'], ['value' => '120', 'label' => '2 hours'], ['value' => '180', 'label' => '3 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
                                 <button
                                     type="button"
                                     class="{{ $dropdownItemClass }}"
