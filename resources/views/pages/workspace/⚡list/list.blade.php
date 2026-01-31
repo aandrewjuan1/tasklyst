@@ -176,12 +176,13 @@
                 this.deletingTagIds?.delete(tag.id);
             }
         },
-        async createTagOptimistic() {
-            if (!this.newTagName || !this.newTagName.trim() || this.creatingTag) {
+        async createTagOptimistic(tagNameFromEvent) {
+            const tagName = (tagNameFromEvent != null && tagNameFromEvent !== '' ? String(tagNameFromEvent).trim() : (this.newTagName || '').trim());
+            if (!tagName || this.creatingTag) {
                 return;
             }
 
-            const tagName = this.newTagName.trim();
+            this.newTagName = '';
 
             // If tag already exists in Alpine state, just select it (no optimistic add, no server call)
             const existingTag = this.tags?.find(t => (t.name || '').trim() === tagName);
@@ -193,7 +194,6 @@
                 if (!alreadySelected) {
                     this.formData.task.tagIds.push(existingTag.id);
                 }
-                this.newTagName = '';
                 return;
             }
 
@@ -202,7 +202,7 @@
             // Snapshot for rollback
             const tagsBackup = this.tags ? [...this.tags] : [];
             const tagIdsBackup = [...this.formData.task.tagIds];
-            const newTagNameBackup = this.newTagName;
+            const newTagNameBackup = tagName;
 
             try {
                 // Optimistic update - add tag immediately
@@ -217,7 +217,6 @@
                     this.formData.task.tagIds.push(tempId);
                 }
 
-                this.newTagName = '';
                 this.creatingTag = true;
 
                 // Call server
@@ -379,8 +378,31 @@
             const map = { simple: 'bg-green-800/10 text-green-800', moderate: 'bg-yellow-800/10 text-yellow-800', complex: 'bg-red-800/10 text-red-800' };
             return map[complexity] || map.moderate;
         },
+        setFormDataByPath(path, value) {
+            const pathParts = path.split('.');
+            let target = this;
+            for (let i = 0; i < pathParts.length - 1; i++) {
+                if (!target[pathParts[i]]) {
+                    target[pathParts[i]] = {};
+                }
+                target = target[pathParts[i]];
+            }
+            target[pathParts[pathParts.length - 1]] = value;
+            if (typeof this.validateTaskDateRange === 'function') {
+                this.validateTaskDateRange();
+            }
+        },
     }"
+    @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @task-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @tag-toggled="toggleTag($event.detail.tagId)"
+    @tag-create-request="createTagOptimistic($event.detail.tagName)"
+    @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
     x-init="
+        (function() {
+        // Capture Alpine scope for window event callbacks (this is the event target when callback runs)
+        const scope = this;
+
         // Keep window.tags for backward compatibility
         window.tags = this.tags;
 
@@ -457,23 +479,22 @@
         });
 
 
-        // Listen for date picker updates
-        window.addEventListener('date-picker-updated', (event) => {
-            const { path, value } = event.detail;
+        // Listen for date picker value requests (parent responds with current formData value)
+        window.addEventListener('date-picker-request-value', (event) => {
+            const { path } = event.detail;
             const pathParts = path.split('.');
-            let target = this;
-            for (let i = 0; i < pathParts.length - 1; i++) {
-                if (!target[pathParts[i]]) {
-                    target[pathParts[i]] = {};
+            let value = scope;
+            for (const part of pathParts) {
+                if (value === null || value === undefined) {
+                    break;
                 }
-                target = target[pathParts[i]];
+                value = value[part];
             }
-            target[pathParts[pathParts.length - 1]] = value;
-
-            if (typeof this.validateTaskDateRange === 'function') {
-                this.validateTaskDateRange();
-            }
+            window.dispatchEvent(new CustomEvent('date-picker-value', {
+                detail: { path, value: value ?? null },
+            }));
         });
+        }).call(this);
     "
     x-effect="
         formData.task.startDatetime;

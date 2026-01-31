@@ -4,28 +4,76 @@
 ])
 
 @php
-    $panelPositionClasses = match (true) {
-        $position === 'top' && $align === 'end' => 'bottom-full right-0 mb-1',
-        $position === 'top' && $align === 'start' => 'bottom-full left-0 mb-1',
-        $position === 'bottom' && $align === 'end' => 'top-full right-0 mt-1',
-        $position === 'bottom' && $align === 'start' => 'top-full left-0 mt-1',
-        default => 'bottom-full right-0 mb-1',
-    };
+    $panelHeightEst = 220;
+    $panelWidthEst = 192;
 @endphp
 
 <div
-    x-data="{ open: false }"
-    @click.outside="open = false"
-    @keydown.escape.window="open = false"
+    x-data="{
+        open: false,
+        placementVertical: @js($position),
+        placementHorizontal: @js($align),
+        panelHeightEst: {{ $panelHeightEst }},
+        panelWidthEst: {{ $panelWidthEst }},
+        toggle() {
+            if (this.open) {
+                return this.close(this.$refs.button);
+            }
+
+            this.$refs.button.focus();
+
+            const rect = this.$refs.button.getBoundingClientRect();
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+
+            if (rect.bottom + this.panelHeightEst > vh && rect.top > this.panelHeightEst) {
+                this.placementVertical = 'top';
+            } else {
+                this.placementVertical = 'bottom';
+            }
+            const endFits = rect.right <= vw && rect.right - this.panelWidthEst >= 0;
+            const startFits = rect.left >= 0 && rect.left + this.panelWidthEst <= vw;
+            if (endFits) {
+                this.placementHorizontal = 'end';
+            } else if (startFits) {
+                this.placementHorizontal = 'start';
+            } else {
+                this.placementHorizontal = rect.right > vw ? 'start' : 'end';
+            }
+
+            this.open = true;
+        },
+        close(focusAfter) {
+            if (!this.open) return;
+
+            this.open = false;
+
+            focusAfter && focusAfter.focus();
+        },
+        get panelPlacementClasses() {
+            const v = this.placementVertical;
+            const h = this.placementHorizontal;
+            if (v === 'top' && h === 'end') return 'bottom-full right-0 mb-1';
+            if (v === 'top' && h === 'start') return 'bottom-full left-0 mb-1';
+            if (v === 'bottom' && h === 'end') return 'top-full right-0 mt-1';
+            if (v === 'bottom' && h === 'start') return 'top-full left-0 mt-1';
+            return 'bottom-full right-0 mb-1';
+        },
+    }"
+    x-on:keydown.escape.prevent.stop="close($refs.button)"
+    x-on:focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    x-id="['tag-selection-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
     {{ $attributes }}
 >
     <button
+        x-ref="button"
         type="button"
-        @click="open = !open"
+        x-on:click="toggle()"
         aria-haspopup="true"
         :aria-expanded="open"
+        :aria-controls="$id('tag-selection-dropdown')"
         class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
         data-task-creation-safe
     >
@@ -40,10 +88,19 @@
     </button>
 
     <div
+        x-ref="panel"
         x-show="open"
-        x-transition
+        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-75"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        x-on:click.outside="close($refs.button)"
+        :id="$id('tag-selection-dropdown')"
+        :class="panelPlacementClasses"
         x-cloak
-        class="absolute z-50 flex min-w-48 flex-col gap-2 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 {{ $panelPositionClasses }}"
+        class="absolute z-50 flex min-w-48 flex-col gap-2 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
         data-task-creation-safe
         role="menu"
     >
@@ -55,11 +112,11 @@
                     placeholder="{{ __('Create tag...') }}"
                     size="sm"
                     class="flex-1"
-                    @keydown.enter.prevent="createTagOptimistic()"
+                    @keydown.enter.prevent="$dispatch('tag-create-request', { tagName: newTagName })"
                 />
                 <button
                     type="button"
-                    @click="createTagOptimistic()"
+                    @click="$dispatch('tag-create-request', { tagName: newTagName })"
                     x-bind:disabled="!newTagName || !newTagName.trim() || creatingTag"
                     class="shrink-0 rounded-md p-1 hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -71,7 +128,7 @@
                 <template x-for="tag in tags || []" :key="tag.id">
                     <label
                         class="group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        @click="toggleTag(tag.id); $event.preventDefault()"
+                        @click="$dispatch('tag-toggled', { tagId: tag.id }); $event.preventDefault()"
                     >
                         <flux:checkbox
                             x-bind:checked="isTagSelected(tag.id)"
@@ -80,7 +137,7 @@
                         <flux:tooltip :content="__('Delete tag')" position="right">
                             <button
                                 type="button"
-                                @click.stop="deleteTagOptimistic(tag)"
+                                @click.stop="$dispatch('tag-delete-request', { tag: tag })"
                                 x-bind:disabled="deletingTagIds?.has(tag.id)"
                                 class="shrink-0 rounded p-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                 aria-label="{{ __('Delete tag') }}"

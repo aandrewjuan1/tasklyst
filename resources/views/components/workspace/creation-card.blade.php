@@ -41,7 +41,7 @@
             showTaskCreation = false;
         }
     "
-    class="mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 shadow-md backdrop-blur ring-1 ring-border/20"
+    class="relative mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 shadow-md ring-1 ring-border/20"
     x-cloak
 >
     <div class="flex items-start justify-between gap-3">
@@ -98,7 +98,7 @@
                                     type="button"
                                     class="{{ $dropdownItemClass }}"
                                     x-bind:class="{ 'font-semibold text-foreground': formData.task.status === '{{ $opt['value'] }}' }"
-                                    @click="formData.task.status = '{{ $opt['value'] }}'"
+                                    @click="$dispatch('task-form-updated', { path: 'formData.task.status', value: '{{ $opt['value'] }}' })"
                                 >
                                     {{ $opt['label'] }}
                                 </button>
@@ -132,7 +132,7 @@
                                     type="button"
                                     class="{{ $dropdownItemClass }}"
                                     x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === '{{ $opt['value'] }}' }"
-                                    @click="formData.task.priority = '{{ $opt['value'] }}'"
+                                    @click="$dispatch('task-form-updated', { path: 'formData.task.priority', value: '{{ $opt['value'] }}' })"
                                 >
                                     {{ $opt['label'] }}
                                 </button>
@@ -166,7 +166,7 @@
                                     type="button"
                                     class="{{ $dropdownItemClass }}"
                                     x-bind:class="{ 'font-semibold text-foreground': formData.task.complexity === '{{ $opt['value'] }}' }"
-                                    @click="formData.task.complexity = '{{ $opt['value'] }}'"
+                                    @click="$dispatch('task-form-updated', { path: 'formData.task.complexity', value: '{{ $opt['value'] }}' })"
                                 >
                                     {{ $opt['label'] }}
                                 </button>
@@ -199,7 +199,7 @@
                                     type="button"
                                     class="{{ $dropdownItemClass }}"
                                     x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '{{ $dur['value'] }}' }"
-                                    @click="formData.task.duration = '{{ $dur['value'] }}'"
+                                    @click="$dispatch('task-form-updated', { path: 'formData.task.duration', value: '{{ $dur['value'] }}' })"
                                 >
                                     {{ $dur['label'] }}
                                 </button>
@@ -207,36 +207,17 @@
                         </div>
                     </x-simple-select-dropdown>
 
-                    <x-workspace.tag-selection />
+                    <x-workspace.tag-selection position="bottom" align="end" />
 
-                    @foreach ([['label' => __('Start'), 'model' => 'formData.task.startDatetime', 'ref' => 'startDateDropdown', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.task.endDatetime', 'ref' => 'endDateDropdown', 'datePickerLabel' => __('End Date')]] as $dateField)
-                        <x-dropdown position="top" align="end" :keep-open="true" x-ref="{{ $dateField['ref'] }}">
-                            <x-slot:trigger>
-                                <button
-                                    type="button"
-                                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-                                    data-task-creation-safe
-                                    aria-haspopup="menu"
-                                >
-                                    <flux:icon name="clock" class="size-3" />
-                                    <span class="inline-flex items-baseline gap-1">
-                                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                            {{ $dateField['label'] }}:
-                                        </span>
-                                        <span class="text-xs uppercase" x-text="formatDatetime({{ $dateField['model'] }})"></span>
-                                    </span>
-                                    <flux:icon name="chevron-down" class="size-3" />
-                                </button>
-                            </x-slot:trigger>
-
-                            <div class="p-3" data-task-creation-safe>
-                                <x-date-picker
-                                    label="{{ $dateField['datePickerLabel'] }}"
-                                    :model="$dateField['model']"
-                                    type="datetime-local"
-                                />
-                            </div>
-                        </x-dropdown>
+                    @foreach ([['label' => __('Start'), 'model' => 'formData.task.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.task.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
+                        <x-date-picker
+                            :triggerLabel="$dateField['label']"
+                            :label="$dateField['datePickerLabel']"
+                            :model="$dateField['model']"
+                            type="datetime-local"
+                            position="bottom"
+                            align="end"
+                        />
                     @endforeach
 
                     <div class="flex w-full items-center gap-1.5" x-show="errors.taskDateRange" x-cloak>

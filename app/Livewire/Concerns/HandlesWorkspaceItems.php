@@ -239,14 +239,14 @@ trait HandlesWorkspaceItems
     /**
      * Delete a task for the authenticated user.
      */
-    public function deleteTask(int $taskId): void
+    public function deleteTask(int $taskId): bool
     {
         $user = Auth::user();
 
         if ($user === null) {
             $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete tasks.'));
 
-            return;
+            return false;
         }
 
         $task = Task::query()->find($taskId);
@@ -254,7 +254,7 @@ trait HandlesWorkspaceItems
         if ($task === null) {
             $this->dispatch('toast', type: 'error', message: __('Task not found.'));
 
-            return;
+            return false;
         }
 
         $this->authorize('delete', $task);
@@ -270,30 +270,32 @@ trait HandlesWorkspaceItems
 
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the task.'));
 
-            return;
+            return false;
         }
 
         if (! $deleted) {
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the task.'));
 
-            return;
+            return false;
         }
 
         $this->listRefresh++;
         $this->dispatch('toast', type: 'success', message: __('Task deleted.'));
+
+        return true;
     }
 
     /**
      * Delete a project for the authenticated user.
      */
-    public function deleteProject(int $projectId): void
+    public function deleteProject(int $projectId): bool
     {
         $user = Auth::user();
 
         if ($user === null) {
             $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete projects.'));
 
-            return;
+            return false;
         }
 
         $project = Project::query()->find($projectId);
@@ -301,7 +303,7 @@ trait HandlesWorkspaceItems
         if ($project === null) {
             $this->dispatch('toast', type: 'error', message: __('Project not found.'));
 
-            return;
+            return false;
         }
 
         $this->authorize('delete', $project);
@@ -317,30 +319,32 @@ trait HandlesWorkspaceItems
 
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the project.'));
 
-            return;
+            return false;
         }
 
         if (! $deleted) {
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the project.'));
 
-            return;
+            return false;
         }
 
         $this->listRefresh++;
         $this->dispatch('toast', type: 'success', message: __('Project deleted.'));
+
+        return true;
     }
 
     /**
      * Delete an event for the authenticated user.
      */
-    public function deleteEvent(int $eventId): void
+    public function deleteEvent(int $eventId): bool
     {
         $user = Auth::user();
 
         if ($user === null) {
             $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete events.'));
 
-            return;
+            return false;
         }
 
         $event = Event::query()->find($eventId);
@@ -348,7 +352,7 @@ trait HandlesWorkspaceItems
         if ($event === null) {
             $this->dispatch('toast', type: 'error', message: __('Event not found.'));
 
-            return;
+            return false;
         }
 
         $this->authorize('delete', $event);
@@ -364,17 +368,19 @@ trait HandlesWorkspaceItems
 
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the event.'));
 
-            return;
+            return false;
         }
 
         if (! $deleted) {
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the event.'));
 
-            return;
+            return false;
         }
 
         $this->listRefresh++;
         $this->dispatch('toast', type: 'success', message: __('Event deleted.'));
+
+        return true;
     }
 
     /**

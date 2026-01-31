@@ -39,6 +39,25 @@
     {{ $attributes->merge([
         'class' => 'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur',
     ]) }}
+    x-data="{
+        deleting: false,
+        deleteMethod: @js($deleteMethod),
+        itemId: @js($item->id),
+        async deleteItem() {
+            if (this.deleting || !this.deleteMethod || this.itemId == null) return;
+            this.deleting = true;
+            try {
+                const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
+                if (!ok) this.deleting = false;
+            } catch (e) {
+                this.deleting = false;
+            }
+        }
+    }"
+    x-show="!deleting"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
 >
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
@@ -71,7 +90,7 @@
                             <flux:menu.item
                                 variant="danger"
                                 icon="trash"
-                                @click="$wire.$parent.$call('{{ $deleteMethod }}', {{ $item->id }})"
+                                @click.throttle.250ms="deleteItem()"
                             >
                                 Delete
                             </flux:menu.item>
@@ -151,6 +170,7 @@
                 </span>
             </span>
         @endif
+
     @elseif($kind === 'event')
         @if($item->timezone)
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">

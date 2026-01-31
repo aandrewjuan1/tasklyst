@@ -2,12 +2,15 @@
     'label',
     'model',
     'type' => 'datetime-local',
+    'triggerLabel' => 'Date',
+    'position' => 'top',
+    'align' => 'end',
 ])
 
 <script>
     document.addEventListener('alpine:init', () => {
         if (!Alpine._datePickerRegistered) {
-            Alpine.data('datePicker', (type, modelPath) => ({
+            Alpine.data('datePicker', (type, modelPath, notSetLabel, defaultPosition = 'top', defaultAlign = 'end') => ({
             type: type,
             month: null,
             year: null,
@@ -17,145 +20,70 @@
             meridiem: 'AM',
             days: [],
             modelPath: modelPath,
+            currentValue: null,
+            notSetLabel: notSetLabel || 'Not set',
+            open: false,
+            placementVertical: defaultPosition,
+            placementHorizontal: defaultAlign,
+            panelHeightEst: 420,
+            panelWidthEst: 320,
 
             init() {
-                // Delay initialization to ensure $el is available
                 this.$nextTick(() => {
-                    this.parseInitial(this.getModelValue());
+                    // Initial value: request from parent via window (parent listens and responds with date-picker-value).
+                    // All updates: use setModelValue() which $dispatch('date-picker-updated') so parent handles with @date-picker-updated.
+                    let initialApplied = false;
 
-                    const baseDate = this.selectedDate ?? new Date();
-                    this.month = baseDate.getMonth();
-                    this.year = baseDate.getFullYear();
+                    const applyInitialValue = () => {
+                        if (initialApplied) {
+                            return;
+                        }
+                        initialApplied = true;
+                        this.parseInitial(this.currentValue);
+                        const baseDate = this.selectedDate ?? new Date();
+                        this.month = baseDate.getMonth();
+                        this.year = baseDate.getFullYear();
+                        if (this.type === 'datetime-local' && (!this.hour || !this.minute)) {
+                            const now = this.selectedDate ?? new Date();
+                            this.setTimeFromDate(now);
+                        }
+                        this.buildDays();
+                    };
 
-                    if (this.type === 'datetime-local' && (!this.hour || !this.minute)) {
-                        const now = this.selectedDate ?? new Date();
-                        this.setTimeFromDate(now);
-                    }
+                    let responseReceived = false;
 
-                    this.buildDays();
+                    const handler = (e) => {
+                        if (e.detail.path === this.modelPath) {
+                            responseReceived = true;
+                            this.currentValue = e.detail.value ?? null;
+                            window.removeEventListener('date-picker-value', handler);
+                            applyInitialValue();
+                        }
+                    };
+
+                    window.addEventListener('date-picker-value', handler);
+                    window.dispatchEvent(new CustomEvent('date-picker-request-value', {
+                        detail: { path: this.modelPath },
+                    }));
+
+                    setTimeout(() => {
+                        if (!responseReceived) {
+                            applyInitialValue();
+                        }
+                    }, 100);
                 });
             },
 
-            getParentScope() {
-                try {
-                    // Method 1: Try $root (Alpine root scope)
-                    if (typeof $root !== 'undefined' && $root) {
-                        if ($root.formData) {
-                            return $root;
-                        }
-                    }
-
-                    // Method 2: Use Alpine's closestDataStack if available
-                    if (typeof Alpine !== 'undefined' && Alpine.closestDataStack) {
-                        try {
-                            const stack = Alpine.closestDataStack(this.$el);
-                            for (let i = stack.length - 1; i >= 0; i--) {
-                                if (stack[i] && stack[i].formData) {
-                                    return stack[i];
-                                }
-                            }
-                        } catch (e) {
-                            // closestDataStack might not be available
-                        }
-                    }
-
-                    // Method 3: Traverse DOM to find parent Alpine component
-                    const el = this.$el;
-                    if (!el) {
-                        return null;
-                    }
-
-                    let element = el.parentElement;
-                    let maxDepth = 50; // Increased depth
-                    let depth = 0;
-
-                    while (element && depth < maxDepth) {
-                        // Check if this element has Alpine data
-                        if (element.__x && element.__x.$data) {
-                            const data = element.__x.$data;
-                            if (data && data.formData) {
-                                return data;
-                            }
-                        }
-
-                        // Also check for x-data attribute
-                        if (element.hasAttribute && element.hasAttribute('x-data')) {
-                            const xDataAttr = element.getAttribute('x-data');
-                            if (xDataAttr && xDataAttr.includes('formData')) {
-                                if (element.__x && element.__x.$data) {
-                                    return element.__x.$data;
-                                }
-                            }
-                        }
-
-                        element = element.parentElement;
-                        depth++;
-                    }
-
-                    return null;
-                } catch (e) {
-                    console.error('Error in getParentScope:', e);
-                    return null;
-                }
-            },
-
             getModelValue() {
-                try {
-                    const parentScope = this.getParentScope();
-                    if (!parentScope) {
-                        return null;
-                    }
-
-                    const pathParts = this.modelPath.split('.');
-                    let value = parentScope;
-                    for (const part of pathParts) {
-                        if (value === null || value === undefined) {
-                            return null;
-                        }
-                        value = value[part];
-                    }
-                    return value;
-                } catch (e) {
-                    console.error('Error getting model value:', e);
-                    return null;
-                }
+                return this.currentValue;
             },
 
             setModelValue(value) {
-                try {
-                    const parentScope = this.getParentScope();
-                    if (!parentScope) {
-                        console.error('Parent scope not found for setModelValue. Using window event fallback:', this.modelPath);
-                        // Fallback: Dispatch a window event that the parent can listen to
-                        window.dispatchEvent(new CustomEvent('date-picker-updated', {
-                            detail: {
-                                path: this.modelPath,
-                                value: value
-                            }
-                        }));
-                        return;
-                    }
-
-                    const pathParts = this.modelPath.split('.');
-                    let target = parentScope;
-
-                    for (let i = 0; i < pathParts.length - 1; i++) {
-                        if (!target[pathParts[i]]) {
-                            target[pathParts[i]] = {};
-                        }
-                        target = target[pathParts[i]];
-                    }
-                    target[pathParts[pathParts.length - 1]] = value;
-                } catch (e) {
-                    console.error('Error setting model value:', e, 'Path:', this.modelPath);
-                    // Fallback on error too
-                    window.dispatchEvent(new CustomEvent('date-picker-updated', {
-                        detail: {
-                            path: this.modelPath,
-                            value: value
-                        }
-                    }));
-                }
+                this.currentValue = value;
+                this.$dispatch('date-picker-updated', {
+                    path: this.modelPath,
+                    value: value,
+                });
             },
 
             parseInitial(value) {
@@ -350,6 +278,70 @@
                     year: 'numeric',
                 });
             },
+
+            formatDisplayValue(value) {
+                if (!value) {
+                    return this.notSetLabel;
+                }
+                try {
+                    const date = new Date(value);
+                    if (isNaN(date.getTime())) {
+                        return this.notSetLabel;
+                    }
+                    const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                    const timeStr = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+                    return dateStr + ' ' + timeStr;
+                } catch (e) {
+                    return this.notSetLabel;
+                }
+            },
+
+            toggle() {
+                if (this.open) {
+                    return this.close(this.$refs.button);
+                }
+
+                this.$refs.button.focus();
+
+                const rect = this.$refs.button.getBoundingClientRect();
+                const vh = window.innerHeight;
+                const vw = window.innerWidth;
+
+                if (rect.bottom + this.panelHeightEst > vh && rect.top > this.panelHeightEst) {
+                    this.placementVertical = 'top';
+                } else {
+                    this.placementVertical = 'bottom';
+                }
+                const endFits = rect.right <= vw && rect.right - this.panelWidthEst >= 0;
+                const startFits = rect.left >= 0 && rect.left + this.panelWidthEst <= vw;
+                if (endFits) {
+                    this.placementHorizontal = 'end';
+                } else if (startFits) {
+                    this.placementHorizontal = 'start';
+                } else {
+                    this.placementHorizontal = rect.right > vw ? 'start' : 'end';
+                }
+
+                this.open = true;
+            },
+
+            close(focusAfter) {
+                if (!this.open) return;
+
+                this.open = false;
+
+                focusAfter && focusAfter.focus();
+            },
+
+            get panelPlacementClasses() {
+                const v = this.placementVertical;
+                const h = this.placementHorizontal;
+                if (v === 'top' && h === 'end') return 'bottom-full right-0 mb-1';
+                if (v === 'top' && h === 'start') return 'bottom-full left-0 mb-1';
+                if (v === 'bottom' && h === 'end') return 'top-full right-0 mt-1';
+                if (v === 'bottom' && h === 'start') return 'top-full left-0 mt-1';
+                return 'bottom-full right-0 mb-1';
+            },
             }));
             Alpine._datePickerRegistered = true;
         }
@@ -357,10 +349,52 @@
 </script>
 
 <div
-    class="space-y-3 px-3 pb-1 pt-2"
-    x-data="datePicker(@js($type), @js($model))"
-    @click.stop
+    x-data="datePicker(@js($type), @js($model), @js(__('Not set')), @js($position), @js($align))"
+    x-on:keydown.escape.prevent.stop="close($refs.button)"
+    x-on:focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    x-id="['date-picker-dropdown']"
+    class="relative inline-block"
+    data-task-creation-safe
+    {{ $attributes }}
 >
+    <button
+        x-ref="button"
+        type="button"
+        x-on:click="toggle()"
+        aria-haspopup="true"
+        :aria-expanded="open"
+        :aria-controls="$id('date-picker-dropdown')"
+        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+        data-task-creation-safe
+    >
+        <flux:icon name="clock" class="size-3" />
+        <span class="inline-flex items-baseline gap-1">
+            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                {{ $triggerLabel }}:
+            </span>
+            <span class="text-xs uppercase" x-text="formatDisplayValue(currentValue)"></span>
+        </span>
+        <flux:icon name="chevron-down" class="size-3" />
+    </button>
+
+    <div
+        x-ref="panel"
+        x-show="open"
+        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-75"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
+        x-cloak
+        x-on:click.outside="close($refs.button)"
+        @click.stop
+        :id="$id('date-picker-dropdown')"
+        :class="panelPlacementClasses"
+        class="absolute z-50 flex min-w-48 flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
+        data-task-creation-safe
+    >
+        <div class="space-y-3 p-3 pb-1 pt-2">
     <div class="pt-1 pb-1">
         <!-- Header -->
         <div class="mb-4 flex items-center justify-between px-1">
@@ -478,6 +512,8 @@
                     </select>
                 </div>
             </div>
+        </div>
+    </div>
         </div>
     </div>
 </div>

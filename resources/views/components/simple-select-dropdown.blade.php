@@ -31,10 +31,15 @@
 
     <div
         x-show="open"
-        x-transition
+        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-75"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
         x-cloak
         @click="open = false"
-        class="absolute z-50 min-w-32 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 {{ $panelPositionClasses }}"
+        class="absolute z-50 min-w-32 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 contain-[paint] {{ $panelPositionClasses }}"
     >
         {{ $slot }}
     </div>
