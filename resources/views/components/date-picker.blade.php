@@ -22,6 +22,7 @@
             modelPath: modelPath,
             currentValue: null,
             notSetLabel: notSetLabel || 'Not set',
+            initialApplied: false,
             open: false,
             placementVertical: defaultPosition,
             placementHorizontal: defaultAlign,
@@ -30,48 +31,38 @@
 
             init() {
                 this.$nextTick(() => {
-                    // Initial value: request from parent via window (parent listens and responds with date-picker-value).
-                    // All updates: use setModelValue() which $dispatch('date-picker-updated') so parent handles with @date-picker-updated.
-                    let initialApplied = false;
-
-                    const applyInitialValue = () => {
-                        if (initialApplied) {
-                            return;
-                        }
-                        initialApplied = true;
-                        this.parseInitial(this.currentValue);
-                        const baseDate = this.selectedDate ?? new Date();
-                        this.month = baseDate.getMonth();
-                        this.year = baseDate.getFullYear();
-                        if (this.type === 'datetime-local' && (!this.hour || !this.minute)) {
-                            const now = this.selectedDate ?? new Date();
-                            this.setTimeFromDate(now);
-                        }
-                        this.buildDays();
-                    };
-
-                    let responseReceived = false;
-
-                    const handler = (e) => {
-                        if (e.detail.path === this.modelPath) {
-                            responseReceived = true;
-                            this.currentValue = e.detail.value ?? null;
-                            window.removeEventListener('date-picker-value', handler);
-                            applyInitialValue();
-                        }
-                    };
-
-                    window.addEventListener('date-picker-value', handler);
-                    window.dispatchEvent(new CustomEvent('date-picker-request-value', {
-                        detail: { path: this.modelPath },
-                    }));
+                    this.$dispatch('date-picker-request-value', { path: this.modelPath });
 
                     setTimeout(() => {
-                        if (!responseReceived) {
-                            applyInitialValue();
+                        if (!this.initialApplied) {
+                            this.applyInitialValue();
                         }
                     }, 100);
                 });
+            },
+
+            applyInitialValue() {
+                if (this.initialApplied) {
+                    return;
+                }
+                this.initialApplied = true;
+                this.parseInitial(this.currentValue);
+                const baseDate = this.selectedDate ?? new Date();
+                this.month = baseDate.getMonth();
+                this.year = baseDate.getFullYear();
+                if (this.type === 'datetime-local' && (!this.hour || !this.minute)) {
+                    const now = this.selectedDate ?? new Date();
+                    this.setTimeFromDate(now);
+                }
+                this.buildDays();
+            },
+
+            handleDatePickerValue(e) {
+                if (e.detail.path === this.modelPath) {
+                    this.currentValue = e.detail.value ?? null;
+                    this.initialApplied = false;
+                    this.applyInitialValue();
+                }
             },
 
             getModelValue() {
@@ -350,8 +341,9 @@
 
 <div
     x-data="datePicker(@js($type), @js($model), @js(__('Not set')), @js($position), @js($align))"
-    x-on:keydown.escape.prevent.stop="close($refs.button)"
-    x-on:focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @date-picker-value="handleDatePickerValue($event)"
+    @keydown.escape.prevent.stop="close($refs.button)"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['date-picker-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
@@ -360,7 +352,7 @@
     <button
         x-ref="button"
         type="button"
-        x-on:click="toggle()"
+        @click="toggle()"
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
@@ -387,7 +379,7 @@
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
         x-cloak
-        x-on:click.outside="close($refs.button)"
+        @click.outside="close($refs.button)"
         @click.stop
         :id="$id('date-picker-dropdown')"
         :class="panelPlacementClasses"

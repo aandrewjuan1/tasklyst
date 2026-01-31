@@ -60,8 +60,8 @@
             return 'bottom-full right-0 mb-1';
         },
     }"
-    x-on:keydown.escape.prevent.stop="close($refs.button)"
-    x-on:focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @keydown.escape.prevent.stop="close($refs.button)"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['simple-select-dropdown']"
     class="relative inline-block"
     {{ $attributes }}
@@ -91,7 +91,7 @@
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
         x-cloak
-        x-on:click.outside="close($refs.button)"
+        @click.outside="close($refs.button)"
         @click="close($refs.button)"
         :id="$id('simple-select-dropdown')"
         :class="panelPlacementClasses"

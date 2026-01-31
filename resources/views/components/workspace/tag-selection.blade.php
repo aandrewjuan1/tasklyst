@@ -60,8 +60,8 @@
             return 'bottom-full right-0 mb-1';
         },
     }"
-    x-on:keydown.escape.prevent.stop="close($refs.button)"
-    x-on:focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @keydown.escape.prevent.stop="close($refs.button)"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['tag-selection-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
@@ -70,7 +70,7 @@
     <button
         x-ref="button"
         type="button"
-        x-on:click="toggle()"
+        @click="toggle()"
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('tag-selection-dropdown')"
@@ -96,7 +96,7 @@
         x-transition:leave="transition ease-in duration-75"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        x-on:click.outside="close($refs.button)"
+        @click.outside="close($refs.button)"
         :id="$id('tag-selection-dropdown')"
         :class="panelPlacementClasses"
         x-cloak

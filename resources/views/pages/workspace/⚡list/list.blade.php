@@ -386,39 +386,18 @@
                 this.validateTaskDateRange();
             }
         },
-    }"
-    @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
-    @task-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
-    @tag-toggled="toggleTag($event.detail.tagId)"
-    @tag-create-request="createTagOptimistic($event.detail.tagName)"
-    @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
-    x-init="
-        (function() {
-        // Capture Alpine scope for window event callbacks (this is the event target when callback runs)
-        const scope = this;
-
-        window.addEventListener('task-created', () => {
-            if (typeof this.resetForm === 'function') {
-                this.resetForm();
-            }
-        });
-
-        window.addEventListener('tag-created', (event) => {
+        onTagCreated(event) {
             const { id, name } = event.detail;
 
-            // Check if we have a temp tag that needs to be replaced
             const tempTag = this.tags?.find(tag => tag.name === name && String(tag.id).startsWith('temp-'));
             if (tempTag) {
-                // Get temp ID before replacing
                 const tempId = tempTag.id;
 
-                // Replace temp tag with real tag
                 const tempTagIndex = this.tags.findIndex(tag => tag.id === tempId);
                 if (tempTagIndex !== -1) {
                     this.tags[tempTagIndex] = { id, name };
                 }
 
-                // Replace temp ID in tagIds array with real ID
                 if (this.formData?.task?.tagIds) {
                     const tempIdIndex = this.formData.task.tagIds.indexOf(tempId);
                     if (tempIdIndex !== -1) {
@@ -426,27 +405,22 @@
                     }
                 }
 
-                // Dedupe by id (server may have returned existing tag already in list)
                 this.tags = this.tags.filter((tag, idx, arr) => arr.findIndex(t => String(t.id) === String(tag.id)) === idx);
                 this.tags.sort((a, b) => a.name.localeCompare(b.name));
             } else {
-                // Add new tag if it doesn't exist
                 if (this.tags && !this.tags.find(tag => tag.id === id)) {
                     this.tags.push({ id, name });
                     this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
 
-                // Automatically select the newly created tag
                 if (this.formData?.task?.tagIds && !this.formData.task.tagIds.includes(id)) {
                     this.formData.task.tagIds.push(id);
                 }
             }
-        });
-
-        window.addEventListener('tag-deleted', (event) => {
+        },
+        onTagDeleted(event) {
             const { id } = event.detail;
 
-            // Remove tag from tags array if still present (handles edge cases)
             if (this.tags) {
                 const tagIndex = this.tags.findIndex(tag => tag.id === id);
                 if (tagIndex !== -1) {
@@ -454,33 +428,37 @@
                 }
             }
 
-            // Remove tag from selection if selected
             if (this.formData?.task?.tagIds) {
                 const selectedIndex = this.formData.task.tagIds.indexOf(id);
                 if (selectedIndex !== -1) {
                     this.formData.task.tagIds.splice(selectedIndex, 1);
                 }
             }
-        });
-
-
-        // Listen for date picker value requests (parent responds with current formData value)
-        window.addEventListener('date-picker-request-value', (event) => {
+        },
+        onDatePickerRequestValue(event) {
             const { path } = event.detail;
             const pathParts = path.split('.');
-            let value = scope;
+            let value = this;
             for (const part of pathParts) {
                 if (value === null || value === undefined) {
                     break;
                 }
                 value = value[part];
             }
-            window.dispatchEvent(new CustomEvent('date-picker-value', {
+            event.target.dispatchEvent(new CustomEvent('date-picker-value', {
                 detail: { path, value: value ?? null },
             }));
-        });
-        }).call(this);
-    "
+        },
+    }"
+    @task-created="resetForm()"
+    @tag-created="onTagCreated($event)"
+    @tag-deleted="onTagDeleted($event)"
+    @date-picker-request-value="onDatePickerRequestValue($event)"
+    @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @task-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @tag-toggled="toggleTag($event.detail.tagId)"
+    @tag-create-request="createTagOptimistic($event.detail.tagName)"
+    @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
     x-effect="
         formData.task.startDatetime;
         formData.task.endDatetime;

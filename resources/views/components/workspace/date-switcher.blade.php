@@ -19,7 +19,7 @@
         variant="ghost"
         size="xs"
         icon="chevron-left"
-        x-on:click="$wire.set('selectedDate', '{{ $previousDate }}')"
+        @click="$wire.set('selectedDate', '{{ $previousDate }}')"
         :loading="false"
     />
 
@@ -27,7 +27,7 @@
         @if (! $isToday)
             <button
                 type="button"
-                x-on:click="$wire.set('selectedDate', '{{ $today }}')"
+                @click="$wire.set('selectedDate', '{{ $today }}')"
                 class="text-xs uppercase tracking-wide text-muted-foreground underline-offset-2 hover:underline"
             >
                 {{ __('Today') }}
@@ -42,7 +42,7 @@
         variant="ghost"
         size="xs"
         icon="chevron-right"
-        x-on:click="$wire.set('selectedDate', '{{ $nextDate }}')"
+        @click="$wire.set('selectedDate', '{{ $nextDate }}')"
         :loading="false"
     />
 </div>
