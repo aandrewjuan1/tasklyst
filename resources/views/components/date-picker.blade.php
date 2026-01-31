@@ -297,15 +297,18 @@
                 const rect = this.$refs.button.getBoundingClientRect();
                 const vh = window.innerHeight;
                 const vw = window.innerWidth;
+                const contentLeft = 320;
 
                 if (rect.bottom + this.panelHeightEst > vh && rect.top > this.panelHeightEst) {
                     this.placementVertical = 'top';
                 } else {
                     this.placementVertical = 'bottom';
                 }
-                const endFits = rect.right <= vw && rect.right - this.panelWidthEst >= 0;
-                const startFits = rect.left >= 0 && rect.left + this.panelWidthEst <= vw;
-                if (endFits) {
+                const endFits = rect.right <= vw && rect.right - this.panelWidthEst >= contentLeft;
+                const startFits = rect.left >= contentLeft && rect.left + this.panelWidthEst <= vw;
+                if (rect.left < contentLeft) {
+                    this.placementHorizontal = 'start';
+                } else if (endFits) {
                     this.placementHorizontal = 'end';
                 } else if (startFits) {
                     this.placementHorizontal = 'start';
