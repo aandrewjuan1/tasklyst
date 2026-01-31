@@ -26,6 +26,7 @@ final class TaskPayloadValidation
             'endDatetime' => null,
             'projectId' => null,
             'tagIds' => [],
+            'pendingTagNames' => [],
             'recurrence' => [
                 'enabled' => false,
                 'type' => null,
@@ -64,6 +65,8 @@ final class TaskPayloadValidation
                     }
                 }),
             ],
+            'taskPayload.pendingTagNames' => ['array'],
+            'taskPayload.pendingTagNames.*' => ['string', 'max:255', 'regex:/\S/'],
 
             'taskPayload.recurrence' => ['array'],
             'taskPayload.recurrence.enabled' => ['boolean'],

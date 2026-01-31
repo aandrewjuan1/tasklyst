@@ -112,7 +112,7 @@
                 return '';
             }
             const selectedIds = this.formData.task.tagIds;
-            const selectedTags = this.tags.filter(tag => selectedIds.includes(tag.id));
+            const selectedTags = this.tags.filter(tag => selectedIds.some(id => String(id) === String(tag.id)));
             return selectedTags.map(tag => tag.name).join(', ');
         },
         newTagName: '',
@@ -182,6 +182,21 @@
             }
 
             const tagName = this.newTagName.trim();
+
+            // If tag already exists in Alpine state, just select it (no optimistic add, no server call)
+            const existingTag = this.tags?.find(t => (t.name || '').trim() === tagName);
+            if (existingTag) {
+                if (!this.formData.task.tagIds) {
+                    this.formData.task.tagIds = [];
+                }
+                const alreadySelected = this.formData.task.tagIds.some(id => String(id) === String(existingTag.id));
+                if (!alreadySelected) {
+                    this.formData.task.tagIds.push(existingTag.id);
+                }
+                this.newTagName = '';
+                return;
+            }
+
             const tempId = `temp-${Date.now()}`;
 
             // Snapshot for rollback
@@ -247,16 +262,23 @@
             this.loadingStartedAt = Date.now();
 
             const payload = JSON.parse(JSON.stringify(this.formData.task));
-            // Filter out temporary tag IDs (those starting with 'temp-') before submission
-            // Only send valid integer tag IDs that exist in the database
+            // Split tag IDs: real IDs for payload.tagIds, temp IDs resolved by name for payload.pendingTagNames
             if (payload.tagIds && Array.isArray(payload.tagIds)) {
-                payload.tagIds = payload.tagIds
+                const realIds = payload.tagIds
                     .filter(tagId => {
                         const idStr = String(tagId);
-                        // Filter out temporary IDs and non-numeric values
                         return !idStr.startsWith('temp-') && !isNaN(Number(tagId));
                     })
-                    .map(tagId => Number(tagId)); // Ensure all IDs are numbers
+                    .map(tagId => Number(tagId));
+                const tempIds = payload.tagIds.filter(tagId => String(tagId).startsWith('temp-'));
+                const pendingNames = tempIds
+                    .map(tempId => this.tags?.find(t => t.id === tempId)?.name)
+                    .filter(Boolean);
+                payload.tagIds = realIds;
+                payload.pendingTagNames = [...new Set(pendingNames)];
+            }
+            if (!payload.pendingTagNames) {
+                payload.pendingTagNames = [];
             }
             const minLoadingMs = 500;
 
@@ -381,7 +403,6 @@
                 const tempTagIndex = this.tags.findIndex(tag => tag.id === tempId);
                 if (tempTagIndex !== -1) {
                     this.tags[tempTagIndex] = { id, name };
-                    this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
 
                 // Replace temp ID in tagIds array with real ID
@@ -391,6 +412,10 @@
                         this.formData.task.tagIds[tempIdIndex] = id;
                     }
                 }
+
+                // Dedupe by id (server may have returned existing tag already in list)
+                this.tags = this.tags.filter((tag, idx, arr) => arr.findIndex(t => String(t.id) === String(tag.id)) === idx);
+                this.tags.sort((a, b) => a.name.localeCompare(b.name));
             } else {
                 // Add new tag if it doesn't exist
                 if (this.tags && !this.tags.find(tag => tag.id === id)) {
@@ -507,6 +532,13 @@
                     <span class="uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
                 </span>
             </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Duration') }}:</span>
+                    <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
+                </span>
+            </span>
             <span
                 x-show="formData.task.tagIds && formData.task.tagIds.length > 0"
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10"
@@ -515,13 +547,6 @@
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Tags') }}:</span>
                     <span class="truncate max-w-[140px] uppercase" x-text="getSelectedTagNames()"></span>
-                </span>
-            </span>
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Duration') }}:</span>
-                    <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
                 </span>
             </span>
             <span

@@ -55,6 +55,34 @@ trait HandlesWorkspaceItems
         $startDatetime = $this->parseOptionalDatetime($validatedTask['startDatetime'] ?? null);
         $endDatetime = $this->parseOptionalDatetime($validatedTask['endDatetime'] ?? null);
 
+        $tagIds = array_values(array_unique(array_map('intval', $validatedTask['tagIds'] ?? [])));
+        foreach ($validatedTask['pendingTagNames'] ?? [] as $name) {
+            $name = trim((string) $name);
+            if ($name === '') {
+                continue;
+            }
+            $existingTag = Tag::query()
+                ->where('user_id', $user->id)
+                ->where('name', $name)
+                ->first();
+            if ($existingTag !== null) {
+                $tagIds[] = $existingTag->id;
+
+                continue;
+            }
+            try {
+                $tag = $this->tagService->createTag($user, ['name' => $name]);
+                $tagIds[] = $tag->id;
+            } catch (\Throwable $e) {
+                Log::error('Failed to create tag when creating task.', [
+                    'user_id' => $user->id,
+                    'name' => $name,
+                    'exception' => $e,
+                ]);
+            }
+        }
+        $tagIds = array_values(array_unique($tagIds));
+
         $taskAttributes = [
             'title' => $title,
             'status' => $validatedTask['status'] ?? null,
@@ -64,7 +92,7 @@ trait HandlesWorkspaceItems
             'start_datetime' => $startDatetime,
             'end_datetime' => $endDatetime,
             'project_id' => $validatedTask['projectId'] ?? null,
-            'tagIds' => $validatedTask['tagIds'] ?? [],
+            'tagIds' => $tagIds,
         ];
 
         try {
