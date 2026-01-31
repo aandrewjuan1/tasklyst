@@ -2,37 +2,31 @@
     $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 @endphp
 <div class="relative z-10">
-    <x-dropdown position="right" align="start">
-        <x-slot:trigger>
-            <flux:button icon:trailing="plus-circle" data-task-creation-safe>
-                {{ __('Add') }}
-            </flux:button>
-        </x-slot:trigger>
+    <flux:dropdown position="right" align="start">
+        <flux:button icon:trailing="plus-circle" data-task-creation-safe>
+            {{ __('Add') }}
+        </flux:button>
 
-        <div class="flex flex-col py-1" data-task-creation-safe>
-            @foreach ([
-                ['icon' => 'rectangle-stack', 'label' => __('Task'), 'variant' => 'default', 'taskClick' => true],
-                ['icon' => 'calendar-days', 'label' => __('Event'), 'variant' => 'default', 'taskClick' => false],
-                ['icon' => 'clipboard-document-list', 'label' => __('Project'), 'variant' => 'destructive', 'taskClick' => false],
-            ] as $addItem)
-                <button
-                    type="button"
-                    @if ($addItem['taskClick'])
-                        @click="
-                            showTaskCreation = !showTaskCreation;
-                            if (showTaskCreation) {
-                                $nextTick(() => $refs.taskTitle?.focus());
-                            }
-                        "
-                    @endif
-                    class="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-left {{ $addItem['variant'] === 'destructive' ? 'hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive' : 'hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' }}"
-                >
-                    <flux:icon name="{{ $addItem['icon'] }}" class="size-4 {{ $addItem['variant'] === 'destructive' ? 'text-destructive' : 'text-muted-foreground' }}" />
-                    <span>{{ $addItem['label'] }}</span>
-                </button>
-            @endforeach
-        </div>
-    </x-dropdown>
+        <flux:menu>
+            <flux:menu.item
+                icon="rectangle-stack"
+                @click="
+                    showTaskCreation = !showTaskCreation;
+                    if (showTaskCreation) {
+                        $nextTick(() => $refs.taskTitle?.focus());
+                    }
+                "
+            >
+                {{ __('Task') }}
+            </flux:menu.item>
+            <flux:menu.item icon="calendar-days">
+                {{ __('Event') }}
+            </flux:menu.item>
+            <flux:menu.item variant="danger" icon="clipboard-document-list">
+                {{ __('Project') }}
+            </flux:menu.item>
+        </flux:menu>
+    </flux:dropdown>
 
     <div
     x-show="showTaskCreation"
