@@ -481,11 +481,17 @@
         x-show="showTaskLoading"
         x-cloak
         data-test="task-loading-card"
-        class="mt-4 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm opacity-95 blur-[1px]"
+        class="mt-4 flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm backdrop-blur opacity-60"
     >
+        <div
+            class="relative h-px w-full overflow-hidden bg-zinc-300 dark:bg-zinc-600"
+            aria-hidden="true"
+        >
+            <div class="loading-bar-track absolute left-0 top-0 h-full w-1/3 max-w-[120px] rounded-full bg-zinc-500 dark:bg-zinc-400"></div>
+        </div>
+        <div class="flex flex-col gap-2 px-3 pt-3 pb-2">
         <div class="flex items-start justify-between gap-2">
             <div class="flex min-w-0 flex-1 items-center gap-2">
-                <flux:icon name="loading" class="size-5 shrink-0 animate-spin text-muted-foreground" />
                 <p class="truncate text-base font-semibold leading-tight" x-text="formData.task.title"></p>
             </div>
             <div class="flex items-center gap-2">
@@ -559,33 +565,71 @@
                 </span>
             </span>
         </div>
+        </div>
     </div>
 
+    @php
+        $date = $selectedDate ? \Illuminate\Support\Carbon::parse($selectedDate) : now();
+        $emptyDateLabel = $date->isToday()
+            ? __('today')
+            : ($date->isTomorrow()
+                ? __('tomorrow')
+                : ($date->isYesterday()
+                    ? __('yesterday')
+                    : $date->translatedFormat('l, F j, Y')));
+        $totalItemsCount = $projects->count() + $events->count() + $tasks->count();
+    @endphp
     @if($projects->isEmpty() && $events->isEmpty() && $tasks->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
             <div class="flex items-center gap-2">
-                <flux:icon name="inbox" class="size-5 text-muted-foreground/50" />
+                <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
                 <flux:text class="text-sm font-medium text-muted-foreground">
-                    {{ __('No items yet') }}
+                    {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
                 </flux:text>
             </div>
             <flux:text class="text-xs text-muted-foreground/70">
-                {{ __('Create your first task, project, or event to get started') }}
+                {{ __('Add a task, project, or event for this day to get started') }}
             </flux:text>
         </div>
     @else
-        <div class="space-y-4">
-            @foreach ([['kind' => 'project', 'items' => $projects], ['kind' => 'event', 'items' => $events], ['kind' => 'task', 'items' => $tasks]] as $group)
-                <div class="space-y-3">
-                    @foreach ($group['items'] as $item)
-                        <x-workspace.list-item-card
-                            :kind="$group['kind']"
-                            :item="$item"
-                            wire:key="{{ $group['kind'] }}-{{ $item->id }}"
-                        />
-                    @endforeach
+        <div
+            class="space-y-4"
+            x-data="{ visibleItemCount: {{ $totalItemsCount }} }"
+            @list-item-hidden="visibleItemCount--"
+            @list-item-shown="visibleItemCount++"
+        >
+            <div
+                x-show="visibleItemCount === 0"
+                x-cloak
+                x-transition:enter="transition ease-out duration-150"
+                x-transition:enter-start="opacity-0 scale-[0.98]"
+                x-transition:enter-end="opacity-100 scale-100"
+                class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur"
+            >
+                <div class="flex items-center gap-2">
+                    <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
+                    <flux:text class="text-sm font-medium text-muted-foreground">
+                        {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
+                    </flux:text>
                 </div>
-            @endforeach
+                <flux:text class="text-xs text-muted-foreground/70">
+                    {{ __('Add a task, project, or event for this day to get started') }}
+                </flux:text>
+            </div>
+            <div x-show="visibleItemCount > 0" class="space-y-4">
+                @foreach ([['kind' => 'project', 'items' => $projects], ['kind' => 'event', 'items' => $events], ['kind' => 'task', 'items' => $tasks]] as $group)
+                    <div class="space-y-3">
+                        @foreach ($group['items'] as $item)
+                            <x-workspace.list-item-card
+                                :kind="$group['kind']"
+                                :item="$item"
+                                :list-filter-date="$selectedDate"
+                                wire:key="{{ $group['kind'] }}-{{ $item->id }}"
+                            />
+                        @endforeach
+                    </div>
+                @endforeach
+            </div>
         </div>
     @endif
 </div>

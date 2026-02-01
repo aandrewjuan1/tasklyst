@@ -339,20 +339,6 @@ trait HandlesWorkspaceItems
         $attributes = [$column => $validatedValue];
         if ($column === 'start_datetime' || $column === 'end_datetime') {
             $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
-
-            $wouldBeStart = $column === 'start_datetime' ? $attributes['start_datetime'] : $task->start_datetime;
-            $wouldBeEnd = $column === 'end_datetime' ? $attributes['end_datetime'] : $task->end_datetime;
-            $durationMinutes = (int) ($task->duration ?? 0);
-            $dateRangeError = TaskPayloadValidation::validateTaskDateRangeForUpdate(
-                $wouldBeStart,
-                $wouldBeEnd,
-                $durationMinutes
-            );
-            if ($dateRangeError !== null) {
-                $this->dispatch('toast', type: 'error', message: $dateRangeError);
-
-                return false;
-            }
         }
 
         try {

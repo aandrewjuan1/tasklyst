@@ -74,8 +74,8 @@ it('displays empty state when all collections are empty', function (): void {
             'tasks' => collect(),
             'tags' => collect(),
         ])
-        ->assertSee(__('No items yet'))
-        ->assertSee(__('Create your first task, project, or event to get started'));
+        ->assertSee(__('No tasks, projects, or events for :date', ['date' => __('today')]))
+        ->assertSee(__('Add a task, project, or event for this day to get started'));
 });
 
 it('displays add new item dropdown button', function (): void {
@@ -132,7 +132,7 @@ it('displays only projects when events and tasks are empty', function (): void {
         ])
         ->assertSee('First Project')
         ->assertSee('Second Project')
-        ->assertDontSee(__('No items yet'));
+        ->assertDontSee(__('No tasks, projects, or events for :date', ['date' => __('today')]));
 });
 
 it('displays only events when projects and tasks are empty', function (): void {
@@ -150,7 +150,7 @@ it('displays only events when projects and tasks are empty', function (): void {
         ])
         ->assertSee('First Event')
         ->assertSee('Second Event')
-        ->assertDontSee(__('No items yet'));
+        ->assertDontSee(__('No tasks, projects, or events for :date', ['date' => __('today')]));
 });
 
 it('displays only tasks when projects and events are empty', function (): void {
@@ -168,7 +168,7 @@ it('displays only tasks when projects and events are empty', function (): void {
         ])
         ->assertSee('First Task')
         ->assertSee('Second Task')
-        ->assertDontSee(__('No items yet'));
+        ->assertDontSee(__('No tasks, projects, or events for :date', ['date' => __('today')]));
 });
 
 it('displays multiple items in each category', function (): void {
@@ -211,8 +211,8 @@ it('does not display empty state when at least one collection has items', functi
             'tasks' => collect(),
             'tags' => collect(),
         ])
-        ->assertDontSee(__('No items yet'))
-        ->assertDontSee(__('Create your first task, project, or event to get started'));
+        ->assertDontSee(__('No tasks, projects, or events for :date', ['date' => __('today')]))
+        ->assertDontSee(__('Add a task, project, or event for this day to get started'));
 });
 
 it('renders loading card structure for task creation', function (): void {

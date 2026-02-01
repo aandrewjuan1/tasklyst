@@ -1,6 +1,7 @@
 @props([
     'kind',
     'item',
+    'listFilterDate' => null,
 ])
 
 @php
@@ -109,9 +110,24 @@
         deletingInProgress: false,
         hideCard: false,
         dropdownOpenCount: 0,
+        kind: @js($kind),
+        listFilterDate: @js($listFilterDate),
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
         deleteErrorToast: @js(__('Something went wrong. Please try again.')),
+        isTaskStillRelevantForList(startDatetime) {
+            if (!this.listFilterDate || this.kind !== 'task') return true;
+            if (startDatetime == null || startDatetime === '') return true;
+            try {
+                const d = new Date(startDatetime);
+                if (Number.isNaN(d.getTime())) return true;
+                const taskDate = d.toISOString().slice(0, 10);
+                const filterDate = String(this.listFilterDate).slice(0, 10);
+                return taskDate === filterDate;
+            } catch (_) {
+                return true;
+            }
+        },
         async deleteItem() {
             if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
             this.deletingInProgress = true;
@@ -119,6 +135,7 @@
                 const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
                 if (ok) {
                     this.hideCard = true;
+                    $dispatch('list-item-hidden');
                 } else {
                     this.deletingInProgress = false;
                     $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
@@ -130,11 +147,13 @@
         }
     }"
     x-show="!hideCard"
-    x-transition:leave="transition ease-in duration-150"
-    x-transition:leave-start="opacity-100"
-    x-transition:leave-end="opacity-0"
+    x-transition:leave="transition ease-out duration-300"
+    x-transition:leave-start="opacity-100 translate-y-0"
+    x-transition:leave-end="opacity-0 -translate-y-2"
     @dropdown-opened="dropdownOpenCount++"
     @dropdown-closed="dropdownOpenCount--"
+    @task-date-updated="if (kind === 'task' && !isTaskStillRelevantForList($event.detail.startDatetime)) { hideCard = true; $dispatch('list-item-hidden') }"
+    @task-date-update-failed.window="if ($event.detail && $event.detail.taskId === itemId) { hideCard = false; $dispatch('list-item-shown') }"
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
@@ -478,10 +497,16 @@
                         return;
                     }
                     this.editDateRangeError = null;
+                    if (path === 'startDatetime') {
+                        $dispatch('task-date-updated', { startDatetime: value });
+                    }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
+                        if (path === 'startDatetime') {
+                            window.dispatchEvent(new CustomEvent('task-date-update-failed', { detail: { taskId: this.itemId }, bubbles: true }));
+                        }
                     }
                 },
             }"

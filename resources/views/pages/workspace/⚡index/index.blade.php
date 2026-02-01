@@ -14,6 +14,7 @@
 
     <livewire:pages::workspace.list
         :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"
+        :selected-date="$this->selectedDate"
         :projects="$this->projects"
         :events="$this->events"
         :tasks="$this->tasks"
