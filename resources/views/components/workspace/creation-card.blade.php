@@ -76,8 +76,8 @@
                         <x-slot:trigger>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                                x-bind:class="getStatusBadgeClass(formData.task.status)"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                                x-bind:class="[getStatusBadgeClass(formData.task.status), open && 'shadow-md scale-[1.02]']"
                                 data-task-creation-safe
                                 aria-haspopup="menu"
                             >
@@ -110,8 +110,8 @@
                         <x-slot:trigger>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                                x-bind:class="getPriorityBadgeClass(formData.task.priority)"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                                x-bind:class="[getPriorityBadgeClass(formData.task.priority), open && 'shadow-md scale-[1.02]']"
                                 data-task-creation-safe
                                 aria-haspopup="menu"
                             >
@@ -144,8 +144,8 @@
                         <x-slot:trigger>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                                x-bind:class="getComplexityBadgeClass(formData.task.complexity)"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                                x-bind:class="[getComplexityBadgeClass(formData.task.complexity), open && 'shadow-md scale-[1.02]']"
                                 data-task-creation-safe
                                 aria-haspopup="menu"
                             >
@@ -178,7 +178,8 @@
                         <x-slot:trigger>
                             <button
                                 type="button"
-                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+                                :class="{ 'shadow-md scale-[1.02]': open }"
                                 data-task-creation-safe
                                 aria-haspopup="menu"
                             >
@@ -194,7 +195,7 @@
                         </x-slot:trigger>
 
                         <div class="flex flex-col py-1" data-task-creation-safe>
-                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '90', 'label' => '1.5 hours'], ['value' => '120', 'label' => '2 hours'], ['value' => '180', 'label' => '3 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
+                            @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '120', 'label' => '2 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8+ hours']] as $dur)
                                 <button
                                     type="button"
                                     class="{{ $dropdownItemClass }}"

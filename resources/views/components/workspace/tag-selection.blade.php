@@ -77,7 +77,8 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('tag-selection-dropdown')"
-        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+        :class="{ 'shadow-md scale-[1.02]': open }"
         data-task-creation-safe
     >
         <flux:icon name="tag" class="size-3" />
