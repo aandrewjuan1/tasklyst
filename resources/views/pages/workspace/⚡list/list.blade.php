@@ -532,6 +532,22 @@
                     <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
                 </span>
             </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
+                    <span class="text-xs uppercase" x-text="formData.task.startDatetime ? formatDatetime(formData.task.startDatetime) : '{{ __('Not set') }}'"></span>
+                </span>
+                <flux:icon name="chevron-down" class="size-3" />
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Due') }}:</span>
+                    <span class="text-xs uppercase" x-text="formData.task.endDatetime ? formatDatetime(formData.task.endDatetime) : '{{ __('Not set') }}'"></span>
+                </span>
+                <flux:icon name="chevron-down" class="size-3" />
+            </span>
             <span
                 x-show="formData.task.tagIds && formData.task.tagIds.length > 0"
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10"
@@ -540,26 +556,6 @@
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Tags') }}:</span>
                     <span class="truncate max-w-[140px] uppercase" x-text="getSelectedTagNames()"></span>
-                </span>
-            </span>
-            <span
-                x-show="formData.task.startDatetime"
-                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-            >
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
-                    <span class="uppercase" x-text="formatDatetime(formData.task.startDatetime)"></span>
-                </span>
-            </span>
-            <span
-                x-show="formData.task.endDatetime"
-                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
-            >
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Due') }}:</span>
-                    <span class="uppercase" x-text="formatDatetime(formData.task.endDatetime)"></span>
                 </span>
             </span>
         </div>

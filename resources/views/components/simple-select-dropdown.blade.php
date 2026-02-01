@@ -83,7 +83,7 @@
         :aria-expanded="open"
         :aria-controls="$id('simple-select-dropdown')"
         :class="{ 'pointer-events-none': open }"
-        class="cursor-pointer"
+        class="cursor-pointer [&>*]:cursor-pointer"
     >
         {{ $trigger }}
     </div>
@@ -102,7 +102,7 @@
         @click="close($refs.button)"
         :id="$id('simple-select-dropdown')"
         :class="panelPlacementClasses"
-        class="absolute z-50 min-w-32 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
+        class="absolute z-50 min-w-32 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 contain-[paint] [&_button]:cursor-pointer"
     >
         {{ $slot }}
     </div>

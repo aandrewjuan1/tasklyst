@@ -77,7 +77,7 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('tag-selection-dropdown')"
-        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
         :class="{ 'shadow-md scale-[1.02]': open }"
         data-task-creation-safe
     >
@@ -122,7 +122,7 @@
                     type="button"
                     @click="$dispatch('tag-create-request', { tagName: newTagName })"
                     x-bind:disabled="!newTagName || !newTagName.trim() || creatingTag"
-                    class="shrink-0 rounded-md p-1 hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                    class="cursor-pointer shrink-0 rounded-md p-1 hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <flux:icon name="paper-airplane" class="size-3.5" />
                 </button>
@@ -143,7 +143,7 @@
                                 type="button"
                                 @click.stop="$dispatch('tag-delete-request', { tag: tag })"
                                 x-bind:disabled="deletingTagIds?.has(tag.id)"
-                                class="shrink-0 rounded p-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="cursor-pointer shrink-0 rounded p-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                 aria-label="{{ __('Delete tag') }}"
                             >
                                 <flux:icon name="x-mark" class="size-3.5" />

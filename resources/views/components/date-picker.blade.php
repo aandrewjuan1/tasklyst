@@ -280,7 +280,7 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
-        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
         :class="{ 'pointer-events-none': open, 'shadow-md scale-[1.02]': open }"
         data-task-creation-safe
     >
@@ -316,7 +316,7 @@
                 <div class="mb-4 flex items-center justify-between px-1">
                     <button
                         type="button"
-                        class="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        class="cursor-pointer flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                         @mousedown.capture.prevent.stop
                         @click.capture.prevent.stop="changeMonth(-1)"
                     >
@@ -332,7 +332,7 @@
 
                     <button
                         type="button"
-                        class="flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                        class="cursor-pointer flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                         @mousedown.capture.prevent.stop
                         @click.capture.prevent.stop="changeMonth(1)"
                     >
@@ -358,7 +358,7 @@
                             type="button"
                             class="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors"
                             :class="day.date
-                                ? (isSelected(day.date)
+                                ? 'cursor-pointer ' + (isSelected(day.date)
                                     ? 'bg-pink-500 text-white shadow-sm'
                                     : (isToday(day.date)
                                         ? 'text-pink-600 dark:text-pink-400'
@@ -374,14 +374,14 @@
                     <div class="mb-3 flex items-center justify-center gap-2">
                         <button
                             type="button"
-                            class="rounded-full px-2.5 py-1 text-[11px] font-medium text-pink-600 hover:bg-pink-50 dark:text-pink-400 dark:hover:bg-pink-900/20"
+                            class="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-medium text-pink-600 hover:bg-pink-50 dark:text-pink-400 dark:hover:bg-pink-900/20"
                             @click.prevent.stop="selectToday()"
                         >
                             Today
                         </button>
                         <button
                             type="button"
-                            class="rounded-full px-2.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:disabled:hover:bg-transparent"
+                            class="cursor-pointer rounded-full px-2.5 py-1 text-[11px] text-zinc-500 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:text-zinc-400 dark:hover:bg-zinc-800 dark:disabled:hover:bg-transparent"
                             x-bind:disabled="!selectedDate"
                             @click.prevent.stop="clearSelection()"
                         >
