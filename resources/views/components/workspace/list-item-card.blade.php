@@ -33,6 +33,69 @@
         'task' => 'deleteTask',
         default => null,
     };
+
+    $updatePropertyMethod = match ($kind) {
+        'task' => 'updateTaskProperty',
+        default => null,
+    };
+
+    if ($kind === 'task') {
+        $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+        $statusOptions = [
+            ['value' => 'to_do', 'label' => __('To Do'), 'color' => \App\Enums\TaskStatus::ToDo->color()],
+            ['value' => 'doing', 'label' => __('Doing'), 'color' => \App\Enums\TaskStatus::Doing->color()],
+            ['value' => 'done', 'label' => __('Done'), 'color' => \App\Enums\TaskStatus::Done->color()],
+        ];
+        $priorityOptions = [
+            ['value' => 'low', 'label' => __('Low'), 'color' => \App\Enums\TaskPriority::Low->color()],
+            ['value' => 'medium', 'label' => __('Medium'), 'color' => \App\Enums\TaskPriority::Medium->color()],
+            ['value' => 'high', 'label' => __('High'), 'color' => \App\Enums\TaskPriority::High->color()],
+            ['value' => 'urgent', 'label' => __('Urgent'), 'color' => \App\Enums\TaskPriority::Urgent->color()],
+        ];
+        $complexityOptions = [
+            ['value' => 'simple', 'label' => __('Simple'), 'color' => \App\Enums\TaskComplexity::Simple->color()],
+            ['value' => 'moderate', 'label' => __('Moderate'), 'color' => \App\Enums\TaskComplexity::Moderate->color()],
+            ['value' => 'complex', 'label' => __('Complex'), 'color' => \App\Enums\TaskComplexity::Complex->color()],
+        ];
+        $durationOptions = [
+            ['value' => 15, 'label' => '15 min'],
+            ['value' => 30, 'label' => '30 min'],
+            ['value' => 60, 'label' => '1 hour'],
+            ['value' => 120, 'label' => '2 hours'],
+            ['value' => 240, 'label' => '4 hours'],
+            ['value' => 480, 'label' => '8+ hours'],
+        ];
+
+        $statusInitialOption = collect($statusOptions)->firstWhere('value', $item->status?->value);
+        $priorityInitialOption = collect($priorityOptions)->firstWhere('value', $item->priority?->value);
+        $complexityInitialOption = collect($complexityOptions)->firstWhere('value', $item->complexity?->value);
+
+        $statusInitialClass = $statusInitialOption
+            ? 'bg-' . $statusInitialOption['color'] . '/10 text-' . $statusInitialOption['color']
+            : 'bg-muted text-muted-foreground';
+        $priorityInitialClass = $priorityInitialOption
+            ? 'bg-' . $priorityInitialOption['color'] . '/10 text-' . $priorityInitialOption['color']
+            : 'bg-muted text-muted-foreground';
+        $complexityInitialClass = $complexityInitialOption
+            ? 'bg-' . $complexityInitialOption['color'] . '/10 text-' . $complexityInitialOption['color']
+            : 'bg-muted text-muted-foreground';
+
+        $durationInitialLabel = '';
+        if ($item->duration !== null) {
+            $m = (int) $item->duration;
+            if ($m < 60) {
+                $durationInitialLabel = $m . ' ' . __('min');
+            } else {
+                $hours = (int) ceil($m / 60);
+                $remainder = $m % 60;
+                $hourWord = $hours === 1 ? __('hour') : \Illuminate\Support\Str::plural(__('hour'), 2);
+                $durationInitialLabel = $hours . ' ' . $hourWord;
+                if ($remainder) {
+                    $durationInitialLabel .= ' ' . $remainder . ' ' . __('min');
+                }
+            }
+        }
+    }
 @endphp
 
 <div
@@ -268,38 +331,11 @@
 
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
     @elseif($kind === 'task')
-        @php
-            $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-            $statusOptions = [
-                ['value' => 'to_do', 'label' => __('To Do'), 'color' => \App\Enums\TaskStatus::ToDo->color()],
-                ['value' => 'doing', 'label' => __('Doing'), 'color' => \App\Enums\TaskStatus::Doing->color()],
-                ['value' => 'done', 'label' => __('Done'), 'color' => \App\Enums\TaskStatus::Done->color()],
-            ];
-            $priorityOptions = [
-                ['value' => 'low', 'label' => __('Low'), 'color' => \App\Enums\TaskPriority::Low->color()],
-                ['value' => 'medium', 'label' => __('Medium'), 'color' => \App\Enums\TaskPriority::Medium->color()],
-                ['value' => 'high', 'label' => __('High'), 'color' => \App\Enums\TaskPriority::High->color()],
-                ['value' => 'urgent', 'label' => __('Urgent'), 'color' => \App\Enums\TaskPriority::Urgent->color()],
-            ];
-            $complexityOptions = [
-                ['value' => 'simple', 'label' => __('Simple'), 'color' => \App\Enums\TaskComplexity::Simple->color()],
-                ['value' => 'moderate', 'label' => __('Moderate'), 'color' => \App\Enums\TaskComplexity::Moderate->color()],
-                ['value' => 'complex', 'label' => __('Complex'), 'color' => \App\Enums\TaskComplexity::Complex->color()],
-            ];
-            $durationOptions = [
-                ['value' => 15, 'label' => '15 min'],
-                ['value' => 30, 'label' => '30 min'],
-                ['value' => 60, 'label' => '1 hour'],
-                ['value' => 120, 'label' => '2 hours'],
-                ['value' => 240, 'label' => '4 hours'],
-                ['value' => 480, 'label' => '8+ hours'],
-            ];
-        @endphp
-
         <div
             wire:ignore
             x-data="{
                 itemId: @js($item->id),
+                updatePropertyMethod: @js($updatePropertyMethod),
                 status: @js($item->status?->value),
                 priority: @js($item->priority?->value),
                 complexity: @js($item->complexity?->value),
@@ -336,7 +372,7 @@
                         else if (property === 'priority') this.priority = value;
                         else if (property === 'complexity') this.complexity = value;
                         else if (property === 'duration') this.duration = value;
-                        const promise = $wire.$parent.$call('updateTaskProperty', this.itemId, property, value);
+                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
                         const ok = await promise;
                         if (!ok) {
                             this.status = snapshot.status;
@@ -361,11 +397,8 @@
                 <x-slot:trigger>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-                        :class="[
-                            getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground',
-                            open && 'shadow-md scale-[1.02]'
-                        ]"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $statusInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
                         aria-haspopup="menu"
                     >
                         <flux:icon name="check-circle" class="size-3" />
@@ -373,7 +406,7 @@
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                 {{ __('Status') }}:
                             </span>
-                            <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')"></span>
+                            <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
                         </span>
                         <flux:icon name="chevron-down" class="size-3" />
                     </button>
@@ -399,11 +432,8 @@
                 <x-slot:trigger>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-                        :class="[
-                            getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground',
-                            open && 'shadow-md scale-[1.02]'
-                        ]"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $priorityInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
                         aria-haspopup="menu"
                     >
                         <flux:icon name="bolt" class="size-3" />
@@ -411,7 +441,7 @@
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                 {{ __('Priority') }}:
                             </span>
-                            <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')"></span>
+                            <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
                         </span>
                         <flux:icon name="chevron-down" class="size-3" />
                     </button>
@@ -437,11 +467,8 @@
                 <x-slot:trigger>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-                        :class="[
-                            getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground',
-                            open && 'shadow-md scale-[1.02]'
-                        ]"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $complexityInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
                         aria-haspopup="menu"
                     >
                         <flux:icon name="squares-2x2" class="size-3" />
@@ -449,7 +476,7 @@
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                 {{ __('Complexity') }}:
                             </span>
-                            <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')"></span>
+                            <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
                         </span>
                         <flux:icon name="chevron-down" class="size-3" />
                     </button>
@@ -484,7 +511,7 @@
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                                 {{ __('Duration') }}:
                             </span>
-                            <span class="uppercase" x-text="formatDurationLabel(duration)"></span>
+                            <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
                         </span>
                         <flux:icon name="chevron-down" class="size-3" />
                     </button>
