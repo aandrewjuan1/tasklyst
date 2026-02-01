@@ -114,4 +114,34 @@ final class TaskPayloadValidation
 
         return $rules;
     }
+
+    /**
+     * Validate task start/end date range for inline update (same rules as frontend).
+     * End must be >= start; if same day and duration > 0, end must be >= start + duration minutes.
+     *
+     * @return string|null Error message if invalid, null if valid
+     */
+    public static function validateTaskDateRangeForUpdate(?\DateTimeInterface $start, ?\DateTimeInterface $end, int $durationMinutes): ?string
+    {
+        if ($start === null || $end === null) {
+            return null;
+        }
+
+        if ($end < $start) {
+            return __('End date must be the same as or after the start date.');
+        }
+
+        $startDate = $start->format('Y-m-d');
+        $endDate = $end->format('Y-m-d');
+        if ($startDate === $endDate && $durationMinutes > 0) {
+            $minimumEndTimestamp = $start->getTimestamp() + ($durationMinutes * 60);
+            if ($end->getTimestamp() < $minimumEndTimestamp) {
+                return __('End time must be at least :minutes minutes after the start time.', [
+                    'minutes' => (string) $durationMinutes,
+                ]);
+            }
+        }
+
+        return null;
+    }
 }

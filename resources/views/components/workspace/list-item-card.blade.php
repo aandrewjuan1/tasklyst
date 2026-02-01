@@ -95,6 +95,9 @@
                 }
             }
         }
+
+        $startDatetimeInitial = $item->start_datetime?->format('Y-m-d\TH:i:s');
+        $endDatetimeInitial = $item->end_datetime?->format('Y-m-d\TH:i:s');
     }
 @endphp
 
@@ -340,11 +343,39 @@
                 priority: @js($item->priority?->value),
                 complexity: @js($item->complexity?->value),
                 duration: @js($item->duration),
+                startDatetime: @js($startDatetimeInitial),
+                endDatetime: @js($endDatetimeInitial),
                 statusOptions: @js($statusOptions),
                 priorityOptions: @js($priorityOptions),
                 complexityOptions: @js($complexityOptions),
                 durationOptions: @js($durationOptions),
                 editErrorToast: @js(__('Something went wrong. Please try again.')),
+                editDateRangeError: null,
+                datePickerOriginals: {},
+                dateRangeMessages: {
+                    taskEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
+                    taskEndTooSoon: @js(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes'])),
+                },
+                validateEditDateRange(startVal, endVal, durationMinutes) {
+                    this.editDateRangeError = null;
+                    if (!startVal || !endVal) return true;
+                    const startDate = new Date(startVal);
+                    const endDate = new Date(endVal);
+                    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return true;
+                    if (endDate.getTime() < startDate.getTime()) {
+                        this.editDateRangeError = this.dateRangeMessages.taskEndBeforeStart;
+                        return false;
+                    }
+                    const isSameDay = startDate.toDateString() === endDate.toDateString();
+                    if (isSameDay && Number.isFinite(durationMinutes) && durationMinutes > 0) {
+                        const minimumEnd = new Date(startDate.getTime() + (durationMinutes * 60 * 1000));
+                        if (endDate.getTime() < minimumEnd.getTime()) {
+                            this.editDateRangeError = this.dateRangeMessages.taskEndTooSoon.replace(':minutes', String(durationMinutes));
+                            return false;
+                        }
+                    }
+                    return true;
+                },
                 getOption(options, value) {
                     return options.find(o => o.value === value);
                 },
@@ -366,12 +397,16 @@
                         priority: this.priority,
                         complexity: this.complexity,
                         duration: this.duration,
+                        startDatetime: this.startDatetime,
+                        endDatetime: this.endDatetime,
                     };
                     try {
                         if (property === 'status') this.status = value;
                         else if (property === 'priority') this.priority = value;
                         else if (property === 'complexity') this.complexity = value;
                         else if (property === 'duration') this.duration = value;
+                        else if (property === 'startDatetime') this.startDatetime = value;
+                        else if (property === 'endDatetime') this.endDatetime = value;
                         const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
                         const ok = await promise;
                         if (!ok) {
@@ -379,18 +414,82 @@
                             this.priority = snapshot.priority;
                             this.complexity = snapshot.complexity;
                             this.duration = snapshot.duration;
+                            this.startDatetime = snapshot.startDatetime;
+                            this.endDatetime = snapshot.endDatetime;
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
+                            return false;
                         }
+                        return true;
                     } catch (err) {
                         this.status = snapshot.status;
                         this.priority = snapshot.priority;
                         this.complexity = snapshot.complexity;
                         this.duration = snapshot.duration;
+                        this.startDatetime = snapshot.startDatetime;
+                        this.endDatetime = snapshot.endDatetime;
                         $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
+                        return false;
+                    }
+                },
+                handleDatePickerRequestValue(e) {
+                    e.stopPropagation();
+                    const path = e.detail.path;
+                    const value = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
+                    e.target.dispatchEvent(new CustomEvent('date-picker-value', { detail: { path, value: value ?? null } }));
+                },
+                handleDatePickerOpened(e) {
+                    e.stopPropagation();
+                    const path = e.detail.path;
+                    this.datePickerOriginals[path] = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
+                },
+                handleDatePickerValueChanged(e) {
+                    e.stopPropagation();
+                    const path = e.detail.path;
+                    const value = e.detail.value;
+                    const startVal = path === 'startDatetime' ? value : this.startDatetime;
+                    const endVal = path === 'endDatetime' ? value : this.endDatetime;
+                    const durationMinutes = parseInt(this.duration ?? '0', 10);
+                    this.validateEditDateRange(startVal, endVal, durationMinutes);
+                },
+                getDatePickerOriginalValue(path) {
+                    if (path in this.datePickerOriginals) {
+                        return this.datePickerOriginals[path];
+                    }
+                    return path === 'startDatetime' ? this.startDatetime : this.endDatetime;
+                },
+                dispatchDatePickerRevert(target, path, value) {
+                    const valueToRevert = value ?? this.getDatePickerOriginalValue(path);
+                    target.dispatchEvent(new CustomEvent('date-picker-revert', {
+                        detail: { path, value: valueToRevert ?? null },
+                        bubbles: true,
+                    }));
+                },
+                async handleDatePickerUpdated(e) {
+                    e.stopPropagation();
+                    const path = e.detail.path;
+                    const value = e.detail.value;
+                    const startVal = path === 'startDatetime' ? value : this.startDatetime;
+                    const endVal = path === 'endDatetime' ? value : this.endDatetime;
+                    const durationMinutes = parseInt(this.duration ?? '0', 10);
+                    const isValid = this.validateEditDateRange(startVal, endVal, durationMinutes);
+                    if (!isValid) {
+                        this.dispatchDatePickerRevert(e.target, path);
+                        this.editDateRangeError = null;
+                        return;
+                    }
+                    this.editDateRangeError = null;
+                    const ok = await this.updateProperty(path, value);
+                    if (!ok) {
+                        const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
+                        this.dispatchDatePickerRevert(e.target, path, realValue);
                     }
                 },
             }"
             class="contents"
+            @date-picker-request-value="handleDatePickerRequestValue($event)"
+            @date-picker-opened="handleDatePickerOpened($event)"
+            @date-picker-value-changed="handleDatePickerValueChanged($event)"
+            @date-picker-updated="handleDatePickerUpdated($event)"
         >
         @if($item->status)
             <x-simple-select-dropdown position="top" align="end">
@@ -532,6 +631,33 @@
             </x-simple-select-dropdown>
         @endif
 
+        <x-date-picker
+            model="startDatetime"
+            type="datetime-local"
+            :triggerLabel="__('Start')"
+            :label="__('Start Date')"
+            position="top"
+            align="end"
+            :initial-value="$startDatetimeInitial"
+            data-task-creation-safe
+        />
+
+        <x-date-picker
+            model="endDatetime"
+            type="datetime-local"
+            :triggerLabel="__('Due')"
+            :label="__('End Date')"
+            position="top"
+            align="end"
+            :initial-value="$endDatetimeInitial"
+            data-task-creation-safe
+        />
+
+        <div class="flex w-full items-center gap-1.5" x-show="editDateRangeError" x-cloak>
+            <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
+            <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
+        </div>
+
         </div>
 
         @if($item->tags->isNotEmpty())
@@ -543,34 +669,6 @@
                     </span>
                     <span class="truncate max-w-[140px] uppercase">
                         {{ $item->tags->sortBy('name')->pluck('name')->join(', ') }}
-                    </span>
-                </span>
-            </span>
-        @endif
-
-        @if($item->start_datetime)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Start') }}:
-                    </span>
-                    <span class="uppercase">
-                        {{ $item->start_datetime->translatedFormat('M j, Y · g:i A') }}
-                    </span>
-                </span>
-            </span>
-        @endif
-
-        @if($item->end_datetime)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Due') }}:
-                    </span>
-                    <span class="uppercase">
-                        {{ $item->end_datetime->translatedFormat('M j, Y · g:i A') }}
                     </span>
                 </span>
             </span>
@@ -615,6 +713,7 @@
                 </span>
             </span>
         @endif
-    @endif
+
     </div>
+    @endif
 </div>
