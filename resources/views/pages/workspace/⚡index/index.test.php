@@ -247,6 +247,113 @@ it('deletes a task through the workspace component', function (): void {
     ]);
 });
 
+it('updates a task property through the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Task To Update',
+            'status' => 'to_do',
+            'priority' => 'low',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'completed_at' => null,
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('updateTaskProperty', $task->id, 'status', 'doing')
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh();
+    expect($task->status->value)->toBe('doing');
+    expect($task->priority->value)->toBe('low');
+});
+
+it('updates task priority and complexity via updateTaskProperty', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Task',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'completed_at' => null,
+        ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'priority', 'high')
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh();
+    expect($task->priority->value)->toBe('high');
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'complexity', 'complex')
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh();
+    expect($task->complexity->value)->toBe('complex');
+});
+
+it('rejects updateTaskProperty for invalid property', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create(['completed_at' => null]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'title', 'Hacked')
+        ->assertDispatched('toast', type: 'error', message: __('Invalid property for update.'));
+
+    $task->refresh();
+    expect($task->title)->not->toBe('Hacked');
+});
+
+it('rejects updateTaskProperty for invalid value', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create(['completed_at' => null]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'status', 'invalid_status')
+        ->assertDispatched('toast', type: 'error');
+
+    $task->refresh();
+    expect($task->status->value)->not->toBe('invalid_status');
+});
+
+it('rejects updateTaskProperty when task not found', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', 99999, 'status', 'doing')
+        ->assertDispatched('toast', type: 'error', message: __('Task not found.'));
+});
+
+it('rejects updateTaskProperty when user cannot update task', function (): void {
+    $user = User::factory()->create();
+    $owner = User::factory()->create();
+
+    $task = Task::factory()->for($owner)->create(['completed_at' => null, 'status' => 'to_do']);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'status', 'doing')
+        ->assertForbidden();
+
+    $task->refresh();
+    expect($task->status->value)->toBe('to_do');
+});
+
 it('only shows tasks the user owns or collaborates on', function (): void {
     $user = User::factory()->create();
     $owner = User::factory()->create();

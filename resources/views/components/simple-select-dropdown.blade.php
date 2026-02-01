@@ -45,11 +45,14 @@
             }
 
             this.open = true;
+            this.$dispatch('dropdown-opened');
         },
         close(focusAfter) {
             if (!this.open) return;
 
             this.open = false;
+            const leaveMs = 50;
+            setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
 
             focusAfter && focusAfter.focus();
         },
@@ -88,10 +91,10 @@
     <div
         x-ref="panel"
         x-show="open"
-        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter="transition ease-out duration-75"
         x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100"
-        x-transition:leave="transition ease-in duration-75"
+        x-transition:leave="transition ease-in duration-50"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
         x-cloak

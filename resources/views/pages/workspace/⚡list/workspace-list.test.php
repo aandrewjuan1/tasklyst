@@ -246,3 +246,29 @@ it('renders delete actions for project event and task cards', function (): void 
         ->assertSee('deleteEvent')
         ->assertSee('deleteTask');
 });
+
+it('displays clickable property dropdowns for task with status priority complexity and duration', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create([
+        'status' => \App\Enums\TaskStatus::Doing,
+        'priority' => \App\Enums\TaskPriority::High,
+        'complexity' => \App\Enums\TaskComplexity::Moderate,
+        'duration' => 60,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => collect(),
+            'events' => collect(),
+            'tasks' => Collection::make([$task]),
+            'tags' => collect(),
+        ])
+        ->assertSee($task->title);
+
+    $component->assertSee(__('Status'));
+    $component->assertSee(__('Priority'));
+    $component->assertSee(__('Complexity'));
+    $component->assertSee(__('Duration'));
+    $component->assertSee('aria-haspopup="menu"', escape: false);
+});

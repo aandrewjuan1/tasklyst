@@ -76,4 +76,42 @@ final class TaskPayloadValidation
             'taskPayload.recurrence.daysOfWeek.*' => ['integer', 'between:0,6'],
         ];
     }
+
+    /**
+     * Property names allowed for inline task update (camelCase as sent from frontend).
+     *
+     * @return array<int, string>
+     */
+    public static function allowedUpdateProperties(): array
+    {
+        return [
+            'status',
+            'priority',
+            'complexity',
+            'duration',
+            'startDatetime',
+            'endDatetime',
+        ];
+    }
+
+    /**
+     * Validation rules for a single task property when updating inline.
+     * Validates input keyed by "value".
+     *
+     * @return array<string, array<int, mixed>>
+     */
+    public static function rulesForProperty(string $property): array
+    {
+        $rules = match ($property) {
+            'status' => ['value' => ['nullable', Rule::in(array_map(fn (TaskStatus $s) => $s->value, TaskStatus::cases()))]],
+            'priority' => ['value' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))]],
+            'complexity' => ['value' => ['nullable', Rule::in(array_map(fn (TaskComplexity $c) => $c->value, TaskComplexity::cases()))]],
+            'duration' => ['value' => ['nullable', 'integer', 'min:1']],
+            'startDatetime' => ['value' => ['nullable', 'date']],
+            'endDatetime' => ['value' => ['nullable', 'date']],
+            default => [],
+        };
+
+        return $rules;
+    }
 }

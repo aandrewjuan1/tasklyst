@@ -40,24 +40,36 @@
         'class' => 'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur',
     ]) }}
     x-data="{
-        deleting: false,
+        deletingInProgress: false,
+        hideCard: false,
+        dropdownOpenCount: 0,
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
+        deleteErrorToast: @js(__('Something went wrong. Please try again.')),
         async deleteItem() {
-            if (this.deleting || !this.deleteMethod || this.itemId == null) return;
-            this.deleting = true;
+            if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
+            this.deletingInProgress = true;
             try {
                 const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
-                if (!ok) this.deleting = false;
+                if (ok) {
+                    this.hideCard = true;
+                } else {
+                    this.deletingInProgress = false;
+                    $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
+                }
             } catch (e) {
-                this.deleting = false;
+                this.deletingInProgress = false;
+                $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
             }
         }
     }"
-    x-show="!deleting"
+    x-show="!hideCard"
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="opacity-100"
     x-transition:leave-end="opacity-0"
+    @dropdown-opened="dropdownOpenCount++"
+    @dropdown-closed="dropdownOpenCount--"
+    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
@@ -74,11 +86,9 @@
 
         @if($type)
             <div class="flex items-center gap-2">
-                @if($type)
-                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {{ $type }}
-                    </span>
-                @endif
+                <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ $type }}
+                </span>
 
                 @if($deleteMethod)
                     <flux:dropdown>
@@ -258,74 +268,244 @@
 
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
     @elseif($kind === 'task')
+        @php
+            $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+            $statusOptions = [
+                ['value' => 'to_do', 'label' => __('To Do'), 'color' => \App\Enums\TaskStatus::ToDo->color()],
+                ['value' => 'doing', 'label' => __('Doing'), 'color' => \App\Enums\TaskStatus::Doing->color()],
+                ['value' => 'done', 'label' => __('Done'), 'color' => \App\Enums\TaskStatus::Done->color()],
+            ];
+            $priorityOptions = [
+                ['value' => 'low', 'label' => __('Low'), 'color' => \App\Enums\TaskPriority::Low->color()],
+                ['value' => 'medium', 'label' => __('Medium'), 'color' => \App\Enums\TaskPriority::Medium->color()],
+                ['value' => 'high', 'label' => __('High'), 'color' => \App\Enums\TaskPriority::High->color()],
+                ['value' => 'urgent', 'label' => __('Urgent'), 'color' => \App\Enums\TaskPriority::Urgent->color()],
+            ];
+            $complexityOptions = [
+                ['value' => 'simple', 'label' => __('Simple'), 'color' => \App\Enums\TaskComplexity::Simple->color()],
+                ['value' => 'moderate', 'label' => __('Moderate'), 'color' => \App\Enums\TaskComplexity::Moderate->color()],
+                ['value' => 'complex', 'label' => __('Complex'), 'color' => \App\Enums\TaskComplexity::Complex->color()],
+            ];
+            $durationOptions = [
+                ['value' => 15, 'label' => '15 min'],
+                ['value' => 30, 'label' => '30 min'],
+                ['value' => 60, 'label' => '1 hour'],
+                ['value' => 120, 'label' => '2 hours'],
+                ['value' => 240, 'label' => '4 hours'],
+                ['value' => 480, 'label' => '8+ hours'],
+            ];
+        @endphp
+
+        <div
+            wire:ignore
+            x-data="{
+                itemId: @js($item->id),
+                status: @js($item->status?->value),
+                priority: @js($item->priority?->value),
+                complexity: @js($item->complexity?->value),
+                duration: @js($item->duration),
+                statusOptions: @js($statusOptions),
+                priorityOptions: @js($priorityOptions),
+                complexityOptions: @js($complexityOptions),
+                durationOptions: @js($durationOptions),
+                editErrorToast: @js(__('Something went wrong. Please try again.')),
+                getOption(options, value) {
+                    return options.find(o => o.value === value);
+                },
+                durationLabels: { min: @js(__('min')), hour: @js(__('hour')), hours: @js(\Illuminate\Support\Str::plural(__('hour'), 2)) },
+                formatDurationLabel(minutes) {
+                    if (minutes == null) return '';
+                    const m = Number(minutes);
+                    if (m < 59) return m + ' ' + this.durationLabels.min;
+                    const hours = Math.ceil(m / 60);
+                    const remainder = m % 60;
+                    const hourWord = hours === 1 ? this.durationLabels.hour : this.durationLabels.hours;
+                    let s = hours + ' ' + hourWord;
+                    if (remainder) s += ' ' + remainder + ' ' + this.durationLabels.min;
+                    return s;
+                },
+                async updateProperty(property, value) {
+                    const snapshot = {
+                        status: this.status,
+                        priority: this.priority,
+                        complexity: this.complexity,
+                        duration: this.duration,
+                    };
+                    try {
+                        if (property === 'status') this.status = value;
+                        else if (property === 'priority') this.priority = value;
+                        else if (property === 'complexity') this.complexity = value;
+                        else if (property === 'duration') this.duration = value;
+                        const promise = $wire.$parent.$call('updateTaskProperty', this.itemId, property, value);
+                        const ok = await promise;
+                        if (!ok) {
+                            this.status = snapshot.status;
+                            this.priority = snapshot.priority;
+                            this.complexity = snapshot.complexity;
+                            this.duration = snapshot.duration;
+                            $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
+                        }
+                    } catch (err) {
+                        this.status = snapshot.status;
+                        this.priority = snapshot.priority;
+                        this.complexity = snapshot.complexity;
+                        this.duration = snapshot.duration;
+                        $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
+                    }
+                },
+            }"
+            class="contents"
+        >
         @if($item->status)
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->status->color() }}/10 px-2.5 py-0.5 font-semibold text-{{ $item->status->color() }} dark:border-white/10"
-            >
-                <flux:icon name="check-circle" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Status') }}:
-                    </span>
-                    <span class="uppercase">{{ str_replace('_', ' ', $item->status->value) }}</span>
-                </span>
-            </span>
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                        :class="[
+                            getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground',
+                            open && 'shadow-md scale-[1.02]'
+                        ]"
+                        aria-haspopup="menu"
+                    >
+                        <flux:icon name="check-circle" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Status') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')"></span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
+                    </button>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($statusOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': status === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('status', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
         @endif
 
         @if($item->priority)
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->priority->color() }}/10 px-2.5 py-0.5 font-semibold text-{{ $item->priority->color() }} dark:border-white/10"
-            >
-                <flux:icon name="bolt" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Priority') }}:
-                    </span>
-                    <span class="uppercase">{{ $item->priority->value }}</span>
-                </span>
-            </span>
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                        :class="[
+                            getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground',
+                            open && 'shadow-md scale-[1.02]'
+                        ]"
+                        aria-haspopup="menu"
+                    >
+                        <flux:icon name="bolt" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Priority') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')"></span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
+                    </button>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($priorityOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': priority === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('priority', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
         @endif
 
         @if($item->complexity)
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->complexity->color() }}/10 px-2.5 py-0.5 font-semibold text-{{ $item->complexity->color() }} dark:border-white/10"
-            >
-                <flux:icon name="squares-2x2" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Complexity') }}:
-                    </span>
-                    <span class="uppercase">{{ $item->complexity->value }}</span>
-                </span>
-            </span>
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                        :class="[
+                            getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground',
+                            open && 'shadow-md scale-[1.02]'
+                        ]"
+                        aria-haspopup="menu"
+                    >
+                        <flux:icon name="squares-2x2" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Complexity') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')"></span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
+                    </button>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($complexityOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': complexity === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('complexity', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
         @endif
 
         @if(! is_null($item->duration))
-            @php
-                $durationMinutes = $item->duration;
-                $durationHours = (int) ceil($durationMinutes / 60);
-                $durationRemainderMinutes = $durationMinutes % 60;
-            @endphp
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Duration') }}:
-                    </span>
-                    <span class="uppercase">
-                        @if($durationMinutes < 59)
-                            {{ $durationMinutes }} {{ __('min') }}
-                        @else
-                            {{ $durationHours }}
-                            {{ \Illuminate\Support\Str::plural(__('hour'), $durationHours) }}
-                            @if($durationRemainderMinutes)
-                                {{ $durationRemainderMinutes }} {{ __('min') }}
-                            @endif
-                        @endif
-                    </span>
-                </span>
-            </span>
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
+                    <button
+                        type="button"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+                        :class="{ 'shadow-md scale-[1.02]': open }"
+                        aria-haspopup="menu"
+                    >
+                        <flux:icon name="clock" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Duration') }}:
+                            </span>
+                            <span class="uppercase" x-text="formatDurationLabel(duration)"></span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
+                    </button>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($durationOptions as $dur)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': duration == {{ $dur['value'] }} }"
+                            @click="updateProperty('duration', {{ $dur['value'] }})"
+                        >
+                            {{ $dur['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
         @endif
+
+        </div>
 
         @if($item->tags->isNotEmpty())
             <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10">

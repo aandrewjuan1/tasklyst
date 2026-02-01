@@ -286,6 +286,81 @@ trait HandlesWorkspaceItems
     }
 
     /**
+     * Update a single task property for the authenticated user (inline editing).
+     */
+    public function updateTaskProperty(int $taskId, string $property, mixed $value): bool
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to update tasks.'));
+
+            return false;
+        }
+
+        $task = Task::query()->find($taskId);
+
+        if ($task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $task);
+
+        if (! in_array($property, TaskPayloadValidation::allowedUpdateProperties(), true)) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
+
+            return false;
+        }
+
+        $rules = TaskPayloadValidation::rulesForProperty($property);
+        if ($rules === []) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
+
+            return false;
+        }
+
+        $validator = Validator::make(['value' => $value], $rules);
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
+
+            return false;
+        }
+
+        $validatedValue = $validator->validated()['value'];
+
+        $column = match ($property) {
+            'startDatetime' => 'start_datetime',
+            'endDatetime' => 'end_datetime',
+            default => $property,
+        };
+
+        $attributes = [$column => $validatedValue];
+        if ($column === 'start_datetime' || $column === 'end_datetime') {
+            $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
+        }
+
+        try {
+            $this->taskService->updateTask($task, $attributes);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update task property from workspace.', [
+                'user_id' => $user->id,
+                'task_id' => $taskId,
+                'property' => $property,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the task.'));
+
+            return false;
+        }
+
+        $this->dispatch('toast', type: 'success', message: __('Task updated.'));
+
+        return true;
+    }
+
+    /**
      * Delete a project for the authenticated user.
      */
     public function deleteProject(int $projectId): bool
