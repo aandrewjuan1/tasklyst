@@ -63,7 +63,7 @@ trait HandlesWorkspaceItems
             }
             $existingTag = Tag::query()
                 ->where('user_id', $user->id)
-                ->where('name', $name)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
                 ->first();
             if ($existingTag !== null) {
                 $tagIds[] = $existingTag->id;
@@ -158,7 +158,7 @@ trait HandlesWorkspaceItems
         try {
             $existingTag = Tag::query()
                 ->where('user_id', $user->id)
-                ->where('name', $validatedName)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($validatedName)])
                 ->first();
 
             if ($existingTag !== null) {

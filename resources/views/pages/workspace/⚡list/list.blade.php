@@ -8,6 +8,8 @@
         messages: {
             taskEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
             taskEndTooSoon: @js(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes'])),
+            tagAlreadyExists: @js(__('Tag already exists.')),
+            tagError: @js(__('Something went wrong. Please try again.')),
         },
         errors: {
             taskDateRange: null,
@@ -171,6 +173,8 @@
                 if (tagIdsBackup.includes(tag.id) && !this.formData.task.tagIds.includes(tag.id)) {
                     this.formData.task.tagIds.push(tag.id);
                 }
+
+                $wire.dispatch('toast', { type: 'error', message: this.messages.tagError });
             } finally {
                 // Always remove from pending set
                 this.deletingTagIds?.delete(tag.id);
@@ -184,8 +188,9 @@
 
             this.newTagName = '';
 
-            // If tag already exists in Alpine state, just select it (no optimistic add, no server call)
-            const existingTag = this.tags?.find(t => (t.name || '').trim() === tagName);
+            // If tag already exists in Alpine state (case-insensitive), select it and show toast (no server call)
+            const tagNameLower = tagName.toLowerCase();
+            const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
             if (existingTag) {
                 if (!this.formData.task.tagIds) {
                     this.formData.task.tagIds = [];
@@ -194,6 +199,7 @@
                 if (!alreadySelected) {
                     this.formData.task.tagIds.push(existingTag.id);
                 }
+                $wire.dispatch('toast', { type: 'info', message: this.messages?.tagAlreadyExists || 'Tag already exists.' });
                 return;
             }
 
@@ -230,6 +236,8 @@
                 this.tags = tagsBackup;
                 this.formData.task.tagIds = tagIdsBackup;
                 this.newTagName = newTagNameBackup;
+
+                $wire.dispatch('toast', { type: 'error', message: this.messages.tagError });
             } finally {
                 this.creatingTag = false;
             }
@@ -389,7 +397,8 @@
         onTagCreated(event) {
             const { id, name } = event.detail;
 
-            const tempTag = this.tags?.find(tag => tag.name === name && String(tag.id).startsWith('temp-'));
+            const nameLower = (name || '').toLowerCase();
+            const tempTag = this.tags?.find(tag => (tag.name || '').toLowerCase() === nameLower && String(tag.id).startsWith('temp-'));
             if (tempTag) {
                 const tempId = tempTag.id;
 
