@@ -2,6 +2,7 @@
     'kind',
     'item',
     'listFilterDate' => null,
+    'availableTags' => [],
 ])
 
 @php
@@ -368,7 +369,146 @@
                 priorityOptions: @js($priorityOptions),
                 complexityOptions: @js($complexityOptions),
                 durationOptions: @js($durationOptions),
+                formData: { task: { tagIds: @js($item->tags->pluck('id')->values()->all()) } },
+                tags: @js($availableTags),
+                newTagName: '',
+                creatingTag: false,
+                deletingTagIds: new Set(),
+                isTagSelected(tagId) {
+                    if (!this.formData?.task?.tagIds || !Array.isArray(this.formData.task.tagIds)) return false;
+                    const tagIdStr = String(tagId);
+                    return this.formData.task.tagIds.some(id => String(id) === tagIdStr);
+                },
+                async toggleTag(tagId) {
+                    if (!this.formData.task.tagIds) this.formData.task.tagIds = [];
+                    const tagIdsBackup = [...this.formData.task.tagIds];
+                    const tagIdStr = String(tagId);
+                    const index = this.formData.task.tagIds.findIndex(id => String(id) === tagIdStr);
+                    if (index === -1) {
+                        this.formData.task.tagIds.push(tagId);
+                    } else {
+                        this.formData.task.tagIds.splice(index, 1);
+                    }
+                    const realTagIds = this.formData.task.tagIds.filter(id => !String(id).startsWith('temp-'));
+                    const ok = await this.updateProperty('tagIds', realTagIds);
+                    if (!ok) {
+                        this.formData.task.tagIds = tagIdsBackup;
+                    }
+                },
+                async createTagOptimistic(tagNameFromEvent) {
+                    const tagName = (tagNameFromEvent != null && tagNameFromEvent !== '' ? String(tagNameFromEvent).trim() : (this.newTagName || '').trim());
+                    if (!tagName || this.creatingTag) return;
+                    this.newTagName = '';
+                    const tagNameLower = tagName.toLowerCase();
+                    const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
+                    if (existingTag) {
+                        if (!this.formData.task.tagIds) this.formData.task.tagIds = [];
+                        const alreadySelected = this.formData.task.tagIds.some(id => String(id) === String(existingTag.id));
+                        if (!alreadySelected) {
+                            this.formData.task.tagIds.push(existingTag.id);
+                            const realTagIds = this.formData.task.tagIds.filter(id => !String(id).startsWith('temp-'));
+                            await this.updateProperty('tagIds', realTagIds);
+                        }
+                        $wire.$dispatch('toast', { type: 'info', message: this.tagMessages.tagAlreadyExists });
+                        return;
+                    }
+                    const tempId = 'temp-' + Date.now();
+                    const tagsBackup = this.tags ? [...this.tags] : [];
+                    const tagIdsBackup = [...this.formData.task.tagIds];
+                    const newTagNameBackup = tagName;
+                    try {
+                        if (!this.tags) this.tags = [];
+                        this.tags.push({ id: tempId, name: tagName });
+                        this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                        if (!this.formData.task.tagIds.includes(tempId)) this.formData.task.tagIds.push(tempId);
+                        this.creatingTag = true;
+                        await $wire.$parent.$call('createTag', tagName, true);
+                    } catch (err) {
+                        this.tags = tagsBackup;
+                        this.formData.task.tagIds = tagIdsBackup;
+                        this.newTagName = newTagNameBackup;
+                        $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
+                    } finally {
+                        this.creatingTag = false;
+                    }
+                },
+                async deleteTagOptimistic(tag) {
+                    if (this.deletingTagIds?.has(tag.id)) return;
+                    const isTempTag = String(tag.id).startsWith('temp-');
+                    const snapshot = { ...tag };
+                    const tagsBackup = this.tags ? [...this.tags] : [];
+                    const tagIdsBackup = [...this.formData.task.tagIds];
+                    const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
+                    try {
+                        this.deletingTagIds = this.deletingTagIds || new Set();
+                        this.deletingTagIds.add(tag.id);
+                        if (this.tags && tagIndex !== -1) this.tags = this.tags.filter(t => t.id !== tag.id);
+                        const selectedIndex = this.formData.task.tagIds?.indexOf(tag.id);
+                        if (selectedIndex !== undefined && selectedIndex !== -1) this.formData.task.tagIds.splice(selectedIndex, 1);
+                        if (!isTempTag) {
+                            await $wire.$parent.$call('deleteTag', tag.id);
+                        }
+                        const realTagIds = this.formData.task.tagIds.filter(id => !String(id).startsWith('temp-'));
+                        await this.updateProperty('tagIds', realTagIds, true);
+                    } catch (err) {
+                        if (tagIndex !== -1 && this.tags) {
+                            this.tags.splice(tagIndex, 0, snapshot);
+                            this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                        }
+                        if (tagIdsBackup.includes(tag.id) && !this.formData.task.tagIds.includes(tag.id)) {
+                            this.formData.task.tagIds.push(tag.id);
+                        }
+                        $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
+                    } finally {
+                        this.deletingTagIds?.delete(tag.id);
+                    }
+                },
+                onTagCreated(event) {
+                    const { id, name } = event.detail || {};
+                    const nameLower = (name || '').toLowerCase();
+                    const tempTag = this.tags?.find(tag => (tag.name || '').toLowerCase() === nameLower && String(tag.id).startsWith('temp-'));
+                    if (tempTag) {
+                        const tempId = tempTag.id;
+                        const tempTagIndex = this.tags.findIndex(tag => tag.id === tempId);
+                        if (tempTagIndex !== -1) this.tags[tempTagIndex] = { id, name };
+                        if (this.formData?.task?.tagIds) {
+                            const tempIdIndex = this.formData.task.tagIds.indexOf(tempId);
+                            if (tempIdIndex !== -1) this.formData.task.tagIds[tempIdIndex] = id;
+                        }
+                        this.tags = this.tags.filter((tag, idx, arr) => arr.findIndex(t => String(t.id) === String(tag.id)) === idx);
+                        this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                        const realTagIds = this.formData.task.tagIds.filter(tid => !String(tid).startsWith('temp-'));
+                        this.updateProperty('tagIds', realTagIds);
+                    } else {
+                        // Tag was created elsewhere (e.g. creation form); only keep our tags list in sync for the dropdown, do not persist this task's tagIds
+                        if (this.tags && !this.tags.find(tag => tag.id === id)) {
+                            this.tags.push({ id, name });
+                            this.tags.sort((a, b) => a.name.localeCompare(b.name));
+                        }
+                    }
+                },
+                onTagDeleted(event) {
+                    const { id } = event.detail || {};
+                    if (this.tags) {
+                        const tagIndex = this.tags.findIndex(tag => tag.id === id);
+                        if (tagIndex !== -1) {
+                            this.tags.splice(tagIndex, 1);
+                        }
+                    }
+                    if (this.formData?.task?.tagIds) {
+                        const selectedIndex = this.formData.task.tagIds.indexOf(id);
+                        if (selectedIndex !== -1) {
+                            this.formData.task.tagIds.splice(selectedIndex, 1);
+                            const realTagIds = this.formData.task.tagIds.filter(tid => !String(tid).startsWith('temp-'));
+                            this.updateProperty('tagIds', realTagIds);
+                        }
+                    }
+                },
                 editErrorToast: @js(__('Something went wrong. Please try again.')),
+                tagMessages: {
+                    tagAlreadyExists: @js(__('Tag already exists.')),
+                    tagError: @js(__('Something went wrong. Please try again.')),
+                },
                 editDateRangeError: null,
                 datePickerOriginals: {},
                 dateRangeMessages: {
@@ -410,7 +550,20 @@
                     if (remainder) s += ' ' + remainder + ' ' + this.durationLabels.min;
                     return s;
                 },
-                async updateProperty(property, value) {
+                async updateProperty(property, value, silentSuccessToast = false) {
+                    if (property === 'tagIds') {
+                        try {
+                            const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, silentSuccessToast);
+                            if (!ok) {
+                                $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
+                                return false;
+                            }
+                            return true;
+                        } catch (err) {
+                            $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
+                            return false;
+                        }
+                    }
                     const snapshot = {
                         status: this.status,
                         priority: this.priority,
@@ -515,6 +668,8 @@
             @date-picker-opened="handleDatePickerOpened($event)"
             @date-picker-value-changed="handleDatePickerValueChanged($event)"
             @date-picker-updated="handleDatePickerUpdated($event)"
+            @tag-created.window="onTagCreated($event)"
+            @tag-deleted.window="onTagDeleted($event)"
         >
         @if($item->status)
             <x-simple-select-dropdown position="top" align="end">
@@ -683,21 +838,19 @@
             <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
         </div>
 
+        <div
+            @tag-toggled="toggleTag($event.detail.tagId)"
+            @tag-create-request="createTagOptimistic($event.detail.tagName)"
+            @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+        >
+            <x-workspace.tag-selection
+                position="top"
+                align="end"
+                :initial-tag-count-label="$item->tags->count() > 0 ? (string) $item->tags->count() : __('None')"
+            />
         </div>
 
-        @if($item->tags->isNotEmpty())
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10">
-                <flux:icon name="tag" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Tags') }}:
-                    </span>
-                    <span class="truncate max-w-[140px] uppercase">
-                        {{ $item->tags->sortBy('name')->pluck('name')->join(', ') }}
-                    </span>
-                </span>
-            </span>
-        @endif
+        </div>
 
         @if($item->project)
             <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10">

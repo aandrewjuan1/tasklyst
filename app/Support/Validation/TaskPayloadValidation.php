@@ -91,6 +91,7 @@ final class TaskPayloadValidation
             'duration',
             'startDatetime',
             'endDatetime',
+            'tagIds',
         ];
     }
 
@@ -102,6 +103,13 @@ final class TaskPayloadValidation
      */
     public static function rulesForProperty(string $property): array
     {
+        $tagExistsRule = Rule::exists('tags', 'id')->where(function ($query): void {
+            $userId = Auth::id();
+            if ($userId !== null) {
+                $query->where('user_id', $userId);
+            }
+        });
+
         $rules = match ($property) {
             'status' => ['value' => ['nullable', Rule::in(array_map(fn (TaskStatus $s) => $s->value, TaskStatus::cases()))]],
             'priority' => ['value' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))]],
@@ -109,6 +117,10 @@ final class TaskPayloadValidation
             'duration' => ['value' => ['nullable', 'integer', 'min:1']],
             'startDatetime' => ['value' => ['nullable', 'date']],
             'endDatetime' => ['value' => ['nullable', 'date']],
+            'tagIds' => [
+                'value' => ['array'],
+                'value.*' => ['integer', $tagExistsRule],
+            ],
             default => [],
         };
 

@@ -624,6 +624,7 @@
                                 :kind="$group['kind']"
                                 :item="$item"
                                 :list-filter-date="$selectedDate"
+                                :available-tags="$tags"
                                 wire:key="{{ $group['kind'] }}-{{ $item->id }}"
                             />
                         @endforeach

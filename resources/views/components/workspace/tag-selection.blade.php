@@ -1,7 +1,12 @@
 @props([
     'position' => 'top',
     'align' => 'end',
+    'initialTagCountLabel' => null,
 ])
+
+@php
+    $tagCountLabel = $initialTagCountLabel ?? __('None');
+@endphp
 
 @php
     $panelHeightEst = 220;
@@ -45,11 +50,14 @@
             }
 
             this.open = true;
+            this.$dispatch('dropdown-opened');
         },
         close(focusAfter) {
             if (!this.open) return;
 
             this.open = false;
+            const leaveMs = 50;
+            setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
 
             focusAfter && focusAfter.focus();
         },
@@ -86,7 +94,7 @@
             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                 {{ __('Tags') }}:
             </span>
-            <span class="text-xs uppercase" x-text="formData.task.tagIds && formData.task.tagIds.length > 0 ? formData.task.tagIds.length : '{{ __('None') }}'"></span>
+            <span class="text-xs uppercase" x-text="formData.task.tagIds && formData.task.tagIds.length > 0 ? formData.task.tagIds.length : '{{ __('None') }}'">{{ $tagCountLabel }}</span>
         </span>
         <flux:icon name="chevron-down" class="size-3" />
     </button>

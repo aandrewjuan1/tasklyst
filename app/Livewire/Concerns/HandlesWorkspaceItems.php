@@ -116,8 +116,10 @@ trait HandlesWorkspaceItems
 
     /**
      * Create a new tag for the authenticated user.
+     *
+     * @param  bool  $silentToasts  When true, do not dispatch success/info toasts (e.g. when creating from list-item-card so only "Task updated." is shown).
      */
-    public function createTag(string $name): void
+    public function createTag(string $name, bool $silentToasts = false): void
     {
         $user = Auth::user();
 
@@ -163,7 +165,9 @@ trait HandlesWorkspaceItems
 
             if ($existingTag !== null) {
                 $this->dispatch('tag-created', id: $existingTag->id, name: $existingTag->name);
-                $this->dispatch('toast', type: 'info', message: __('Tag already exists.'));
+                if (! $silentToasts) {
+                    $this->dispatch('toast', type: 'info', message: __('Tag already exists.'));
+                }
 
                 return;
             }
@@ -184,14 +188,18 @@ trait HandlesWorkspaceItems
         }
 
         $this->dispatch('tag-created', id: $tag->id, name: $tag->name);
-        $this->dispatch('toast', type: 'success', message: __('Tag created.'));
+        if (! $silentToasts) {
+            $this->dispatch('toast', type: 'success', message: __('Tag created.'));
+        }
         $this->dispatch('$refresh');
     }
 
     /**
      * Delete a tag for the authenticated user.
+     *
+     * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when deleting from list-item-card so only "Task updated." is shown).
      */
-    public function deleteTag(int $tagId): void
+    public function deleteTag(int $tagId, bool $silentToasts = false): void
     {
         $user = Auth::user();
 
@@ -232,7 +240,9 @@ trait HandlesWorkspaceItems
         }
 
         $this->dispatch('tag-deleted', id: $tagId);
-        $this->dispatch('toast', type: 'success', message: __('Tag deleted.'));
+        if (! $silentToasts) {
+            $this->dispatch('toast', type: 'success', message: __('Tag deleted.'));
+        }
         $this->dispatch('$refresh');
     }
 
@@ -287,8 +297,10 @@ trait HandlesWorkspaceItems
 
     /**
      * Update a single task property for the authenticated user (inline editing).
+     *
+     * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
-    public function updateTaskProperty(int $taskId, string $property, mixed $value): bool
+    public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false): bool
     {
         $user = Auth::user();
 
@@ -329,6 +341,26 @@ trait HandlesWorkspaceItems
         }
 
         $validatedValue = $validator->validated()['value'];
+
+        if ($property === 'tagIds') {
+            try {
+                $task->tags()->sync($validatedValue);
+            } catch (\Throwable $e) {
+                Log::error('Failed to sync task tags from workspace.', [
+                    'user_id' => $user->id,
+                    'task_id' => $taskId,
+                    'exception' => $e,
+                ]);
+                $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the task.'));
+
+                return false;
+            }
+            if (! $silentToasts) {
+                $this->dispatch('toast', type: 'success', message: __('Task updated.'));
+            }
+
+            return true;
+        }
 
         $column = match ($property) {
             'startDatetime' => 'start_datetime',
