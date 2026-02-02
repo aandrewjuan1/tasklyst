@@ -79,11 +79,40 @@
             }
         },
 
+        parseIsoLocalDate(value) {
+            if (!value) return null;
+
+            try {
+                if (this.type === 'date') {
+                    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+                    if (!match) return null;
+                    const year = Number(match[1]);
+                    const month = Number(match[2]) - 1;
+                    const day = Number(match[3]);
+                    return new Date(year, month, day);
+                }
+
+                const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(value);
+                if (!match) return null;
+                const year = Number(match[1]);
+                const month = Number(match[2]) - 1;
+                const day = Number(match[3]);
+                const hour = Number(match[4]);
+                const minute = Number(match[5]);
+                const second = Number(match[6] ?? 0);
+
+                return new Date(year, month, day, hour, minute, second);
+            } catch (e) {
+                return null;
+            }
+        },
+
         parseInitial(value) {
-            if (!value) return;
-            const parsed = new Date(value);
-            if (isNaN(parsed.getTime())) return;
+            const parsed = this.parseIsoLocalDate(value);
+            if (!parsed || isNaN(parsed.getTime())) return;
+
             this.selectedDate = parsed;
+
             if (this.type === 'datetime-local') {
                 this.setTimeFromDate(parsed);
             }
@@ -99,13 +128,39 @@
         buildDays() {
             const firstDayOfMonth = new Date(this.year, this.month, 1).getDay();
             const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
-            this.days = [];
+
+            const days = [];
+
+            // Leading blanks.
             for (let i = 0; i < firstDayOfMonth; i++) {
-                this.days.push({ label: '', date: null });
+                days.push({
+                    label: '',
+                    date: null,
+                    key: `blank-${this.year}-${this.month}-l${i}`,
+                });
             }
+
+            // Current month days.
             for (let day = 1; day <= daysInMonth; day++) {
-                this.days.push({ label: day, date: day });
+                days.push({
+                    label: day,
+                    date: day,
+                    key: `day-${this.year}-${this.month}-${day}`,
+                });
             }
+
+            // Trailing blanks to complete the final week row (auto height).
+            const remainder = days.length % 7;
+            const blanksNeeded = remainder === 0 ? 0 : 7 - remainder;
+            for (let i = 0; i < blanksNeeded; i++) {
+                days.push({
+                    label: '',
+                    date: null,
+                    key: `blank-${this.year}-${this.month}-t${i}`,
+                });
+            }
+
+            this.days = days;
         },
 
         changeMonth(offset) {
@@ -212,6 +267,23 @@
                 };
             }
             return this.todayCache.year === this.year && this.todayCache.month === this.month && this.todayCache.date === day;
+        },
+
+        dayButtonClasses(day) {
+            if (!day?.date) {
+                // Keep grid spacing, but avoid hover/selected artifacts on empty cells.
+                return 'cursor-default opacity-0';
+            }
+
+            if (this.isSelected(day.date)) {
+                return 'cursor-pointer bg-pink-500 text-white shadow-sm';
+            }
+
+            if (this.isToday(day.date)) {
+                return 'cursor-pointer text-pink-600 dark:text-pink-400';
+            }
+
+            return 'cursor-pointer text-zinc-700 dark:text-zinc-300';
         },
 
         get monthLabel() {
@@ -372,18 +444,13 @@
                 </div>
 
                 <div class="grid grid-cols-7 gap-1">
-                    <template x-for="(day, index) in days" :key="index">
+                    <template x-for="day in days" :key="day.key">
                         <button
                             type="button"
-                            class="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors"
-                            :class="day.date
-                                ? 'cursor-pointer ' + (isSelected(day.date)
-                                    ? 'bg-pink-500 text-white shadow-sm'
-                                    : (isToday(day.date)
-                                        ? 'text-pink-600 dark:text-pink-400'
-                                        : 'text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'))
-                                : 'pointer-events-none bg-transparent'"
-                            @click.prevent.stop="selectDay(day.date)"
+                            class="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors disabled:pointer-events-none"
+                            :disabled="!day.date"
+                            :class="dayButtonClasses(day)"
+                            @click.prevent.stop="day.date && selectDay(day.date)"
                             x-text="day.label"
                         ></button>
                     </template>
