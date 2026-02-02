@@ -14,10 +14,19 @@ class EventService
     public function createEvent(User $user, array $attributes): Event
     {
         return DB::transaction(function () use ($user, $attributes): Event {
-            return Event::query()->create([
+            $tagIds = $attributes['tagIds'] ?? [];
+            unset($attributes['tagIds']);
+
+            $event = Event::query()->create([
                 ...$attributes,
                 'user_id' => $user->id,
             ]);
+
+            if (! empty($tagIds)) {
+                $event->tags()->attach($tagIds);
+            }
+
+            return $event;
         });
     }
 

@@ -256,20 +256,6 @@
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
 
     @elseif($kind === 'event')
-        @if($item->timezone)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="globe-alt" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Time zone') }}:
-                    </span>
-                    <span class="truncate max-w-[120px] uppercase">
-                        {{ $item->timezone }}
-                    </span>
-                </span>
-            </span>
-        @endif
-
         @if($item->status)
             <span
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->status->color() }}/10 px-2.5 py-0.5 font-semibold text-{{ $item->status->color() }} dark:border-white/10"
@@ -324,32 +310,6 @@
                     </span>
                 </span>
             @endif
-        @endif
-
-        @if($item->location)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10">
-                <flux:icon name="map-pin" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Location') }}:
-                    </span>
-                    <span class="truncate max-w-[120px] uppercase">{{ $item->location }}</span>
-                </span>
-            </span>
-        @endif
-
-        @if($item->color)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium dark:border-white/10" style="color: {{ $item->color }};">
-                <flux:icon name="paint-brush" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Color') }}:
-                    </span>
-                    <span class="truncate max-w-[120px] uppercase">
-                        {{ $item->color }}
-                    </span>
-                </span>
-            </span>
         @endif
 
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />

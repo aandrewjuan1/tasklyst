@@ -33,6 +33,11 @@ class extends Component
      */
     public array $taskPayload = [];
 
+    /**
+     * @var array<string, mixed>
+     */
+    public array $eventPayload = [];
+
     public function boot(TaskService $taskService, ProjectService $projectService, EventService $eventService, TagService $tagService): void
     {
         $this->taskService = $taskService;

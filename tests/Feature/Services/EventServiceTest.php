@@ -1,11 +1,26 @@
 <?php
 
 use App\Models\Event;
+use App\Models\Tag;
 use App\Models\User;
 use App\Services\EventService;
 
 use function Pest\Laravel\assertDatabaseHas;
 use function Pest\Laravel\assertSoftDeleted;
+
+it('creates an event with tags', function (): void {
+    $user = User::factory()->create();
+    $tag1 = Tag::factory()->for($user)->create();
+    $tag2 = Tag::factory()->for($user)->create();
+
+    $event = app(EventService::class)->createEvent($user, [
+        'title' => 'Event with Tags',
+        'tagIds' => [$tag1->id, $tag2->id],
+    ]);
+
+    expect($event->tags)->toHaveCount(2);
+    expect($event->tags->pluck('id')->toArray())->toContain($tag1->id, $tag2->id);
+});
 
 it('creates updates and deletes an event', function (): void {
     $user = User::factory()->create();

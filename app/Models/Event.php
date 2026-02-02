@@ -2,12 +2,12 @@
 
 namespace App\Models;
 
-use App\Enums\EventStatus;
 use App\Enums\EventRecurrenceType;
+use App\Enums\EventStatus;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
@@ -34,9 +34,6 @@ class Event extends Model
         'start_datetime',
         'end_datetime',
         'all_day',
-        'timezone',
-        'location',
-        'color',
         'status',
     ];
 
@@ -70,6 +67,11 @@ class Event extends Model
         return $this->morphToMany(User::class, 'collaboratable', 'collaborations')
             ->withPivot('permission')
             ->withTimestamps();
+    }
+
+    public function tags(): MorphToMany
+    {
+        return $this->morphToMany(Tag::class, 'taggable');
     }
 
     public function scopeForUser(Builder $query, int $userId): Builder

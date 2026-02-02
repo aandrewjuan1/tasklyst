@@ -198,6 +198,30 @@ it('deletes a project through the workspace component', function (): void {
     ]);
 });
 
+it('can create an event from the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('createEvent', [
+            'title' => 'Inline created event',
+            'status' => 'scheduled',
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'allDay' => false,
+        ])
+        ->assertSee('Inline created event')
+        ->assertDispatched('toast', type: 'success', message: __('Event created.'));
+
+    $this->assertDatabaseHas('events', [
+        'title' => 'Inline created event',
+        'user_id' => $user->id,
+    ]);
+});
+
 it('deletes an event through the workspace component', function (): void {
     $user = User::factory()->create();
 
@@ -339,6 +363,52 @@ it('rejects updateTaskProperty when task not found', function (): void {
         ->assertDispatched('toast', type: 'error', message: __('Task not found.'));
 });
 
+it('updates an event property through the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $event = Event::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Event To Update',
+            'status' => 'scheduled',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('updateEventProperty', $event->id, 'status', 'completed')
+        ->assertDispatched('toast', type: 'success', message: __('Event updated.'));
+
+    $event->refresh();
+    expect($event->status->value)->toBe('completed');
+});
+
+it('rejects updateEventProperty for invalid property', function (): void {
+    $user = User::factory()->create();
+
+    $event = Event::factory()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateEventProperty', $event->id, 'title', 'Hacked')
+        ->assertDispatched('toast', type: 'error', message: __('Invalid property for update.'));
+
+    $event->refresh();
+    expect($event->title)->not->toBe('Hacked');
+});
+
+it('rejects updateEventProperty when event not found', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateEventProperty', 99999, 'status', 'completed')
+        ->assertDispatched('toast', type: 'error', message: __('Event not found.'));
+});
+
 it('rejects updateTaskProperty when user cannot update task', function (): void {
     $user = User::factory()->create();
     $owner = User::factory()->create();
@@ -389,6 +459,21 @@ it('only shows tasks the user owns or collaborates on', function (): void {
         ->assertSee($ownedTask->title)
         ->assertSee($collaboratorTask->title)
         ->assertDontSee($hiddenTask->title);
+});
+
+it('dispatches error toast when event validation fails', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('createEvent', [
+            'title' => '',
+            'status' => 'scheduled',
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'allDay' => false,
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('Please fix the event details and try again.'));
 });
 
 it('dispatches error toast when task validation fails', function (): void {

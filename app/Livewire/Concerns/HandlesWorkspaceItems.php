@@ -6,6 +6,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
 use Illuminate\Support\Carbon as SupportCarbon;
@@ -112,6 +113,103 @@ trait HandlesWorkspaceItems
         $this->listRefresh++;
         $this->dispatch('task-created', id: $task->id, title: $task->title);
         $this->dispatch('toast', type: 'success', message: __('Task created.'));
+    }
+
+    /**
+     * Create a new event for the authenticated user.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function createEvent(array $payload): void
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to create events.'));
+
+            return;
+        }
+
+        $this->authorize('create', Event::class);
+
+        $eventPayload = array_replace_recursive(EventPayloadValidation::defaults(), $payload);
+
+        $validator = Validator::make(
+            ['eventPayload' => $eventPayload],
+            EventPayloadValidation::rules()
+        );
+
+        if ($validator->fails()) {
+            Log::error('Event validation failed', [
+                'errors' => $validator->errors()->all(),
+                'payload' => $eventPayload,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Please fix the event details and try again.'));
+
+            return;
+        }
+
+        $validatedEvent = $validator->validated()['eventPayload'];
+
+        $title = (string) ($validatedEvent['title'] ?? '');
+        $startDatetime = $this->parseOptionalDatetime($validatedEvent['startDatetime'] ?? null);
+        $endDatetime = $this->parseOptionalDatetime($validatedEvent['endDatetime'] ?? null);
+
+        $tagIds = array_values(array_unique(array_map('intval', $validatedEvent['tagIds'] ?? [])));
+        foreach ($validatedEvent['pendingTagNames'] ?? [] as $name) {
+            $name = trim((string) $name);
+            if ($name === '') {
+                continue;
+            }
+            $existingTag = Tag::query()
+                ->where('user_id', $user->id)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
+                ->first();
+            if ($existingTag !== null) {
+                $tagIds[] = $existingTag->id;
+
+                continue;
+            }
+            try {
+                $tag = $this->tagService->createTag($user, ['name' => $name]);
+                $tagIds[] = $tag->id;
+            } catch (\Throwable $e) {
+                Log::error('Failed to create tag when creating event.', [
+                    'user_id' => $user->id,
+                    'name' => $name,
+                    'exception' => $e,
+                ]);
+            }
+        }
+        $tagIds = array_values(array_unique($tagIds));
+
+        $eventAttributes = [
+            'title' => $title,
+            'description' => $validatedEvent['description'] ?? null,
+            'status' => $validatedEvent['status'] ?? null,
+            'start_datetime' => $startDatetime,
+            'end_datetime' => $endDatetime,
+            'all_day' => $validatedEvent['allDay'] ?? false,
+            'tagIds' => $tagIds,
+        ];
+
+        try {
+            $event = $this->eventService->createEvent($user, $eventAttributes);
+        } catch (\Throwable $e) {
+            Log::error('Failed to create event from workspace.', [
+                'user_id' => $user->id,
+                'payload' => $eventPayload,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong creating the event.'));
+
+            return;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('event-created', id: $event->id, title: $event->title);
+        $this->dispatch('toast', type: 'success', message: __('Event created.'));
     }
 
     /**
@@ -491,6 +589,106 @@ trait HandlesWorkspaceItems
     }
 
     /**
+     * Update a single event property for the authenticated user (inline editing).
+     *
+     * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
+     */
+    public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false): bool
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to update events.'));
+
+            return false;
+        }
+
+        $event = Event::query()->find($eventId);
+
+        if ($event === null) {
+            $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $event);
+
+        if (! in_array($property, EventPayloadValidation::allowedUpdateProperties(), true)) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
+
+            return false;
+        }
+
+        $rules = EventPayloadValidation::rulesForProperty($property);
+        if ($rules === []) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
+
+            return false;
+        }
+
+        $validator = Validator::make(['value' => $value], $rules);
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
+
+            return false;
+        }
+
+        $validatedValue = $validator->validated()['value'];
+
+        if ($property === 'tagIds') {
+            try {
+                $event->tags()->sync($validatedValue);
+            } catch (\Throwable $e) {
+                Log::error('Failed to sync event tags from workspace.', [
+                    'user_id' => $user->id,
+                    'event_id' => $eventId,
+                    'exception' => $e,
+                ]);
+                $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the event.'));
+
+                return false;
+            }
+            if (! $silentToasts) {
+                $this->dispatch('toast', type: 'success', message: __('Event updated.'));
+            }
+
+            return true;
+        }
+
+        $column = match ($property) {
+            'startDatetime' => 'start_datetime',
+            'endDatetime' => 'end_datetime',
+            'allDay' => 'all_day',
+            default => $property,
+        };
+
+        $attributes = [$column => $validatedValue];
+        if ($column === 'start_datetime' || $column === 'end_datetime') {
+            $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
+        }
+
+        try {
+            $this->eventService->updateEvent($event, $attributes);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update event property from workspace.', [
+                'user_id' => $user->id,
+                'event_id' => $eventId,
+                'property' => $property,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the event.'));
+
+            return false;
+        }
+
+        if (! $silentToasts) {
+            $this->dispatch('toast', type: 'success', message: __('Event updated.'));
+        }
+
+        return true;
+    }
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     protected function rules(): array
@@ -592,6 +790,7 @@ trait HandlesWorkspaceItems
         return Event::query()
             ->with([
                 'recurringEvent',
+                'tags',
                 'collaborations',
             ])
             ->forUser($userId)

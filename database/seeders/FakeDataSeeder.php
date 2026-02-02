@@ -69,9 +69,6 @@ class FakeDataSeeder extends Seeder
             'start_datetime' => $birthdayDate->copy()->startOfDay(),
             'end_datetime' => $birthdayDate->copy()->endOfDay(),
             'all_day' => true,
-            'timezone' => null,
-            'location' => null,
-            'color' => null,
             'status' => EventStatus::Scheduled,
         ]);
 
