@@ -39,10 +39,11 @@
         selectedDate: null,
         hour: '',
         minute: '',
-        meridiem: 'AM',
         days: [],
         panelHeightEst: 420,
         panelWidthEst: 320,
+        todayCache: null,
+        valueChangedDebounceTimer: null,
 
         init() {
             this.applyInitialValue();
@@ -56,8 +57,7 @@
             this.month = baseDate.getMonth();
             this.year = baseDate.getFullYear();
             if (this.type === 'datetime-local' && (!this.hour || !this.minute)) {
-                const now = this.selectedDate ?? new Date();
-                this.setTimeFromDate(now);
+                this.setTimeFromDate(baseDate);
             }
             this.buildDays();
         },
@@ -90,12 +90,9 @@
         },
 
         setTimeFromDate(date) {
-            let hours = date.getHours();
+            const hours = date.getHours();
             const minutes = date.getMinutes();
-            this.meridiem = hours >= 12 ? 'PM' : 'AM';
-            let hour12 = hours % 12;
-            if (hour12 === 0) hour12 = 12;
-            this.hour = String(hour12).padStart(2, '0');
+            this.hour = String(hours).padStart(2, '0');
             this.minute = String(minutes).padStart(2, '0');
         },
 
@@ -127,8 +124,8 @@
 
         normalizeHour() {
             let h = parseInt(this.hour || '0', 10);
-            if (isNaN(h) || h < 1) h = 1;
-            if (h > 12) h = 12;
+            if (isNaN(h) || h < 0) h = 0;
+            if (h > 23) h = 23;
             this.hour = String(h).padStart(2, '0');
         },
 
@@ -156,10 +153,13 @@
         },
 
         clearSelection() {
+            if (this.valueChangedDebounceTimer) {
+                clearTimeout(this.valueChangedDebounceTimer);
+                this.valueChangedDebounceTimer = null;
+            }
             this.selectedDate = null;
             this.hour = '';
             this.minute = '';
-            this.meridiem = 'AM';
             this.currentValue = null;
             this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: null });
         },
@@ -168,11 +168,9 @@
             if (!this.selectedDate) return;
             const date = new Date(this.selectedDate);
             if (this.type === 'datetime-local') {
-                let hours = parseInt(this.hour || '12', 10);
+                let hours = parseInt(this.hour || '0', 10);
                 const minutes = parseInt(this.minute || '0', 10);
-                if (isNaN(hours) || hours < 1 || hours > 12) hours = 12;
-                if (this.meridiem === 'PM' && hours < 12) hours += 12;
-                if (this.meridiem === 'AM' && hours === 12) hours = 0;
+                if (isNaN(hours) || hours < 0 || hours > 23) hours = 0;
                 date.setHours(hours, isNaN(minutes) ? 0 : minutes, 0, 0);
             } else {
                 date.setHours(0, 0, 0, 0);
@@ -182,10 +180,20 @@
             const day = String(date.getDate()).padStart(2, '0');
             let value = `${year}-${month}-${day}`;
             if (this.type === 'datetime-local') {
-                value += `T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                value += `T${hours}:${minutes}:00`;
             }
             this.currentValue = value;
-            this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: this.currentValue });
+            
+            // Debounce the event dispatch to prevent UI blocking
+            if (this.valueChangedDebounceTimer) {
+                clearTimeout(this.valueChangedDebounceTimer);
+            }
+            this.valueChangedDebounceTimer = setTimeout(() => {
+                this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: this.currentValue });
+                this.valueChangedDebounceTimer = null;
+            }, 150);
         },
 
         isSelected(day) {
@@ -195,8 +203,15 @@
 
         isToday(day) {
             if (!day) return false;
-            const today = new Date();
-            return today.getFullYear() === this.year && today.getMonth() === this.month && today.getDate() === day;
+            if (!this.todayCache) {
+                const today = new Date();
+                this.todayCache = {
+                    year: today.getFullYear(),
+                    month: today.getMonth(),
+                    date: today.getDate(),
+                };
+            }
+            return this.todayCache.year === this.year && this.todayCache.month === this.month && this.todayCache.date === day;
         },
 
         get monthLabel() {
@@ -209,9 +224,13 @@
             try {
                 const date = new Date(value);
                 if (isNaN(date.getTime())) return this.notSetLabel;
-                const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                const timeStr = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-                return dateStr + ' ' + timeStr;
+                if (this.type === 'datetime-local') {
+                    const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                    const timeStr = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+                    return dateStr + ' ' + timeStr;
+                } else {
+                    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+                }
             } catch (e) {
                 return this.notSetLabel;
             }
@@ -399,10 +418,11 @@
                         <div class="flex items-center gap-2">
                             <input
                                 type="number"
-                                min="1"
-                                max="12"
+                                min="0"
+                                max="23"
                                 x-model="hour"
                                 @change="updateTime()"
+                                placeholder="00"
                                 class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
                             />
                             <span class="pb-1 text-sm text-zinc-400 dark:text-zinc-500">:</span>
@@ -412,17 +432,9 @@
                                 max="59"
                                 x-model="minute"
                                 @change="updateTime()"
+                                placeholder="00"
                                 class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
                             />
-
-                            <select
-                                x-model="meridiem"
-                                @change="updateTime()"
-                                class="h-8 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs font-medium text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
-                            >
-                                <option value="AM">AM</option>
-                                <option value="PM">PM</option>
-                            </select>
                         </div>
                     </div>
                 </div>
