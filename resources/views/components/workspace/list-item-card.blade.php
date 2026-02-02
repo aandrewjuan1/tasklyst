@@ -115,8 +115,10 @@
         listFilterDate: @js($listFilterDate),
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
+        isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
         deleteErrorToast: @js(__('Something went wrong. Please try again.')),
         isTaskStillRelevantForList(startDatetime) {
+            if (this.isRecurringTask) return true;
             if (!this.listFilterDate || this.kind !== 'task') return true;
             if (startDatetime == null || startDatetime === '') return true;
             try {
@@ -266,6 +268,18 @@
                         {{ __('Status') }}:
                     </span>
                     <span class="uppercase">{{ $item->status->value }}</span>
+                </span>
+            </span>
+        @endif
+
+        @if($item->recurringEvent)
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->recurringEvent->recurrence_type->color() }}/10 px-2.5 py-0.5 font-medium text-{{ $item->recurringEvent->recurrence_type->color() }} dark:border-white/10">
+                <flux:icon name="calendar-days" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Recurring') }}:
+                    </span>
+                    <span class="uppercase">{{ $item->recurringEvent->recurrence_type->name }}</span>
                 </span>
             </span>
         @endif
@@ -769,6 +783,18 @@
                     @endforeach
                 </div>
             </x-simple-select-dropdown>
+        @endif
+
+        @if($item->recurringTask)
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->recurringTask->recurrence_type->color() }}/10 px-2.5 py-0.5 font-medium text-{{ $item->recurringTask->recurrence_type->color() }} dark:border-white/10">
+                <flux:icon name="calendar-days" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Recurring') }}:
+                    </span>
+                    <span class="uppercase">{{ $item->recurringTask->recurrence_type->name }}</span>
+                </span>
+            </span>
         @endif
 
         <x-date-picker
