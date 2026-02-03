@@ -9,6 +9,7 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
+use App\Models\Project;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Tag;
@@ -48,6 +49,15 @@ class FakeDataSeeder extends Seeder
         $this->createDailyTask($user, 'Day Trading', 480, Carbon::today()->setTime(15, 0), Carbon::today()->setTime(23, 0), [$financeTag, $workTag]);
         $this->createDailyTask($user, 'Read', 60, null, null, [$learningTag, $personalTag]);
         $this->createDailyTask($user, 'Workout', 120, null, null, [$healthTag, $exerciseTag]);
+
+        // Create Theis Project
+        Project::create([
+            'user_id' => $user->id,
+            'name' => 'Thesis Project',
+            'description' => 'A comprehensive project spanning from January to May 2026, focusing on strategic planning and execution.',
+            'start_datetime' => Carbon::create(2026, 1, 1)->startOfDay(),
+            'end_datetime' => Carbon::create(2026, 5, 15)->endOfDay(),
+        ]);
     }
 
     /**
