@@ -80,6 +80,7 @@ final class EventPayloadValidation
     public static function allowedUpdateProperties(): array
     {
         return [
+            'title',
             'status',
             'startDatetime',
             'endDatetime',
@@ -104,6 +105,7 @@ final class EventPayloadValidation
         });
 
         $rules = match ($property) {
+            'title' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
             'status' => ['value' => ['nullable', Rule::in(array_map(fn (EventStatus $s) => $s->value, EventStatus::cases()))]],
             'startDatetime' => ['value' => ['nullable', 'date']],
             'endDatetime' => ['value' => ['nullable', 'date']],

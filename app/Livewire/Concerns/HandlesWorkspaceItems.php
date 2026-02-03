@@ -7,6 +7,7 @@ use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Support\Validation\EventPayloadValidation;
+use App\Support\Validation\ProjectPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
 use Illuminate\Support\Carbon as SupportCarbon;
@@ -431,6 +432,17 @@ trait HandlesWorkspaceItems
             return false;
         }
 
+        // Explicit validation for title property - reject empty/whitespace-only values before validator
+        if ($property === 'title') {
+            $trimmedValue = is_string($value) ? trim($value) : $value;
+            if (empty($trimmedValue)) {
+                $this->dispatch('toast', type: 'error', message: __('Title cannot be empty.'));
+
+                return false;
+            }
+            $value = $trimmedValue;
+        }
+
         $validator = Validator::make(['value' => $value], $rules);
         if ($validator->fails()) {
             $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
@@ -626,6 +638,17 @@ trait HandlesWorkspaceItems
             return false;
         }
 
+        // Explicit validation for title property - reject empty/whitespace-only values before validator
+        if ($property === 'title') {
+            $trimmedValue = is_string($value) ? trim($value) : $value;
+            if (empty($trimmedValue)) {
+                $this->dispatch('toast', type: 'error', message: __('Title cannot be empty.'));
+
+                return false;
+            }
+            $value = $trimmedValue;
+        }
+
         $validator = Validator::make(['value' => $value], $rules);
         if ($validator->fails()) {
             $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
@@ -683,6 +706,91 @@ trait HandlesWorkspaceItems
 
         if (! $silentToasts) {
             $this->dispatch('toast', type: 'success', message: __('Event updated.'));
+        }
+
+        return true;
+    }
+
+    /**
+     * Update a single project property for the authenticated user (inline editing).
+     *
+     * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
+     */
+    public function updateProjectProperty(int $projectId, string $property, mixed $value, bool $silentToasts = false): bool
+    {
+        $user = Auth::user();
+
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: __('You must be logged in to update projects.'));
+
+            return false;
+        }
+
+        $project = Project::query()->find($projectId);
+
+        if ($project === null) {
+            $this->dispatch('toast', type: 'error', message: __('Project not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $project);
+
+        if (! in_array($property, ProjectPayloadValidation::allowedUpdateProperties(), true)) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
+
+            return false;
+        }
+
+        $rules = ProjectPayloadValidation::rulesForProperty($property);
+        if ($rules === []) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
+
+            return false;
+        }
+
+        // Explicit validation for name property - reject empty/whitespace-only values before validator
+        if ($property === 'name') {
+            $trimmedValue = is_string($value) ? trim($value) : $value;
+            if (empty($trimmedValue)) {
+                $this->dispatch('toast', type: 'error', message: __('Title cannot be empty.'));
+
+                return false;
+            }
+            $value = $trimmedValue;
+        }
+
+        $validator = Validator::make(['value' => $value], $rules);
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
+
+            return false;
+        }
+
+        $validatedValue = $validator->validated()['value'];
+
+        $column = match ($property) {
+            default => $property,
+        };
+
+        $attributes = [$column => $validatedValue];
+
+        try {
+            $this->projectService->updateProject($project, $attributes);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update project property from workspace.', [
+                'user_id' => $user->id,
+                'project_id' => $projectId,
+                'property' => $property,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the project.'));
+
+            return false;
+        }
+
+        if (! $silentToasts) {
+            $this->dispatch('toast', type: 'success', message: __('Project updated.'));
         }
 
         return true;

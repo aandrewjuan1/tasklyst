@@ -85,6 +85,7 @@ final class TaskPayloadValidation
     public static function allowedUpdateProperties(): array
     {
         return [
+            'title',
             'status',
             'priority',
             'complexity',
@@ -111,6 +112,7 @@ final class TaskPayloadValidation
         });
 
         $rules = match ($property) {
+            'title' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
             'status' => ['value' => ['nullable', Rule::in(array_map(fn (TaskStatus $s) => $s->value, TaskStatus::cases()))]],
             'priority' => ['value' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))]],
             'complexity' => ['value' => ['nullable', Rule::in(array_map(fn (TaskComplexity $c) => $c->value, TaskComplexity::cases()))]],

@@ -326,18 +326,38 @@ it('updates task priority and complexity via updateTaskProperty', function (): v
     expect($task->complexity->value)->toBe('complex');
 });
 
-it('rejects updateTaskProperty for invalid property', function (): void {
+it('updates task title via updateTaskProperty', function (): void {
     $user = User::factory()->create();
 
-    $task = Task::factory()->for($user)->create(['completed_at' => null]);
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Task Old Title',
+            'completed_at' => null,
+        ]);
 
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
-        ->call('updateTaskProperty', $task->id, 'title', 'Hacked')
+        ->call('updateTaskProperty', $task->id, 'title', 'Task New Title')
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh();
+    expect($task->title)->toBe('Task New Title');
+});
+
+it('rejects updateTaskProperty for invalid property', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create(['completed_at' => null, 'project_id' => null]);
+    $originalTitle = $task->title;
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'projectId', 123)
         ->assertDispatched('toast', type: 'error', message: __('Invalid property for update.'));
 
     $task->refresh();
-    expect($task->title)->not->toBe('Hacked');
+    expect($task->title)->toBe($originalTitle);
 });
 
 it('rejects updateTaskProperty for invalid value', function (): void {
@@ -386,18 +406,79 @@ it('updates an event property through the workspace component', function (): voi
     expect($event->status->value)->toBe('completed');
 });
 
-it('rejects updateEventProperty for invalid property', function (): void {
+it('updates event title via updateEventProperty', function (): void {
     $user = User::factory()->create();
 
-    $event = Event::factory()->for($user)->create();
+    $event = Event::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Event Old Title',
+            'status' => 'scheduled',
+        ]);
 
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
-        ->call('updateEventProperty', $event->id, 'title', 'Hacked')
+        ->call('updateEventProperty', $event->id, 'title', 'Event New Title')
+        ->assertDispatched('toast', type: 'success', message: __('Event updated.'));
+
+    $event->refresh();
+    expect($event->title)->toBe('Event New Title');
+});
+
+it('rejects updateEventProperty for invalid property', function (): void {
+    $user = User::factory()->create();
+
+    $event = Event::factory()->for($user)->create(['description' => null]);
+    $originalTitle = $event->title;
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateEventProperty', $event->id, 'description', 'Hacked')
         ->assertDispatched('toast', type: 'error', message: __('Invalid property for update.'));
 
     $event->refresh();
-    expect($event->title)->not->toBe('Hacked');
+    expect($event->title)->toBe($originalTitle);
+});
+
+it('updates a project name property through the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()
+        ->for($user)
+        ->create([
+            'name' => 'Project Old Name',
+            'start_datetime' => now()->startOfDay(),
+        ]);
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('updateProjectProperty', $project->id, 'name', 'Project New Name')
+        ->assertDispatched('toast', type: 'success', message: __('Project updated.'));
+
+    $project->refresh();
+    expect($project->name)->toBe('Project New Name');
+});
+
+it('rejects updateProjectProperty for invalid property', function (): void {
+    $user = User::factory()->create();
+
+    $project = Project::factory()
+        ->for($user)
+        ->create([
+            'name' => 'Project Name',
+            'start_datetime' => now()->startOfDay(),
+        ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateProjectProperty', $project->id, 'title', 'Hacked')
+        ->assertDispatched('toast', type: 'error', message: __('Invalid property for update.'));
+
+    $project->refresh();
+    expect($project->name)->toBe('Project Name');
 });
 
 it('rejects updateEventProperty when event not found', function (): void {

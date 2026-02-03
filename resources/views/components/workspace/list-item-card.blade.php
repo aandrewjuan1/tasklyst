@@ -37,6 +37,8 @@
     };
 
     $updatePropertyMethod = match ($kind) {
+        'project' => 'updateProjectProperty',
+        'event' => 'updateEventProperty',
         'task' => 'updateTaskProperty',
         default => null,
     };
@@ -107,6 +109,7 @@
     {{ $attributes->merge([
         'class' => 'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur',
     ]) }}
+    wire:ignore
     x-data="{
         deletingInProgress: false,
         hideCard: false,
@@ -117,6 +120,16 @@
         itemId: @js($item->id),
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
         deleteErrorToast: @js(__('Something went wrong. Please try again.')),
+        isEditingTitle: false,
+        editedTitle: @js($title),
+        titleSnapshot: null,
+        savingTitle: false,
+        justCanceledTitle: false,
+        savedViaEnter: false,
+        updateTitleMethod: @js($updatePropertyMethod),
+        titleProperty: @js(match($kind) { 'project' => 'name', default => 'title' }),
+        titleErrorToast: @js(__('Title cannot be empty.')),
+        titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
         isTaskStillRelevantForList(startDatetime) {
             if (this.isRecurringTask) return true;
             if (!this.listFilterDate || this.kind !== 'task') return true;
@@ -147,6 +160,92 @@
                 this.deletingInProgress = false;
                 $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
             }
+        },
+        startEditingTitle() {
+            if (this.deletingInProgress || !this.updateTitleMethod) return;
+            this.titleSnapshot = this.editedTitle;
+            this.isEditingTitle = true;
+            this.$nextTick(() => {
+                const input = this.$refs.titleInput;
+                if (input) {
+                    input.focus();
+                    // Position cursor at the end instead of selecting all
+                    const length = input.value.length;
+                    input.setSelectionRange(length, length);
+                }
+            });
+        },
+        cancelEditingTitle() {
+            this.justCanceledTitle = true;
+            this.savedViaEnter = false;
+            this.editedTitle = this.titleSnapshot;
+            this.isEditingTitle = false;
+            this.titleSnapshot = null;
+            // Reset flag after a short delay to allow blur events to settle
+            setTimeout(() => { this.justCanceledTitle = false; }, 100);
+        },
+        async saveTitle() {
+            if (this.deletingInProgress || !this.updateTitleMethod || !this.itemId || this.savingTitle || this.justCanceledTitle) return;
+            
+            const trimmedTitle = (this.editedTitle || '').trim();
+            // 1) Empty titles are forbidden – show error and revert without calling backend
+            if (!trimmedTitle) {
+                $wire.$dispatch('toast', { type: 'error', message: this.titleErrorToast });
+                this.cancelEditingTitle();
+                return;
+            }
+
+            // Snapshot for rollback (use original value from when editing started)
+            const snapshot = this.titleSnapshot;
+            const originalTrimmed = (snapshot ?? '').toString().trim();
+
+            // 2) Do not submit if nothing actually changed (no backend call, simply exit edit mode)
+            if (trimmedTitle === originalTrimmed) {
+                this.editedTitle = snapshot;
+                this.isEditingTitle = false;
+                this.titleSnapshot = null;
+                return;
+            }
+
+            // Prevent concurrent saves
+            this.savingTitle = true;
+            
+            try {
+                // Optimistic update - update immediately (x-model already updated it, but ensure trimmed)
+                this.editedTitle = trimmedTitle;
+                
+                // Call server
+                const ok = await $wire.$parent.$call(this.updateTitleMethod, this.itemId, this.titleProperty, trimmedTitle);
+                
+                if (!ok) {
+                    // Rollback on failure
+                    this.editedTitle = snapshot;
+                    $wire.$dispatch('toast', { type: 'error', message: this.titleUpdateErrorToast });
+                } else {
+                    // Success - exit edit mode
+                    this.isEditingTitle = false;
+                    this.titleSnapshot = null;
+                }
+            } catch (error) {
+                // Rollback on error
+                this.editedTitle = snapshot;
+                $wire.$dispatch('toast', { type: 'error', message: error.message || this.titleUpdateErrorToast });
+            } finally {
+                this.savingTitle = false;
+                // Reset savedViaEnter flag after a short delay to allow blur events to settle
+                if (this.savedViaEnter) {
+                    setTimeout(() => { this.savedViaEnter = false; }, 100);
+                }
+            }
+        },
+        handleEnterKey() {
+            this.savedViaEnter = true;
+            this.saveTitle();
+        },
+        handleBlur() {
+            if (!this.savedViaEnter && !this.justCanceledTitle) {
+                this.saveTitle();
+            }
         }
     }"
     x-show="!hideCard"
@@ -161,9 +260,27 @@
 >
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
-            <p class="truncate text-base font-semibold leading-tight">
+            <p 
+                x-show="!isEditingTitle"
+                x-cloak
+                @click="startEditingTitle()"
+                class="truncate text-base font-semibold leading-tight cursor-pointer hover:opacity-80 transition-opacity"
+                x-text="editedTitle"
+            >
                 {{ $title }}
             </p>
+            <input
+                x-show="isEditingTitle"
+                x-cloak
+                x-ref="titleInput"
+                x-model="editedTitle"
+                @keydown.enter.prevent="handleEnterKey()"
+                @keydown.escape="cancelEditingTitle()"
+                @blur="handleBlur()"
+                wire:ignore
+                class="w-full min-w-0 text-base font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 ring-1 ring-border/40 shadow-sm transition focus:bg-background/70 focus:ring-2 focus:ring-ring/30 dark:bg-muted/10"
+                type="text"
+            />
 
             @if($description)
                 <p class="mt-0.5 line-clamp-2 text-xs text-foreground/70">
