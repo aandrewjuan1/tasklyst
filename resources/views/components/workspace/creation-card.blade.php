@@ -221,6 +221,12 @@
                         />
                     @endforeach
 
+                    <x-recurring-selection
+                        triggerLabel="{{ __('Recurring') }}"
+                        position="bottom"
+                        align="end"
+                    />
+
                     <div class="flex w-full items-center gap-1.5" x-show="errors.taskDateRange" x-cloak>
                         <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
                         <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.taskDateRange"></p>

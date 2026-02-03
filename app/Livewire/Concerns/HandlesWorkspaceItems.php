@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Support\Validation\EventPayloadValidation;
@@ -85,6 +86,9 @@ trait HandlesWorkspaceItems
         }
         $tagIds = array_values(array_unique($tagIds));
 
+        $recurrenceData = $validatedTask['recurrence'] ?? null;
+        $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
+
         $taskAttributes = [
             'title' => $title,
             'status' => $validatedTask['status'] ?? null,
@@ -95,6 +99,7 @@ trait HandlesWorkspaceItems
             'end_datetime' => $endDatetime,
             'project_id' => $validatedTask['projectId'] ?? null,
             'tagIds' => $tagIds,
+            'recurrence' => $recurrenceEnabled ? $recurrenceData : null,
         ];
 
         try {

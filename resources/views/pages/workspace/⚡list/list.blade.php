@@ -78,6 +78,12 @@
             this.formData.task.startDatetime = null;
             this.formData.task.endDatetime = null;
             this.formData.task.tagIds = [];
+            this.formData.task.recurrence = {
+                enabled: false,
+                type: null,
+                interval: 1,
+                daysOfWeek: [],
+            };
             this.newTagName = '';
             this.errors.taskDateRange = null;
         },
