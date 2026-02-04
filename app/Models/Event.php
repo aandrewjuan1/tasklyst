@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 class Event extends Model
 {
@@ -65,6 +66,228 @@ class Event extends Model
                 'icon' => $success ? 'check-circle' : 'exclamation-triangle',
             ],
         };
+    }
+
+    /**
+     * Build a friendly toast payload for inline Event edits.
+     *
+     * @return array{type: 'success'|'error'|'info', message: string, icon: string}
+     */
+    public static function toastPayloadForPropertyUpdate(string $property, mixed $fromValue, mixed $toValue, bool $success, ?string $eventTitle = null): array
+    {
+        $type = $success ? 'success' : 'error';
+        $eventSuffix = self::toastEventSuffix($eventTitle);
+
+        $propertyLabel = self::propertyLabel($property);
+        $formattedFrom = self::formatPropertyValue($property, $fromValue);
+        $formattedTo = self::formatPropertyValue($property, $toValue);
+        $icon = self::propertyIcon($property, $success);
+
+        if (! $success) {
+            $message = $propertyLabel !== null
+                ? __('Couldn’t save :property. Try again.', ['property' => $propertyLabel]).$eventSuffix
+                : __('Couldn’t save changes. Try again.').$eventSuffix;
+
+            return [
+                'type' => $type,
+                'message' => $message,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($propertyLabel === null) {
+            return [
+                'type' => $type,
+                'message' => __('Saved changes.').$eventSuffix,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($formattedFrom !== null || $formattedTo !== null) {
+            $message = __(':property: :from → :to.', [
+                'property' => $propertyLabel,
+                'from' => $formattedFrom ?? __('Not set'),
+                'to' => $formattedTo ?? __('Not set'),
+            ]).$eventSuffix;
+        } else {
+            $message = __('Saved :property.', ['property' => $propertyLabel]).$eventSuffix;
+        }
+
+        return [
+            'type' => $type,
+            'message' => $message,
+            'icon' => $icon,
+        ];
+    }
+
+    private static function toastEventSuffix(?string $eventTitle): string
+    {
+        $trimmed = $eventTitle !== null ? trim($eventTitle) : '';
+        if ($trimmed === '') {
+            return '';
+        }
+
+        return ' — '.__('Event').': '.'“'.$trimmed.'”';
+    }
+
+    private static function propertyLabel(string $property): ?string
+    {
+        return match ($property) {
+            'title' => __('Title'),
+            'status' => __('Status'),
+            'startDatetime' => __('Start'),
+            'endDatetime' => __('End'),
+            'tagIds' => __('Tags'),
+            'allDay' => __('All Day'),
+            'recurrence' => __('Recurring'),
+            default => null,
+        };
+    }
+
+    private static function propertyIcon(string $property, bool $success): string
+    {
+        if (! $success) {
+            return 'exclamation-triangle';
+        }
+
+        return match ($property) {
+            'title' => 'pencil-square',
+            'status' => 'check-circle',
+            'startDatetime', 'endDatetime' => 'clock',
+            'tagIds' => 'tag',
+            'allDay' => 'sun',
+            'recurrence' => 'arrow-path',
+            default => 'pencil-square',
+        };
+    }
+
+    private static function formatPropertyValue(string $property, mixed $value): ?string
+    {
+        return match ($property) {
+            'title' => is_string($value) ? '“'.trim($value).'”' : null,
+            'status' => self::enumLabel(EventStatus::class, $value),
+            'startDatetime', 'endDatetime' => self::formatDatetime($value),
+            'tagIds' => self::formatTagCount($value),
+            'allDay' => self::formatAllDay($value),
+            'recurrence' => self::formatRecurrence($value),
+            default => is_scalar($value) ? (string) $value : null,
+        };
+    }
+
+    /**
+     * @param  class-string  $enumClass
+     */
+    private static function enumLabel(string $enumClass, mixed $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            /** @var \BackedEnum|null $enum */
+            $enum = $enumClass::tryFrom($value);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($enum === null) {
+            return null;
+        }
+
+        $name = $enum->name;
+
+        return (string) preg_replace('/(?<!^)([A-Z])/', ' $1', $name);
+    }
+
+    private static function formatDatetime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return __('Not set');
+        }
+
+        try {
+            return Carbon::parse((string) $value)->translatedFormat('M j, Y · g:i A');
+        } catch (\Throwable) {
+            return __('Not set');
+        }
+    }
+
+    private static function formatTagCount(mixed $value): ?string
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $count = count($value);
+        if ($count === 0) {
+            return __('None');
+        }
+
+        return (string) $count;
+    }
+
+    private static function formatAllDay(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $bool = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($bool === null) {
+            return null;
+        }
+
+        return $bool ? __('Yes') : __('No');
+    }
+
+    /**
+     * @param  array<string, mixed>  $value
+     */
+    private static function formatRecurrence(mixed $value): ?string
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $enabled = (bool) ($value['enabled'] ?? false);
+        if (! $enabled) {
+            return __('Off');
+        }
+
+        $type = (string) ($value['type'] ?? '');
+        $interval = (int) ($value['interval'] ?? 1);
+        $days = $value['daysOfWeek'] ?? [];
+
+        if ($type === '') {
+            return __('On');
+        }
+
+        $typeLabel = strtoupper($type);
+
+        if ($type === 'weekly' && is_array($days) && $days !== []) {
+            $labels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+            $dayNames = array_map(fn (int $d) => $labels[$d] ?? null, array_map('intval', $days));
+            $dayNames = array_values(array_filter($dayNames));
+
+            $intervalPart = $interval <= 1 ? 'WEEKLY' : 'EVERY '.$interval.' WEEKS';
+            $daysPart = $dayNames !== [] ? ' ('.implode(', ', $dayNames).')' : '';
+
+            return $intervalPart.$daysPart;
+        }
+
+        if ($interval <= 1) {
+            return $typeLabel;
+        }
+
+        $plural = match ($type) {
+            'daily' => 'DAYS',
+            'weekly' => 'WEEKS',
+            'monthly' => 'MONTHS',
+            'yearly' => 'YEARS',
+            default => $typeLabel,
+        };
+
+        return 'EVERY '.$interval.' '.$plural;
     }
 
     protected static function boot(): void

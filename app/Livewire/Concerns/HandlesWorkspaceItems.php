@@ -720,6 +720,7 @@ trait HandlesWorkspaceItems
         $validatedValue = $validator->validated()['value'];
 
         if ($property === 'tagIds') {
+            $oldTagIds = $event->tags()->pluck('tags.id')->all();
             try {
                 $event->tags()->sync($validatedValue);
             } catch (\Throwable $e) {
@@ -728,13 +729,45 @@ trait HandlesWorkspaceItems
                     'event_id' => $eventId,
                     'exception' => $e,
                 ]);
-                $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the event.'));
+                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, false, $event->title));
 
                 return false;
             }
             if (! $silentToasts) {
-                $this->dispatch('toast', type: 'success', message: __('Event updated.'));
+                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $event->title));
             }
+
+            return true;
+        }
+
+        if ($property === 'recurrence') {
+            $event->loadMissing('recurringEvent');
+            $oldRecurrence = $event->recurringEvent
+                ? [
+                    'enabled' => true,
+                    'type' => $event->recurringEvent->recurrence_type?->value,
+                    'interval' => $event->recurringEvent->interval ?? 1,
+                    'daysOfWeek' => $event->recurringEvent->days_of_week ? (json_decode($event->recurringEvent->days_of_week, true) ?? []) : [],
+                ]
+                : [
+                    'enabled' => false,
+                    'type' => null,
+                    'interval' => 1,
+                    'daysOfWeek' => [],
+                ];
+            try {
+                $this->eventService->updateOrCreateRecurringEvent($event, $validatedValue);
+            } catch (\Throwable $e) {
+                Log::error('Failed to update event recurrence from workspace.', [
+                    'user_id' => $user->id,
+                    'event_id' => $eventId,
+                    'exception' => $e,
+                ]);
+                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, false, $event->title));
+
+                return false;
+            }
+            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, true, $event->title));
 
             return true;
         }
@@ -744,6 +777,14 @@ trait HandlesWorkspaceItems
             'endDatetime' => 'end_datetime',
             'allDay' => 'all_day',
             default => $property,
+        };
+
+        $oldValue = match ($column) {
+            'status' => $event->status?->value,
+            'start_datetime' => $event->start_datetime,
+            'end_datetime' => $event->end_datetime,
+            'all_day' => $event->all_day,
+            default => $event->{$column},
         };
 
         $attributes = [$column => $validatedValue];
@@ -771,13 +812,14 @@ trait HandlesWorkspaceItems
                 'property' => $property,
                 'exception' => $e,
             ]);
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the event.'));
+            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $validatedValue, false, $event->title));
 
             return false;
         }
 
         if (! $silentToasts) {
-            $this->dispatch('toast', type: 'success', message: __('Event updated.'));
+            $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $event->title));
         }
 
         return true;

@@ -86,6 +86,7 @@ final class EventPayloadValidation
             'endDatetime',
             'tagIds',
             'allDay',
+            'recurrence',
         ];
     }
 
@@ -114,6 +115,14 @@ final class EventPayloadValidation
                 'value.*' => ['integer', $tagExistsRule],
             ],
             'allDay' => ['value' => ['nullable', 'boolean']],
+            'recurrence' => [
+                'value' => ['array'],
+                'value.enabled' => ['boolean'],
+                'value.type' => ['nullable', Rule::in(array_map(fn (EventRecurrenceType $t) => $t->value, EventRecurrenceType::cases()))],
+                'value.interval' => ['integer', 'min:1'],
+                'value.daysOfWeek' => ['array'],
+                'value.daysOfWeek.*' => ['integer', 'between:0,6'],
+            ],
             default => [],
         };
 

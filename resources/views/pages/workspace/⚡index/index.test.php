@@ -2,6 +2,7 @@
 
 use App\Enums\CollaborationPermission;
 use App\Enums\TaskRecurrenceType;
+use App\Enums\EventRecurrenceType;
 use App\Models\Collaboration;
 use App\Models\Event;
 use App\Models\Project;
@@ -506,7 +507,7 @@ it('updates an event property through the workspace component', function (): voi
         ->test('pages::workspace.index')
         ->set('selectedDate', $date)
         ->call('updateEventProperty', $event->id, 'status', 'completed')
-        ->assertDispatched('toast', type: 'success', message: __('Event updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Status'), 'from' => 'Scheduled', 'to' => 'Completed']).' — '.__('Event').': ' . '“Event To Update”', icon: 'check-circle');
 
     $event->refresh();
     expect($event->status->value)->toBe('completed');
@@ -525,7 +526,7 @@ it('updates event title via updateEventProperty', function (): void {
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
         ->call('updateEventProperty', $event->id, 'title', 'Event New Title')
-        ->assertDispatched('toast', type: 'success', message: __('Event updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Title'), 'from' => '“Event Old Title”', 'to' => '“Event New Title”']).' — '.__('Event').': ' . '“Event New Title”', icon: 'pencil-square');
 
     $event->refresh();
     expect($event->title)->toBe('Event New Title');
@@ -544,6 +545,60 @@ it('rejects updateEventProperty for invalid property', function (): void {
 
     $event->refresh();
     expect($event->title)->toBe($originalTitle);
+});
+
+it('updates event recurrence via updateEventProperty', function (): void {
+    $user = User::factory()->create();
+
+    $event = Event::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Event',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+        ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateEventProperty', $event->id, 'recurrence', [
+            'enabled' => true,
+            'type' => 'daily',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ])
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Recurring'), 'from' => __('Off'), 'to' => 'DAILY']).' — '.__('Event').': ' . '“Event”', icon: 'arrow-path');
+
+    $event->refresh()->load('recurringEvent');
+    expect($event->recurringEvent)->not->toBeNull();
+    expect($event->recurringEvent->recurrence_type)->toBe(EventRecurrenceType::Daily);
+    expect($event->recurringEvent->interval)->toBe(1);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateEventProperty', $event->id, 'recurrence', [
+            'enabled' => true,
+            'type' => 'weekly',
+            'interval' => 2,
+            'daysOfWeek' => [1, 3],
+        ])
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Recurring'), 'from' => 'DAILY', 'to' => 'EVERY 2 WEEKS (MON, WED)']).' — '.__('Event').': ' . '“Event”', icon: 'arrow-path');
+
+    $event->refresh()->load('recurringEvent');
+    expect($event->recurringEvent->recurrence_type)->toBe(EventRecurrenceType::Weekly);
+    expect($event->recurringEvent->interval)->toBe(2);
+    expect($event->recurringEvent->days_of_week)->toBe('[1,3]');
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateEventProperty', $event->id, 'recurrence', [
+            'enabled' => false,
+            'type' => null,
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ])
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Recurring'), 'from' => 'EVERY 2 WEEKS (MON, WED)', 'to' => __('Off')]).' — '.__('Event').': ' . '“Event”', icon: 'arrow-path');
+
+    $event->refresh();
+    expect($event->recurringEvent)->toBeNull();
 });
 
 it('updates a project name property through the workspace component', function (): void {

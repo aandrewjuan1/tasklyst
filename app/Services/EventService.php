@@ -41,6 +41,23 @@ class EventService
     }
 
     /**
+     * Update or create RecurringEvent for the given event based on recurrence data.
+     * If enabled is false, deletes existing RecurringEvent. If enabled is true and type is set, creates or updates.
+     *
+     * @param  array<string, mixed>  $recurrenceData
+     */
+    public function updateOrCreateRecurringEvent(Event $event, array $recurrenceData): void
+    {
+        DB::transaction(function () use ($event, $recurrenceData): void {
+            $event->recurringEvent?->delete();
+
+            if (($recurrenceData['enabled'] ?? false) && ($recurrenceData['type'] ?? null) !== null) {
+                $this->createRecurringEvent($event, $recurrenceData);
+            }
+        });
+    }
+
+    /**
      * Create a RecurringEvent record for the given event.
      *
      * @param  array<string, mixed>  $recurrenceData
