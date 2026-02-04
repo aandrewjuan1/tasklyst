@@ -199,6 +199,42 @@ it('displays multiple items in each category', function (): void {
     }
 });
 
+it('orders all items by created date regardless of type', function (): void {
+    $user = User::factory()->create();
+
+    $oldProject = Project::factory()->for($user)->create([
+        'name' => 'Old Project',
+        'created_at' => now()->subDays(2),
+    ]);
+
+    $middleEvent = Event::factory()->for($user)->create([
+        'title' => 'Middle Event',
+        'created_at' => now()->subDay(),
+    ]);
+
+    $newTask = Task::factory()->for($user)->create([
+        'title' => 'Newest Task',
+        'created_at' => now(),
+    ]);
+
+    $projects = Collection::make([$oldProject]);
+    $events = Collection::make([$middleEvent]);
+    $tasks = Collection::make([$newTask]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => $projects,
+            'events' => $events,
+            'tasks' => $tasks,
+            'tags' => collect(),
+        ])
+        ->assertSeeInOrder([
+            'Newest Task',
+            'Middle Event',
+            'Old Project',
+        ]);
+});
+
 it('does not display empty state when at least one collection has items', function (): void {
     $user = User::factory()->create();
 

@@ -215,7 +215,7 @@ it('can create an event from the workspace component', function (): void {
             'allDay' => false,
         ])
         ->assertSee('Inline created event')
-        ->assertDispatched('toast', type: 'success', message: __('Event created.'));
+        ->assertDispatched('toast', type: 'success', message: __('Added :title.', ['title' => '“Inline created event”']), icon: 'plus-circle');
 
     $this->assertDatabaseHas('events', [
         'title' => 'Inline created event',
@@ -241,7 +241,7 @@ it('deletes an event through the workspace component', function (): void {
         ->test('pages::workspace.index')
         ->set('selectedDate', $date)
         ->call('deleteEvent', $event->id)
-        ->assertDispatched('toast', type: 'success', message: __('Event deleted.'));
+        ->assertDispatched('toast', type: 'success', message: __('Deleted :title.', ['title' => '“Event To Delete”']), icon: 'trash');
 
     $this->assertSoftDeleted('events', [
         'id' => $event->id,

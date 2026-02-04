@@ -18,6 +18,55 @@ class Event extends Model
 {
     use HasFactory, SoftDeletes;
 
+    /**
+     * Build a friendly toast payload for Event CRUD actions.
+     *
+     * @return array{type: 'success'|'error'|'info', message: string, icon: string}
+     */
+    public static function toastPayload(string $action, bool $success, ?string $title = null): array
+    {
+        $trimmedTitle = $title !== null ? trim($title) : null;
+        $hasTitle = $trimmedTitle !== null && $trimmedTitle !== '';
+
+        $quotedTitle = $hasTitle ? '“'.$trimmedTitle.'”' : null;
+
+        $type = $success ? 'success' : 'error';
+
+        return match ($action) {
+            'create' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasTitle ? __('Added :title.', ['title' => $quotedTitle]) : __('Added the event.'),
+                    'icon' => 'plus-circle',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasTitle
+                        ? __('Couldn’t add :title. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t add the event. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            'delete' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasTitle ? __('Deleted :title.', ['title' => $quotedTitle]) : __('Deleted the event.'),
+                    'icon' => 'trash',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasTitle
+                        ? __('Couldn’t delete :title. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t delete the event. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            default => [
+                'type' => $type,
+                'message' => $success ? __('Done.') : __('Something went wrong. Please try again.'),
+                'icon' => $success ? 'check-circle' : 'exclamation-triangle',
+            ],
+        };
+    }
+
     protected static function boot(): void
     {
         parent::boot();

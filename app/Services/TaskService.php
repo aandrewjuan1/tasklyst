@@ -6,7 +6,6 @@ use App\Enums\TaskRecurrenceType;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class TaskService
@@ -96,22 +95,6 @@ class TaskService
             'end_datetime' => $endDatetime,
             'days_of_week' => $daysOfWeekString,
         ]);
-    }
-
-    /**
-     * Parse an optional datetime string to a Carbon instance or null.
-     */
-    private function parseOptionalDatetime(?string $datetime): ?Carbon
-    {
-        if ($datetime === null || $datetime === '') {
-            return null;
-        }
-
-        try {
-            return Carbon::parse($datetime);
-        } catch (\Throwable $e) {
-            return null;
-        }
     }
 
     /**

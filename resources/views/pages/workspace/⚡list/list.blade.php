@@ -2,6 +2,7 @@
     class="space-y-4"
     x-data="{
         showTaskCreation: false,
+        creationKind: 'task',
         showTaskLoading: false,
         loadingStartedAt: null,
         isSubmitting: false,
@@ -40,7 +41,6 @@
 
             const start = this.formData.task.startDatetime;
             const end = this.formData.task.endDatetime;
-            const durationMinutes = parseInt(this.formData.task.duration ?? '0', 10);
 
             if (!start || !end) {
                 return true;
@@ -58,13 +58,17 @@
                 return false;
             }
 
-            const isSameDay = startDate.toDateString() === endDate.toDateString();
-            if (isSameDay && Number.isFinite(durationMinutes) && durationMinutes > 0) {
-                const minimumEnd = new Date(startDate.getTime() + (durationMinutes * 60 * 1000));
+            // For tasks, enforce minimum duration on same-day start/end.
+            if (this.creationKind === 'task') {
+                const durationMinutes = parseInt(this.formData.task.duration ?? '0', 10);
+                const isSameDay = startDate.toDateString() === endDate.toDateString();
+                if (isSameDay && Number.isFinite(durationMinutes) && durationMinutes > 0) {
+                    const minimumEnd = new Date(startDate.getTime() + (durationMinutes * 60 * 1000));
 
-                if (endDate.getTime() < minimumEnd.getTime()) {
-                    this.errors.taskDateRange = this.messages.taskEndTooSoon.replace(':minutes', String(durationMinutes));
-                    return false;
+                    if (endDate.getTime() < minimumEnd.getTime()) {
+                        this.errors.taskDateRange = this.messages.taskEndTooSoon.replace(':minutes', String(durationMinutes));
+                        return false;
+                    }
                 }
             }
 
@@ -300,6 +304,57 @@
                     }, remaining);
                 });
         },
+        submitEvent() {
+            if (this.isSubmitting) {
+                return;
+            }
+
+            if (!this.formData.task.title || !this.formData.task.title.trim()) {
+                return;
+            }
+
+            if (!this.validateTaskDateRange()) {
+                return;
+            }
+
+            this.isSubmitting = true;
+            this.formData.task.title = this.formData.task.title.trim();
+
+            this.showTaskCreation = false;
+            this.showTaskLoading = true;
+            this.loadingStartedAt = Date.now();
+
+            const payload = JSON.parse(JSON.stringify(this.formData.task));
+            // Split tag IDs: real IDs for payload.tagIds, temp IDs resolved by name for payload.pendingTagNames
+            if (payload.tagIds && Array.isArray(payload.tagIds)) {
+                const realIds = payload.tagIds
+                    .filter(tagId => {
+                        const idStr = String(tagId);
+                        return !idStr.startsWith('temp-') && !isNaN(Number(tagId));
+                    })
+                    .map(tagId => Number(tagId));
+                const tempIds = payload.tagIds.filter(tagId => String(tagId).startsWith('temp-'));
+                const pendingNames = tempIds
+                    .map(tempId => this.tags?.find(t => t.id === tempId)?.name)
+                    .filter(Boolean);
+                payload.tagIds = realIds;
+                payload.pendingTagNames = [...new Set(pendingNames)];
+            }
+            if (!payload.pendingTagNames) {
+                payload.pendingTagNames = [];
+            }
+            const minLoadingMs = 500;
+
+            $wire.$parent.$call('createEvent', payload)
+                .finally(() => {
+                    const elapsed = Date.now() - this.loadingStartedAt;
+                    const remaining = Math.max(0, minLoadingMs - elapsed);
+                    setTimeout(() => {
+                        this.showTaskLoading = false;
+                        this.isSubmitting = false;
+                    }, remaining);
+                });
+        },
         formatDatetime(datetimeString) {
             const notSet = 'Not set';
             if (!datetimeString) return notSet;
@@ -323,6 +378,22 @@
                     return '{{ __('Done') }}';
                 default:
                     return '{{ __('To Do') }}';
+            }
+        },
+        eventStatusLabel(status) {
+            switch (status) {
+                case 'scheduled':
+                    return '{{ __('Scheduled') }}';
+                case 'ongoing':
+                    return '{{ __('Ongoing') }}';
+                case 'tentative':
+                    return '{{ __('Tentative') }}';
+                case 'completed':
+                    return '{{ __('Completed') }}';
+                case 'cancelled':
+                    return '{{ __('Cancelled') }}';
+                default:
+                    return '{{ __('Scheduled') }}';
             }
         },
         priorityLabel(priority) {
@@ -391,6 +462,16 @@
         getStatusBadgeClass(status) {
             const map = { to_do: 'bg-gray-800/10 text-gray-800', doing: 'bg-blue-800/10 text-blue-800', done: 'bg-green-800/10 text-green-800' };
             return map[status] || map.to_do;
+        },
+        getEventStatusBadgeClass(status) {
+            const map = {
+                scheduled: 'bg-blue-800/10 text-blue-800',
+                cancelled: 'bg-red-800/10 text-red-800',
+                completed: 'bg-green-800/10 text-green-800',
+                tentative: 'bg-yellow-800/10 text-yellow-800',
+                ongoing: 'bg-purple-800/10 text-purple-800',
+            };
+            return map[status] || map.scheduled;
         },
         getPriorityBadgeClass(priority) {
             const map = { low: 'bg-gray-800/10 text-gray-800', medium: 'bg-yellow-800/10 text-yellow-800', high: 'bg-orange-800/10 text-orange-800', urgent: 'bg-red-800/10 text-red-800' };
@@ -470,6 +551,7 @@
         },
     }"
     @task-created="resetForm()"
+    @event-created="resetForm()"
     @tag-created="onTagCreated($event)"
     @tag-deleted="onTagDeleted($event)"
     @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
@@ -506,55 +588,73 @@
             </div>
             <div class="flex items-center gap-2">
                 <span class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {{ __('Task') }}
+                    <span x-text="creationKind === 'task' ? '{{ __('Task') }}' : '{{ __('Event') }}'"></span>
                 </span>
             </div>
         </div>
         <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                :class="getStatusBadgeClass(formData.task.status)"
-            >
-                <flux:icon name="check-circle" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
-                    <span class="uppercase" x-text="statusLabel(formData.task.status)"></span>
-                </span>
-            </span>
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                :class="getPriorityBadgeClass(formData.task.priority)"
-            >
-                <flux:icon name="bolt" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Priority') }}:</span>
-                    <span class="uppercase" x-text="priorityLabel(formData.task.priority)"></span>
-                </span>
-            </span>
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                :class="getComplexityBadgeClass(formData.task.complexity)"
-            >
-                <flux:icon name="squares-2x2" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Complexity') }}:</span>
-                    <span class="uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
-                </span>
-            </span>
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="clock" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Duration') }}:</span>
-                    <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
-                </span>
-            </span>
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="arrow-path" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurring') }}:</span>
-                    <span class="uppercase" x-text="(formData.task.recurrence?.enabled && formData.task.recurrence?.type) ? recurrenceLabel(formData.task.recurrence) : '{{ __('Not set') }}'"></span>
-                </span>
-            </span>
+            <template x-if="creationKind === 'task'">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        :class="getStatusBadgeClass(formData.task.status)"
+                    >
+                        <flux:icon name="check-circle" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
+                            <span class="uppercase" x-text="statusLabel(formData.task.status)"></span>
+                        </span>
+                    </span>
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        :class="getPriorityBadgeClass(formData.task.priority)"
+                    >
+                        <flux:icon name="bolt" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Priority') }}:</span>
+                            <span class="uppercase" x-text="priorityLabel(formData.task.priority)"></span>
+                        </span>
+                    </span>
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        :class="getComplexityBadgeClass(formData.task.complexity)"
+                    >
+                        <flux:icon name="squares-2x2" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Complexity') }}:</span>
+                            <span class="uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
+                        </span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                        <flux:icon name="clock" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Duration') }}:</span>
+                            <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
+                        </span>
+                    </span>
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                        <flux:icon name="arrow-path" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurring') }}:</span>
+                            <span class="uppercase" x-text="(formData.task.recurrence?.enabled && formData.task.recurrence?.type) ? recurrenceLabel(formData.task.recurrence) : '{{ __('Not set') }}'"></span>
+                        </span>
+                    </span>
+                </div>
+            </template>
+            <template x-if="creationKind === 'event'">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        :class="getEventStatusBadgeClass(formData.task.status)"
+                    >
+                        <flux:icon name="check-circle" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
+                            <span class="uppercase" x-text="eventStatusLabel(formData.task.status)"></span>
+                        </span>
+                    </span>
+                </div>
+            </template>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
@@ -599,9 +699,17 @@
                 : ($date->isYesterday()
                     ? __('yesterday')
                     : $date->translatedFormat('l, F j, Y')));
-        $totalItemsCount = $projects->count() + $events->count() + $tasks->count();
+
+        $items = collect()
+            ->merge($projects->map(fn ($item) => ['kind' => 'project', 'item' => $item]))
+            ->merge($events->map(fn ($item) => ['kind' => 'event', 'item' => $item]))
+            ->merge($tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item]))
+            ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
+            ->values();
+
+        $totalItemsCount = $items->count();
     @endphp
-    @if($projects->isEmpty() && $events->isEmpty() && $tasks->isEmpty())
+    @if($items->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
             <div class="flex items-center gap-2">
                 <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
@@ -631,27 +739,25 @@
                 <div class="flex items-center gap-2">
                     <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
                     <flux:text class="text-sm font-medium text-muted-foreground">
-                        {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
+                        {{ __('No tasks, projects, or events are currently visible for :date', ['date' => $emptyDateLabel]) }}
                     </flux:text>
                 </div>
                 <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('Add a task, project, or event for this day to get started') }}
+                    {{ __('Try adjusting item dates or filters, or add a new task, project, or event for this day') }}
                 </flux:text>
             </div>
             <div x-show="visibleItemCount > 0" class="space-y-4">
-                @foreach ([['kind' => 'project', 'items' => $projects], ['kind' => 'event', 'items' => $events], ['kind' => 'task', 'items' => $tasks]] as $group)
-                    <div class="space-y-3">
-                        @foreach ($group['items'] as $item)
-                            <x-workspace.list-item-card
-                                :kind="$group['kind']"
-                                :item="$item"
-                                :list-filter-date="$selectedDate"
-                                :available-tags="$tags"
-                                wire:key="{{ $group['kind'] }}-{{ $item->id }}"
-                            />
-                        @endforeach
-                    </div>
-                @endforeach
+                <div class="space-y-3">
+                    @foreach ($items as $entry)
+                        <x-workspace.list-item-card
+                            :kind="$entry['kind']"
+                            :item="$entry['item']"
+                            :list-filter-date="$selectedDate"
+                            :available-tags="$tags"
+                            wire:key="{{ $entry['kind'] }}-{{ $entry['item']->id }}"
+                        />
+                    @endforeach
+                </div>
             </div>
         </div>
     @endif

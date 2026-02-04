@@ -137,24 +137,22 @@ trait HandlesWorkspaceItems
 
         $this->authorize('create', Event::class);
 
-        $eventPayload = array_replace_recursive(EventPayloadValidation::defaults(), $payload);
+        $this->eventPayload = array_replace_recursive(EventPayloadValidation::defaults(), $payload);
 
-        $validator = Validator::make(
-            ['eventPayload' => $eventPayload],
-            EventPayloadValidation::rules()
-        );
-
-        if ($validator->fails()) {
+        try {
+            /** @var array{eventPayload: array<string, mixed>} $validated */
+            $validated = $this->validate(EventPayloadValidation::rules());
+        } catch (\Illuminate\Validation\ValidationException $e) {
             Log::error('Event validation failed', [
-                'errors' => $validator->errors()->all(),
-                'payload' => $eventPayload,
+                'errors' => $e->errors(),
+                'payload' => $this->eventPayload,
             ]);
             $this->dispatch('toast', type: 'error', message: __('Please fix the event details and try again.'));
 
             return;
         }
 
-        $validatedEvent = $validator->validated()['eventPayload'];
+        $validatedEvent = $validated['eventPayload'];
 
         $title = (string) ($validatedEvent['title'] ?? '');
         $startDatetime = $this->parseOptionalDatetime($validatedEvent['startDatetime'] ?? null);
@@ -188,6 +186,9 @@ trait HandlesWorkspaceItems
         }
         $tagIds = array_values(array_unique($tagIds));
 
+        $recurrenceData = $validatedEvent['recurrence'] ?? null;
+        $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
+
         $eventAttributes = [
             'title' => $title,
             'description' => $validatedEvent['description'] ?? null,
@@ -196,6 +197,7 @@ trait HandlesWorkspaceItems
             'end_datetime' => $endDatetime,
             'all_day' => $validatedEvent['allDay'] ?? false,
             'tagIds' => $tagIds,
+            'recurrence' => $recurrenceEnabled ? $recurrenceData : null,
         ];
 
         try {
@@ -203,18 +205,18 @@ trait HandlesWorkspaceItems
         } catch (\Throwable $e) {
             Log::error('Failed to create event from workspace.', [
                 'user_id' => $user->id,
-                'payload' => $eventPayload,
+                'payload' => $this->eventPayload,
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong creating the event.'));
+            $this->dispatch('toast', ...Event::toastPayload('create', false, $title));
 
             return;
         }
 
         $this->listRefresh++;
         $this->dispatch('event-created', id: $event->id, title: $event->title);
-        $this->dispatch('toast', type: 'success', message: __('Event created.'));
+        $this->dispatch('toast', ...Event::toastPayload('create', true, $event->title));
     }
 
     /**
@@ -642,19 +644,19 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the event.'));
+            $this->dispatch('toast', ...Event::toastPayload('delete', false, $event->title));
 
             return false;
         }
 
         if (! $deleted) {
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the event.'));
+            $this->dispatch('toast', ...Event::toastPayload('delete', false, $event->title));
 
             return false;
         }
 
         $this->listRefresh++;
-        $this->dispatch('toast', type: 'success', message: __('Event deleted.'));
+        $this->dispatch('toast', ...Event::toastPayload('delete', true, $event->title));
 
         return true;
     }
@@ -746,7 +748,18 @@ trait HandlesWorkspaceItems
 
         $attributes = [$column => $validatedValue];
         if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
+            $parsedDatetime = $this->parseOptionalDatetime($validatedValue);
+            $attributes[$column] = $parsedDatetime;
+
+            $start = $column === 'start_datetime' ? $parsedDatetime : $event->start_datetime;
+            $end = $column === 'end_datetime' ? $parsedDatetime : $event->end_datetime;
+
+            $dateRangeError = EventPayloadValidation::validateEventDateRangeForUpdate($start, $end);
+            if ($dateRangeError !== null) {
+                $this->dispatch('toast', type: 'error', message: $dateRangeError);
+
+                return false;
+            }
         }
 
         try {

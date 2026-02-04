@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Enums\EventRecurrenceType;
 use App\Models\Event;
+use App\Models\RecurringEvent;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class EventService
@@ -17,6 +20,9 @@ class EventService
             $tagIds = $attributes['tagIds'] ?? [];
             unset($attributes['tagIds']);
 
+            $recurrenceData = $attributes['recurrence'] ?? null;
+            unset($attributes['recurrence']);
+
             $event = Event::query()->create([
                 ...$attributes,
                 'user_id' => $user->id,
@@ -26,8 +32,51 @@ class EventService
                 $event->tags()->attach($tagIds);
             }
 
+            if ($recurrenceData !== null && ($recurrenceData['enabled'] ?? false)) {
+                $this->createRecurringEvent($event, $recurrenceData);
+            }
+
             return $event;
         });
+    }
+
+    /**
+     * Create a RecurringEvent record for the given event.
+     *
+     * @param  array<string, mixed>  $recurrenceData
+     */
+    private function createRecurringEvent(Event $event, array $recurrenceData): void
+    {
+        $recurrenceType = $recurrenceData['type'] ?? null;
+        if ($recurrenceType === null) {
+            return;
+        }
+
+        $recurrenceTypeEnum = EventRecurrenceType::from($recurrenceType);
+        $interval = max(1, (int) ($recurrenceData['interval'] ?? 1));
+        $daysOfWeek = $recurrenceData['daysOfWeek'] ?? [];
+
+        $startDatetime = $event->start_datetime;
+        $endDatetime = $event->end_datetime;
+
+        if ($startDatetime === null) {
+            $startDatetime = Carbon::now();
+        }
+
+        $daysOfWeekString = null;
+        if (is_array($daysOfWeek) && ! empty($daysOfWeek)) {
+            $daysOfWeekString = json_encode($daysOfWeek, JSON_THROW_ON_ERROR);
+        }
+
+        RecurringEvent::query()->create([
+            'event_id' => $event->id,
+            'recurrence_type' => $recurrenceTypeEnum,
+            'interval' => $interval,
+            'days_of_week' => $daysOfWeekString,
+            'start_datetime' => $startDatetime,
+            'end_datetime' => $endDatetime,
+            'timezone' => config('app.timezone'),
+        ]);
     }
 
     /**

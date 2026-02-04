@@ -279,7 +279,6 @@
         <div class="min-w-0">
             <p 
                 x-show="!isEditingTitle"
-                x-cloak
                 @click="startEditingTitle()"
                 class="truncate text-base font-semibold leading-tight cursor-pointer hover:opacity-80 transition-opacity"
                 x-text="editedTitle"
@@ -390,7 +389,7 @@
         </span>
 
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
-
+    </div>
     @elseif($kind === 'event')
         @if($item->status)
             <span
@@ -461,6 +460,7 @@
         @endif
 
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
+    </div>
     @elseif($kind === 'task')
         <div
             wire:ignore
