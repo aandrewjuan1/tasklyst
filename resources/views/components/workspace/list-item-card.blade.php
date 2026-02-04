@@ -102,6 +102,23 @@
 
         $startDatetimeInitial = $item->start_datetime?->format('Y-m-d\TH:i:s');
         $endDatetimeInitial = $item->end_datetime?->format('Y-m-d\TH:i:s');
+
+        $recurrenceInitial = [
+            'enabled' => false,
+            'type' => null,
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ];
+        if ($item->recurringTask) {
+            $rt = $item->recurringTask;
+            $daysOfWeek = $rt->days_of_week ? (json_decode($rt->days_of_week, true) ?? []) : [];
+            $recurrenceInitial = [
+                'enabled' => true,
+                'type' => $rt->recurrence_type?->value,
+                'interval' => $rt->interval ?? 1,
+                'daysOfWeek' => is_array($daysOfWeek) ? $daysOfWeek : [],
+            ];
+        }
     }
 @endphp
 
@@ -456,6 +473,7 @@
                 duration: @js($item->duration),
                 startDatetime: @js($startDatetimeInitial),
                 endDatetime: @js($endDatetimeInitial),
+                recurrence: @js($recurrenceInitial),
                 statusOptions: @js($statusOptions),
                 priorityOptions: @js($priorityOptions),
                 complexityOptions: @js($complexityOptions),
@@ -662,6 +680,7 @@
                         duration: this.duration,
                         startDatetime: this.startDatetime,
                         endDatetime: this.endDatetime,
+                        recurrence: JSON.parse(JSON.stringify(this.recurrence)),
                     };
                     try {
                         if (property === 'status') this.status = value;
@@ -670,6 +689,7 @@
                         else if (property === 'duration') this.duration = value;
                         else if (property === 'startDatetime') this.startDatetime = value;
                         else if (property === 'endDatetime') this.endDatetime = value;
+                        else if (property === 'recurrence') this.recurrence = value;
                         const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
                         const ok = await promise;
                         if (!ok) {
@@ -679,6 +699,7 @@
                             this.duration = snapshot.duration;
                             this.startDatetime = snapshot.startDatetime;
                             this.endDatetime = snapshot.endDatetime;
+                            this.recurrence = snapshot.recurrence;
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
@@ -690,6 +711,7 @@
                         this.duration = snapshot.duration;
                         this.startDatetime = snapshot.startDatetime;
                         this.endDatetime = snapshot.endDatetime;
+                        this.recurrence = snapshot.recurrence;
                         $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                         return false;
                     }
@@ -753,12 +775,25 @@
                         }
                     }
                 },
+                async handleRecurringSelectionUpdated(e) {
+                    e.stopPropagation();
+                    const value = e.detail.value;
+                    const ok = await this.updateProperty('recurrence', value);
+                    if (!ok) {
+                        const realValue = this.recurrence;
+                        e.target.dispatchEvent(new CustomEvent('recurring-revert', {
+                            detail: { path: 'recurrence', value: realValue ?? null },
+                            bubbles: true,
+                        }));
+                    }
+                },
             }"
             class="contents"
             @date-picker-request-value="handleDatePickerRequestValue($event)"
             @date-picker-opened="handleDatePickerOpened($event)"
             @date-picker-value-changed="handleDatePickerValueChanged($event)"
             @date-picker-updated="handleDatePickerUpdated($event)"
+            @recurring-selection-updated="handleRecurringSelectionUpdated($event)"
             @tag-created.window="onTagCreated($event)"
             @tag-deleted.window="onTagDeleted($event)"
         >
@@ -902,17 +937,13 @@
             </x-simple-select-dropdown>
         @endif
 
-        @if($item->recurringTask)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-{{ $item->recurringTask->recurrence_type->color() }}/10 px-2.5 py-0.5 font-medium text-{{ $item->recurringTask->recurrence_type->color() }} dark:border-white/10">
-                <flux:icon name="calendar-days" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Recurring') }}:
-                    </span>
-                    <span class="uppercase">{{ $item->recurringTask->recurrence_type->name }}</span>
-                </span>
-            </span>
-        @endif
+        <x-recurring-selection
+            model="recurrence"
+            :initial-value="$recurrenceInitial"
+            triggerLabel="{{ __('Recurring') }}"
+            position="top"
+            align="end"
+        />
 
         <x-date-picker
             model="startDatetime"

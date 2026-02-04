@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CollaborationPermission;
+use App\Enums\TaskRecurrenceType;
 use App\Models\Collaboration;
 use App\Models\Event;
 use App\Models\Project;
@@ -343,6 +344,61 @@ it('updates task title via updateTaskProperty', function (): void {
 
     $task->refresh();
     expect($task->title)->toBe('Task New Title');
+});
+
+it('updates task recurrence via updateTaskProperty', function (): void {
+    $user = User::factory()->create();
+
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Task',
+            'start_datetime' => now()->startOfDay()->addHours(9),
+            'completed_at' => null,
+        ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'recurrence', [
+            'enabled' => true,
+            'type' => 'daily',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ])
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh()->load('recurringTask');
+    expect($task->recurringTask)->not->toBeNull();
+    expect($task->recurringTask->recurrence_type)->toBe(TaskRecurrenceType::Daily);
+    expect($task->recurringTask->interval)->toBe(1);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'recurrence', [
+            'enabled' => true,
+            'type' => 'weekly',
+            'interval' => 2,
+            'daysOfWeek' => [1, 3],
+        ])
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh()->load('recurringTask');
+    expect($task->recurringTask->recurrence_type)->toBe(TaskRecurrenceType::Weekly);
+    expect($task->recurringTask->interval)->toBe(2);
+    expect($task->recurringTask->days_of_week)->toBe('[1,3]');
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'recurrence', [
+            'enabled' => false,
+            'type' => null,
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ])
+        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+
+    $task->refresh();
+    expect($task->recurringTask)->toBeNull();
 });
 
 it('rejects updateTaskProperty for invalid property', function (): void {

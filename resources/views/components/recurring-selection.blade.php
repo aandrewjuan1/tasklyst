@@ -1,4 +1,5 @@
 @props([
+    'model' => 'formData.task.recurrence',
     'triggerLabel' => 'Recurring',
     'position' => 'bottom',
     'align' => 'end',
@@ -15,11 +16,29 @@
         'startDatetime' => null,
         'endDatetime' => null,
     ];
+    $initialDisplayLabel = $notSetLabel;
+    if (($initialRecurrence['enabled'] ?? false) && ($initialRecurrence['type'] ?? null)) {
+        $type = $initialRecurrence['type'];
+        $interval = (int) ($initialRecurrence['interval'] ?? 1);
+        $daysOfWeek = $initialRecurrence['daysOfWeek'] ?? [];
+        $dayDisplayLabels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+        $typeLabels = ['daily' => 'DAILY', 'weekly' => 'WEEKLY', 'monthly' => 'MONTHLY', 'yearly' => 'YEARLY', 'custom' => 'CUSTOM'];
+        if ($type === 'weekly' && is_array($daysOfWeek) && count($daysOfWeek) > 0) {
+            $dayNames = implode(', ', array_map(fn ($d) => $dayDisplayLabels[$d] ?? '', $daysOfWeek));
+            $intervalPart = $interval === 1 ? 'WEEKLY' : 'EVERY ' . $interval . ' WEEKS';
+            $initialDisplayLabel = $intervalPart . ' (' . $dayNames . ')';
+        } elseif ($interval === 1) {
+            $initialDisplayLabel = $typeLabels[$type] ?? strtoupper($type);
+        } else {
+            $typePlural = ['daily' => 'DAYS', 'weekly' => 'WEEKS', 'monthly' => 'MONTHS', 'yearly' => 'YEARS', 'custom' => ''][$type] ?? '';
+            $initialDisplayLabel = $typePlural ? 'EVERY ' . $interval . ' ' . $typePlural : ($typeLabels[$type] ?? strtoupper($type));
+        }
+    }
 @endphp
 
 <div
     x-data="{
-        modelPath: 'formData.task.recurrence',
+        modelPath: @js($model),
         notSetLabel: @js($notSetLabel),
         placementVertical: @js($position),
         placementHorizontal: @js($align),
@@ -27,7 +46,7 @@
         valueWhenOpened: null,
         initialApplied: false,
         open: false,
-        // Form fields
+        // Form fields (synced from currentValue)
         enabled: @js($initialRecurrence['enabled'] ?? false),
         type: @js($initialRecurrence['type'] ?? null),
         interval: @js($initialRecurrence['interval'] ?? 1),
@@ -36,28 +55,48 @@
         panelHeightEst: 500,
         panelWidthEst: 360,
         dayLabels: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
+        dayDisplayLabels: ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'],
         dayFullLabels: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
 
         init() {
-            this.syncFromParent();
+            this.applyInitialValue();
+            this.$watch('enabled', (value) => {
+                if (value && !this.type) {
+                    this.type = 'daily';
+                }
+            });
         },
 
-        syncFromParent() {
-            // Sync from parent scope's formData when available
-            // This will be called when opening the popover to get latest values
-            let parentRecurrence = this.currentValue || {};
-            // The parent will update via events, so we'll use currentValue as fallback
-            // When the popover opens, we sync to ensure we have the latest
-            this.enabled = parentRecurrence.enabled ?? false;
-            this.type = parentRecurrence.type ?? null;
-            this.interval = parentRecurrence.interval ?? 1;
-            this.daysOfWeek = Array.isArray(parentRecurrence.daysOfWeek) ? [...parentRecurrence.daysOfWeek] : [];
-            this.currentValue = { ...parentRecurrence };
+        applyInitialValue() {
+            if (this.initialApplied) return;
+            this.initialApplied = true;
+            const initial = this.currentValue || {};
+            this.enabled = initial.enabled ?? false;
+            this.type = initial.type ?? null;
+            this.interval = initial.interval ?? 1;
+            this.daysOfWeek = Array.isArray(initial.daysOfWeek) ? [...initial.daysOfWeek] : [];
+            this.currentValue = { enabled: this.enabled, type: this.type, interval: this.interval, daysOfWeek: [...this.daysOfWeek] };
+        },
+
+        handleRecurringValue(e) {
+            if (e.detail.path === this.modelPath) {
+                this.currentValue = e.detail.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+                this.initialApplied = false;
+                this.applyInitialValue();
+            }
+        },
+
+        handleRecurringRevert(e) {
+            if (e.detail.path === this.modelPath) {
+                this.currentValue = e.detail.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+                this.initialApplied = false;
+                this.applyInitialValue();
+                this.close(this.$refs.button);
+            }
         },
 
         toggle() {
             if (this.open) return this.close(this.$refs.button);
-            this.syncFromParent();
             this.$refs.button.focus();
             const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
@@ -76,6 +115,7 @@
             else this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             this.open = true;
             this.valueWhenOpened = JSON.stringify(this.getCurrentRecurrenceValue());
+            this.$dispatch('recurring-selection-opened', { path: this.modelPath, value: this.getCurrentRecurrenceValue() });
             this.$dispatch('dropdown-opened');
         },
 
@@ -85,7 +125,9 @@
             this.open = false;
             this.valueWhenOpened = null;
             if (valueChanged) {
-                this.updateModel();
+                const value = this.getCurrentRecurrenceValue();
+                this.currentValue = value;
+                this.$dispatch('recurring-selection-updated', { path: this.modelPath, value });
             }
             const leaveMs = 50;
             setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
@@ -101,15 +143,8 @@
             };
         },
 
-        updateModel() {
-            const value = this.getCurrentRecurrenceValue();
-            this.currentValue = value;
-            this.$dispatch('task-form-updated', { path: this.modelPath, value });
-        },
-
         updateField(field, value) {
             this[field] = value;
-            this.updateModel();
         },
 
         toggleDay(dayIndex) {
@@ -120,7 +155,6 @@
             } else {
                 this.daysOfWeek.splice(index, 1);
             }
-            this.updateModel();
         },
 
         isDaySelected(dayIndex) {
@@ -132,7 +166,6 @@
             this.type = null;
             this.interval = 1;
             this.daysOfWeek = [];
-            this.updateModel();
         },
 
         formatDisplayValue() {
@@ -140,16 +173,20 @@
             if (!this.enabled || !this.type) {
                 return this.notSetLabel;
             }
-            const intervalText = this.interval === 1 ? '' : `Every ${this.interval} `;
-            const typeText = this.type === 'daily' ? 'day' : this.type === 'weekly' ? 'week' : this.type === 'monthly' ? 'month' : 'year';
-            const plural = this.interval !== 1 ? 's' : '';
-            
+            const typeLabels = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+            const typeLabel = typeLabels[this.type] || this.type;
+
             if (this.type === 'weekly' && Array.isArray(this.daysOfWeek) && this.daysOfWeek.length > 0) {
-                const dayNames = this.daysOfWeek.map(d => this.dayLabels[d]).join(', ');
-                return `${intervalText}${typeText}${plural} on ${dayNames}`;
+                const dayNames = this.daysOfWeek.map(d => this.dayDisplayLabels[d]).join(', ');
+                const intervalPart = this.interval === 1 ? 'WEEKLY' : `EVERY ${this.interval} WEEKS`;
+                return `${intervalPart} (${dayNames})`;
             }
-            
-            return `${intervalText}${typeText}${plural}`;
+
+            if (this.interval === 1) {
+                return typeLabel;
+            }
+            const typePlural = this.type === 'daily' ? 'DAYS' : this.type === 'weekly' ? 'WEEKS' : this.type === 'monthly' ? 'MONTHS' : 'YEARS';
+            return `EVERY ${this.interval} ${typePlural}`;
         },
 
         get panelPlacementClasses() {
@@ -168,12 +205,8 @@
             return `Every ${this.interval} ${typeText}${this.interval !== 1 ? 's' : ''}`;
         },
     }"
-    @task-form-updated.window="
-        if ($event.detail.path === 'formData.task.recurrence') {
-            currentValue = $event.detail.value || currentValue || {};
-            syncFromParent();
-        }
-    "
+    @recurring-value="handleRecurringValue($event)"
+    @recurring-revert="handleRecurringRevert($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['recurring-selection-dropdown']"
@@ -197,7 +230,7 @@
             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                 {{ $triggerLabel }}:
             </span>
-            <span class="text-xs uppercase" x-text="formatDisplayValue()">{{ $notSetLabel }}</span>
+            <span class="text-xs uppercase" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
         </span>
         <flux:icon name="chevron-down" class="size-3" />
     </button>
@@ -227,7 +260,6 @@
                 </label>
                 <flux:switch
                     x-model="enabled"
-                    @change="updateModel()"
                 />
             </div>
 
@@ -286,7 +318,6 @@
                                     type="number"
                                     min="1"
                                     x-model.number="interval"
-                                    @change="updateModel()"
                                     class="w-20"
                                     size="sm"
                                 />

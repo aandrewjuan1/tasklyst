@@ -15,6 +15,7 @@
             taskDateRange: null,
         },
         tags: @js($tags),
+        projectNames: @js($projects->pluck('name', 'id')->toArray()),
         formData: {
             task: {
                 title: '',
@@ -350,6 +351,19 @@
                     return '{{ __('Moderate') }}';
             }
         },
+        recurrenceLabel(recurrence) {
+            if (!recurrence?.enabled || !recurrence?.type) return '';
+            const labels = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY', custom: 'CUSTOM' };
+            const dayDisplayLabels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+            if (recurrence.type === 'weekly' && Array.isArray(recurrence.daysOfWeek) && recurrence.daysOfWeek.length > 0) {
+                const dayNames = recurrence.daysOfWeek.map(d => dayDisplayLabels[d]).join(', ');
+                const intervalPart = (recurrence.interval ?? 1) === 1 ? 'WEEKLY' : `EVERY ${recurrence.interval} WEEKS`;
+                return `${intervalPart} (${dayNames})`;
+            }
+            if ((recurrence.interval ?? 1) === 1) return labels[recurrence.type] || recurrence.type;
+            const typePlural = { daily: 'DAYS', weekly: 'WEEKS', monthly: 'MONTHS', yearly: 'YEARS', custom: '' }[recurrence.type] || '';
+            return typePlural ? `EVERY ${recurrence.interval} ${typePlural}` : (labels[recurrence.type] || recurrence.type);
+        },
         formatDurationLabel(duration) {
             const value = String(duration ?? '');
 
@@ -385,6 +399,10 @@
         getComplexityBadgeClass(complexity) {
             const map = { simple: 'bg-green-800/10 text-green-800', moderate: 'bg-yellow-800/10 text-yellow-800', complex: 'bg-red-800/10 text-red-800' };
             return map[complexity] || map.moderate;
+        },
+        getRecurrenceBadgeClass(type) {
+            const map = { daily: 'bg-blue-800/10 text-blue-800', weekly: 'bg-purple-800/10 text-purple-800', monthly: 'bg-indigo-800/10 text-indigo-800', yearly: 'bg-pink-800/10 text-pink-800', custom: 'bg-gray-800/10 text-gray-800' };
+            return map[type] || 'bg-gray-800/10 text-gray-800';
         },
         setFormDataByPath(path, value) {
             const pathParts = path.split('.');
@@ -470,6 +488,7 @@
     @tag-deleted="onTagDeleted($event)"
     @date-picker-request-value="onDatePickerRequestValue($event)"
     @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @recurring-selection-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @task-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @tag-toggled="toggleTag($event.detail.tagId)"
     @tag-create-request="createTagOptimistic($event.detail.tagName)"
@@ -545,12 +564,18 @@
                 </span>
             </span>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="arrow-path" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurring') }}:</span>
+                    <span class="uppercase" x-text="(formData.task.recurrence?.enabled && formData.task.recurrence?.type) ? recurrenceLabel(formData.task.recurrence) : '{{ __('Not set') }}'"></span>
+                </span>
+            </span>
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
                     <span class="text-xs uppercase" x-text="formData.task.startDatetime ? formatDatetime(formData.task.startDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
-                <flux:icon name="chevron-down" class="size-3" />
             </span>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
@@ -558,16 +583,22 @@
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Due') }}:</span>
                     <span class="text-xs uppercase" x-text="formData.task.endDatetime ? formatDatetime(formData.task.endDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
-                <flux:icon name="chevron-down" class="size-3" />
             </span>
-            <span
-                x-show="formData.task.tagIds && formData.task.tagIds.length > 0"
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-sky-500/10 px-2.5 py-0.5 font-medium text-sky-500 dark:border-white/10"
-            >
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="tag" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Tags') }}:</span>
-                    <span class="truncate max-w-[140px] uppercase" x-text="getSelectedTagNames()"></span>
+                    <span class="uppercase" x-text="formData.task.tagIds && formData.task.tagIds.length > 0 ? formData.task.tagIds.length : '{{ __('None') }}'"></span>
+                </span>
+            </span>
+            <span
+                x-show="formData.task.projectId && projectNames[formData.task.projectId]"
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10"
+            >
+                <flux:icon name="folder" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Project') }}:</span>
+                    <span class="truncate max-w-[120px] uppercase" x-text="projectNames[formData.task.projectId] || ''"></span>
                 </span>
             </span>
         </div>

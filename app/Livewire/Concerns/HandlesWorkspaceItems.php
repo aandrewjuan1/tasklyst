@@ -4,7 +4,6 @@ namespace App\Livewire\Concerns;
 
 use App\Models\Event;
 use App\Models\Project;
-use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Support\Validation\EventPayloadValidation;
@@ -473,6 +472,24 @@ trait HandlesWorkspaceItems
             if (! $silentToasts) {
                 $this->dispatch('toast', type: 'success', message: __('Task updated.'));
             }
+
+            return true;
+        }
+
+        if ($property === 'recurrence') {
+            try {
+                $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
+            } catch (\Throwable $e) {
+                Log::error('Failed to update task recurrence from workspace.', [
+                    'user_id' => $user->id,
+                    'task_id' => $taskId,
+                    'exception' => $e,
+                ]);
+                $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the task.'));
+
+                return false;
+            }
+            $this->dispatch('toast', type: 'success', message: __('Task updated.'));
 
             return true;
         }

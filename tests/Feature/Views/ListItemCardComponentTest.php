@@ -30,14 +30,15 @@ it('renders recurring pill for recurring tasks', function (): void {
     expect($html)->toContain('Daily');
 });
 
-it('does not render recurring pill for non-recurring tasks', function (): void {
+it('renders recurring selection for non-recurring tasks', function (): void {
     $task = Task::factory()->create();
 
     $html = Blade::render('<x-workspace.list-item-card kind="task" :item="$item" />', [
         'item' => $task,
     ]);
 
-    expect($html)->not->toContain('Recurring:');
+    expect($html)->toContain('Recurring:');
+    expect($html)->toContain('Not set');
 });
 
 it('renders recurring pill for recurring events', function (): void {

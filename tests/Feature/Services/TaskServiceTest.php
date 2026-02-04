@@ -95,3 +95,81 @@ it('keeps recurring tasks relevant even if their task dates change', function ()
 
     expect($results->pluck('id'))->toContain($task->id);
 });
+
+it('updateOrCreateRecurringTask creates recurrence when enabled', function (): void {
+    $user = User::factory()->create();
+
+    $task = app(TaskService::class)->createTask($user, [
+        'title' => 'Task',
+        'start_datetime' => now()->startOfDay()->addHours(9),
+    ]);
+
+    expect($task->recurringTask)->toBeNull();
+
+    app(TaskService::class)->updateOrCreateRecurringTask($task, [
+        'enabled' => true,
+        'type' => 'daily',
+        'interval' => 1,
+        'daysOfWeek' => [],
+    ]);
+
+    $task->refresh()->load('recurringTask');
+    expect($task->recurringTask)->not->toBeNull();
+    expect($task->recurringTask->recurrence_type->value)->toBe('daily');
+});
+
+it('updateOrCreateRecurringTask deletes recurrence when disabled', function (): void {
+    $user = User::factory()->create();
+
+    $task = app(TaskService::class)->createTask($user, [
+        'title' => 'Task',
+        'start_datetime' => now()->startOfDay()->addHours(9),
+        'recurrence' => [
+            'enabled' => true,
+            'type' => 'daily',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    expect($task->recurringTask)->not->toBeNull();
+
+    app(TaskService::class)->updateOrCreateRecurringTask($task, [
+        'enabled' => false,
+        'type' => null,
+        'interval' => 1,
+        'daysOfWeek' => [],
+    ]);
+
+    $task->refresh();
+    expect($task->recurringTask)->toBeNull();
+});
+
+it('updateOrCreateRecurringTask updates existing recurrence', function (): void {
+    $user = User::factory()->create();
+
+    $task = app(TaskService::class)->createTask($user, [
+        'title' => 'Task',
+        'start_datetime' => now()->startOfDay()->addHours(9),
+        'recurrence' => [
+            'enabled' => true,
+            'type' => 'daily',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    $recurringTaskId = $task->recurringTask->id;
+
+    app(TaskService::class)->updateOrCreateRecurringTask($task, [
+        'enabled' => true,
+        'type' => 'weekly',
+        'interval' => 2,
+        'daysOfWeek' => [1, 3, 5],
+    ]);
+
+    $task->refresh()->load('recurringTask');
+    expect($task->recurringTask->recurrence_type->value)->toBe('weekly');
+    expect($task->recurringTask->interval)->toBe(2);
+    expect($task->recurringTask->days_of_week)->toBe('[1,3,5]');
+});

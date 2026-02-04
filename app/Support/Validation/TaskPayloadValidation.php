@@ -93,6 +93,7 @@ final class TaskPayloadValidation
             'startDatetime',
             'endDatetime',
             'tagIds',
+            'recurrence',
         ];
     }
 
@@ -122,6 +123,14 @@ final class TaskPayloadValidation
             'tagIds' => [
                 'value' => ['array'],
                 'value.*' => ['integer', $tagExistsRule],
+            ],
+            'recurrence' => [
+                'value' => ['array'],
+                'value.enabled' => ['boolean'],
+                'value.type' => ['nullable', Rule::in(array_map(fn (TaskRecurrenceType $t) => $t->value, TaskRecurrenceType::cases()))],
+                'value.interval' => ['integer', 'min:1'],
+                'value.daysOfWeek' => ['array'],
+                'value.daysOfWeek.*' => ['integer', 'between:0,6'],
             ],
             default => [],
         };

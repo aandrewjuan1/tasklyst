@@ -41,6 +41,23 @@ class TaskService
     }
 
     /**
+     * Update or create RecurringTask for the given task based on recurrence data.
+     * If enabled is false, deletes existing RecurringTask. If enabled is true and type is set, creates or updates.
+     *
+     * @param  array<string, mixed>  $recurrenceData
+     */
+    public function updateOrCreateRecurringTask(Task $task, array $recurrenceData): void
+    {
+        DB::transaction(function () use ($task, $recurrenceData): void {
+            $task->recurringTask?->delete();
+
+            if (($recurrenceData['enabled'] ?? false) && ($recurrenceData['type'] ?? null) !== null) {
+                $this->createRecurringTask($task, $recurrenceData);
+            }
+        });
+    }
+
+    /**
      * Create a RecurringTask record for the given task.
      *
      * @param  array<string, mixed>  $recurrenceData
