@@ -716,12 +716,6 @@
                         return false;
                     }
                 },
-                handleDatePickerRequestValue(e) {
-                    e.stopPropagation();
-                    const path = e.detail.path;
-                    const value = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
-                    e.target.dispatchEvent(new CustomEvent('date-picker-value', { detail: { path, value: value ?? null } }));
-                },
                 handleDatePickerOpened(e) {
                     e.stopPropagation();
                     const path = e.detail.path;
@@ -789,7 +783,6 @@
                 },
             }"
             class="contents"
-            @date-picker-request-value="handleDatePickerRequestValue($event)"
             @date-picker-opened="handleDatePickerOpened($event)"
             @date-picker-value-changed="handleDatePickerValueChanged($event)"
             @date-picker-updated="handleDatePickerUpdated($event)"

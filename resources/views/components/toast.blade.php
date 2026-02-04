@@ -2,12 +2,14 @@
     x-data="{
         show: false,
         type: 'success',
+        icon: null,
         message: '',
         timeout: null,
         init() {
             Livewire.on('toast', (event) => {
                 const data = Array.isArray(event) ? event[0] : event;
                 this.type = data?.type || 'success';
+                this.icon = data?.icon || null;
                 this.message = data?.message || '';
                 this.showToast();
             });
@@ -55,9 +57,25 @@
             class="shrink-0 flex items-center justify-center rounded-full bg-white/60 dark:bg-black/20 p-1.5"
             aria-hidden="true"
         >
-            <flux:icon name="check-circle" class="size-5" x-show="type === 'success'" />
-            <flux:icon name="exclamation-circle" class="size-5" x-show="type === 'error'" />
-            <flux:icon name="information-circle" class="size-5" x-show="type === 'info'" />
+            {{-- Flux icons are rendered server-side, so we pre-render the set we use and toggle via Alpine. --}}
+            <span x-show="icon" x-cloak>
+                <flux:icon name="plus-circle" class="size-5" x-show="icon === 'plus-circle'" />
+                <flux:icon name="pencil-square" class="size-5" x-show="icon === 'pencil-square'" />
+                <flux:icon name="trash" class="size-5" x-show="icon === 'trash'" />
+                <flux:icon name="exclamation-triangle" class="size-5" x-show="icon === 'exclamation-triangle'" />
+                <flux:icon name="bolt" class="size-5" x-show="icon === 'bolt'" />
+                <flux:icon name="squares-2x2" class="size-5" x-show="icon === 'squares-2x2'" />
+                <flux:icon name="clock" class="size-5" x-show="icon === 'clock'" />
+                <flux:icon name="tag" class="size-5" x-show="icon === 'tag'" />
+                <flux:icon name="arrow-path" class="size-5" x-show="icon === 'arrow-path'" />
+                <flux:icon name="check-circle" class="size-5" x-show="icon === 'check-circle'" />
+                <flux:icon name="information-circle" class="size-5" x-show="icon === 'information-circle'" />
+            </span>
+            <span x-show="!icon">
+                <flux:icon name="check-circle" class="size-5" x-show="type === 'success'" />
+                <flux:icon name="exclamation-circle" class="size-5" x-show="type === 'error'" />
+                <flux:icon name="information-circle" class="size-5" x-show="type === 'info'" />
+            </span>
         </span>
         <p class="text-sm font-medium leading-snug flex-1 min-w-0" x-text="message"></p>
         <button

@@ -7,18 +7,322 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 
 class Task extends Model
 {
     use HasFactory, SoftDeletes;
+
+    /**
+     * Build a friendly toast payload for Task CRUD actions.
+     *
+     * @return array{type: 'success'|'error'|'info', message: string, icon: string}
+     */
+    public static function toastPayload(string $action, bool $success, ?string $title = null): array
+    {
+        $trimmedTitle = $title !== null ? trim($title) : null;
+        $hasTitle = $trimmedTitle !== null && $trimmedTitle !== '';
+
+        $quotedTitle = $hasTitle ? '“'.$trimmedTitle.'”' : null;
+
+        $type = $success ? 'success' : 'error';
+
+        return match ($action) {
+            'create' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasTitle ? __('Added :title.', ['title' => $quotedTitle]) : __('Added the task.'),
+                    'icon' => 'plus-circle',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasTitle
+                        ? __('Couldn’t add :title. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t add the task. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            'update' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasTitle ? __('Saved changes to :title.', ['title' => $quotedTitle]) : __('Saved changes.'),
+                    'icon' => 'pencil-square',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasTitle
+                        ? __('Couldn’t save changes to :title. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t save changes. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            'delete' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasTitle ? __('Deleted :title.', ['title' => $quotedTitle]) : __('Deleted the task.'),
+                    'icon' => 'trash',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasTitle
+                        ? __('Couldn’t delete :title. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t delete the task. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            default => [
+                'type' => $type,
+                'message' => $success ? __('Done.') : __('Something went wrong. Please try again.'),
+                'icon' => $success ? 'check-circle' : 'exclamation-triangle',
+            ],
+        };
+    }
+
+    /**
+     * Build a friendly toast payload for inline Task edits.
+     *
+     * @return array{type: 'success'|'error'|'info', message: string, icon: string}
+     */
+    public static function toastPayloadForPropertyUpdate(string $property, mixed $fromValue, mixed $toValue, bool $success, ?string $taskTitle = null): array
+    {
+        $type = $success ? 'success' : 'error';
+        $taskSuffix = self::toastTaskSuffix($taskTitle);
+
+        $propertyLabel = self::propertyLabel($property);
+        $formattedFrom = self::formatPropertyValue($property, $fromValue);
+        $formattedTo = self::formatPropertyValue($property, $toValue);
+        $icon = self::propertyIcon($property, $success);
+
+        if (! $success) {
+            $message = $propertyLabel !== null
+                ? __('Couldn’t save :property. Try again.', ['property' => $propertyLabel]).$taskSuffix
+                : __('Couldn’t save changes. Try again.').$taskSuffix;
+
+            return [
+                'type' => $type,
+                'message' => $message,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($propertyLabel === null) {
+            return [
+                'type' => $type,
+                'message' => __('Saved changes.').$taskSuffix,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($formattedFrom !== null || $formattedTo !== null) {
+            $message = __(':property: :from → :to.', [
+                'property' => $propertyLabel,
+                'from' => $formattedFrom ?? __('Not set'),
+                'to' => $formattedTo ?? __('Not set'),
+            ]).$taskSuffix;
+        } else {
+            $message = __('Saved :property.', ['property' => $propertyLabel]).$taskSuffix;
+        }
+
+        return [
+            'type' => $type,
+            'message' => $message,
+            'icon' => $icon,
+        ];
+    }
+
+    private static function toastTaskSuffix(?string $taskTitle): string
+    {
+        $trimmed = $taskTitle !== null ? trim($taskTitle) : '';
+        if ($trimmed === '') {
+            return '';
+        }
+
+        return ' — '.__('Task').': '.'“'.$trimmed.'”';
+    }
+
+    private static function propertyLabel(string $property): ?string
+    {
+        return match ($property) {
+            'title' => __('Title'),
+            'status' => __('Status'),
+            'priority' => __('Priority'),
+            'complexity' => __('Complexity'),
+            'duration' => __('Duration'),
+            'startDatetime' => __('Start'),
+            'endDatetime' => __('Due'),
+            'tagIds' => __('Tags'),
+            'recurrence' => __('Recurring'),
+            default => null,
+        };
+    }
+
+    private static function propertyIcon(string $property, bool $success): string
+    {
+        if (! $success) {
+            return 'exclamation-triangle';
+        }
+
+        return match ($property) {
+            'title' => 'pencil-square',
+            'status' => 'check-circle',
+            'priority' => 'bolt',
+            'complexity' => 'squares-2x2',
+            'duration' => 'clock',
+            'startDatetime', 'endDatetime' => 'clock',
+            'tagIds' => 'tag',
+            'recurrence' => 'arrow-path',
+            default => 'pencil-square',
+        };
+    }
+
+    private static function formatPropertyValue(string $property, mixed $value): ?string
+    {
+        return match ($property) {
+            'title' => is_string($value) ? '“'.trim($value).'”' : null,
+            'status' => self::enumLabel(TaskStatus::class, $value),
+            'priority' => self::enumLabel(TaskPriority::class, $value),
+            'complexity' => self::enumLabel(TaskComplexity::class, $value),
+            'duration' => self::formatDuration($value),
+            'startDatetime', 'endDatetime' => self::formatDatetime($value),
+            'tagIds' => self::formatTagCount($value),
+            'recurrence' => self::formatRecurrence($value),
+            default => is_scalar($value) ? (string) $value : null,
+        };
+    }
+
+    /**
+     * @param  class-string  $enumClass
+     */
+    private static function enumLabel(string $enumClass, mixed $value): ?string
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            /** @var \BackedEnum|null $enum */
+            $enum = $enumClass::tryFrom($value);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($enum === null) {
+            return null;
+        }
+
+        $name = $enum->name; // e.g. ToDo, Doing
+
+        return (string) preg_replace('/(?<!^)([A-Z])/', ' $1', $name);
+    }
+
+    private static function formatDuration(mixed $minutes): ?string
+    {
+        if ($minutes === null || $minutes === '') {
+            return __('Not set');
+        }
+
+        $m = (int) $minutes;
+        if ($m <= 0) {
+            return __('Not set');
+        }
+
+        if ($m < 60) {
+            return $m.' '.__('min');
+        }
+
+        $hours = (int) ceil($m / 60);
+        $remainder = $m % 60;
+        $hourWord = $hours === 1 ? __('hour') : \Illuminate\Support\Str::plural(__('hour'), 2);
+
+        $label = $hours.' '.$hourWord;
+        if ($remainder) {
+            $label .= ' '.$remainder.' '.__('min');
+        }
+
+        return $label;
+    }
+
+    private static function formatDatetime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return __('Not set');
+        }
+
+        try {
+            return Carbon::parse((string) $value)->translatedFormat('M j, Y · g:i A');
+        } catch (\Throwable) {
+            return __('Not set');
+        }
+    }
+
+    private static function formatTagCount(mixed $value): ?string
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $count = count($value);
+        if ($count === 0) {
+            return __('None');
+        }
+
+        return (string) $count;
+    }
+
+    /**
+     * @param  array<string, mixed>  $value
+     */
+    private static function formatRecurrence(mixed $value): ?string
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $enabled = (bool) ($value['enabled'] ?? false);
+        if (! $enabled) {
+            return __('Off');
+        }
+
+        $type = (string) ($value['type'] ?? '');
+        $interval = (int) ($value['interval'] ?? 1);
+        $days = $value['daysOfWeek'] ?? [];
+
+        if ($type === '') {
+            return __('On');
+        }
+
+        $typeLabel = strtoupper($type);
+
+        if ($type === 'weekly' && is_array($days) && $days !== []) {
+            $labels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+            $dayNames = array_map(fn (int $d) => $labels[$d] ?? null, array_map('intval', $days));
+            $dayNames = array_values(array_filter($dayNames));
+
+            $intervalPart = $interval <= 1 ? 'WEEKLY' : 'EVERY '.$interval.' WEEKS';
+            $daysPart = $dayNames !== [] ? ' ('.implode(', ', $dayNames).')' : '';
+
+            return $intervalPart.$daysPart;
+        }
+
+        if ($interval <= 1) {
+            return $typeLabel;
+        }
+
+        $plural = match ($type) {
+            'daily' => 'DAYS',
+            'weekly' => 'WEEKS',
+            'monthly' => 'MONTHS',
+            'yearly' => 'YEARS',
+            default => $typeLabel,
+        };
+
+        return 'EVERY '.$interval.' '.$plural;
+    }
 
     protected static function boot(): void
     {
@@ -65,6 +369,7 @@ class Task extends Model
     {
         return $this->belongsTo(Project::class);
     }
+
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);

@@ -110,14 +110,14 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong creating the task.'));
+            $this->dispatch('toast', ...Task::toastPayload('create', false, $title));
 
             return;
         }
 
         $this->listRefresh++;
         $this->dispatch('task-created', id: $task->id, title: $task->title);
-        $this->dispatch('toast', type: 'success', message: __('Task created.'));
+        $this->dispatch('toast', ...Task::toastPayload('create', true, $task->title));
     }
 
     /**
@@ -381,19 +381,19 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the task.'));
+            $this->dispatch('toast', ...Task::toastPayload('delete', false, $task->title));
 
             return false;
         }
 
         if (! $deleted) {
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the task.'));
+            $this->dispatch('toast', ...Task::toastPayload('delete', false, $task->title));
 
             return false;
         }
 
         $this->listRefresh++;
-        $this->dispatch('toast', type: 'success', message: __('Task deleted.'));
+        $this->dispatch('toast', ...Task::toastPayload('delete', true, $task->title));
 
         return true;
     }
@@ -457,6 +457,7 @@ trait HandlesWorkspaceItems
         $validatedValue = $validator->validated()['value'];
 
         if ($property === 'tagIds') {
+            $oldTagIds = $task->tags()->pluck('tags.id')->all();
             try {
                 $task->tags()->sync($validatedValue);
             } catch (\Throwable $e) {
@@ -465,18 +466,32 @@ trait HandlesWorkspaceItems
                     'task_id' => $taskId,
                     'exception' => $e,
                 ]);
-                $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the task.'));
+                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, false, $task->title));
 
                 return false;
             }
             if (! $silentToasts) {
-                $this->dispatch('toast', type: 'success', message: __('Task updated.'));
+                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $task->title));
             }
 
             return true;
         }
 
         if ($property === 'recurrence') {
+            $task->loadMissing('recurringTask');
+            $oldRecurrence = $task->recurringTask
+                ? [
+                    'enabled' => true,
+                    'type' => $task->recurringTask->recurrence_type?->value,
+                    'interval' => $task->recurringTask->interval ?? 1,
+                    'daysOfWeek' => $task->recurringTask->days_of_week ? (json_decode($task->recurringTask->days_of_week, true) ?? []) : [],
+                ]
+                : [
+                    'enabled' => false,
+                    'type' => null,
+                    'interval' => 1,
+                    'daysOfWeek' => [],
+                ];
             try {
                 $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
             } catch (\Throwable $e) {
@@ -485,11 +500,11 @@ trait HandlesWorkspaceItems
                     'task_id' => $taskId,
                     'exception' => $e,
                 ]);
-                $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the task.'));
+                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, false, $task->title));
 
                 return false;
             }
-            $this->dispatch('toast', type: 'success', message: __('Task updated.'));
+            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, true, $task->title));
 
             return true;
         }
@@ -500,9 +515,30 @@ trait HandlesWorkspaceItems
             default => $property,
         };
 
+        $oldValue = match ($column) {
+            'status' => $task->status?->value,
+            'priority' => $task->priority?->value,
+            'complexity' => $task->complexity?->value,
+            'start_datetime' => $task->start_datetime,
+            'end_datetime' => $task->end_datetime,
+            default => $task->{$column},
+        };
+
         $attributes = [$column => $validatedValue];
         if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
+            $parsedDatetime = $this->parseOptionalDatetime($validatedValue);
+            $attributes[$column] = $parsedDatetime;
+
+            $start = $column === 'start_datetime' ? $parsedDatetime : $task->start_datetime;
+            $end = $column === 'end_datetime' ? $parsedDatetime : $task->end_datetime;
+            $durationMinutes = (int) ($task->duration ?? 0);
+
+            $dateRangeError = TaskPayloadValidation::validateTaskDateRangeForUpdate($start, $end, $durationMinutes);
+            if ($dateRangeError !== null) {
+                $this->dispatch('toast', type: 'error', message: $dateRangeError);
+
+                return false;
+            }
         }
 
         try {
@@ -514,12 +550,13 @@ trait HandlesWorkspaceItems
                 'property' => $property,
                 'exception' => $e,
             ]);
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the task.'));
+            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $validatedValue, false, $task->title));
 
             return false;
         }
 
-        $this->dispatch('toast', type: 'success', message: __('Task updated.'));
+        $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+        $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
 
         return true;
     }

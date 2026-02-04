@@ -111,7 +111,7 @@ it('can create a task from the workspace component', function (): void {
             'projectId' => null,
         ])
         ->assertSee('Inline created task')
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+        ->assertDispatched('toast', type: 'success', message: __('Added :title.', ['title' => '“Inline created task”']), icon: 'plus-circle');
 });
 
 it('creates task with project association', function (): void {
@@ -137,7 +137,7 @@ it('creates task with project association', function (): void {
             'projectId' => $project->id,
         ])
         ->assertSee('Task with Project')
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+        ->assertDispatched('toast', type: 'success', message: __('Added :title.', ['title' => '“Task with Project”']), icon: 'plus-circle');
 
     $this->assertDatabaseHas('tasks', [
         'title' => 'Task with Project',
@@ -167,7 +167,7 @@ it('creates task with datetime', function (): void {
             'projectId' => null,
         ])
         ->assertSee('Task with Datetime')
-        ->assertDispatched('toast', type: 'success', message: __('Task created.'));
+        ->assertDispatched('toast', type: 'success', message: __('Added :title.', ['title' => '“Task with Datetime”']), icon: 'plus-circle');
 
     $this->assertDatabaseHas('tasks', [
         'title' => 'Task with Datetime',
@@ -265,7 +265,7 @@ it('deletes a task through the workspace component', function (): void {
         ->test('pages::workspace.index')
         ->set('selectedDate', $date)
         ->call('deleteTask', $task->id)
-        ->assertDispatched('toast', type: 'success', message: __('Task deleted.'));
+        ->assertDispatched('toast', type: 'success', message: __('Deleted :title.', ['title' => '“Task To Delete”']), icon: 'trash');
 
     $this->assertSoftDeleted('tasks', [
         'id' => $task->id,
@@ -291,7 +291,7 @@ it('updates a task property through the workspace component', function (): void 
         ->test('pages::workspace.index')
         ->set('selectedDate', $date)
         ->call('updateTaskProperty', $task->id, 'status', 'doing')
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Status'), 'from' => 'To Do', 'to' => 'Doing']).' — '.__('Task').': ' . '“Task To Update”', icon: 'check-circle');
 
     $task->refresh();
     expect($task->status->value)->toBe('doing');
@@ -313,7 +313,7 @@ it('updates task priority and complexity via updateTaskProperty', function (): v
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
         ->call('updateTaskProperty', $task->id, 'priority', 'high')
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Priority'), 'from' => 'Medium', 'to' => 'High']).' — '.__('Task').': ' . '“Task”', icon: 'bolt');
 
     $task->refresh();
     expect($task->priority->value)->toBe('high');
@@ -321,7 +321,7 @@ it('updates task priority and complexity via updateTaskProperty', function (): v
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
         ->call('updateTaskProperty', $task->id, 'complexity', 'complex')
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Complexity'), 'from' => 'Moderate', 'to' => 'Complex']).' — '.__('Task').': ' . '“Task”', icon: 'squares-2x2');
 
     $task->refresh();
     expect($task->complexity->value)->toBe('complex');
@@ -340,7 +340,7 @@ it('updates task title via updateTaskProperty', function (): void {
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
         ->call('updateTaskProperty', $task->id, 'title', 'Task New Title')
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Title'), 'from' => '“Task Old Title”', 'to' => '“Task New Title”']).' — '.__('Task').': ' . '“Task New Title”', icon: 'pencil-square');
 
     $task->refresh();
     expect($task->title)->toBe('Task New Title');
@@ -365,7 +365,7 @@ it('updates task recurrence via updateTaskProperty', function (): void {
             'interval' => 1,
             'daysOfWeek' => [],
         ])
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Recurring'), 'from' => __('Off'), 'to' => 'DAILY']).' — '.__('Task').': ' . '“Task”', icon: 'arrow-path');
 
     $task->refresh()->load('recurringTask');
     expect($task->recurringTask)->not->toBeNull();
@@ -380,7 +380,7 @@ it('updates task recurrence via updateTaskProperty', function (): void {
             'interval' => 2,
             'daysOfWeek' => [1, 3],
         ])
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Recurring'), 'from' => 'DAILY', 'to' => 'EVERY 2 WEEKS (MON, WED)']).' — '.__('Task').': ' . '“Task”', icon: 'arrow-path');
 
     $task->refresh()->load('recurringTask');
     expect($task->recurringTask->recurrence_type)->toBe(TaskRecurrenceType::Weekly);
@@ -395,7 +395,7 @@ it('updates task recurrence via updateTaskProperty', function (): void {
             'interval' => 1,
             'daysOfWeek' => [],
         ])
-        ->assertDispatched('toast', type: 'success', message: __('Task updated.'));
+        ->assertDispatched('toast', type: 'success', message: __(':property: :from → :to.', ['property' => __('Recurring'), 'from' => 'EVERY 2 WEEKS (MON, WED)', 'to' => __('Off')]).' — '.__('Task').': ' . '“Task”', icon: 'arrow-path');
 
     $task->refresh();
     expect($task->recurringTask)->toBeNull();
@@ -428,6 +428,31 @@ it('rejects updateTaskProperty for invalid value', function (): void {
 
     $task->refresh();
     expect($task->status->value)->not->toBe('invalid_status');
+});
+
+it('rejects updateTaskProperty when end date is before start date', function (): void {
+    $user = User::factory()->create();
+
+    $start = now()->startOfDay()->addHours(10);
+    $end = now()->startOfDay()->addHours(14);
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'start_datetime' => $start,
+            'end_datetime' => $end,
+            'completed_at' => null,
+        ]);
+
+    $endBeforeStart = now()->startOfDay()->addHours(8)->format('Y-m-d\TH:i:s');
+
+    $result = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'endDatetime', $endBeforeStart);
+
+    $result->assertDispatched('toast', type: 'error', message: __('End date must be the same as or after the start date.'));
+
+    $task->refresh();
+    expect($task->end_datetime->format('Y-m-d H:i'))->toBe($end->format('Y-m-d H:i'));
 });
 
 it('rejects updateTaskProperty when task not found', function (): void {

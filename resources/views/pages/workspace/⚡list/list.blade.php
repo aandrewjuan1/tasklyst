@@ -468,25 +468,10 @@
                 }
             }
         },
-        onDatePickerRequestValue(event) {
-            const { path } = event.detail;
-            const pathParts = path.split('.');
-            let value = this;
-            for (const part of pathParts) {
-                if (value === null || value === undefined) {
-                    break;
-                }
-                value = value[part];
-            }
-            event.target.dispatchEvent(new CustomEvent('date-picker-value', {
-                detail: { path, value: value ?? null },
-            }));
-        },
     }"
     @task-created="resetForm()"
     @tag-created="onTagCreated($event)"
     @tag-deleted="onTagDeleted($event)"
-    @date-picker-request-value="onDatePickerRequestValue($event)"
     @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @recurring-selection-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @task-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
