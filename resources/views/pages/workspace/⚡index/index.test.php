@@ -223,6 +223,31 @@ it('can create an event from the workspace component', function (): void {
     ]);
 });
 
+it('can create an all-day event from the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('createEvent', [
+            'title' => 'Inline all-day event',
+            'status' => 'scheduled',
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'allDay' => true,
+        ])
+        ->assertSee('Inline all-day event')
+        ->assertDispatched('toast', type: 'success', message: __('Added :title.', ['title' => '“Inline all-day event”']), icon: 'plus-circle');
+
+    $this->assertDatabaseHas('events', [
+        'title' => 'Inline all-day event',
+        'user_id' => $user->id,
+        'all_day' => true,
+    ]);
+});
+
 it('deletes an event through the workspace component', function (): void {
     $user = User::factory()->create();
 

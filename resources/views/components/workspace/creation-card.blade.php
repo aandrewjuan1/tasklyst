@@ -33,6 +33,7 @@
                         resetForm();
                         // Events default to scheduled status.
                         formData.task.status = 'scheduled';
+                        formData.task.allDay = false;
                         showTaskCreation = true;
                         $nextTick(() => $refs.taskTitle?.focus());
                     }
@@ -279,6 +280,25 @@
                                 @endforeach
                             </div>
                         </x-simple-select-dropdown>
+
+                        {{-- Event all-day toggle --}}
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                            :class="formData.task.allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
+                            x-show="creationKind === 'event'"
+                            x-cloak
+                            data-task-creation-safe
+                            @click="formData.task.allDay = !formData.task.allDay"
+                        >
+                            <flux:icon name="sun" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('All Day') }}:
+                                </span>
+                                <span class="uppercase" x-text="formData.task.allDay ? '{{ __('Yes') }}' : '{{ __('No') }}'"></span>
+                            </span>
+                        </button>
 
                         <x-workspace.tag-selection position="bottom" align="end" />
 

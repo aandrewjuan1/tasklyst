@@ -417,47 +417,55 @@
             </span>
         @endif
 
-        @if($item->all_day)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-500 dark:border-white/10">
-                <flux:icon name="sun" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Time') }}:
-                    </span>
-                    <span class="uppercase">
-                        {{ __('All day') }}
-                    </span>
+        <span
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-medium dark:border-white/10 {{ $item->all_day ? 'bg-emerald-500/10 text-emerald-500' : 'bg-muted text-muted-foreground' }}"
+        >
+            <flux:icon name="sun" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('All Day') }}:
+                </span>
+                <span class="uppercase">
+                    {{ $item->all_day ? __('Yes') : __('No') }}
                 </span>
             </span>
-        @elseif($item->start_datetime || $item->end_datetime)
-            @if($item->start_datetime)
-                <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                    <flux:icon name="clock" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Start') }}:
-                        </span>
-                        <span class="uppercase">
-                            {{ $item->start_datetime->translatedFormat('M j, Y · g:i A') }}
-                        </span>
-                    </span>
-                </span>
-            @endif
+        </span>
 
-            @if($item->end_datetime)
-                <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                    <flux:icon name="clock" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('End') }}:
-                        </span>
-                        <span class="uppercase">
-                            {{ $item->end_datetime->translatedFormat('M j, Y · g:i A') }}
-                        </span>
-                    </span>
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+            <flux:icon name="clock" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('Start') }}:
                 </span>
-            @endif
-        @endif
+                <span class="uppercase">
+                    {{ $item->start_datetime ? $item->start_datetime->translatedFormat('M j, Y · g:i A') : __('Not set') }}
+                </span>
+            </span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+            <flux:icon name="clock" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('End') }}:
+                </span>
+                <span class="uppercase">
+                    {{ $item->end_datetime ? $item->end_datetime->translatedFormat('M j, Y · g:i A') : __('Not set') }}
+                </span>
+            </span>
+        </span>
+
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+            <flux:icon name="tag" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('Tags') }}:
+                </span>
+                <span class="uppercase">
+                    {{ $item->tags->count() > 0 ? $item->tags->count() : __('None') }}
+                </span>
+            </span>
+        </span>
 
         <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
     </div>

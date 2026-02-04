@@ -26,6 +26,7 @@
                 duration: '60',
                 startDatetime: null,
                 endDatetime: null,
+                allDay: false,
                 projectId: null,
                 tagIds: [],
                 recurrence: {
@@ -82,6 +83,7 @@
             this.formData.task.duration = '60';
             this.formData.task.startDatetime = null;
             this.formData.task.endDatetime = null;
+            this.formData.task.allDay = false;
             this.formData.task.tagIds = [];
             this.formData.task.recurrence = {
                 enabled: false,
@@ -651,6 +653,16 @@
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
                             <span class="uppercase" x-text="eventStatusLabel(formData.task.status)"></span>
+                        </span>
+                    </span>
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                        :class="formData.task.allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
+                    >
+                        <flux:icon name="sun" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('All Day') }}:</span>
+                            <span class="uppercase" x-text="formData.task.allDay ? '{{ __('Yes') }}' : '{{ __('No') }}'"></span>
                         </span>
                     </span>
                 </div>
