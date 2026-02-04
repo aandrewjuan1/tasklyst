@@ -557,8 +557,10 @@ trait HandlesWorkspaceItems
             return false;
         }
 
-        $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
-        $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
+        if (! $silentToasts) {
+            $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
+        }
 
         return true;
     }
