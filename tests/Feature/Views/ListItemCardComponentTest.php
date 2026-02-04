@@ -64,12 +64,13 @@ it('renders recurring pill for recurring events', function (): void {
     expect($html)->toContain('Weekly');
 });
 
-it('does not render recurring pill for non-recurring events', function (): void {
+it('renders recurring selection for non-recurring events', function (): void {
     $event = Event::factory()->create();
 
     $html = Blade::render('<x-workspace.list-item-card kind="event" :item="$item" />', [
         'item' => $event,
     ]);
 
-    expect($html)->not->toContain('Recurring:');
+    expect($html)->toContain('Recurring:');
+    expect($html)->toContain('Not set');
 });

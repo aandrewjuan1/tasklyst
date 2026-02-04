@@ -569,7 +569,150 @@
         validateTaskDateRange();
     "
 >
-    <x-workspace.creation-card />
+    @php
+        $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
+    @endphp
+    <div class="relative z-10">
+        <flux:dropdown position="right" align="start">
+            <flux:button icon:trailing="plus-circle" data-task-creation-safe>
+                {{ __('Add') }}
+            </flux:button>
+
+            <flux:menu>
+                <flux:menu.item
+                    icon="rectangle-stack"
+                    @click="
+                        if (showTaskCreation && creationKind === 'task') {
+                            showTaskCreation = false;
+                        } else {
+                            creationKind = 'task';
+                            resetForm();
+                            showTaskCreation = true;
+                            $nextTick(() => $refs.taskTitle?.focus());
+                        }
+                    "
+                >
+                    {{ __('Task') }}
+                </flux:menu.item>
+                <flux:menu.item
+                    icon="calendar-days"
+                    @click="
+                        if (showTaskCreation && creationKind === 'event') {
+                            showTaskCreation = false;
+                        } else {
+                            creationKind = 'event';
+                            resetForm();
+                            // Events default to scheduled status.
+                            formData.task.status = 'scheduled';
+                            formData.task.allDay = false;
+                            showTaskCreation = true;
+                            $nextTick(() => $refs.taskTitle?.focus());
+                        }
+                    "
+                >
+                    {{ __('Event') }}
+                </flux:menu.item>
+                <flux:menu.item variant="danger" icon="clipboard-document-list">
+                    {{ __('Project') }}
+                </flux:menu.item>
+            </flux:menu>
+        </flux:dropdown>
+
+        <div
+            x-show="showTaskCreation"
+            x-transition
+            x-ref="taskCreationCard"
+            @click.outside="
+                const target = $event.target;
+                const isSafe = target.closest('[data-task-creation-safe]');
+                // Also treat Flux dropdown trigger/panel as safe so switching
+                // between Task and Event from the Add menu does not close the card.
+                const isDropdownContext =
+                    target.closest('.absolute.z-50') ||
+                    target.closest('[data-flux-dropdown]') ||
+                    target.closest('[data-flux-menu]');
+
+                if (!isSafe && !isDropdownContext) {
+                    showTaskCreation = false;
+                }
+            "
+            class="relative mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 shadow-md ring-1 ring-border/20"
+            x-cloak
+        >
+            <div class="flex items-start justify-between gap-3">
+                <form
+                    class="min-w-0 flex-1"
+                    @submit.prevent="creationKind === 'task' ? submitTask() : submitEvent()"
+                >
+                    <div class="flex flex-col gap-2">
+                        <span
+                            class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            x-show="creationKind === 'task'"
+                            x-cloak
+                        >
+                            {{ __('Task') }}
+                        </span>
+                        <span
+                            class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                            x-show="creationKind === 'event'"
+                            x-cloak
+                        >
+                            {{ __('Event') }}
+                        </span>
+
+                        <div class="flex items-center gap-2">
+                            <flux:input
+                                x-model="formData.task.title"
+                                x-ref="taskTitle"
+                                x-bind:disabled="isSubmitting"
+                                placeholder="{{ __('Enter title...') }}"
+                                class="flex-1 text-sm font-medium"
+                                @keydown.enter.prevent="if (!isSubmitting && formData.task.title && formData.task.title.trim()) { creationKind === 'task' ? submitTask() : submitEvent(); }"
+                            />
+
+                            <flux:button
+                                type="button"
+                                variant="primary"
+                                icon="paper-airplane"
+                                class="shrink-0 rounded-full"
+                                x-bind:disabled="isSubmitting || !formData.task.title || !formData.task.title.trim()"
+                                @click="creationKind === 'task' ? submitTask() : submitEvent()"
+                            />
+                        </div>
+
+                        <div class="flex flex-wrap gap-2">
+                            <x-workspace.creation-task-fields />
+                            <x-workspace.creation-event-fields />
+
+                            <x-workspace.tag-selection position="bottom" align="end" />
+
+                            @foreach ([['label' => __('Start'), 'model' => 'formData.task.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.task.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
+                                <x-date-picker
+                                    :triggerLabel="$dateField['label']"
+                                    :label="$dateField['datePickerLabel']"
+                                    :model="$dateField['model']"
+                                    type="datetime-local"
+                                    position="bottom"
+                                    align="end"
+                                />
+                            @endforeach
+
+                            <x-recurring-selection
+                                triggerLabel="{{ __('Recurring') }}"
+                                position="bottom"
+                                align="end"
+                            />
+
+                            <div class="flex w-full items-center gap-1.5" x-show="errors.taskDateRange" x-cloak>
+                                <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
+                                <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.taskDateRange"></p>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <div
         x-show="showTaskLoading"

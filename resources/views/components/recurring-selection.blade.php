@@ -98,21 +98,36 @@
         toggle() {
             if (this.open) return this.close(this.$refs.button);
             this.$refs.button.focus();
+
             const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
             const vw = window.innerWidth;
             const contentLeft = 320;
-            if (rect.bottom + this.panelHeightEst > vh && rect.top > this.panelHeightEst) {
-                this.placementVertical = 'top';
-            } else {
+
+            // Decide vertical placement based on available space above/below
+            const spaceBelow = vh - rect.bottom;
+            const spaceAbove = rect.top;
+
+            if (spaceBelow >= this.panelHeightEst || spaceBelow >= spaceAbove) {
                 this.placementVertical = 'bottom';
+            } else {
+                this.placementVertical = 'top';
             }
+
+            // Decide horizontal placement similar to date-picker / tag-selection
             const endFits = rect.right <= vw && rect.right - this.panelWidthEst >= contentLeft;
             const startFits = rect.left >= contentLeft && rect.left + this.panelWidthEst <= vw;
-            if (rect.left < contentLeft) this.placementHorizontal = 'start';
-            else if (endFits) this.placementHorizontal = 'end';
-            else if (startFits) this.placementHorizontal = 'start';
-            else this.placementHorizontal = rect.right > vw ? 'start' : 'end';
+
+            if (rect.left < contentLeft) {
+                this.placementHorizontal = 'start';
+            } else if (endFits) {
+                this.placementHorizontal = 'end';
+            } else if (startFits) {
+                this.placementHorizontal = 'start';
+            } else {
+                this.placementHorizontal = rect.right > vw ? 'start' : 'end';
+            }
+
             this.open = true;
             this.valueWhenOpened = JSON.stringify(this.getCurrentRecurrenceValue());
             this.$dispatch('recurring-selection-opened', { path: this.modelPath, value: this.getCurrentRecurrenceValue() });
@@ -159,13 +174,6 @@
 
         isDaySelected(dayIndex) {
             return this.daysOfWeek.includes(dayIndex);
-        },
-
-        clearRecurrence() {
-            this.enabled = false;
-            this.type = null;
-            this.interval = 1;
-            this.daysOfWeek = [];
         },
 
         formatDisplayValue() {
@@ -345,17 +353,6 @@
                             </div>
                         </div>
                     </template>
-
-                    <!-- Clear Button -->
-                    <div class="flex justify-end border-t border-border/60 pt-3">
-                        <button
-                            type="button"
-                            @click="clearRecurrence()"
-                            class="rounded-full px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/80"
-                        >
-                            {{ __('Clear') }}
-                        </button>
-                    </div>
                 </div>
             </template>
         </div>
