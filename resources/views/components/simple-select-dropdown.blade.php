@@ -69,6 +69,7 @@
     @keydown.escape.prevent.stop="close($refs.button)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['simple-select-dropdown']"
+    data-task-creation-safe
     class="relative inline-block"
     {{ $attributes }}
 >
