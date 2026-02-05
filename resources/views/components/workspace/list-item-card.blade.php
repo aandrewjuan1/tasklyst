@@ -179,6 +179,7 @@
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
+        hasRecurringEvent: @js($kind === 'event' && (bool) $item->recurringEvent),
         deleteErrorToast: @js(__('Something went wrong. Please try again.')),
         isEditingTitle: false,
         editedTitle: @js($title),
@@ -190,19 +191,168 @@
         titleProperty: @js(match($kind) { 'project' => 'name', default => 'title' }),
         titleErrorToast: @js(__('Title cannot be empty.')),
         titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
-        isTaskStillRelevantForList(startDatetime) {
-            if (this.isRecurringTask) return true;
-            if (!this.listFilterDate || this.kind !== 'task') return true;
-            if (startDatetime == null || startDatetime === '') return true;
-            try {
-                const d = new Date(startDatetime);
-                if (Number.isNaN(d.getTime())) return true;
-                const taskDate = d.toISOString().slice(0, 10);
-                const filterDate = String(this.listFilterDate).slice(0, 10);
-                return taskDate === filterDate;
-            } catch (_) {
+        hideFromList() {
+            if (this.hideCard) {
+                return;
+            }
+            this.hideCard = true;
+            // Defer the list-item-hidden event slightly so the card is removed
+            // from layout before the empty-state card is shown.
+            this.$nextTick(() => {
+                setTimeout(() => {
+                    $dispatch('list-item-hidden');
+                }, 0);
+            });
+        },
+        /**
+         * Determine if a task is still relevant for the current list filter date.
+         *
+         * This mirrors the backend Task::scopeRelevantForDate logic for non‑recurring tasks:
+         * - tasks with no dates are always relevant
+         * - tasks with only an end date are relevant up to and including that end date
+         * - tasks with a start (and optional end) are relevant if their window overlaps the day
+         */
+        isTaskStillRelevantForList(startDatetime, endDatetime) {
+            if (this.kind !== 'task' || !this.listFilterDate) {
                 return true;
             }
+
+            // Let the backend decide for recurring tasks; we always keep them visible here.
+            if (this.isRecurringTask) {
+                return true;
+            }
+
+            const filterDate = String(this.listFilterDate).slice(0, 10);
+
+            const parseDateTime = (value) => {
+                if (value == null || value === '') {
+                    return null;
+                }
+                const d = new Date(value);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+
+            const start = parseDateTime(startDatetime);
+            const end = parseDateTime(endDatetime);
+
+            // No dates at all => always relevant (matches no-dates branch in scopeRelevantForDate).
+            if (!start && !end) {
+                return true;
+            }
+
+            const startOfDay = new Date(filterDate + 'T00:00:00');
+            const endOfDay = new Date(filterDate + 'T23:59:59.999');
+            const startOfDayMs = startOfDay.getTime();
+            const endOfDayMs = endOfDay.getTime();
+
+            // Only end date: relevant while end date (by calendar date) is on/after the filter date.
+            if (!start && end) {
+                try {
+                    const endDate = end.toISOString().slice(0, 10);
+                    return endDate >= filterDate;
+                } catch (_) {
+                    return true;
+                }
+            }
+
+            // From here we have a start; end may be null.
+            if (!start) {
+                // If parsing failed for start, don't aggressively hide the card.
+                return true;
+            }
+
+            const startMs = start.getTime();
+
+            // Start falls within the day window.
+            if (startMs >= startOfDayMs && startMs <= endOfDayMs) {
+                return true;
+            }
+
+            // Started before this day – keep if it is still running through this day.
+            if (startMs <= startOfDayMs) {
+                if (!end) {
+                    // Open-ended task.
+                    return true;
+                }
+                const endMs = end.getTime();
+                return endMs >= endOfDayMs;
+            }
+
+            return false;
+        },
+        /**
+         * Determine if an event is still relevant for the current list filter date.
+         *
+         * Mirrors Event::scopeActiveForDate for non‑recurring events:
+         * - no dates => always relevant
+         * - only end date => relevant while end date (by calendar date) is on/after the filter date
+         * - start/end window overlaps the day => relevant
+         */
+        isEventStillRelevantForList(startDatetime, endDatetime) {
+            if (this.kind !== 'event' || !this.listFilterDate) {
+                return true;
+            }
+
+            // Let the backend decide for recurring events; we always keep them visible here.
+            if (this.hasRecurringEvent) {
+                return true;
+            }
+
+            const filterDate = String(this.listFilterDate).slice(0, 10);
+
+            const parseDateTime = (value) => {
+                if (value == null || value === '') {
+                    return null;
+                }
+                const d = new Date(value);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+
+            const start = parseDateTime(startDatetime);
+            const end = parseDateTime(endDatetime);
+
+            // No dates at all => always relevant.
+            if (!start && !end) {
+                return true;
+            }
+
+            const startOfDay = new Date(filterDate + 'T00:00:00');
+            const endOfDay = new Date(filterDate + 'T23:59:59.999');
+            const startOfDayMs = startOfDay.getTime();
+            const endOfDayMs = endOfDay.getTime();
+
+            // Only end date: relevant while end date (by calendar date) is on/after the filter date.
+            if (!start && end) {
+                try {
+                    const endDate = end.toISOString().slice(0, 10);
+                    return endDate >= filterDate;
+                } catch (_) {
+                    return true;
+                }
+            }
+
+            // From here we have a start; end may be null.
+            if (!start) {
+                return true;
+            }
+
+            const startMs = start.getTime();
+
+            // Start falls within the day window.
+            if (startMs >= startOfDayMs && startMs <= endOfDayMs) {
+                return true;
+            }
+
+            // Started before this day – keep if it is still active through this day.
+            if (startMs <= startOfDayMs) {
+                if (!end) {
+                    return true;
+                }
+                const endMs = end.getTime();
+                return endMs >= endOfDayMs;
+            }
+
+            return false;
         },
         async deleteItem() {
             if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
@@ -210,8 +360,7 @@
             try {
                 const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
                 if (ok) {
-                    this.hideCard = true;
-                    $dispatch('list-item-hidden');
+                    this.hideFromList();
                 } else {
                     this.deletingInProgress = false;
                     $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
@@ -309,12 +458,18 @@
         }
     }"
     x-show="!hideCard"
-    x-transition:leave="transition ease-out duration-300"
-    x-transition:leave-start="opacity-100 translate-y-0"
-    x-transition:leave-end="opacity-0 -translate-y-2"
     @dropdown-opened="dropdownOpenCount++"
     @dropdown-closed="dropdownOpenCount--"
-    @task-date-updated="if (kind === 'task' && !isTaskStillRelevantForList($event.detail.startDatetime)) { hideCard = true; $dispatch('list-item-hidden') }"
+    @task-date-updated="
+        if (kind === 'task' && !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
+            hideFromList();
+        }
+    "
+    @event-date-updated="
+        if (kind === 'event' && !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
+            hideFromList();
+        }
+    "
     @task-date-update-failed.window="if ($event.detail && $event.detail.taskId === itemId) { hideCard = false; $dispatch('list-item-shown') }"
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
@@ -728,6 +883,9 @@
                         return;
                     }
                     this.editDateRangeError = null;
+                    if (path === 'startDatetime' || path === 'endDatetime') {
+                        $dispatch('event-date-updated', { startDatetime: startVal, endDatetime: endVal });
+                    }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
@@ -1158,8 +1316,8 @@
                         return;
                     }
                     this.editDateRangeError = null;
-                    if (path === 'startDatetime') {
-                        $dispatch('task-date-updated', { startDatetime: value });
+                    if (path === 'startDatetime' || path === 'endDatetime') {
+                        $dispatch('task-date-updated', { startDatetime: startVal, endDatetime: endVal });
                     }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {

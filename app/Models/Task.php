@@ -434,17 +434,36 @@ class Task extends Model
                                 ->orWhereDate('end_datetime', '>=', $startOfDay);
                         });
                 })
+                // Tasks with no dates are treated as always relevant.
                 ->orWhere(function (Builder $noDatesQuery): void {
                     $noDatesQuery
                         ->whereNull('start_datetime')
                         ->whereNull('end_datetime');
                 })
-                ->orWhere(function (Builder $onlyEndQuery): void {
+                // Tasks with only an end date are relevant up to and including that end date.
+                ->orWhere(function (Builder $onlyEndQuery) use ($startOfDay): void {
                     $onlyEndQuery
                         ->whereNull('start_datetime')
-                        ->whereNotNull('end_datetime');
+                        ->whereDate('end_datetime', '>=', $startOfDay->toDateString());
                 })
-                ->orWhereDate('start_datetime', $startOfDay->toDateString());
+                // Tasks with a start (and optional end) that overlap the selected day.
+                ->orWhere(function (Builder $overlapQuery) use ($startOfDay, $endOfDay): void {
+                    $overlapQuery
+                        ->whereNotNull('start_datetime')
+                        ->where(function (Builder $windowQuery) use ($startOfDay, $endOfDay): void {
+                            $windowQuery
+                                ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
+                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay, $endOfDay): void {
+                                    $rangeQuery
+                                        ->where('start_datetime', '<=', $startOfDay)
+                                        ->where(function (Builder $endQuery) use ($endOfDay): void {
+                                            $endQuery
+                                                ->whereNull('end_datetime')
+                                                ->orWhere('end_datetime', '>=', $endOfDay);
+                                        });
+                                });
+                        });
+                });
         });
     }
 }

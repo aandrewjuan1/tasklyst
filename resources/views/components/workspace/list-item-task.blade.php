@@ -381,8 +381,8 @@
                 return;
             }
             this.editDateRangeError = null;
-            if (path === 'startDatetime') {
-                $dispatch('task-date-updated', { startDatetime: value });
+            if (path === 'startDatetime' || path === 'endDatetime') {
+                $dispatch('task-date-updated', { startDatetime: startVal, endDatetime: endVal });
             }
             const ok = await this.updateProperty(path, value);
             if (!ok) {

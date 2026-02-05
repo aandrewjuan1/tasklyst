@@ -341,6 +341,9 @@
                 return;
             }
             this.editDateRangeError = null;
+            if (path === 'startDatetime' || path === 'endDatetime') {
+                $dispatch('event-date-updated', { startDatetime: startVal, endDatetime: endVal });
+            }
             const ok = await this.updateProperty(path, value);
             if (!ok) {
                 const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
