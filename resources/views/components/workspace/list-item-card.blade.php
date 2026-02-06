@@ -475,6 +475,7 @@
         }
     "
     @task-date-update-failed.window="if ($event.detail && $event.detail.taskId === itemId) { hideCard = false; $dispatch('list-item-shown') }"
+    @event-date-update-failed.window="if ($event.detail && $event.detail.eventId === itemId) { hideCard = false; $dispatch('list-item-shown') }"
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
     <div class="flex items-start justify-between gap-2">

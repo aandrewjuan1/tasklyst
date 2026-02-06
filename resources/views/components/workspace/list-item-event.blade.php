@@ -348,6 +348,9 @@
             if (!ok) {
                 const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                 this.dispatchDatePickerRevert(e.target, path, realValue);
+                if (path === 'startDatetime' || path === 'endDatetime') {
+                    window.dispatchEvent(new CustomEvent('event-date-update-failed', { detail: { eventId: this.itemId }, bubbles: true }));
+                }
             }
         },
         async handleRecurringSelectionUpdated(e) {

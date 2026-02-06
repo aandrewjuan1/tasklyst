@@ -523,6 +523,10 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
         }
 
+        if (in_array($property, ['startDatetime', 'endDatetime', 'status'], true)) {
+            $this->listRefresh++;
+        }
+
         return true;
     }
 
@@ -792,6 +796,10 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $event->title));
         }
 
+        if (in_array($property, ['startDatetime', 'endDatetime', 'status'], true)) {
+            $this->listRefresh++;
+        }
+
         return true;
     }
 
@@ -1022,6 +1030,49 @@ trait HandlesWorkspaceItems
 
                 return $task;
             })
+            ->values();
+    }
+
+    /**
+     * Get overdue tasks and events for the authenticated user.
+     * Overdue = end/due date is before today (not the selected view date).
+     * Returns a unified collection of entries with 'kind' and 'item' for rendering.
+     */
+    #[Computed]
+    public function overdue(): Collection
+    {
+        $userId = Auth::id();
+
+        if ($userId === null) {
+            return collect();
+        }
+
+        $today = Carbon::today();
+
+        $overdueTasks = Task::query()
+            ->with(['project', 'tags', 'collaborations'])
+            ->forUser($userId)
+            ->incomplete()
+            ->overdue($today)
+            ->orderByPriority()
+            ->limit(50)
+            ->get()
+            ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
+
+        $overdueEvents = Event::query()
+            ->with(['tags', 'collaborations'])
+            ->forUser($userId)
+            ->notCancelled()
+            ->where('status', '!=', EventStatus::Completed->value)
+            ->overdue($today)
+            ->orderBy('end_datetime')
+            ->limit(50)
+            ->get()
+            ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
+
+        return collect($overdueTasks)
+            ->merge($overdueEvents)
+            ->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)
             ->values();
     }
 

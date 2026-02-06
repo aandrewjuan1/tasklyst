@@ -864,7 +864,33 @@
 
         $totalItemsCount = $items->count();
     @endphp
-    @if($items->isEmpty())
+    @if($overdue->isNotEmpty())
+        <div class="mt-4 space-y-3 border-y border-red-500/40 dark:border-red-400/30 py-4" data-test="overdue-container">
+            <div class="flex flex-col gap-0.5">
+                <div class="flex items-center gap-2">
+                    <flux:icon name="exclamation-triangle" class="size-5 text-red-500/70 dark:text-red-400/70" />
+                    <flux:text class="text-sm font-medium text-red-700/90 dark:text-red-400/90">
+                        {{ __('Overdue') }}
+                    </flux:text>
+                </div>
+                <flux:text class="text-xs text-muted-foreground/70">
+                    {{ __('Tasks and events past their due date') }}
+                </flux:text>
+            </div>
+            <div class="space-y-3">
+                @foreach ($overdue as $entry)
+                    <x-workspace.list-item-card
+                        :kind="$entry['kind']"
+                        :item="$entry['item']"
+                        :list-filter-date="null"
+                        :available-tags="$tags"
+                        wire:key="overdue-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
+                    />
+                @endforeach
+            </div>
+        </div>
+    @endif
+    @if($items->isEmpty() && $overdue->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
             <div class="flex items-center gap-2">
                 <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
@@ -879,12 +905,38 @@
     @else
         <div
             class="space-y-4"
-            x-data="{ visibleItemCount: {{ $totalItemsCount }} }"
+            x-data="{
+                visibleItemCount: {{ $totalItemsCount }},
+                overdueCount: {{ $overdue->count() }},
+                showEmptyState: false,
+                emptyStateTimeout: null,
+                init() {
+                    this.$watch('visibleItemCount', () => this.syncEmptyState());
+                    this.$watch('overdueCount', () => this.syncEmptyState());
+                    this.syncEmptyState();
+                },
+                syncEmptyState() {
+                    const shouldBeEmpty = this.visibleItemCount === 0 && this.overdueCount === 0;
+                    if (shouldBeEmpty) {
+                        if (this.emptyStateTimeout) return;
+                        this.emptyStateTimeout = setTimeout(() => {
+                            this.showEmptyState = true;
+                            this.emptyStateTimeout = null;
+                        }, 200);
+                    } else {
+                        if (this.emptyStateTimeout) {
+                            clearTimeout(this.emptyStateTimeout);
+                            this.emptyStateTimeout = null;
+                        }
+                        this.showEmptyState = false;
+                    }
+                }
+            }"
             @list-item-hidden="visibleItemCount--"
             @list-item-shown="visibleItemCount++"
         >
             <div
-                x-show="visibleItemCount === 0"
+                x-show="showEmptyState"
                 x-cloak
                 x-transition:enter="transition ease-out duration-150"
                 x-transition:enter-start="opacity-0 scale-[0.98]"

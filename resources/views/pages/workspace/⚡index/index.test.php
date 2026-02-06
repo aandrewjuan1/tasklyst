@@ -98,6 +98,55 @@ it('shows tasks, projects, and events for the selected date', function (): void 
         ->assertSee($event->title);
 });
 
+it('shows overdue tasks and events in the overdue section', function (): void {
+    $user = User::factory()->create();
+    $today = now()->toDateString();
+
+    $overdueTask = Task::factory()->for($user)->create([
+        'title' => 'Overdue Task Title',
+        'end_datetime' => now()->subDays(2),
+        'completed_at' => null,
+    ]);
+
+    $overdueEvent = Event::factory()->for($user)->create([
+        'title' => 'Overdue Event Title',
+        'end_datetime' => now()->subDay(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('workspace'))
+        ->assertOk()
+        ->assertSee(__('Overdue'))
+        ->assertSee('Overdue Task Title')
+        ->assertSee('Overdue Event Title')
+        ->assertSee(__('Tasks and events past their due date'));
+});
+
+it('only marks items as overdue when end/due date is before today, not selected date', function (): void {
+    $user = User::factory()->create();
+    $today = now()->startOfDay();
+    $tomorrow = $today->copy()->addDay();
+
+    $taskDueToday = Task::factory()->for($user)->create([
+        'title' => 'Task Due Today',
+        'end_datetime' => $today->copy()->setTime(18, 0),
+        'completed_at' => null,
+    ]);
+
+    $overdueTask = Task::factory()->for($user)->create([
+        'title' => 'Actually Overdue Task',
+        'end_datetime' => $today->copy()->subDay(),
+        'completed_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $tomorrow->toDateString())
+        ->assertSee('Actually Overdue Task')
+        ->assertDontSee('Task Due Today');
+});
+
 it('can create a task from the workspace component', function (): void {
     $user = User::factory()->create();
 
@@ -513,6 +562,7 @@ it('shows recurring task with completed instance for selected date in list', fun
             'projects' => collect(),
             'events' => collect(),
             'tasks' => $tasks,
+            'overdue' => collect(),
             'tags' => collect(),
         ])
         ->assertSee('Recurring Task Done Today');

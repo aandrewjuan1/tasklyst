@@ -13,5 +13,7 @@ new class extends Component
 
     public Collection $tasks;
 
+    public Collection $overdue;
+
     public Collection $tags;
 };

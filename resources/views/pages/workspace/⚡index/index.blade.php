@@ -18,6 +18,7 @@
         :projects="$this->projects"
         :events="$this->events"
         :tasks="$this->tasks"
+        :overdue="$this->overdue"
         :tags="$this->tags"
     />
 </section>
