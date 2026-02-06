@@ -274,7 +274,11 @@
             x-show="enabled || !compactWhenDisabled"
             style="{{ $shouldRenderCompact ? 'display:none;' : '' }}"
         >
-            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+            <span
+                class="text-[10px] font-semibold uppercase tracking-wide opacity-70"
+                x-show="!enabled"
+                style="{{ $isInitiallyEnabled ? 'display:none;' : '' }}"
+            >
                 {{ $triggerLabel }}:
             </span>
             <span class="text-xs uppercase" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>

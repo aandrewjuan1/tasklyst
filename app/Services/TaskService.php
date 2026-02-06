@@ -188,7 +188,8 @@ class TaskService
 
     /**
      * Get the effective status for a task on a given date.
-     * For recurring tasks: returns instance status if one exists for that date, otherwise ToDo (each occurrence starts fresh).
+     * For recurring tasks: returns the status of the instance on that date, if one exists.
+     * If there is no instance for that date, falls back to the base task status (or ToDo).
      * For non-recurring: returns base task status.
      * Uses eager-loaded taskInstances when available to avoid N+1 queries.
      */
@@ -203,14 +204,31 @@ class TaskService
             ? $date->format('Y-m-d')
             : \Carbon\Carbon::parse($date)->format('Y-m-d');
 
-        $instance = $recurringTask->relationLoaded('taskInstances')
-            ? $recurringTask->taskInstances->first()
-            : TaskInstance::query()
+        if ($recurringTask->relationLoaded('taskInstances')) {
+            /** @var \Illuminate\Support\Collection<int, TaskInstance> $instances */
+            $instances = $recurringTask->taskInstances;
+
+            $instance = $instances->first(function (TaskInstance $instance) use ($dateStr): bool {
+                $instanceDate = $instance->instance_date;
+
+                if ($instanceDate instanceof CarbonInterface) {
+                    return $instanceDate->format('Y-m-d') === $dateStr;
+                }
+
+                return \Carbon\Carbon::parse((string) $instanceDate)->format('Y-m-d') === $dateStr;
+            });
+        } else {
+            $instance = TaskInstance::query()
                 ->where('recurring_task_id', $recurringTask->id)
                 ->whereDate('instance_date', $dateStr)
                 ->first();
+        }
 
-        return $instance?->status ?? TaskStatus::ToDo;
+        if ($instance !== null) {
+            return $instance->status;
+        }
+
+        return $task->status ?? TaskStatus::ToDo;
     }
 
     /**
