@@ -86,6 +86,32 @@ it('expands weekly recurrence on specified days', function (): void {
     expect($dateStrings)->toContain('2026-02-09'); // Mon
 });
 
+it('expands weekly recurrence including Sunday (day 0)', function (): void {
+    $task = Task::factory()->create([
+        'start_datetime' => Carbon::parse('2026-02-02 09:00:00'), // Monday
+    ]);
+    $recurring = RecurringTask::factory()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Weekly,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-02-02 00:00:00'),
+        'end_datetime' => Carbon::parse('2026-02-28 23:59:59'),
+        'days_of_week' => '[0,1]', // Sun, Mon (0=Sunday, 1=Monday)
+    ]);
+
+    $dates = $this->expander->expand(
+        $recurring,
+        Carbon::parse('2026-02-01'),
+        Carbon::parse('2026-02-16')
+    );
+
+    $dateStrings = collect($dates)->map(fn ($d) => $d->format('Y-m-d'))->toArray();
+    expect($dateStrings)->toContain('2026-02-02'); // Mon
+    expect($dateStrings)->toContain('2026-02-08'); // Sun (week of Feb 2)
+    expect($dateStrings)->toContain('2026-02-09'); // Mon
+    expect($dateStrings)->toContain('2026-02-15'); // Sun (week of Feb 9)
+});
+
 it('expands monthly recurrence on same day of month', function (): void {
     $task = Task::factory()->create([
         'start_datetime' => Carbon::parse('2026-01-15 09:00:00'),

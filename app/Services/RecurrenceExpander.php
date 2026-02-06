@@ -237,7 +237,9 @@ class RecurrenceExpander
 
         while ($currentWeekStart->lte($effectiveEnd)) {
             foreach ($daysOfWeek as $dayOfWeek) {
-                $candidate = $currentWeekStart->copy()->addDays($dayOfWeek - 1);
+                // Week starts Monday (0). Sunday=0 -> offset 6, Monday=1 -> offset 0, etc.
+                $offset = $dayOfWeek === 0 ? 6 : $dayOfWeek - 1;
+                $candidate = $currentWeekStart->copy()->addDays($offset);
                 if ($candidate->gte($recurringStart) && $candidate->lte($effectiveEnd) && $candidate->gte($effectiveStart)) {
                     $dates[] = $candidate->copy();
                 }

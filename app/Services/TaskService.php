@@ -123,6 +123,8 @@ class TaskService
             $task->fill($attributes);
             $task->save();
 
+            $this->syncRecurringTaskDatesIfNeeded($task, $attributes);
+
             return $task;
         });
     }
@@ -241,6 +243,38 @@ class TaskService
     public function getOccurrencesForDateRange(RecurringTask $recurringTask, CarbonInterface $start, CarbonInterface $end): array
     {
         return $this->recurrenceExpander->expand($recurringTask, $start, $end);
+    }
+
+    /**
+     * Sync RecurringTask start_datetime and end_datetime when the parent Task's dates change.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function syncRecurringTaskDatesIfNeeded(Task $task, array $attributes): void
+    {
+        $dateKeys = ['start_datetime', 'end_datetime'];
+        $hasDateChanges = array_intersect(array_keys($attributes), $dateKeys) !== [];
+
+        if (! $hasDateChanges) {
+            return;
+        }
+
+        $recurringTask = $task->recurringTask ?? RecurringTask::where('task_id', $task->id)->first();
+        if ($recurringTask === null) {
+            return;
+        }
+
+        $syncAttributes = [];
+        if (array_key_exists('start_datetime', $attributes)) {
+            $syncAttributes['start_datetime'] = $attributes['start_datetime'];
+        }
+        if (array_key_exists('end_datetime', $attributes)) {
+            $syncAttributes['end_datetime'] = $attributes['end_datetime'];
+        }
+
+        if ($syncAttributes !== []) {
+            $recurringTask->update($syncAttributes);
+        }
     }
 
     /**

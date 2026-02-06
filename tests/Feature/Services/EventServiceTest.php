@@ -60,6 +60,33 @@ it('creates updates and deletes an event', function (): void {
     ]);
 });
 
+it('updateEvent syncs start_datetime and end_datetime to RecurringEvent when present', function (): void {
+    $event = app(EventService::class)->createEvent(User::factory()->create(), [
+        'title' => 'Recurring Event',
+        'start_datetime' => Carbon::parse('2026-02-01 09:00:00'),
+        'end_datetime' => Carbon::parse('2026-02-28 17:00:00'),
+        'recurrence' => [
+            'enabled' => true,
+            'type' => 'daily',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    $recurring = $event->recurringEvent;
+    expect($recurring->start_datetime->toDateTimeString())->toBe('2026-02-01 09:00:00');
+    expect($recurring->end_datetime->toDateTimeString())->toBe('2026-02-28 17:00:00');
+
+    app(EventService::class)->updateEvent($event, [
+        'start_datetime' => Carbon::parse('2026-03-01 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-03-31 18:00:00'),
+    ]);
+
+    $recurring->refresh();
+    expect($recurring->start_datetime->toDateTimeString())->toBe('2026-03-01 10:00:00');
+    expect($recurring->end_datetime->toDateTimeString())->toBe('2026-03-31 18:00:00');
+});
+
 it('completeRecurringOccurrence creates or updates EventInstance', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 

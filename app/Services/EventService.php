@@ -113,6 +113,8 @@ class EventService
             $event->fill($attributes);
             $event->save();
 
+            $this->syncRecurringEventDatesIfNeeded($event, $attributes);
+
             return $event;
         });
     }
@@ -233,6 +235,38 @@ class EventService
     public function getOccurrencesForDateRange(RecurringEvent $recurringEvent, CarbonInterface $start, CarbonInterface $end): array
     {
         return $this->recurrenceExpander->expand($recurringEvent, $start, $end);
+    }
+
+    /**
+     * Sync RecurringEvent start_datetime and end_datetime when the parent Event's dates change.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function syncRecurringEventDatesIfNeeded(Event $event, array $attributes): void
+    {
+        $dateKeys = ['start_datetime', 'end_datetime'];
+        $hasDateChanges = array_intersect(array_keys($attributes), $dateKeys) !== [];
+
+        if (! $hasDateChanges) {
+            return;
+        }
+
+        $recurringEvent = $event->recurringEvent ?? RecurringEvent::where('event_id', $event->id)->first();
+        if ($recurringEvent === null) {
+            return;
+        }
+
+        $syncAttributes = [];
+        if (array_key_exists('start_datetime', $attributes)) {
+            $syncAttributes['start_datetime'] = $attributes['start_datetime'];
+        }
+        if (array_key_exists('end_datetime', $attributes)) {
+            $syncAttributes['end_datetime'] = $attributes['end_datetime'];
+        }
+
+        if ($syncAttributes !== []) {
+            $recurringEvent->update($syncAttributes);
+        }
     }
 
     /**

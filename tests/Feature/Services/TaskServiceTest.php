@@ -74,6 +74,33 @@ it('updates and deletes a task', function (): void {
     ]);
 });
 
+it('updateTask syncs start_datetime and end_datetime to RecurringTask when present', function (): void {
+    $task = app(TaskService::class)->createTask(User::factory()->create(), [
+        'title' => 'Recurring Task',
+        'start_datetime' => Carbon::parse('2026-02-01 09:00:00'),
+        'end_datetime' => Carbon::parse('2026-02-28 17:00:00'),
+        'recurrence' => [
+            'enabled' => true,
+            'type' => 'daily',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    $recurring = $task->recurringTask;
+    expect($recurring->start_datetime->toDateTimeString())->toBe('2026-02-01 09:00:00');
+    expect($recurring->end_datetime->toDateTimeString())->toBe('2026-02-28 17:00:00');
+
+    app(TaskService::class)->updateTask($task, [
+        'start_datetime' => Carbon::parse('2026-03-01 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-03-31 18:00:00'),
+    ]);
+
+    $recurring->refresh();
+    expect($recurring->start_datetime->toDateTimeString())->toBe('2026-03-01 10:00:00');
+    expect($recurring->end_datetime->toDateTimeString())->toBe('2026-03-31 18:00:00');
+});
+
 it('deleteTask deletes recurring task and task instances', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 
