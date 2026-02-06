@@ -37,8 +37,7 @@ it('renders recurring selection for non-recurring tasks', function (): void {
         'item' => $task,
     ]);
 
-    expect($html)->toContain('Recurring:');
-    expect($html)->toContain('Not set');
+    expect($html)->toContain('aria-label="Set recurrence"');
 });
 
 it('renders recurring pill for recurring events', function (): void {
@@ -70,6 +69,5 @@ it('renders recurring selection for non-recurring events', function (): void {
         'item' => $event,
     ]);
 
-    expect($html)->toContain('Recurring:');
-    expect($html)->toContain('Not set');
+    expect($html)->toContain('aria-label="Set recurrence"');
 });

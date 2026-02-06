@@ -4,6 +4,7 @@
     'position' => 'bottom',
     'align' => 'end',
     'initialValue' => null,
+    'compactWhenDisabled' => false,
 ])
 
 @php
@@ -34,12 +35,24 @@
             $initialDisplayLabel = $typePlural ? 'EVERY ' . $interval . ' ' . $typePlural : ($typeLabels[$type] ?? strtoupper($type));
         }
     }
+
+    $isInitiallyEnabled = (bool) ($initialRecurrence['enabled'] ?? false);
+    $shouldRenderCompact = (bool) $compactWhenDisabled && ! $isInitiallyEnabled;
+
+    $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out';
+    $triggerInitialStateClass = $shouldRenderCompact
+        ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 shadow-sm dark:text-indigo-300'
+        : ($isInitiallyEnabled
+            ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
+            : 'border-border/60 bg-muted text-muted-foreground');
+    $triggerInitialClass = $triggerBaseClass . ' ' . $triggerInitialStateClass;
 @endphp
 
 <div
     x-data="{
         modelPath: @js($model),
         notSetLabel: @js($notSetLabel),
+        compactWhenDisabled: @js((bool) $compactWhenDisabled),
         placementVertical: @js($position),
         placementHorizontal: @js($align),
         currentValue: @js($initialRecurrence),
@@ -229,18 +242,50 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('recurring-selection-dropdown')"
-        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
-        :class="{ 'pointer-events-none': open, 'shadow-md scale-[1.02]': open }"
+        @if($compactWhenDisabled)
+            aria-label="{{ __('Set recurrence') }}"
+            title="{{ __('Set recurrence') }}"
+        @endif
+        class="{{ $triggerInitialClass }}"
+        x-effect="
+            const base = @js($triggerBaseClass);
+            const state = (!enabled && compactWhenDisabled)
+                ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 shadow-sm dark:text-indigo-300'
+                : (enabled
+                    ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
+                    : 'border-border/60 bg-muted text-muted-foreground');
+            const openState = open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
+            $el.className = base + ' ' + state + openState;
+        "
         data-task-creation-safe
     >
         <flux:icon name="arrow-path" class="size-3" />
-        <span class="inline-flex items-baseline gap-1">
+
+        <span
+            class="sr-only"
+            x-show="!enabled && compactWhenDisabled"
+            style="{{ $shouldRenderCompact ? '' : 'display:none;' }}"
+        >
+            {{ __('Set recurrence') }}
+        </span>
+
+        <span
+            class="inline-flex items-baseline gap-1"
+            x-show="enabled || !compactWhenDisabled"
+            style="{{ $shouldRenderCompact ? 'display:none;' : '' }}"
+        >
             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                 {{ $triggerLabel }}:
             </span>
             <span class="text-xs uppercase" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
         </span>
-        <flux:icon name="chevron-down" class="size-3" />
+
+        <flux:icon
+            name="chevron-down"
+            class="size-3"
+            x-show="enabled || !compactWhenDisabled"
+            style="{{ $shouldRenderCompact ? 'display:none;' : '' }}"
+        />
     </button>
 
     <div

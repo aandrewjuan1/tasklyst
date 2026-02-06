@@ -165,6 +165,12 @@
             ];
         }
     }
+
+    $headerRecurrenceInitial = match ($kind) {
+        'task' => $recurrenceInitial ?? null,
+        'event' => $eventRecurrenceInitial ?? null,
+        default => null,
+    };
 @endphp
 
 <div
@@ -182,6 +188,7 @@
         itemId: @js($item->id),
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
         hasRecurringEvent: @js($kind === 'event' && (bool) $item->recurringEvent),
+        recurrence: @js($headerRecurrenceInitial),
         deleteErrorToast: @js(__('Something went wrong. Please try again.')),
         isEditingTitle: false,
         editedTitle: @js($title),
@@ -193,6 +200,7 @@
         titleProperty: @js(match($kind) { 'project' => 'name', default => 'title' }),
         titleErrorToast: @js(__('Title cannot be empty.')),
         titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
+        recurrenceUpdateErrorToast: @js(__('Something went wrong. Please try again.')),
         hideFromList() {
             if (this.hideCard) {
                 return;
@@ -457,11 +465,41 @@
             if (!this.savedViaEnter && !this.justCanceledTitle) {
                 this.saveTitle();
             }
-        }
+        },
+        async updateRecurrence(value) {
+            if (!this.updateTitleMethod || !this.itemId) {
+                return;
+            }
+
+            const snapshot = this.recurrence;
+
+            this.recurrence = value;
+
+            try {
+                const ok = await $wire.$parent.$call(this.updateTitleMethod, this.itemId, 'recurrence', value);
+                if (!ok) {
+                    this.recurrence = snapshot;
+                    $dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
+                    $wire.$dispatch('toast', { type: 'error', message: this.recurrenceUpdateErrorToast });
+                    return;
+                }
+
+                $dispatch('recurring-value', { path: 'recurrence', value });
+            } catch (e) {
+                this.recurrence = snapshot;
+                $dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
+                $wire.$dispatch('toast', { type: 'error', message: this.recurrenceUpdateErrorToast });
+            }
+        },
     }"
     x-show="!hideCard"
     @dropdown-opened="dropdownOpenCount++"
     @dropdown-closed="dropdownOpenCount--"
+    @recurring-selection-updated="
+        if ($event.detail && $event.detail.path === 'recurrence') {
+            updateRecurrence($event.detail.value);
+        }
+    "
     @task-date-updated="
         if (kind === 'task' && !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
             hideFromList();
@@ -510,6 +548,17 @@
 
         @if($type)
             <div class="flex items-center gap-2">
+                @if(in_array($kind, ['task', 'event'], true))
+                    <x-recurring-selection
+                        model="recurrence"
+                        :initial-value="$headerRecurrenceInitial"
+                        triggerLabel="{{ __('Recurring') }}"
+                        compactWhenDisabled
+                        position="top"
+                        align="end"
+                    />
+                @endif
+
                 <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {{ $type }}
                 </span>
@@ -955,14 +1004,6 @@
                 </div>
             </x-simple-select-dropdown>
         @endif
-
-        <x-recurring-selection
-            model="recurrence"
-            :initial-value="$eventRecurrenceInitial"
-            triggerLabel="{{ __('Recurring') }}"
-            position="top"
-            align="end"
-        />
 
         <button
             type="button"
@@ -1502,14 +1543,6 @@
                 </div>
             </x-simple-select-dropdown>
         @endif
-
-        <x-recurring-selection
-            model="recurrence"
-            :initial-value="$recurrenceInitial"
-            triggerLabel="{{ __('Recurring') }}"
-            position="top"
-            align="end"
-        />
 
         <x-date-picker
             model="startDatetime"
