@@ -483,7 +483,7 @@
             <p 
                 x-show="!isEditingTitle"
                 @click="startEditingTitle()"
-                class="truncate text-base font-semibold leading-tight cursor-pointer hover:opacity-80 transition-opacity"
+                class="truncate text-lg font-semibold leading-tight cursor-pointer hover:opacity-80 transition-opacity"
                 x-text="editedTitle"
             >
                 {{ $title }}
@@ -497,7 +497,7 @@
                 @keydown.escape="cancelEditingTitle()"
                 @blur="handleBlur()"
                 wire:ignore
-                class="w-full min-w-0 text-base font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 ring-1 ring-border/40 shadow-sm transition focus:bg-background/70 focus:ring-2 focus:ring-ring/30 dark:bg-muted/10"
+                class="w-full min-w-0 text-lg font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 ring-1 ring-border/40 shadow-sm transition focus:bg-background/70 focus:ring-2 focus:ring-ring/30 dark:bg-muted/10"
                 type="text"
             />
 
@@ -1012,16 +1012,18 @@
             <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
         </div>
 
-        <div
-            @tag-toggled="toggleTag($event.detail.tagId)"
-            @tag-create-request="createTagOptimistic($event.detail.tagName)"
-            @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
-        >
-            <x-workspace.tag-selection
-                position="top"
-                align="end"
-                :initial-tag-count-label="$item->tags->count() > 0 ? (string) $item->tags->count() : __('None')"
-            />
+        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                <flux:icon name="tag" class="size-3" />
+                {{ __('Tags') }}:
+            </span>
+            <div
+                @tag-toggled="toggleTag($event.detail.tagId)"
+                @tag-create-request="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+            >
+                <x-workspace.tag-selection position="top" align="end" />
+            </div>
         </div>
 
         </div>
@@ -1536,16 +1538,18 @@
             <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
         </div>
 
-        <div
-            @tag-toggled="toggleTag($event.detail.tagId)"
-            @tag-create-request="createTagOptimistic($event.detail.tagName)"
-            @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
-        >
-            <x-workspace.tag-selection
-                position="top"
-                align="end"
-                :initial-tag-count-label="$item->tags->count() > 0 ? (string) $item->tags->count() : __('None')"
-            />
+        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                <flux:icon name="tag" class="size-3" />
+                {{ __('Tags') }}:
+            </span>
+            <div
+                @tag-toggled="toggleTag($event.detail.tagId)"
+                @tag-create-request="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+            >
+                <x-workspace.tag-selection position="top" align="end" />
+            </div>
         </div>
 
         </div>

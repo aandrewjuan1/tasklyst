@@ -1,12 +1,7 @@
 @props([
     'position' => 'top',
     'align' => 'end',
-    'initialTagCountLabel' => null,
 ])
-
-@php
-    $tagCountLabel = $initialTagCountLabel ?? __('None');
-@endphp
 
 @php
     $panelHeightEst = 220;
@@ -22,12 +17,12 @@
         panelWidthEst: {{ $panelWidthEst }},
         toggle() {
             if (this.open) {
-                return this.close(this.$refs.button);
+                return this.close(this.$refs.trigger);
             }
 
-            this.$refs.button.focus();
+            this.$refs.trigger?.focus();
 
-            const rect = this.$refs.button.getBoundingClientRect();
+            const rect = this.$refs.trigger?.getBoundingClientRect() ?? { bottom: 0, top: 0, left: 0, right: 0 };
             const vh = window.innerHeight;
             const vw = window.innerWidth;
             const contentLeft = 320;
@@ -71,7 +66,7 @@
             return 'bottom-full right-0 mb-1';
         },
     }"
-    @keydown.escape.prevent.stop="close($refs.button)"
+    @keydown.escape.prevent.stop="close($refs.trigger)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['tag-selection-dropdown']"
     class="relative inline-block"
@@ -79,24 +74,27 @@
     {{ $attributes }}
 >
     <button
-        x-ref="button"
+        x-ref="trigger"
         type="button"
         @click="toggle()"
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('tag-selection-dropdown')"
-        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+        class="cursor-pointer inline-flex flex-wrap items-center gap-1.5 transition-[box-shadow,transform] duration-150 ease-out"
         :class="{ 'shadow-md scale-[1.02]': open }"
         data-task-creation-safe
     >
-        <flux:icon name="tag" class="size-3" />
-        <span class="inline-flex items-baseline gap-1">
-            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                {{ __('Tags') }}:
-            </span>
-            <span class="text-xs uppercase" x-text="formData.task.tagIds && formData.task.tagIds.length > 0 ? formData.task.tagIds.length : '{{ __('None') }}'">{{ $tagCountLabel }}</span>
-        </span>
-        <flux:icon name="chevron-down" class="size-3" />
+        <template x-for="tag in (tags || []).filter(t => (formData?.task?.tagIds || []).some(id => String(id) === String(t.id)))" :key="tag.id">
+            <span
+                class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
+                x-text="tag.name"
+            ></span>
+        </template>
+        <span
+            x-show="!formData?.task?.tagIds?.length"
+            x-cloak
+            class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+        >{{ __('None') }}</span>
     </button>
 
     <div
@@ -108,7 +106,7 @@
         x-transition:leave="transition ease-in duration-75"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
-        @click.outside="close($refs.button)"
+        @click.outside="close($refs.trigger)"
         :id="$id('tag-selection-dropdown')"
         :class="panelPlacementClasses"
         x-cloak

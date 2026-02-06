@@ -684,8 +684,6 @@
                             <x-workspace.creation-task-fields />
                             <x-workspace.creation-event-fields />
 
-                            <x-workspace.tag-selection position="bottom" align="end" />
-
                             @foreach ([['label' => __('Start'), 'model' => 'formData.task.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.task.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
                                 <x-date-picker
                                     :triggerLabel="$dateField['label']"
@@ -707,6 +705,14 @@
                                 <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
                                 <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.taskDateRange"></p>
                             </div>
+                        </div>
+
+                        <div class="w-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+                            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                                <flux:icon name="tag" class="size-3" />
+                                {{ __('Tags') }}:
+                            </span>
+                            <x-workspace.tag-selection position="bottom" align="end" />
                         </div>
                     </div>
                 </form>
