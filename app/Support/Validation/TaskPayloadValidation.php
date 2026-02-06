@@ -18,6 +18,7 @@ final class TaskPayloadValidation
     {
         return [
             'title' => '',
+            'description' => null,
             'status' => TaskStatus::ToDo->value,
             'priority' => TaskPriority::Medium->value,
             'complexity' => TaskComplexity::Moderate->value,
@@ -45,6 +46,7 @@ final class TaskPayloadValidation
     {
         return [
             'taskPayload.title' => ['required', 'string', 'max:255', 'regex:/\S/'],
+            'taskPayload.description' => ['nullable', 'string', 'max:65535'],
 
             'taskPayload.status' => ['nullable', Rule::in(array_map(fn (TaskStatus $s) => $s->value, TaskStatus::cases()))],
             'taskPayload.priority' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))],
@@ -86,6 +88,7 @@ final class TaskPayloadValidation
     {
         return [
             'title',
+            'description',
             'status',
             'priority',
             'complexity',
@@ -114,6 +117,7 @@ final class TaskPayloadValidation
 
         $rules = match ($property) {
             'title' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
+            'description' => ['value' => ['nullable', 'string', 'max:65535']],
             'status' => ['value' => ['nullable', Rule::in(array_map(fn (TaskStatus $s) => $s->value, TaskStatus::cases()))]],
             'priority' => ['value' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))]],
             'complexity' => ['value' => ['nullable', Rule::in(array_map(fn (TaskComplexity $c) => $c->value, TaskComplexity::cases()))]],

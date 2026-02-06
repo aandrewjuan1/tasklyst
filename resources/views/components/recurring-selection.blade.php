@@ -1,5 +1,5 @@
 @props([
-    'model' => 'formData.task.recurrence',
+    'model' => 'formData.item.recurrence',
     'triggerLabel' => 'Recurring',
     'position' => 'bottom',
     'align' => 'end',

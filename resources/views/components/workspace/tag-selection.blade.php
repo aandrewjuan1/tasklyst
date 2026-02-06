@@ -97,14 +97,14 @@
             </span>
             {{-- Alpine reactive (replaces server content when hydrated) --}}
             <span x-show="alpineReady" class="inline-flex flex-wrap items-center gap-1.5" x-cloak>
-                <template x-for="tag in (tags || []).filter(t => (formData?.task?.tagIds || []).some(id => String(id) === String(t.id)))" :key="tag.id">
+                <template x-for="tag in (tags || []).filter(t => (formData?.item?.tagIds || []).some(id => String(id) === String(t.id)))" :key="tag.id">
                     <span
                         class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
                         x-text="tag.name"
                     ></span>
                 </template>
                 <span
-                    x-show="!formData?.task?.tagIds?.length"
+                    x-show="!formData?.item?.tagIds?.length"
                     class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
                 >{{ __('None') }}</span>
             </span>

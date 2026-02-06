@@ -228,7 +228,7 @@ it('getEffectiveStatusForDate returns Scheduled for recurring event with no inst
     expect($effectiveStatus)->toBe(EventStatus::Scheduled);
 });
 
-it('isEventActiveForDate shows recurring event even when instance is completed', function (): void {
+it('isEventRelevantForDate shows recurring event even when instance is completed', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 
     $event = Event::factory()->create([
@@ -252,7 +252,7 @@ it('isEventActiveForDate shows recurring event even when instance is completed',
     ]);
 
     $eventService = app(EventService::class);
-    expect($eventService->isEventActiveForDate($event->load('recurringEvent'), Carbon::parse('2026-02-06')))->toBeTrue();
+    expect($eventService->isEventRelevantForDate($event->load('recurringEvent'), Carbon::parse('2026-02-06')))->toBeTrue();
 });
 
 it('deleteEvent deletes recurring event and event instances', function (): void {

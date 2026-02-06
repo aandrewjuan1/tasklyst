@@ -7,7 +7,7 @@
         <button
             type="button"
             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-            x-bind:class="[getStatusBadgeClass(formData.task.status), open && 'shadow-md scale-[1.02]']"
+            x-bind:class="[getStatusBadgeClass(formData.item.status), open && 'shadow-md scale-[1.02]']"
             data-task-creation-safe
             aria-haspopup="menu"
         >
@@ -16,7 +16,7 @@
                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                     {{ __('Status') }}:
                 </span>
-                <span class="text-xs uppercase" x-text="statusLabel(formData.task.status)"></span>
+                <span class="text-xs uppercase" x-text="statusLabel(formData.item.status)"></span>
             </span>
             <flux:icon name="chevron-down" class="size-3" />
         </button>
@@ -27,8 +27,8 @@
             <button
                 type="button"
                 class="{{ $dropdownItemClass }}"
-                x-bind:class="{ 'font-semibold text-foreground': formData.task.status === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.task.status', value: '{{ $opt['value'] }}' })"
+                x-bind:class="{ 'font-semibold text-foreground': formData.item.status === '{{ $opt['value'] }}' }"
+                @click="$dispatch('task-form-updated', { path: 'formData.item.status', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>
@@ -41,7 +41,7 @@
         <button
             type="button"
             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-            x-bind:class="[getPriorityBadgeClass(formData.task.priority), open && 'shadow-md scale-[1.02]']"
+            x-bind:class="[getPriorityBadgeClass(formData.item.priority), open && 'shadow-md scale-[1.02]']"
             data-task-creation-safe
             aria-haspopup="menu"
         >
@@ -50,7 +50,7 @@
                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                     {{ __('Priority') }}:
                 </span>
-                <span class="text-xs uppercase" x-text="priorityLabel(formData.task.priority)"></span>
+                <span class="text-xs uppercase" x-text="priorityLabel(formData.item.priority)"></span>
             </span>
             <flux:icon name="chevron-down" class="size-3" />
         </button>
@@ -61,8 +61,8 @@
             <button
                 type="button"
                 class="{{ $dropdownItemClass }}"
-                x-bind:class="{ 'font-semibold text-foreground': formData.task.priority === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.task.priority', value: '{{ $opt['value'] }}' })"
+                x-bind:class="{ 'font-semibold text-foreground': formData.item.priority === '{{ $opt['value'] }}' }"
+                @click="$dispatch('task-form-updated', { path: 'formData.item.priority', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>
@@ -75,7 +75,7 @@
         <button
             type="button"
             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-            x-bind:class="[getComplexityBadgeClass(formData.task.complexity), open && 'shadow-md scale-[1.02]']"
+            x-bind:class="[getComplexityBadgeClass(formData.item.complexity), open && 'shadow-md scale-[1.02]']"
             data-task-creation-safe
             aria-haspopup="menu"
         >
@@ -84,7 +84,7 @@
                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                     {{ __('Complexity') }}:
                 </span>
-                <span class="text-xs uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
+                <span class="text-xs uppercase" x-text="complexityLabel(formData.item.complexity)"></span>
             </span>
             <flux:icon name="chevron-down" class="size-3" />
         </button>
@@ -95,8 +95,8 @@
             <button
                 type="button"
                 class="{{ $dropdownItemClass }}"
-                x-bind:class="{ 'font-semibold text-foreground': formData.task.complexity === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.task.complexity', value: '{{ $opt['value'] }}' })"
+                x-bind:class="{ 'font-semibold text-foreground': formData.item.complexity === '{{ $opt['value'] }}' }"
+                @click="$dispatch('task-form-updated', { path: 'formData.item.complexity', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>
@@ -118,7 +118,7 @@
                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                     {{ __('Duration') }}:
                 </span>
-                <span class="text-xs uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
+                <span class="text-xs uppercase" x-text="formatDurationLabel(formData.item.duration)"></span>
             </span>
             <flux:icon name="chevron-down" class="size-3" />
         </button>
@@ -129,8 +129,8 @@
             <button
                 type="button"
                 class="{{ $dropdownItemClass }}"
-                x-bind:class="{ 'font-semibold text-foreground': formData.task.duration == '{{ $dur['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.task.duration', value: '{{ $dur['value'] }}' })"
+                x-bind:class="{ 'font-semibold text-foreground': formData.item.duration == '{{ $dur['value'] }}' }"
+                @click="$dispatch('task-form-updated', { path: 'formData.item.duration', value: '{{ $dur['value'] }}' })"
             >
                 {{ $dur['label'] }}
             </button>

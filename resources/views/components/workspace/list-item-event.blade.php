@@ -58,7 +58,7 @@
         endDatetime: @js($eventEndDatetimeInitial),
         recurrence: @js($eventRecurrenceInitial),
         statusOptions: @js($eventStatusOptions),
-        formData: { task: { tagIds: @js($item->tags->pluck('id')->values()->all()) } },
+        formData: { item: { tagIds: @js($item->tags->pluck('id')->values()->all()) } },
         tags: @js($availableTags),
         newTagName: '',
         creatingTag: false,
@@ -74,28 +74,28 @@
             eventEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
         },
         isTagSelected(tagId) {
-            if (!this.formData?.task?.tagIds || !Array.isArray(this.formData.task.tagIds)) {
+            if (!this.formData?.item?.tagIds || !Array.isArray(this.formData.item.tagIds)) {
                 return false;
             }
             const tagIdStr = String(tagId);
-            return this.formData.task.tagIds.some(id => String(id) === tagIdStr);
+            return this.formData.item.tagIds.some(id => String(id) === tagIdStr);
         },
         async toggleTag(tagId) {
-            if (!this.formData.task.tagIds) {
-                this.formData.task.tagIds = [];
+            if (!this.formData.item.tagIds) {
+                this.formData.item.tagIds = [];
             }
-            const tagIdsBackup = [...this.formData.task.tagIds];
+            const tagIdsBackup = [...this.formData.item.tagIds];
             const tagIdStr = String(tagId);
-            const index = this.formData.task.tagIds.findIndex(id => String(id) === tagIdStr);
+            const index = this.formData.item.tagIds.findIndex(id => String(id) === tagIdStr);
             if (index === -1) {
-                this.formData.task.tagIds.push(tagId);
+                this.formData.item.tagIds.push(tagId);
             } else {
-                this.formData.task.tagIds.splice(index, 1);
+                this.formData.item.tagIds.splice(index, 1);
             }
-            const realTagIds = this.formData.task.tagIds.filter(id => !String(id).startsWith('temp-'));
+            const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
             const ok = await this.updateProperty('tagIds', realTagIds);
             if (!ok) {
-                this.formData.task.tagIds = tagIdsBackup;
+                this.formData.item.tagIds = tagIdsBackup;
             }
         },
         async createTagOptimistic(tagNameFromEvent) {
@@ -107,13 +107,13 @@
             const tagNameLower = tagName.toLowerCase();
             const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
             if (existingTag) {
-                if (!this.formData.task.tagIds) {
-                    this.formData.task.tagIds = [];
+                if (!this.formData.item.tagIds) {
+                    this.formData.item.tagIds = [];
                 }
-                const alreadySelected = this.formData.task.tagIds.some(id => String(id) === String(existingTag.id));
+                const alreadySelected = this.formData.item.tagIds.some(id => String(id) === String(existingTag.id));
                 if (!alreadySelected) {
-                    this.formData.task.tagIds.push(existingTag.id);
-                    const realTagIds = this.formData.task.tagIds.filter(id => !String(id).startsWith('temp-'));
+                    this.formData.item.tagIds.push(existingTag.id);
+                    const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
                     await this.updateProperty('tagIds', realTagIds);
                 }
                 $wire.$dispatch('toast', { type: 'info', message: this.tagMessages.tagAlreadyExists });
@@ -121,7 +121,7 @@
             }
             const tempId = 'temp-' + Date.now();
             const tagsBackup = this.tags ? [...this.tags] : [];
-            const tagIdsBackup = [...this.formData.task.tagIds];
+            const tagIdsBackup = [...this.formData.item.tagIds];
             const newTagNameBackup = tagName;
             try {
                 if (!this.tags) {
@@ -129,14 +129,14 @@
                 }
                 this.tags.push({ id: tempId, name: tagName });
                 this.tags.sort((a, b) => a.name.localeCompare(b.name));
-                if (!this.formData.task.tagIds.includes(tempId)) {
-                    this.formData.task.tagIds.push(tempId);
+                if (!this.formData.item.tagIds.includes(tempId)) {
+                    this.formData.item.tagIds.push(tempId);
                 }
                 this.creatingTag = true;
                 await $wire.$parent.$call('createTag', tagName, true);
             } catch (err) {
                 this.tags = tagsBackup;
-                this.formData.task.tagIds = tagIdsBackup;
+                this.formData.item.tagIds = tagIdsBackup;
                 this.newTagName = newTagNameBackup;
                 $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
             } finally {
@@ -150,7 +150,7 @@
             const isTempTag = String(tag.id).startsWith('temp-');
             const snapshot = { ...tag };
             const tagsBackup = this.tags ? [...this.tags] : [];
-            const tagIdsBackup = [...this.formData.task.tagIds];
+            const tagIdsBackup = [...this.formData.item.tagIds];
             const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
             try {
                 this.deletingTagIds = this.deletingTagIds || new Set();
@@ -158,22 +158,22 @@
                 if (this.tags && tagIndex !== -1) {
                     this.tags = this.tags.filter(t => t.id !== tag.id);
                 }
-                const selectedIndex = this.formData.task.tagIds?.indexOf(tag.id);
+                const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
                 if (selectedIndex !== undefined && selectedIndex !== -1) {
-                    this.formData.task.tagIds.splice(selectedIndex, 1);
+                    this.formData.item.tagIds.splice(selectedIndex, 1);
                 }
                 if (!isTempTag) {
                     await $wire.$parent.$call('deleteTag', tag.id);
                 }
-                const realTagIds = this.formData.task.tagIds.filter(id => !String(id).startsWith('temp-'));
+                const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
                 await this.updateProperty('tagIds', realTagIds, true);
             } catch (err) {
                 if (tagIndex !== -1 && this.tags) {
                     this.tags.splice(tagIndex, 0, snapshot);
                     this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
-                if (tagIdsBackup.includes(tag.id) && !this.formData.task.tagIds.includes(tag.id)) {
-                    this.formData.task.tagIds.push(tag.id);
+                if (tagIdsBackup.includes(tag.id) && !this.formData.item.tagIds.includes(tag.id)) {
+                    this.formData.item.tagIds.push(tag.id);
                 }
                 $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
             } finally {
@@ -190,15 +190,15 @@
                 if (tempTagIndex !== -1) {
                     this.tags[tempTagIndex] = { id, name };
                 }
-                if (this.formData?.task?.tagIds) {
-                    const tempIdIndex = this.formData.task.tagIds.indexOf(tempId);
+                if (this.formData?.item?.tagIds) {
+                    const tempIdIndex = this.formData.item.tagIds.indexOf(tempId);
                     if (tempIdIndex !== -1) {
-                        this.formData.task.tagIds[tempIdIndex] = id;
+                        this.formData.item.tagIds[tempIdIndex] = id;
                     }
                 }
                 this.tags = this.tags.filter((tag, idx, arr) => arr.findIndex(t => String(t.id) === String(tag.id)) === idx);
                 this.tags.sort((a, b) => a.name.localeCompare(b.name));
-                const realTagIds = this.formData.task.tagIds.filter(tid => !String(tid).startsWith('temp-'));
+                const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
                 this.updateProperty('tagIds', realTagIds);
             } else {
                 if (this.tags && !this.tags.find(tag => tag.id === id)) {
@@ -215,11 +215,11 @@
                     this.tags.splice(tagIndex, 1);
                 }
             }
-            if (this.formData?.task?.tagIds) {
-                const selectedIndex = this.formData.task.tagIds.indexOf(id);
+            if (this.formData?.item?.tagIds) {
+                const selectedIndex = this.formData.item.tagIds.indexOf(id);
                 if (selectedIndex !== -1) {
-                    this.formData.task.tagIds.splice(selectedIndex, 1);
-                    const realTagIds = this.formData.task.tagIds.filter(tid => !String(tid).startsWith('temp-'));
+                    this.formData.item.tagIds.splice(selectedIndex, 1);
+                    const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
                     this.updateProperty('tagIds', realTagIds);
                 }
             }

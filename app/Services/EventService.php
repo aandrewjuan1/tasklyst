@@ -206,11 +206,11 @@ class EventService
     }
 
     /**
-     * Check if an event is active for the given date (should appear in workspace).
+     * Check if an event is relevant for the given date (should appear in workspace).
      * For recurring events: date must be in expanded occurrences (show event every occurrence day).
      * For non-recurring: returns true (scope already filtered).
      */
-    public function isEventActiveForDate(Event $event, CarbonInterface $date): bool
+    public function isEventRelevantForDate(Event $event, CarbonInterface $date): bool
     {
         $recurringEvent = $event->recurringEvent;
         if ($recurringEvent === null) {

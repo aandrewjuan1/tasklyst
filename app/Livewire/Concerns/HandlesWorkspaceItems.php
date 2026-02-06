@@ -42,7 +42,7 @@ trait HandlesWorkspaceItems
 
         try {
             /** @var array{taskPayload: array<string, mixed>} $validated */
-            $validated = $this->validate();
+            $validated = $this->validate(TaskPayloadValidation::rules());
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::error('Task validation failed', [
                 'errors' => $e->errors(),
@@ -66,6 +66,7 @@ trait HandlesWorkspaceItems
 
         $taskAttributes = [
             'title' => $title,
+            'description' => $validatedTask['description'] ?? null,
             'status' => $validatedTask['status'] ?? null,
             'priority' => $validatedTask['priority'] ?? null,
             'complexity' => $validatedTask['complexity'] ?? null,
@@ -413,19 +414,7 @@ trait HandlesWorkspaceItems
 
         if ($property === 'recurrence') {
             $task->loadMissing('recurringTask');
-            $oldRecurrence = $task->recurringTask
-                ? [
-                    'enabled' => true,
-                    'type' => $task->recurringTask->recurrence_type?->value,
-                    'interval' => $task->recurringTask->interval ?? 1,
-                    'daysOfWeek' => $task->recurringTask->days_of_week ? (json_decode($task->recurringTask->days_of_week, true) ?? []) : [],
-                ]
-                : [
-                    'enabled' => false,
-                    'type' => null,
-                    'interval' => 1,
-                    'daysOfWeek' => [],
-                ];
+            $oldRecurrence = $this->buildRecurrencePayloadFromModel($task->recurringTask);
             try {
                 $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
             } catch (\Throwable $e) {

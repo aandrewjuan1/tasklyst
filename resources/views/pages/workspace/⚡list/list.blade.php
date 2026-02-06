@@ -13,12 +13,12 @@
             tagError: @js(__('Something went wrong. Please try again.')),
         },
         errors: {
-            taskDateRange: null,
+            dateRange: null,
         },
         tags: @js($tags),
         projectNames: @js($projects->pluck('name', 'id')->toArray()),
         formData: {
-            task: {
+            item: {
                 title: '',
                 status: 'to_do',
                 priority: 'medium',
@@ -37,11 +37,11 @@
                 },
             },
         },
-        validateTaskDateRange() {
-            this.errors.taskDateRange = null;
+        validateDateRange() {
+            this.errors.dateRange = null;
 
-            const start = this.formData.task.startDatetime;
-            const end = this.formData.task.endDatetime;
+            const start = this.formData.item.startDatetime;
+            const end = this.formData.item.endDatetime;
 
             if (!start || !end) {
                 return true;
@@ -55,19 +55,19 @@
             }
 
             if (endDate.getTime() < startDate.getTime()) {
-                this.errors.taskDateRange = this.messages.taskEndBeforeStart;
+                this.errors.dateRange = this.messages.taskEndBeforeStart;
                 return false;
             }
 
             // For tasks, enforce minimum duration on same-day start/end.
             if (this.creationKind === 'task') {
-                const durationMinutes = parseInt(this.formData.task.duration ?? '0', 10);
+                const durationMinutes = parseInt(this.formData.item.duration ?? '0', 10);
                 const isSameDay = startDate.toDateString() === endDate.toDateString();
                 if (isSameDay && Number.isFinite(durationMinutes) && durationMinutes > 0) {
                     const minimumEnd = new Date(startDate.getTime() + (durationMinutes * 60 * 1000));
 
                     if (endDate.getTime() < minimumEnd.getTime()) {
-                        this.errors.taskDateRange = this.messages.taskEndTooSoon.replace(':minutes', String(durationMinutes));
+                        this.errors.dateRange = this.messages.taskEndTooSoon.replace(':minutes', String(durationMinutes));
                         return false;
                     }
                 }
@@ -76,57 +76,67 @@
             return true;
         },
         resetForm() {
-            this.formData.task.title = '';
-            this.formData.task.status = 'to_do';
-            this.formData.task.priority = 'medium';
-            this.formData.task.complexity = 'moderate';
-            this.formData.task.duration = '60';
-            this.formData.task.startDatetime = null;
-            this.formData.task.endDatetime = null;
-            this.formData.task.allDay = false;
-            this.formData.task.tagIds = [];
-            this.formData.task.recurrence = {
+            // Common fields for both tasks and events
+            this.formData.item.title = '';
+            this.formData.item.startDatetime = null;
+            this.formData.item.endDatetime = null;
+            this.formData.item.tagIds = [];
+            this.formData.item.recurrence = {
                 enabled: false,
                 type: null,
                 interval: 1,
                 daysOfWeek: [],
             };
             this.newTagName = '';
-            this.errors.taskDateRange = null;
+            this.errors.dateRange = null;
+
+            // Kind-specific fields
+            if (this.creationKind === 'task') {
+                this.formData.item.status = 'to_do';
+                this.formData.item.priority = 'medium';
+                this.formData.item.complexity = 'moderate';
+                this.formData.item.duration = '60';
+                this.formData.item.allDay = false;
+                this.formData.item.projectId = null;
+            } else if (this.creationKind === 'event') {
+                this.formData.item.status = 'scheduled';
+                this.formData.item.allDay = false;
+                // Events don't have priority, complexity, duration, or projectId
+            }
         },
         toggleTag(tagId) {
             // Ensure tagIds array exists
-            if (!this.formData.task.tagIds) {
-                this.formData.task.tagIds = [];
+            if (!this.formData.item.tagIds) {
+                this.formData.item.tagIds = [];
             }
 
             // Convert tagId to string for consistent comparison (handles both number and string IDs)
             const tagIdStr = String(tagId);
 
             // Find index using string comparison to handle type mismatches
-            const index = this.formData.task.tagIds.findIndex(id => String(id) === tagIdStr);
+            const index = this.formData.item.tagIds.findIndex(id => String(id) === tagIdStr);
 
             if (index === -1) {
                 // Add the tag ID (preserve original type - number if it's a number, string if it's a string)
-                this.formData.task.tagIds.push(tagId);
+                this.formData.item.tagIds.push(tagId);
             } else {
                 // Remove the tag ID
-                this.formData.task.tagIds.splice(index, 1);
+                this.formData.item.tagIds.splice(index, 1);
             }
         },
         isTagSelected(tagId) {
-            if (!this.formData.task.tagIds || !Array.isArray(this.formData.task.tagIds)) {
+            if (!this.formData.item.tagIds || !Array.isArray(this.formData.item.tagIds)) {
                 return false;
             }
             // Use string comparison to handle type mismatches (number vs string IDs)
             const tagIdStr = String(tagId);
-            return this.formData.task.tagIds.some(id => String(id) === tagIdStr);
+            return this.formData.item.tagIds.some(id => String(id) === tagIdStr);
         },
         getSelectedTagNames() {
-            if (!this.tags || !this.formData.task.tagIds || this.formData.task.tagIds.length === 0) {
+            if (!this.tags || !this.formData.item.tagIds || this.formData.item.tagIds.length === 0) {
                 return '';
             }
-            const selectedIds = this.formData.task.tagIds;
+            const selectedIds = this.formData.item.tagIds;
             const selectedTags = this.tags.filter(tag => selectedIds.some(id => String(id) === String(tag.id)));
             return selectedTags.map(tag => tag.name).join(', ');
         },
@@ -145,7 +155,7 @@
             // Snapshot for rollback
             const snapshot = { ...tag };
             const tagsBackup = this.tags ? [...this.tags] : [];
-            const tagIdsBackup = [...this.formData.task.tagIds];
+            const tagIdsBackup = [...this.formData.item.tagIds];
             const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
 
             try {
@@ -159,9 +169,9 @@
                 }
 
                 // Remove from selection if selected
-                const selectedIndex = this.formData.task.tagIds?.indexOf(tag.id);
+                const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
                 if (selectedIndex !== undefined && selectedIndex !== -1) {
-                    this.formData.task.tagIds.splice(selectedIndex, 1);
+                    this.formData.item.tagIds.splice(selectedIndex, 1);
                 }
 
                 // For temporary tags, no server call needed
@@ -183,8 +193,8 @@
                 }
 
                 // Restore selection if it was selected
-                if (tagIdsBackup.includes(tag.id) && !this.formData.task.tagIds.includes(tag.id)) {
-                    this.formData.task.tagIds.push(tag.id);
+                if (tagIdsBackup.includes(tag.id) && !this.formData.item.tagIds.includes(tag.id)) {
+                    this.formData.item.tagIds.push(tag.id);
                 }
 
                 $wire.dispatch('toast', { type: 'error', message: this.messages.tagError });
@@ -205,12 +215,12 @@
             const tagNameLower = tagName.toLowerCase();
             const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
             if (existingTag) {
-                if (!this.formData.task.tagIds) {
-                    this.formData.task.tagIds = [];
+                if (!this.formData.item.tagIds) {
+                    this.formData.item.tagIds = [];
                 }
-                const alreadySelected = this.formData.task.tagIds.some(id => String(id) === String(existingTag.id));
+                const alreadySelected = this.formData.item.tagIds.some(id => String(id) === String(existingTag.id));
                 if (!alreadySelected) {
-                    this.formData.task.tagIds.push(existingTag.id);
+                    this.formData.item.tagIds.push(existingTag.id);
                 }
                 $wire.dispatch('toast', { type: 'info', message: this.messages?.tagAlreadyExists || 'Tag already exists.' });
                 return;
@@ -220,7 +230,7 @@
 
             // Snapshot for rollback
             const tagsBackup = this.tags ? [...this.tags] : [];
-            const tagIdsBackup = [...this.formData.task.tagIds];
+            const tagIdsBackup = [...this.formData.item.tagIds];
             const newTagNameBackup = tagName;
 
             try {
@@ -232,8 +242,8 @@
                 this.tags.sort((a, b) => a.name.localeCompare(b.name));
 
                 // Auto-select the new tag
-                if (!this.formData.task.tagIds.includes(tempId)) {
-                    this.formData.task.tagIds.push(tempId);
+                if (!this.formData.item.tagIds.includes(tempId)) {
+                    this.formData.item.tagIds.push(tempId);
                 }
 
                 this.creatingTag = true;
@@ -247,7 +257,7 @@
             } catch (error) {
                 // Rollback
                 this.tags = tagsBackup;
-                this.formData.task.tagIds = tagIdsBackup;
+                this.formData.item.tagIds = tagIdsBackup;
                 this.newTagName = newTagNameBackup;
 
                 $wire.dispatch('toast', { type: 'error', message: this.messages.tagError });
@@ -260,22 +270,22 @@
                 return;
             }
 
-            if (!this.formData.task.title || !this.formData.task.title.trim()) {
+            if (!this.formData.item.title || !this.formData.item.title.trim()) {
                 return;
             }
 
-            if (!this.validateTaskDateRange()) {
+            if (!this.validateDateRange()) {
                 return;
             }
 
             this.isSubmitting = true;
-            this.formData.task.title = this.formData.task.title.trim();
+            this.formData.item.title = this.formData.item.title.trim();
 
             this.showTaskCreation = false;
             this.showTaskLoading = true;
             this.loadingStartedAt = Date.now();
 
-            const payload = JSON.parse(JSON.stringify(this.formData.task));
+            const payload = JSON.parse(JSON.stringify(this.formData.item));
             // Split tag IDs: real IDs for payload.tagIds, temp IDs resolved by name for payload.pendingTagNames
             if (payload.tagIds && Array.isArray(payload.tagIds)) {
                 const realIds = payload.tagIds
@@ -311,22 +321,22 @@
                 return;
             }
 
-            if (!this.formData.task.title || !this.formData.task.title.trim()) {
+            if (!this.formData.item.title || !this.formData.item.title.trim()) {
                 return;
             }
 
-            if (!this.validateTaskDateRange()) {
+            if (!this.validateDateRange()) {
                 return;
             }
 
             this.isSubmitting = true;
-            this.formData.task.title = this.formData.task.title.trim();
+            this.formData.item.title = this.formData.item.title.trim();
 
             this.showTaskCreation = false;
             this.showTaskLoading = true;
             this.loadingStartedAt = Date.now();
 
-            const payload = JSON.parse(JSON.stringify(this.formData.task));
+            const payload = JSON.parse(JSON.stringify(this.formData.item));
             // Split tag IDs: real IDs for payload.tagIds, temp IDs resolved by name for payload.pendingTagNames
             if (payload.tagIds && Array.isArray(payload.tagIds)) {
                 const realIds = payload.tagIds
@@ -497,8 +507,8 @@
                 target = target[pathParts[i]];
             }
             target[pathParts[pathParts.length - 1]] = value;
-            if (typeof this.validateTaskDateRange === 'function') {
-                this.validateTaskDateRange();
+            if (typeof this.validateDateRange === 'function') {
+                this.validateDateRange();
             }
         },
         onTagCreated(event) {
@@ -514,10 +524,10 @@
                     this.tags[tempTagIndex] = { id, name };
                 }
 
-                if (this.formData?.task?.tagIds) {
-                    const tempIdIndex = this.formData.task.tagIds.indexOf(tempId);
+                if (this.formData?.item?.tagIds) {
+                    const tempIdIndex = this.formData.item.tagIds.indexOf(tempId);
                     if (tempIdIndex !== -1) {
-                        this.formData.task.tagIds[tempIdIndex] = id;
+                        this.formData.item.tagIds[tempIdIndex] = id;
                     }
                 }
 
@@ -529,8 +539,8 @@
                     this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
 
-                if (this.formData?.task?.tagIds && !this.formData.task.tagIds.includes(id)) {
-                    this.formData.task.tagIds.push(id);
+                if (this.formData?.item?.tagIds && !this.formData.item.tagIds.includes(id)) {
+                    this.formData.item.tagIds.push(id);
                 }
             }
         },
@@ -544,10 +554,10 @@
                 }
             }
 
-            if (this.formData?.task?.tagIds) {
-                const selectedIndex = this.formData.task.tagIds.indexOf(id);
+            if (this.formData?.item?.tagIds) {
+                const selectedIndex = this.formData.item.tagIds.indexOf(id);
                 if (selectedIndex !== -1) {
-                    this.formData.task.tagIds.splice(selectedIndex, 1);
+                    this.formData.item.tagIds.splice(selectedIndex, 1);
                 }
             }
         },
@@ -563,10 +573,10 @@
     @tag-create-request="createTagOptimistic($event.detail.tagName)"
     @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
     x-effect="
-        formData.task.startDatetime;
-        formData.task.endDatetime;
-        formData.task.duration;
-        validateTaskDateRange();
+        formData.item.startDatetime;
+        formData.item.endDatetime;
+        creationKind === 'task' ? formData.item.duration : null;
+        validateDateRange();
     "
 >
     @php
@@ -602,9 +612,6 @@
                         } else {
                             creationKind = 'event';
                             resetForm();
-                            // Events default to scheduled status.
-                            formData.task.status = 'scheduled';
-                            formData.task.allDay = false;
                             showTaskCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }
@@ -662,12 +669,12 @@
 
                         <div class="flex items-center gap-2">
                             <flux:input
-                                x-model="formData.task.title"
+                                x-model="formData.item.title"
                                 x-ref="taskTitle"
                                 x-bind:disabled="isSubmitting"
                                 placeholder="{{ __('Enter title...') }}"
                                 class="flex-1 text-sm font-medium"
-                                @keydown.enter.prevent="if (!isSubmitting && formData.task.title && formData.task.title.trim()) { creationKind === 'task' ? submitTask() : submitEvent(); }"
+                                @keydown.enter.prevent="if (!isSubmitting && formData.item.title && formData.item.title.trim()) { creationKind === 'task' ? submitTask() : submitEvent(); }"
                             />
 
                             <flux:button
@@ -675,7 +682,7 @@
                                 variant="primary"
                                 icon="paper-airplane"
                                 class="shrink-0 rounded-full"
-                                x-bind:disabled="isSubmitting || !formData.task.title || !formData.task.title.trim()"
+                                x-bind:disabled="isSubmitting || !formData.item.title || !formData.item.title.trim()"
                                 @click="creationKind === 'task' ? submitTask() : submitEvent()"
                             />
                         </div>
@@ -684,7 +691,7 @@
                             <x-workspace.creation-task-fields />
                             <x-workspace.creation-event-fields />
 
-                            @foreach ([['label' => __('Start'), 'model' => 'formData.task.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.task.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
+                            @foreach ([['label' => __('Start'), 'model' => 'formData.item.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.item.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
                                 <x-date-picker
                                     :triggerLabel="$dateField['label']"
                                     :label="$dateField['datePickerLabel']"
@@ -701,9 +708,9 @@
                                 align="end"
                             />
 
-                            <div class="flex w-full items-center gap-1.5" x-show="errors.taskDateRange" x-cloak>
+                            <div class="flex w-full items-center gap-1.5" x-show="errors.dateRange" x-cloak>
                                 <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
-                                <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.taskDateRange"></p>
+                                <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.dateRange"></p>
                             </div>
                         </div>
 
@@ -735,7 +742,7 @@
         <div class="flex flex-col gap-2 px-3 pt-3 pb-2">
         <div class="flex items-start justify-between gap-2">
             <div class="flex min-w-0 flex-1 items-center gap-2">
-                <p class="truncate text-base font-semibold leading-tight" x-text="formData.task.title"></p>
+                <p class="truncate text-base font-semibold leading-tight" x-text="formData.item.title"></p>
             </div>
             <div class="flex items-center gap-2">
                 <span class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -748,46 +755,46 @@
                 <div class="flex flex-wrap items-center gap-2">
                     <span
                         class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                        :class="getStatusBadgeClass(formData.task.status)"
+                        :class="getStatusBadgeClass(formData.item.status)"
                     >
                         <flux:icon name="check-circle" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
-                            <span class="uppercase" x-text="statusLabel(formData.task.status)"></span>
+                            <span class="uppercase" x-text="statusLabel(formData.item.status)"></span>
                         </span>
                     </span>
                     <span
                         class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                        :class="getPriorityBadgeClass(formData.task.priority)"
+                        :class="getPriorityBadgeClass(formData.item.priority)"
                     >
                         <flux:icon name="bolt" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Priority') }}:</span>
-                            <span class="uppercase" x-text="priorityLabel(formData.task.priority)"></span>
+                            <span class="uppercase" x-text="priorityLabel(formData.item.priority)"></span>
                         </span>
                     </span>
                     <span
                         class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                        :class="getComplexityBadgeClass(formData.task.complexity)"
+                        :class="getComplexityBadgeClass(formData.item.complexity)"
                     >
                         <flux:icon name="squares-2x2" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Complexity') }}:</span>
-                            <span class="uppercase" x-text="complexityLabel(formData.task.complexity)"></span>
+                            <span class="uppercase" x-text="complexityLabel(formData.item.complexity)"></span>
                         </span>
                     </span>
                     <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                         <flux:icon name="clock" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Duration') }}:</span>
-                            <span class="uppercase" x-text="formatDurationLabel(formData.task.duration)"></span>
+                            <span class="uppercase" x-text="formatDurationLabel(formData.item.duration)"></span>
                         </span>
                     </span>
                     <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                         <flux:icon name="arrow-path" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurring') }}:</span>
-                            <span class="uppercase" x-text="(formData.task.recurrence?.enabled && formData.task.recurrence?.type) ? recurrenceLabel(formData.task.recurrence) : '{{ __('Not set') }}'"></span>
+                            <span class="uppercase" x-text="(formData.item.recurrence?.enabled && formData.item.recurrence?.type) ? recurrenceLabel(formData.item.recurrence) : '{{ __('Not set') }}'"></span>
                         </span>
                     </span>
                 </div>
@@ -796,22 +803,22 @@
                 <div class="flex flex-wrap items-center gap-2">
                     <span
                         class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
-                        :class="getEventStatusBadgeClass(formData.task.status)"
+                        :class="getEventStatusBadgeClass(formData.item.status)"
                     >
                         <flux:icon name="check-circle" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Status') }}:</span>
-                            <span class="uppercase" x-text="eventStatusLabel(formData.task.status)"></span>
+                            <span class="uppercase" x-text="eventStatusLabel(formData.item.status)"></span>
                         </span>
                     </span>
                     <span
                         class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-                        :class="formData.task.allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
+                        :class="formData.item.allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
                     >
                         <flux:icon name="sun" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('All Day') }}:</span>
-                            <span class="uppercase" x-text="formData.task.allDay ? '{{ __('Yes') }}' : '{{ __('No') }}'"></span>
+                            <span class="uppercase" x-text="formData.item.allDay ? '{{ __('Yes') }}' : '{{ __('No') }}'"></span>
                         </span>
                     </span>
                 </div>
@@ -820,31 +827,31 @@
                 <flux:icon name="clock" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
-                    <span class="text-xs uppercase" x-text="formData.task.startDatetime ? formatDatetime(formData.task.startDatetime) : '{{ __('Not set') }}'"></span>
+                    <span class="text-xs uppercase" x-text="formData.item.startDatetime ? formatDatetime(formData.item.startDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
             </span>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Due') }}:</span>
-                    <span class="text-xs uppercase" x-text="formData.task.endDatetime ? formatDatetime(formData.task.endDatetime) : '{{ __('Not set') }}'"></span>
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70" x-text="creationKind === 'task' ? '{{ __('Due') }}:' : '{{ __('End') }}:'"></span>
+                    <span class="text-xs uppercase" x-text="formData.item.endDatetime ? formatDatetime(formData.item.endDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
             </span>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="tag" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Tags') }}:</span>
-                    <span class="uppercase" x-text="formData.task.tagIds && formData.task.tagIds.length > 0 ? formData.task.tagIds.length : '{{ __('None') }}'"></span>
+                    <span class="uppercase" x-text="formData.item.tagIds && formData.item.tagIds.length > 0 ? formData.item.tagIds.length : '{{ __('None') }}'"></span>
                 </span>
             </span>
             <span
-                x-show="formData.task.projectId && projectNames[formData.task.projectId]"
+                x-show="formData.item.projectId && projectNames[formData.item.projectId]"
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10"
             >
                 <flux:icon name="folder" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Project') }}:</span>
-                    <span class="truncate max-w-[120px] uppercase" x-text="projectNames[formData.task.projectId] || ''"></span>
+                    <span class="truncate max-w-[120px] uppercase" x-text="projectNames[formData.item.projectId] || ''"></span>
                 </span>
             </span>
         </div>
