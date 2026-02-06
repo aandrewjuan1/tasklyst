@@ -3,13 +3,21 @@
 namespace App\Services;
 
 use App\Enums\TaskRecurrenceType;
+use App\Enums\TaskStatus;
 use App\Models\RecurringTask;
 use App\Models\Task;
+use App\Models\TaskException;
+use App\Models\TaskInstance;
 use App\Models\User;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 class TaskService
 {
+    public function __construct(
+        private RecurrenceExpander $recurrenceExpander
+    ) {}
+
     /**
      * @param  array<string, mixed>  $attributes
      */
@@ -117,5 +125,138 @@ class TaskService
         return DB::transaction(function () use ($task): bool {
             return (bool) $task->delete();
         });
+    }
+
+    /**
+     * Create or update a TaskInstance for the given recurring task occurrence date with any status.
+     * Does not modify the parent Task.
+     */
+    public function updateRecurringOccurrenceStatus(Task $task, CarbonInterface $date, TaskStatus $status): TaskInstance
+    {
+        $recurringTask = $task->recurringTask;
+        if ($recurringTask === null) {
+            throw new \InvalidArgumentException('Task must have a recurring task to update an occurrence status.');
+        }
+
+        $instanceDate = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        $attributes = [
+            'task_id' => $task->id,
+            'status' => $status,
+            'completed_at' => $status === TaskStatus::Done ? now() : null,
+        ];
+
+        $instance = TaskInstance::query()
+            ->where('recurring_task_id', $recurringTask->id)
+            ->whereDate('instance_date', $instanceDate)
+            ->first();
+
+        if ($instance !== null) {
+            $instance->update($attributes);
+
+            return $instance->fresh();
+        }
+
+        return TaskInstance::query()->create([
+            'recurring_task_id' => $recurringTask->id,
+            'task_id' => $task->id,
+            'instance_date' => $instanceDate,
+            'status' => $status,
+            'completed_at' => $status === TaskStatus::Done ? now() : null,
+        ]);
+    }
+
+    /**
+     * Create or update a TaskInstance for the given recurring task occurrence date.
+     * Marks the occurrence as done. Does not modify the parent Task.
+     */
+    public function completeRecurringOccurrence(Task $task, CarbonInterface $date): TaskInstance
+    {
+        return $this->updateRecurringOccurrenceStatus($task, $date, TaskStatus::Done);
+    }
+
+    /**
+     * Get the effective status for a task on a given date.
+     * For recurring tasks: returns instance status if one exists for that date, otherwise base task status.
+     * For non-recurring: returns base task status.
+     */
+    public function getEffectiveStatusForDate(Task $task, CarbonInterface $date): TaskStatus
+    {
+        $recurringTask = $task->recurringTask;
+        if ($recurringTask === null) {
+            return $task->status ?? TaskStatus::ToDo;
+        }
+
+        $dateStr = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        $instance = TaskInstance::query()
+            ->where('recurring_task_id', $recurringTask->id)
+            ->whereDate('instance_date', $dateStr)
+            ->first();
+
+        return $instance?->status ?? $task->status ?? TaskStatus::ToDo;
+    }
+
+    /**
+     * Check if a task is relevant for the given date (should appear in workspace).
+     * For recurring tasks: date must be in expanded occurrences (show task every occurrence day).
+     * For non-recurring: returns true (scope already filtered).
+     */
+    public function isTaskRelevantForDate(Task $task, CarbonInterface $date): bool
+    {
+        $recurringTask = $task->recurringTask;
+        if ($recurringTask === null) {
+            return true;
+        }
+
+        $dateStr = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        $occurrences = $this->getOccurrencesForDateRange($recurringTask, $date, $date);
+
+        return collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr);
+    }
+
+    /**
+     * Expand recurrence pattern into concrete dates within the range.
+     * Respects TaskException (excludes deleted, applies replacements).
+     *
+     * @return array<CarbonInterface>
+     */
+    public function getOccurrencesForDateRange(RecurringTask $recurringTask, CarbonInterface $start, CarbonInterface $end): array
+    {
+        return $this->recurrenceExpander->expand($recurringTask, $start, $end);
+    }
+
+    /**
+     * Create a TaskException to skip or replace an occurrence.
+     */
+    public function createTaskException(
+        RecurringTask $recurringTask,
+        CarbonInterface $date,
+        bool $isDeleted,
+        ?TaskInstance $replacement = null,
+        ?User $createdBy = null
+    ): TaskException {
+        $exceptionDate = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        return TaskException::query()->updateOrCreate(
+            [
+                'recurring_task_id' => $recurringTask->id,
+                'exception_date' => $exceptionDate,
+            ],
+            [
+                'is_deleted' => $isDeleted,
+                'replacement_instance_id' => $replacement?->id,
+                'created_by' => $createdBy?->id,
+            ]
+        );
     }
 }

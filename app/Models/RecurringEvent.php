@@ -6,6 +6,7 @@ use App\Enums\EventRecurrenceType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class RecurringEvent extends Model
 {
@@ -32,5 +33,15 @@ class RecurringEvent extends Model
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
+    }
+
+    public function eventInstances(): HasMany
+    {
+        return $this->hasMany(EventInstance::class);
+    }
+
+    public function eventExceptions(): HasMany
+    {
+        return $this->hasMany(EventException::class);
     }
 }

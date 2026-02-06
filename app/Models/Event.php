@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -309,6 +308,7 @@ class Event extends Model
 
         static::deleting(function (Event $event) {
             $event->collaborations()->delete();
+            $event->recurringEvent?->delete();
         });
     }
 
@@ -379,7 +379,6 @@ class Event extends Model
             $dateQuery
                 ->whereHas('recurringEvent', function (Builder $recurringQuery) use ($startOfDay, $endOfDay): void {
                     $recurringQuery
-                        ->where('recurrence_type', EventRecurrenceType::Daily)
                         ->where(function (Builder $startQuery) use ($endOfDay): void {
                             $startQuery
                                 ->whereNull('start_datetime')

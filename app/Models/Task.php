@@ -4,7 +4,6 @@ namespace App\Models;
 
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
-use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -330,6 +329,7 @@ class Task extends Model
 
         static::deleting(function (Task $task) {
             $task->collaborations()->delete();
+            $task->recurringTask?->delete();
         });
     }
 
@@ -422,7 +422,6 @@ class Task extends Model
             $dateQuery
                 ->whereHas('recurringTask', function (Builder $recurringQuery) use ($startOfDay, $endOfDay): void {
                     $recurringQuery
-                        ->where('recurrence_type', TaskRecurrenceType::Daily)
                         ->where(function (Builder $startQuery) use ($endOfDay): void {
                             $startQuery
                                 ->whereNull('start_datetime')

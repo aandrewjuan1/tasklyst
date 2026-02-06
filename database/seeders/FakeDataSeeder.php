@@ -89,7 +89,6 @@ class FakeDataSeeder extends Seeder
             'days_of_week' => null,
             'start_datetime' => $birthdayDate->copy()->startOfDay(),
             'end_datetime' => null,
-            'timezone' => null,
         ]);
     }
 

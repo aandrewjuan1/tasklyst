@@ -70,7 +70,8 @@
             ['value' => 480, 'label' => '8+ hours'],
         ];
 
-        $statusInitialOption = collect($statusOptions)->firstWhere('value', $item->status?->value);
+        $effectiveStatus = $item->effectiveStatusForDate ?? $item->status;
+        $statusInitialOption = collect($statusOptions)->firstWhere('value', $effectiveStatus?->value);
         $priorityInitialOption = collect($priorityOptions)->firstWhere('value', $item->priority?->value);
         $complexityInitialOption = collect($complexityOptions)->firstWhere('value', $item->complexity?->value);
 
@@ -132,7 +133,8 @@
             ['value' => \App\Enums\EventStatus::Cancelled->value, 'label' => __('Cancelled'), 'color' => \App\Enums\EventStatus::Cancelled->color()],
         ];
 
-        $eventStatusInitialOption = collect($eventStatusOptions)->firstWhere('value', $item->status?->value);
+        $eventEffectiveStatus = $item->effectiveStatusForDate ?? $item->status;
+        $eventStatusInitialOption = collect($eventStatusOptions)->firstWhere('value', $eventEffectiveStatus?->value);
 
         $eventStatusInitialClass = $eventStatusInitialOption
             ? 'bg-' . $eventStatusInitialOption['color'] . '/10 text-' . $eventStatusInitialOption['color']
@@ -594,7 +596,7 @@
             x-data="{
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
-                status: @js($item->status?->value),
+                status: @js($eventEffectiveStatus?->value ?? $item->status?->value),
                 allDay: @js($item->all_day),
                 startDatetime: @js($eventStartDatetimeInitial),
                 endDatetime: @js($eventEndDatetimeInitial),
@@ -1026,7 +1028,7 @@
             x-data="{
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
-                status: @js($item->status?->value),
+                status: @js($effectiveStatus?->value ?? $item->status?->value),
                 priority: @js($item->priority?->value),
                 complexity: @js($item->complexity?->value),
                 duration: @js($item->duration),

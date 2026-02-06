@@ -2,8 +2,12 @@
 
 namespace App\Livewire\Concerns;
 
+use App\Enums\EventStatus;
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\RecurringEvent;
+use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Support\Validation\EventPayloadValidation;
@@ -415,7 +419,7 @@ trait HandlesWorkspaceItems
             return false;
         }
 
-        $task = Task::query()->find($taskId);
+        $task = Task::query()->with('recurringTask')->find($taskId);
 
         if ($task === null) {
             $this->dispatch('toast', type: 'error', message: __('Task not found.'));
@@ -509,6 +513,33 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, true, $task->title));
 
             return true;
+        }
+
+        if ($property === 'status') {
+            $recurringTask = $task->recurringTask ?? RecurringTask::where('task_id', $taskId)->first();
+            if ($recurringTask !== null) {
+                $task->setRelation('recurringTask', $recurringTask);
+                try {
+                    $date = Carbon::parse($this->selectedDate);
+                    $oldStatus = $this->taskService->getEffectiveStatusForDate($task, $date)?->value;
+                    $this->taskService->updateRecurringOccurrenceStatus($task, $date, TaskStatus::from($validatedValue));
+                    $this->listRefresh++;
+                    if (! $silentToasts) {
+                        $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $task->title));
+                    }
+
+                    return true;
+                } catch (\Throwable $e) {
+                    Log::error('Failed to update recurring task occurrence status from workspace.', [
+                        'user_id' => $user->id,
+                        'task_id' => $taskId,
+                        'exception' => $e,
+                    ]);
+                    $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $task->status?->value, $validatedValue, false, $task->title));
+
+                    return false;
+                }
+            }
         }
 
         $column = match ($property) {
@@ -678,7 +709,7 @@ trait HandlesWorkspaceItems
             return false;
         }
 
-        $event = Event::query()->find($eventId);
+        $event = Event::query()->with('recurringEvent')->find($eventId);
 
         if ($event === null) {
             $this->dispatch('toast', type: 'error', message: __('Event not found.'));
@@ -772,6 +803,33 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, true, $event->title));
 
             return true;
+        }
+
+        if ($property === 'status') {
+            $recurringEvent = $event->recurringEvent ?? RecurringEvent::where('event_id', $eventId)->first();
+            if ($recurringEvent !== null) {
+                $event->setRelation('recurringEvent', $recurringEvent);
+                try {
+                    $date = Carbon::parse($this->selectedDate);
+                    $oldStatus = $this->eventService->getEffectiveStatusForDate($event, $date)?->value;
+                    $this->eventService->updateRecurringOccurrenceStatus($event, $date, EventStatus::from($validatedValue));
+                    $this->listRefresh++;
+                    if (! $silentToasts) {
+                        $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $event->title));
+                    }
+
+                    return true;
+                } catch (\Throwable $e) {
+                    Log::error('Failed to update recurring event occurrence status from workspace.', [
+                        'user_id' => $user->id,
+                        'event_id' => $eventId,
+                        'exception' => $e,
+                    ]);
+                    $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $event->status?->value, $validatedValue, false, $event->title));
+
+                    return false;
+                }
+            }
         }
 
         $column = match ($property) {
@@ -954,11 +1012,11 @@ trait HandlesWorkspaceItems
 
         $date = Carbon::parse($this->selectedDate);
 
-        return Task::query()
+        $tasks = Task::query()
             ->with([
                 'project',
                 'event',
-                'recurringTask',
+                'recurringTask.taskInstances' => fn ($q) => $q->where('instance_date', $date->format('Y-m-d')),
                 'tags',
                 'collaborations',
             ])
@@ -968,6 +1026,15 @@ trait HandlesWorkspaceItems
             ->orderByDesc('created_at')
             ->limit(50)
             ->get();
+
+        return $tasks
+            ->filter(fn (Task $task) => $this->taskService->isTaskRelevantForDate($task, $date))
+            ->map(function (Task $task) use ($date): Task {
+                $task->effectiveStatusForDate = $this->taskService->getEffectiveStatusForDate($task, $date);
+
+                return $task;
+            })
+            ->values();
     }
 
     /**
@@ -1011,9 +1078,9 @@ trait HandlesWorkspaceItems
 
         $date = Carbon::parse($this->selectedDate);
 
-        return Event::query()
+        $events = Event::query()
             ->with([
-                'recurringEvent',
+                'recurringEvent.eventInstances' => fn ($q) => $q->whereDate('instance_date', $date->format('Y-m-d')),
                 'tags',
                 'collaborations',
             ])
@@ -1022,6 +1089,15 @@ trait HandlesWorkspaceItems
             ->orderByDesc('created_at')
             ->limit(50)
             ->get();
+
+        return $events
+            ->filter(fn (Event $event) => $this->eventService->isEventActiveForDate($event, $date))
+            ->map(function (Event $event) use ($date): Event {
+                $event->effectiveStatusForDate = $this->eventService->getEffectiveStatusForDate($event, $date);
+
+                return $event;
+            })
+            ->values();
     }
 
     /**

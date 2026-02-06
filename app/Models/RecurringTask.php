@@ -6,6 +6,7 @@ use App\Enums\TaskRecurrenceType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class RecurringTask extends Model
 {
@@ -32,5 +33,15 @@ class RecurringTask extends Model
     public function task(): BelongsTo
     {
         return $this->belongsTo(Task::class);
+    }
+
+    public function taskInstances(): HasMany
+    {
+        return $this->hasMany(TaskInstance::class);
+    }
+
+    public function taskExceptions(): HasMany
+    {
+        return $this->hasMany(TaskException::class);
     }
 }

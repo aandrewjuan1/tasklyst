@@ -51,7 +51,6 @@ it('renders recurring pill for recurring events', function (): void {
         'days_of_week' => null,
         'start_datetime' => now(),
         'end_datetime' => null,
-        'timezone' => null,
     ]);
 
     $event->load('recurringEvent');

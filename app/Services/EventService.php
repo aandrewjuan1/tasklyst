@@ -3,13 +3,21 @@
 namespace App\Services;
 
 use App\Enums\EventRecurrenceType;
+use App\Enums\EventStatus;
 use App\Models\Event;
+use App\Models\EventException;
+use App\Models\EventInstance;
 use App\Models\RecurringEvent;
 use App\Models\User;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 class EventService
 {
+    public function __construct(
+        private RecurrenceExpander $recurrenceExpander
+    ) {}
+
     /**
      * @param  array<string, mixed>  $attributes
      */
@@ -114,5 +122,140 @@ class EventService
         return DB::transaction(function () use ($event): bool {
             return (bool) $event->delete();
         });
+    }
+
+    /**
+     * Create or update an EventInstance for the given recurring event occurrence date with any status.
+     * Does not modify the parent Event.
+     */
+    public function updateRecurringOccurrenceStatus(Event $event, CarbonInterface $date, EventStatus $status): EventInstance
+    {
+        $recurringEvent = $event->recurringEvent;
+        if ($recurringEvent === null) {
+            throw new \InvalidArgumentException('Event must have a recurring event to update an occurrence status.');
+        }
+
+        $instanceDate = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        $instance = EventInstance::query()
+            ->where('recurring_event_id', $recurringEvent->id)
+            ->whereDate('instance_date', $instanceDate)
+            ->first();
+
+        $attributes = [
+            'event_id' => $event->id,
+            'status' => $status,
+            'cancelled' => $status === EventStatus::Cancelled,
+            'completed_at' => $status === EventStatus::Completed ? now() : null,
+        ];
+
+        if ($instance !== null) {
+            $instance->update($attributes);
+
+            return $instance->fresh();
+        }
+
+        return EventInstance::query()->create([
+            'recurring_event_id' => $recurringEvent->id,
+            'event_id' => $event->id,
+            'instance_date' => $instanceDate,
+            'status' => $status,
+            'cancelled' => $status === EventStatus::Cancelled,
+            'completed_at' => $status === EventStatus::Completed ? now() : null,
+        ]);
+    }
+
+    /**
+     * Create or update an EventInstance for the given recurring event occurrence date.
+     * Marks the occurrence as completed. Does not modify the parent Event.
+     */
+    public function completeRecurringOccurrence(Event $event, CarbonInterface $date): EventInstance
+    {
+        return $this->updateRecurringOccurrenceStatus($event, $date, EventStatus::Completed);
+    }
+
+    /**
+     * Get the effective status for an event on a given date.
+     * For recurring events: returns instance status if one exists for that date, otherwise base event status.
+     * For non-recurring: returns base event status.
+     */
+    public function getEffectiveStatusForDate(Event $event, CarbonInterface $date): EventStatus
+    {
+        $recurringEvent = $event->recurringEvent;
+        if ($recurringEvent === null) {
+            return $event->status ?? EventStatus::Scheduled;
+        }
+
+        $dateStr = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        $instance = EventInstance::query()
+            ->where('recurring_event_id', $recurringEvent->id)
+            ->whereDate('instance_date', $dateStr)
+            ->first();
+
+        return $instance?->status ?? $event->status ?? EventStatus::Scheduled;
+    }
+
+    /**
+     * Check if an event is active for the given date (should appear in workspace).
+     * For recurring events: date must be in expanded occurrences (show event every occurrence day).
+     * For non-recurring: returns true (scope already filtered).
+     */
+    public function isEventActiveForDate(Event $event, CarbonInterface $date): bool
+    {
+        $recurringEvent = $event->recurringEvent;
+        if ($recurringEvent === null) {
+            return true;
+        }
+
+        $dateStr = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        $occurrences = $this->getOccurrencesForDateRange($recurringEvent, $date, $date);
+
+        return collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr);
+    }
+
+    /**
+     * Expand recurrence pattern into concrete dates within the range.
+     * Respects EventException (excludes deleted, applies replacements).
+     *
+     * @return array<CarbonInterface>
+     */
+    public function getOccurrencesForDateRange(RecurringEvent $recurringEvent, CarbonInterface $start, CarbonInterface $end): array
+    {
+        return $this->recurrenceExpander->expand($recurringEvent, $start, $end);
+    }
+
+    /**
+     * Create an EventException to skip or replace an occurrence.
+     */
+    public function createEventException(
+        RecurringEvent $recurringEvent,
+        CarbonInterface $date,
+        bool $isDeleted,
+        ?EventInstance $replacement = null,
+        ?User $createdBy = null
+    ): EventException {
+        $exceptionDate = $date instanceof \DateTimeInterface
+            ? $date->format('Y-m-d')
+            : \Carbon\Carbon::parse($date)->format('Y-m-d');
+
+        return EventException::query()->updateOrCreate(
+            [
+                'recurring_event_id' => $recurringEvent->id,
+                'exception_date' => $exceptionDate,
+            ],
+            [
+                'is_deleted' => $isDeleted,
+                'replacement_instance_id' => $replacement?->id,
+                'created_by' => $createdBy?->id,
+            ]
+        );
     }
 }
