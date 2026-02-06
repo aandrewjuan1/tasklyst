@@ -788,7 +788,7 @@ it('rejects updateTaskProperty when user cannot update task', function (): void 
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
         ->call('updateTaskProperty', $task->id, 'status', 'doing')
-        ->assertForbidden();
+        ->assertDispatched('toast', type: 'error', message: __('Task not found.'));
 
     $task->refresh();
     expect($task->status->value)->toBe('to_do');

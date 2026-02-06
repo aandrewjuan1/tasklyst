@@ -36,4 +36,9 @@ class Tag extends Model
     {
         return $query->where('user_id', $userId);
     }
+
+    public function scopeByName(Builder $query, string $name): Builder
+    {
+        return $query->whereRaw('LOWER(name) = ?', [mb_strtolower(trim($name))]);
+    }
 }

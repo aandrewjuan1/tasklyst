@@ -10,6 +10,7 @@ use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\User;
 use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\ProjectPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
@@ -30,11 +31,8 @@ trait HandlesWorkspaceItems
      */
     public function createTask(array $payload): void
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to create tasks.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to create tasks.'));
-
             return;
         }
 
@@ -61,33 +59,7 @@ trait HandlesWorkspaceItems
         $startDatetime = $this->parseOptionalDatetime($validatedTask['startDatetime'] ?? null);
         $endDatetime = $this->parseOptionalDatetime($validatedTask['endDatetime'] ?? null);
 
-        $tagIds = array_values(array_unique(array_map('intval', $validatedTask['tagIds'] ?? [])));
-        foreach ($validatedTask['pendingTagNames'] ?? [] as $name) {
-            $name = trim((string) $name);
-            if ($name === '') {
-                continue;
-            }
-            $existingTag = Tag::query()
-                ->where('user_id', $user->id)
-                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
-                ->first();
-            if ($existingTag !== null) {
-                $tagIds[] = $existingTag->id;
-
-                continue;
-            }
-            try {
-                $tag = $this->tagService->createTag($user, ['name' => $name]);
-                $tagIds[] = $tag->id;
-            } catch (\Throwable $e) {
-                Log::error('Failed to create tag when creating task.', [
-                    'user_id' => $user->id,
-                    'name' => $name,
-                    'exception' => $e,
-                ]);
-            }
-        }
-        $tagIds = array_values(array_unique($tagIds));
+        $tagIds = $this->resolveTagIdsFromPayload($user, $validatedTask, 'task');
 
         $recurrenceData = $validatedTask['recurrence'] ?? null;
         $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
@@ -131,11 +103,8 @@ trait HandlesWorkspaceItems
      */
     public function createEvent(array $payload): void
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to create events.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to create events.'));
-
             return;
         }
 
@@ -162,33 +131,7 @@ trait HandlesWorkspaceItems
         $startDatetime = $this->parseOptionalDatetime($validatedEvent['startDatetime'] ?? null);
         $endDatetime = $this->parseOptionalDatetime($validatedEvent['endDatetime'] ?? null);
 
-        $tagIds = array_values(array_unique(array_map('intval', $validatedEvent['tagIds'] ?? [])));
-        foreach ($validatedEvent['pendingTagNames'] ?? [] as $name) {
-            $name = trim((string) $name);
-            if ($name === '') {
-                continue;
-            }
-            $existingTag = Tag::query()
-                ->where('user_id', $user->id)
-                ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
-                ->first();
-            if ($existingTag !== null) {
-                $tagIds[] = $existingTag->id;
-
-                continue;
-            }
-            try {
-                $tag = $this->tagService->createTag($user, ['name' => $name]);
-                $tagIds[] = $tag->id;
-            } catch (\Throwable $e) {
-                Log::error('Failed to create tag when creating event.', [
-                    'user_id' => $user->id,
-                    'name' => $name,
-                    'exception' => $e,
-                ]);
-            }
-        }
-        $tagIds = array_values(array_unique($tagIds));
+        $tagIds = $this->resolveTagIdsFromPayload($user, $validatedEvent, 'event');
 
         $recurrenceData = $validatedEvent['recurrence'] ?? null;
         $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
@@ -230,11 +173,8 @@ trait HandlesWorkspaceItems
      */
     public function createTag(string $name, bool $silentToasts = false): void
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to create tags.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to create tags.'));
-
             return;
         }
 
@@ -267,10 +207,7 @@ trait HandlesWorkspaceItems
         $validatedName = $validator->validated()['name'];
 
         try {
-            $existingTag = Tag::query()
-                ->where('user_id', $user->id)
-                ->whereRaw('LOWER(name) = ?', [mb_strtolower($validatedName)])
-                ->first();
+            $existingTag = Tag::query()->forUser($user->id)->byName($validatedName)->first();
 
             if ($existingTag !== null) {
                 $this->dispatch('tag-created', id: $existingTag->id, name: $existingTag->name);
@@ -310,15 +247,12 @@ trait HandlesWorkspaceItems
      */
     public function deleteTag(int $tagId, bool $silentToasts = false): void
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to delete tags.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete tags.'));
-
             return;
         }
 
-        $tag = Tag::query()->find($tagId);
+        $tag = Tag::query()->forUser($user->id)->find($tagId);
 
         if ($tag === null) {
             $this->dispatch('toast', type: 'error', message: __('Tag not found.'));
@@ -360,15 +294,12 @@ trait HandlesWorkspaceItems
      */
     public function deleteTask(int $taskId): bool
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to delete tasks.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete tasks.'));
-
             return false;
         }
 
-        $task = Task::query()->find($taskId);
+        $task = Task::query()->forUser($user->id)->find($taskId);
 
         if ($task === null) {
             $this->dispatch('toast', type: 'error', message: __('Task not found.'));
@@ -411,15 +342,12 @@ trait HandlesWorkspaceItems
      */
     public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false): bool
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to update tasks.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to update tasks.'));
-
             return false;
         }
 
-        $task = Task::query()->with('recurringTask')->find($taskId);
+        $task = Task::query()->forUser($user->id)->with('recurringTask')->find($taskId);
 
         if ($task === null) {
             $this->dispatch('toast', type: 'error', message: __('Task not found.'));
@@ -603,15 +531,12 @@ trait HandlesWorkspaceItems
      */
     public function deleteProject(int $projectId): bool
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to delete projects.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete projects.'));
-
             return false;
         }
 
-        $project = Project::query()->find($projectId);
+        $project = Project::query()->forUser($user->id)->find($projectId);
 
         if ($project === null) {
             $this->dispatch('toast', type: 'error', message: __('Project not found.'));
@@ -652,15 +577,12 @@ trait HandlesWorkspaceItems
      */
     public function deleteEvent(int $eventId): bool
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to delete events.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to delete events.'));
-
             return false;
         }
 
-        $event = Event::query()->find($eventId);
+        $event = Event::query()->forUser($user->id)->find($eventId);
 
         if ($event === null) {
             $this->dispatch('toast', type: 'error', message: __('Event not found.'));
@@ -703,15 +625,12 @@ trait HandlesWorkspaceItems
      */
     public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false): bool
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to update events.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to update events.'));
-
             return false;
         }
 
-        $event = Event::query()->with('recurringEvent')->find($eventId);
+        $event = Event::query()->forUser($user->id)->with('recurringEvent')->find($eventId);
 
         if ($event === null) {
             $this->dispatch('toast', type: 'error', message: __('Event not found.'));
@@ -777,19 +696,7 @@ trait HandlesWorkspaceItems
 
         if ($property === 'recurrence') {
             $event->loadMissing('recurringEvent');
-            $oldRecurrence = $event->recurringEvent
-                ? [
-                    'enabled' => true,
-                    'type' => $event->recurringEvent->recurrence_type?->value,
-                    'interval' => $event->recurringEvent->interval ?? 1,
-                    'daysOfWeek' => $event->recurringEvent->days_of_week ? (json_decode($event->recurringEvent->days_of_week, true) ?? []) : [],
-                ]
-                : [
-                    'enabled' => false,
-                    'type' => null,
-                    'interval' => 1,
-                    'daysOfWeek' => [],
-                ];
+            $oldRecurrence = $this->buildRecurrencePayloadFromModel($event->recurringEvent);
             try {
                 $this->eventService->updateOrCreateRecurringEvent($event, $validatedValue);
             } catch (\Throwable $e) {
@@ -946,11 +853,7 @@ trait HandlesWorkspaceItems
 
         $validatedValue = $validator->validated()['value'];
 
-        $column = match ($property) {
-            default => $property,
-        };
-
-        $attributes = [$column => $validatedValue];
+        $attributes = [$property => $validatedValue];
 
         try {
             $this->projectService->updateProject($project, $attributes);
@@ -979,6 +882,70 @@ trait HandlesWorkspaceItems
     protected function rules(): array
     {
         return TaskPayloadValidation::rules();
+    }
+
+    private function requireAuth(string $message): ?User
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: $message);
+
+            return null;
+        }
+
+        return $user;
+    }
+
+    /**
+     * Resolve tag IDs from validated payload (tagIds + pendingTagNames).
+     *
+     * @param  array{tagIds?: int[], pendingTagNames?: string[]}  $validated
+     * @return array<int>
+     */
+    private function resolveTagIdsFromPayload(User $user, array $validated, string $context): array
+    {
+        $tagIds = array_values(array_unique(array_map('intval', $validated['tagIds'] ?? [])));
+        foreach ($validated['pendingTagNames'] ?? [] as $name) {
+            $name = trim((string) $name);
+            if ($name === '') {
+                continue;
+            }
+            $existingTag = Tag::query()->forUser($user->id)->byName($name)->first();
+            if ($existingTag !== null) {
+                $tagIds[] = $existingTag->id;
+
+                continue;
+            }
+            try {
+                $tag = $this->tagService->createTag($user, ['name' => $name]);
+                $tagIds[] = $tag->id;
+            } catch (\Throwable $e) {
+                Log::error("Failed to create tag when creating {$context}.", [
+                    'user_id' => $user->id,
+                    'name' => $name,
+                    'exception' => $e,
+                ]);
+            }
+        }
+
+        return array_values(array_unique($tagIds));
+    }
+
+    /**
+     * Build recurrence payload array from RecurringTask or RecurringEvent model.
+     *
+     * @return array{enabled: bool, type: ?string, interval: int, daysOfWeek: array}
+     */
+    private function buildRecurrencePayloadFromModel(RecurringTask|RecurringEvent|null $recurring): array
+    {
+        return $recurring
+            ? [
+                'enabled' => true,
+                'type' => $recurring->recurrence_type?->value,
+                'interval' => $recurring->interval ?? 1,
+                'daysOfWeek' => $recurring->days_of_week ? (json_decode($recurring->days_of_week, true) ?? []) : [],
+            ]
+            : ['enabled' => false, 'type' => null, 'interval' => 1, 'daysOfWeek' => []];
     }
 
     private function parseOptionalDatetime(mixed $value): ?SupportCarbon
