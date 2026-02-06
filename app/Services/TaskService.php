@@ -181,6 +181,7 @@ class TaskService
      * Get the effective status for a task on a given date.
      * For recurring tasks: returns instance status if one exists for that date, otherwise base task status.
      * For non-recurring: returns base task status.
+     * Uses eager-loaded taskInstances when available to avoid N+1 queries.
      */
     public function getEffectiveStatusForDate(Task $task, CarbonInterface $date): TaskStatus
     {
@@ -193,10 +194,12 @@ class TaskService
             ? $date->format('Y-m-d')
             : \Carbon\Carbon::parse($date)->format('Y-m-d');
 
-        $instance = TaskInstance::query()
-            ->where('recurring_task_id', $recurringTask->id)
-            ->whereDate('instance_date', $dateStr)
-            ->first();
+        $instance = $recurringTask->relationLoaded('taskInstances')
+            ? $recurringTask->taskInstances->first()
+            : TaskInstance::query()
+                ->where('recurring_task_id', $recurringTask->id)
+                ->whereDate('instance_date', $dateStr)
+                ->first();
 
         return $instance?->status ?? $task->status ?? TaskStatus::ToDo;
     }

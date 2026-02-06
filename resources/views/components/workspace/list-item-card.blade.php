@@ -467,6 +467,8 @@
             hideFromList();
         }
     "
+    @task-status-done-for-recurring="hideFromList()"
+    @event-status-completed-or-cancelled-for-recurring="hideFromList()"
     @event-date-updated="
         if (kind === 'event' && !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
             hideFromList();
@@ -596,6 +598,7 @@
             x-data="{
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
+                isRecurringEvent: @js((bool) $item->recurringEvent),
                 status: @js($eventEffectiveStatus?->value ?? $item->status?->value),
                 allDay: @js($item->all_day),
                 startDatetime: @js($eventStartDatetimeInitial),
@@ -834,7 +837,9 @@
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-
+                        if (property === 'status' && this.isRecurringEvent && (value === 'completed' || value === 'cancelled')) {
+                            $dispatch('event-status-completed-or-cancelled-for-recurring');
+                        }
                         return true;
                     } catch (err) {
                         this.status = snapshot.status;
@@ -1028,6 +1033,7 @@
             x-data="{
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
+                isRecurringTask: @js((bool) $item->recurringTask),
                 status: @js($effectiveStatus?->value ?? $item->status?->value),
                 priority: @js($item->priority?->value),
                 complexity: @js($item->complexity?->value),
@@ -1263,6 +1269,9 @@
                             this.recurrence = snapshot.recurrence;
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
+                        }
+                        if (property === 'status' && value === 'done' && this.isRecurringTask) {
+                            $dispatch('task-status-done-for-recurring');
                         }
                         return true;
                     } catch (err) {

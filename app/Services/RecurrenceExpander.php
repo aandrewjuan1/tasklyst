@@ -8,6 +8,7 @@ use App\Models\RecurringTask;
 use App\Models\TaskException;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 class RecurrenceExpander
 {
@@ -15,9 +16,10 @@ class RecurrenceExpander
      * Expand a recurring task or event into concrete dates within the given range.
      * Respects start_datetime and end_datetime on the recurring record.
      *
+     * @param  Collection<int, TaskException|EventException>|null  $preloadedExceptions  When provided, uses these instead of querying (avoids N+1 in batch).
      * @return array<CarbonInterface>
      */
-    public function expand(RecurringTask|RecurringEvent $recurring, CarbonInterface $start, CarbonInterface $end): array
+    public function expand(RecurringTask|RecurringEvent $recurring, CarbonInterface $start, CarbonInterface $end, ?Collection $preloadedExceptions = null): array
     {
         $recurrenceType = $recurring->recurrence_type;
         $interval = max(1, (int) $recurring->interval);
@@ -43,13 +45,14 @@ class RecurrenceExpander
             default => [],
         };
 
-        return $this->applyExceptions($recurring, $dates, $effectiveStart, $effectiveEnd, $start, $end);
+        return $this->applyExceptions($recurring, $dates, $effectiveStart, $effectiveEnd, $start, $end, $preloadedExceptions);
     }
 
     /**
      * Apply TaskException/EventException: exclude deleted dates, replace with replacement instance dates.
      *
      * @param  array<CarbonInterface>  $dates
+     * @param  Collection<int, TaskException|EventException>|null  $preloadedExceptions
      * @return array<CarbonInterface>
      */
     private function applyExceptions(
@@ -58,19 +61,10 @@ class RecurrenceExpander
         Carbon $effectiveStart,
         Carbon $effectiveEnd,
         CarbonInterface $start,
-        CarbonInterface $end
+        CarbonInterface $end,
+        ?Collection $preloadedExceptions = null
     ): array {
-        $exceptions = $recurring instanceof RecurringTask
-            ? $recurring->taskExceptions()
-            : $recurring->eventExceptions();
-
-        $exceptions = $exceptions
-            ->where(function ($q) use ($start, $end): void {
-                $q->whereBetween('exception_date', [$start, $end])
-                    ->orWhereHas('replacementInstance', fn ($r) => $r->whereBetween('instance_date', [$start, $end]));
-            })
-            ->with('replacementInstance')
-            ->get();
+        $exceptions = $preloadedExceptions ?? $this->loadExceptionsForRecurring($recurring, $start, $end);
 
         $excludedDates = $exceptions
             ->filter(fn (TaskException|EventException $e) => $e->is_deleted || $e->replacement_instance_id !== null)
@@ -102,6 +96,108 @@ class RecurrenceExpander
         usort($result, fn ($a, $b) => $a->format('Y-m-d') <=> $b->format('Y-m-d'));
 
         return array_values(array_unique($result, SORT_REGULAR));
+    }
+
+    /**
+     * Load exceptions for a single recurring item (used when not batching).
+     *
+     * @return Collection<int, TaskException|EventException>
+     */
+    private function loadExceptionsForRecurring(RecurringTask|RecurringEvent $recurring, CarbonInterface $start, CarbonInterface $end): Collection
+    {
+        $query = $recurring instanceof RecurringTask
+            ? $recurring->taskExceptions()
+            : $recurring->eventExceptions();
+
+        return $query
+            ->where(function ($q) use ($start, $end): void {
+                $q->whereBetween('exception_date', [$start, $end])
+                    ->orWhereHas('replacementInstance', fn ($r) => $r->whereBetween('instance_date', [$start, $end]));
+            })
+            ->with('replacementInstance')
+            ->get();
+    }
+
+    /**
+     * Batch-expand recurring tasks and events to determine which are relevant for a given date.
+     * Preloads exceptions in bulk to avoid N+1 queries.
+     *
+     * @param  iterable<RecurringTask>  $recurringTasks
+     * @param  iterable<RecurringEvent>  $recurringEvents
+     * @return array{task_ids: array<int>, event_ids: array<int>}
+     */
+    public function getRelevantRecurringIdsForDate(iterable $recurringTasks, iterable $recurringEvents, CarbonInterface $date): array
+    {
+        $taskIds = [];
+        $eventIds = [];
+
+        $recurringTasks = collect($recurringTasks)->filter()->values();
+        $recurringEvents = collect($recurringEvents)->filter()->values();
+
+        $taskExceptionMap = $this->preloadTaskExceptions($recurringTasks->pluck('id'), $date, $date);
+        $eventExceptionMap = $this->preloadEventExceptions($recurringEvents->pluck('id'), $date, $date);
+
+        foreach ($recurringTasks as $recurring) {
+            $occurrences = $this->expand($recurring, $date, $date, $taskExceptionMap[$recurring->id] ?? null);
+            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $date->format('Y-m-d'))) {
+                $taskIds[] = $recurring->id;
+            }
+        }
+
+        foreach ($recurringEvents as $recurring) {
+            $occurrences = $this->expand($recurring, $date, $date, $eventExceptionMap[$recurring->id] ?? null);
+            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $date->format('Y-m-d'))) {
+                $eventIds[] = $recurring->id;
+            }
+        }
+
+        return ['task_ids' => $taskIds, 'event_ids' => $eventIds];
+    }
+
+    /**
+     * Preload TaskExceptions for multiple recurring tasks in one query.
+     *
+     * @return array<int, Collection<int, TaskException>>
+     */
+    private function preloadTaskExceptions(Collection $recurringTaskIds, CarbonInterface $start, CarbonInterface $end): array
+    {
+        if ($recurringTaskIds->isEmpty()) {
+            return [];
+        }
+
+        $exceptions = TaskException::query()
+            ->whereIn('recurring_task_id', $recurringTaskIds)
+            ->where(function ($q) use ($start, $end): void {
+                $q->whereBetween('exception_date', [$start, $end])
+                    ->orWhereHas('replacementInstance', fn ($r) => $r->whereBetween('instance_date', [$start, $end]));
+            })
+            ->with('replacementInstance')
+            ->get();
+
+        return $exceptions->groupBy('recurring_task_id')->all();
+    }
+
+    /**
+     * Preload EventExceptions for multiple recurring events in one query.
+     *
+     * @return array<int, Collection<int, EventException>>
+     */
+    private function preloadEventExceptions(Collection $recurringEventIds, CarbonInterface $start, CarbonInterface $end): array
+    {
+        if ($recurringEventIds->isEmpty()) {
+            return [];
+        }
+
+        $exceptions = EventException::query()
+            ->whereIn('recurring_event_id', $recurringEventIds)
+            ->where(function ($q) use ($start, $end): void {
+                $q->whereBetween('exception_date', [$start, $end])
+                    ->orWhereHas('replacementInstance', fn ($r) => $r->whereBetween('instance_date', [$start, $end]));
+            })
+            ->with('replacementInstance')
+            ->get();
+
+        return $exceptions->groupBy('recurring_event_id')->all();
     }
 
     /**

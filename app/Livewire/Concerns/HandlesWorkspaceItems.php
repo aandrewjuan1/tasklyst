@@ -523,7 +523,9 @@ trait HandlesWorkspaceItems
                     $date = Carbon::parse($this->selectedDate);
                     $oldStatus = $this->taskService->getEffectiveStatusForDate($task, $date)?->value;
                     $this->taskService->updateRecurringOccurrenceStatus($task, $date, TaskStatus::from($validatedValue));
-                    $this->listRefresh++;
+                    // Do not listRefresh++ for recurring status updates: the frontend hides the card via
+                    // hideFromList() when status is 'done'. A full re-render would recreate the list and
+                    // overwrite the optimistic status before the hide transition runs.
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $task->title));
                     }
@@ -813,7 +815,8 @@ trait HandlesWorkspaceItems
                     $date = Carbon::parse($this->selectedDate);
                     $oldStatus = $this->eventService->getEffectiveStatusForDate($event, $date)?->value;
                     $this->eventService->updateRecurringOccurrenceStatus($event, $date, EventStatus::from($validatedValue));
-                    $this->listRefresh++;
+                    // Do not listRefresh++ for recurring status updates: avoids full re-render that
+                    // overwrites optimistic status before frontend can hide the card.
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $event->title));
                     }
@@ -1000,6 +1003,7 @@ trait HandlesWorkspaceItems
 
     /**
      * Get tasks for the selected date for the authenticated user.
+     * Uses batch recurrence expansion to avoid N+1 queries.
      */
     #[Computed]
     public function tasks(): Collection
@@ -1027,8 +1031,25 @@ trait HandlesWorkspaceItems
             ->limit(50)
             ->get();
 
+        $recurringTasks = $tasks->pluck('recurringTask')->filter();
+        $relevantIds = $recurringTasks->isNotEmpty()
+            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate($recurringTasks, collect(), $date)
+            : ['task_ids' => [], 'event_ids' => []];
+
+        $relevantTaskIds = array_flip($relevantIds['task_ids']);
+
         return $tasks
-            ->filter(fn (Task $task) => $this->taskService->isTaskRelevantForDate($task, $date))
+            ->filter(function (Task $task) use ($relevantTaskIds): bool {
+                if ($task->recurringTask === null) {
+                    return true;
+                }
+                if (! isset($relevantTaskIds[$task->recurringTask->id])) {
+                    return false;
+                }
+                $instance = $task->recurringTask->taskInstances->first();
+
+                return $instance === null || $instance->status !== TaskStatus::Done;
+            })
             ->map(function (Task $task) use ($date): Task {
                 $task->effectiveStatusForDate = $this->taskService->getEffectiveStatusForDate($task, $date);
 
@@ -1066,6 +1087,7 @@ trait HandlesWorkspaceItems
 
     /**
      * Get events for the selected date for the authenticated user.
+     * Uses batch recurrence expansion to avoid N+1 queries.
      */
     #[Computed]
     public function events(): Collection
@@ -1090,8 +1112,26 @@ trait HandlesWorkspaceItems
             ->limit(50)
             ->get();
 
+        $recurringEvents = $events->pluck('recurringEvent')->filter();
+        $relevantIds = $recurringEvents->isNotEmpty()
+            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate(collect(), $recurringEvents, $date)
+            : ['task_ids' => [], 'event_ids' => []];
+
+        $relevantEventIds = array_flip($relevantIds['event_ids']);
+
         return $events
-            ->filter(fn (Event $event) => $this->eventService->isEventActiveForDate($event, $date))
+            ->filter(function (Event $event) use ($relevantEventIds): bool {
+                if ($event->recurringEvent === null) {
+                    return true;
+                }
+                if (! isset($relevantEventIds[$event->recurringEvent->id])) {
+                    return false;
+                }
+                $instance = $event->recurringEvent->eventInstances->first();
+
+                return $instance === null
+                    || ($instance->status !== EventStatus::Completed && $instance->status !== EventStatus::Cancelled);
+            })
             ->map(function (Event $event) use ($date): Event {
                 $event->effectiveStatusForDate = $this->eventService->getEffectiveStatusForDate($event, $date);
 
