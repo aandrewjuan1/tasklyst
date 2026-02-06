@@ -1,9 +1,9 @@
 <div
     class="space-y-4"
     x-data="{
-        showTaskCreation: false,
+        showItemCreation: false,
         creationKind: 'task',
-        showTaskLoading: false,
+        showItemLoading: false,
         loadingStartedAt: null,
         isSubmitting: false,
         messages: {
@@ -281,8 +281,8 @@
             this.isSubmitting = true;
             this.formData.item.title = this.formData.item.title.trim();
 
-            this.showTaskCreation = false;
-            this.showTaskLoading = true;
+            this.showItemCreation = false;
+            this.showItemLoading = true;
             this.loadingStartedAt = Date.now();
 
             const payload = JSON.parse(JSON.stringify(this.formData.item));
@@ -311,7 +311,7 @@
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
                     setTimeout(() => {
-                        this.showTaskLoading = false;
+                        this.showItemLoading = false;
                         this.isSubmitting = false;
                     }, remaining);
                 });
@@ -332,8 +332,8 @@
             this.isSubmitting = true;
             this.formData.item.title = this.formData.item.title.trim();
 
-            this.showTaskCreation = false;
-            this.showTaskLoading = true;
+            this.showItemCreation = false;
+            this.showItemLoading = true;
             this.loadingStartedAt = Date.now();
 
             const payload = JSON.parse(JSON.stringify(this.formData.item));
@@ -362,7 +362,7 @@
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
                     setTimeout(() => {
-                        this.showTaskLoading = false;
+                        this.showItemLoading = false;
                         this.isSubmitting = false;
                     }, remaining);
                 });
@@ -584,7 +584,7 @@
     @endphp
     <div class="relative z-10">
         <flux:dropdown position="right" align="start">
-            <flux:button icon:trailing="plus-circle" data-task-creation-safe>
+            <flux:button icon:trailing="plus-circle" data-item-creation-safe>
                 {{ __('Add') }}
             </flux:button>
 
@@ -592,12 +592,12 @@
                 <flux:menu.item
                     icon="rectangle-stack"
                     @click="
-                        if (showTaskCreation && creationKind === 'task') {
-                            showTaskCreation = false;
+                        if (showItemCreation && creationKind === 'task') {
+                            showItemCreation = false;
                         } else {
                             creationKind = 'task';
                             resetForm();
-                            showTaskCreation = true;
+                            showItemCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }
                     "
@@ -607,12 +607,12 @@
                 <flux:menu.item
                     icon="calendar-days"
                     @click="
-                        if (showTaskCreation && creationKind === 'event') {
-                            showTaskCreation = false;
+                        if (showItemCreation && creationKind === 'event') {
+                            showItemCreation = false;
                         } else {
                             creationKind = 'event';
                             resetForm();
-                            showTaskCreation = true;
+                            showItemCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }
                     "
@@ -626,12 +626,12 @@
         </flux:dropdown>
 
         <div
-            x-show="showTaskCreation"
+            x-show="showItemCreation"
             x-transition
             x-ref="taskCreationCard"
             @click.outside="
                 const target = $event.target;
-                const isSafe = target.closest('[data-task-creation-safe]');
+                const isSafe = target.closest('[data-item-creation-safe]');
                 // Also treat Flux dropdown trigger/panel as safe so switching
                 // between Task and Event from the Add menu does not close the card.
                 const isDropdownContext =
@@ -640,7 +640,7 @@
                     target.closest('[data-flux-menu]');
 
                 if (!isSafe && !isDropdownContext) {
-                    showTaskCreation = false;
+                    showItemCreation = false;
                 }
             "
             class="relative mt-4 flex flex-col gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 shadow-md ring-1 ring-border/20"
@@ -728,7 +728,7 @@
     </div>
 
     <div
-        x-show="showTaskLoading"
+        x-show="showItemLoading"
         x-cloak
         data-test="task-loading-card"
         class="mt-4 flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm backdrop-blur opacity-60"
