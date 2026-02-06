@@ -178,7 +178,7 @@ class EventService
 
     /**
      * Get the effective status for an event on a given date.
-     * For recurring events: returns instance status if one exists for that date, otherwise base event status.
+     * For recurring events: returns instance status if one exists for that date, otherwise Scheduled (each occurrence starts fresh).
      * For non-recurring: returns base event status.
      * Uses eager-loaded eventInstances when available to avoid N+1 queries.
      */
@@ -200,7 +200,7 @@ class EventService
                 ->whereDate('instance_date', $dateStr)
                 ->first();
 
-        return $instance?->status ?? $event->status ?? EventStatus::Scheduled;
+        return $instance?->status ?? EventStatus::Scheduled;
     }
 
     /**

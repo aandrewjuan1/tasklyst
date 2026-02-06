@@ -336,6 +336,24 @@ it('getEffectiveStatusForDate returns instance status when instance exists', fun
     expect($effectiveStatus)->toBe(TaskStatus::ToDo);
 });
 
+it('getEffectiveStatusForDate returns ToDo for recurring task with no instance regardless of base status', function (): void {
+    Carbon::setTestNow('2026-02-06 10:00:00');
+
+    $task = Task::factory()->create(['status' => TaskStatus::Doing]);
+    RecurringTask::query()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-01-01 00:00:00'),
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $effectiveStatus = app(TaskService::class)->getEffectiveStatusForDate($task->load('recurringTask'), Carbon::parse('2026-02-06'));
+
+    expect($effectiveStatus)->toBe(TaskStatus::ToDo);
+});
+
 it('getEffectiveStatusForDate returns base task status for non-recurring task', function (): void {
     $task = Task::factory()->create(['status' => TaskStatus::Doing]);
 

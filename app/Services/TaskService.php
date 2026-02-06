@@ -112,6 +112,13 @@ class TaskService
     {
         unset($attributes['user_id']);
 
+        if (array_key_exists('status', $attributes)) {
+            $status = $attributes['status'] instanceof TaskStatus
+                ? $attributes['status']
+                : TaskStatus::tryFrom((string) $attributes['status']);
+            $attributes['completed_at'] = $status === TaskStatus::Done ? now() : null;
+        }
+
         return DB::transaction(function () use ($task, $attributes): Task {
             $task->fill($attributes);
             $task->save();
@@ -179,7 +186,7 @@ class TaskService
 
     /**
      * Get the effective status for a task on a given date.
-     * For recurring tasks: returns instance status if one exists for that date, otherwise base task status.
+     * For recurring tasks: returns instance status if one exists for that date, otherwise ToDo (each occurrence starts fresh).
      * For non-recurring: returns base task status.
      * Uses eager-loaded taskInstances when available to avoid N+1 queries.
      */
@@ -201,7 +208,7 @@ class TaskService
                 ->whereDate('instance_date', $dateStr)
                 ->first();
 
-        return $instance?->status ?? $task->status ?? TaskStatus::ToDo;
+        return $instance?->status ?? TaskStatus::ToDo;
     }
 
     /**

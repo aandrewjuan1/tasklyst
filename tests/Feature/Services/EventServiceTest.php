@@ -183,6 +183,24 @@ it('getEffectiveStatusForDate returns instance status when instance exists', fun
     expect($effectiveStatus)->toBe(EventStatus::Scheduled);
 });
 
+it('getEffectiveStatusForDate returns Scheduled for recurring event with no instance regardless of base status', function (): void {
+    Carbon::setTestNow('2026-02-06 10:00:00');
+
+    $event = Event::factory()->create(['status' => EventStatus::Ongoing]);
+    RecurringEvent::query()->create([
+        'event_id' => $event->id,
+        'recurrence_type' => EventRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-01-01 00:00:00'),
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $effectiveStatus = app(EventService::class)->getEffectiveStatusForDate($event->load('recurringEvent'), Carbon::parse('2026-02-06'));
+
+    expect($effectiveStatus)->toBe(EventStatus::Scheduled);
+});
+
 it('isEventActiveForDate shows recurring event even when instance is completed', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 
