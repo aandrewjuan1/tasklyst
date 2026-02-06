@@ -47,6 +47,19 @@ class Event extends Model
                         : __('Couldn’t add the event. Try again.'),
                     'icon' => 'exclamation-triangle',
                 ],
+            'update' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasTitle ? __('Saved changes to :title.', ['title' => $quotedTitle]) : __('Saved changes.'),
+                    'icon' => 'pencil-square',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasTitle
+                        ? __('Couldn\'t save changes to :title. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn\'t save changes. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
             'delete' => $success
                 ? [
                     'type' => $type,
@@ -406,5 +419,88 @@ class Event extends Model
                         });
                 });
         });
+    }
+
+    /**
+     * Exclude cancelled events.
+     */
+    public function scopeNotCancelled(Builder $query): Builder
+    {
+        return $query->where('status', '!=', EventStatus::Cancelled->value);
+    }
+
+    /**
+     * Order events by start time (chronological).
+     */
+    public function scopeOrderByStartTime(Builder $query): Builder
+    {
+        return $query->orderBy('start_datetime');
+    }
+
+    /**
+     * Events with no start or end date (unscheduled).
+     */
+    public function scopeWithNoDate(Builder $query): Builder
+    {
+        return $query->whereNull('start_datetime')->whereNull('end_datetime');
+    }
+
+    /**
+     * Events that ended before the given date (past / missed).
+     */
+    public function scopeOverdue(Builder $query, CarbonInterface $asOfDate): Builder
+    {
+        $startOfDay = $asOfDate->copy()->startOfDay();
+
+        return $query->whereNotNull('end_datetime')
+            ->whereDate('end_datetime', '<', $startOfDay->toDateString());
+    }
+
+    /**
+     * Events starting on or after the given date.
+     */
+    public function scopeUpcoming(Builder $query, CarbonInterface $fromDate): Builder
+    {
+        return $query->whereNotNull('start_datetime')
+            ->whereDate('start_datetime', '>=', $fromDate->copy()->startOfDay()->toDateString());
+    }
+
+    /**
+     * Events starting within the next N days from the given date.
+     */
+    public function scopeStartingSoon(Builder $query, CarbonInterface $fromDate, int $days = 7): Builder
+    {
+        $endDate = $fromDate->copy()->addDays($days)->endOfDay();
+
+        return $query->whereNotNull('start_datetime')
+            ->whereBetween('start_datetime', [$fromDate->copy()->startOfDay(), $endDate]);
+    }
+
+    /**
+     * Events where the given time is between start and end (happening now).
+     */
+    public function scopeHappeningNow(Builder $query, CarbonInterface $atTime): Builder
+    {
+        return $query->whereNotNull('start_datetime')
+            ->where('start_datetime', '<=', $atTime)
+            ->where(function (Builder $q) use ($atTime) {
+                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', $atTime);
+            });
+    }
+
+    /**
+     * All-day events only.
+     */
+    public function scopeAllDay(Builder $query): Builder
+    {
+        return $query->where('all_day', true);
+    }
+
+    /**
+     * Timed events only (not all-day).
+     */
+    public function scopeTimed(Builder $query): Builder
+    {
+        return $query->where('all_day', false);
     }
 }

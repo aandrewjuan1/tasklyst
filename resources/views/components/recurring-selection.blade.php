@@ -22,7 +22,7 @@
         $interval = (int) ($initialRecurrence['interval'] ?? 1);
         $daysOfWeek = $initialRecurrence['daysOfWeek'] ?? [];
         $dayDisplayLabels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-        $typeLabels = ['daily' => 'DAILY', 'weekly' => 'WEEKLY', 'monthly' => 'MONTHLY', 'yearly' => 'YEARLY', 'custom' => 'CUSTOM'];
+        $typeLabels = ['daily' => 'DAILY', 'weekly' => 'WEEKLY', 'monthly' => 'MONTHLY', 'yearly' => 'YEARLY'];
         if ($type === 'weekly' && is_array($daysOfWeek) && count($daysOfWeek) > 0) {
             $dayNames = implode(', ', array_map(fn ($d) => $dayDisplayLabels[$d] ?? '', $daysOfWeek));
             $intervalPart = $interval === 1 ? 'WEEKLY' : 'EVERY ' . $interval . ' WEEKS';
@@ -30,7 +30,7 @@
         } elseif ($interval === 1) {
             $initialDisplayLabel = $typeLabels[$type] ?? strtoupper($type);
         } else {
-            $typePlural = ['daily' => 'DAYS', 'weekly' => 'WEEKS', 'monthly' => 'MONTHS', 'yearly' => 'YEARS', 'custom' => ''][$type] ?? '';
+            $typePlural = ['daily' => 'DAYS', 'weekly' => 'WEEKS', 'monthly' => 'MONTHS', 'yearly' => 'YEARS'][$type] ?? '';
             $initialDisplayLabel = $typePlural ? 'EVERY ' . $interval . ' ' . $typePlural : ($typeLabels[$type] ?? strtoupper($type));
         }
     }

@@ -18,7 +18,6 @@ class RecurringEvent extends Model
         'days_of_week',
         'start_datetime',
         'end_datetime',
-        'timezone',
     ];
 
     protected function casts(): array

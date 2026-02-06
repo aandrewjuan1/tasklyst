@@ -6,7 +6,6 @@ use App\Enums\EventRecurrenceType;
 use App\Models\Event;
 use App\Models\RecurringEvent;
 use App\Models\User;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class EventService
@@ -77,7 +76,7 @@ class EventService
         $endDatetime = $event->end_datetime;
 
         if ($startDatetime === null) {
-            $startDatetime = Carbon::now();
+            $startDatetime = now();
         }
 
         $daysOfWeekString = null;
@@ -92,7 +91,6 @@ class EventService
             'days_of_week' => $daysOfWeekString,
             'start_datetime' => $startDatetime,
             'end_datetime' => $endDatetime,
-            'timezone' => config('app.timezone'),
         ]);
     }
 

@@ -466,4 +466,62 @@ class Task extends Model
                 });
         });
     }
+
+    /**
+     * Incomplete tasks whose effective due date is before the given date.
+     * Useful for an "Overdue" bucket at the top of Today.
+     */
+    public function scopeOverdue(Builder $query, CarbonInterface $asOfDate): Builder
+    {
+        $startOfDay = $asOfDate->copy()->startOfDay();
+
+        return $query->whereNotNull('end_datetime')
+            ->whereDate('end_datetime', '<', $startOfDay->toDateString());
+    }
+
+    /**
+     * Order tasks by priority: urgent → high → medium → low.
+     */
+    public function scopeOrderByPriority(Builder $query): Builder
+    {
+        return $query->orderByRaw("
+            CASE COALESCE(priority, 'medium')
+                WHEN 'urgent' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                WHEN 'low' THEN 4
+                ELSE 5
+            END
+        ");
+    }
+
+    /**
+     * Tasks with no start or end date (someday / no-date items).
+     */
+    public function scopeWithNoDate(Builder $query): Builder
+    {
+        return $query->whereNull('start_datetime')->whereNull('end_datetime');
+    }
+
+    /**
+     * Filter to high and urgent priority tasks only.
+     */
+    public function scopeHighPriority(Builder $query): Builder
+    {
+        return $query->whereIn('priority', [
+            TaskPriority::High->value,
+            TaskPriority::Urgent->value,
+        ]);
+    }
+
+    /**
+     * Tasks due within the next N days from the given date.
+     */
+    public function scopeDueSoon(Builder $query, CarbonInterface $fromDate, int $days = 7): Builder
+    {
+        $endDate = $fromDate->copy()->addDays($days)->endOfDay();
+
+        return $query->whereNotNull('end_datetime')
+            ->whereBetween('end_datetime', [$fromDate->copy()->startOfDay(), $endDate]);
+    }
 }

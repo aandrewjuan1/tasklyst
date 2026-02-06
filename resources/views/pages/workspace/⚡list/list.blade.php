@@ -426,7 +426,7 @@
         },
         recurrenceLabel(recurrence) {
             if (!recurrence?.enabled || !recurrence?.type) return '';
-            const labels = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY', custom: 'CUSTOM' };
+            const labels = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
             const dayDisplayLabels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
             if (recurrence.type === 'weekly' && Array.isArray(recurrence.daysOfWeek) && recurrence.daysOfWeek.length > 0) {
                 const dayNames = recurrence.daysOfWeek.map(d => dayDisplayLabels[d]).join(', ');
@@ -434,7 +434,7 @@
                 return `${intervalPart} (${dayNames})`;
             }
             if ((recurrence.interval ?? 1) === 1) return labels[recurrence.type] || recurrence.type;
-            const typePlural = { daily: 'DAYS', weekly: 'WEEKS', monthly: 'MONTHS', yearly: 'YEARS', custom: '' }[recurrence.type] || '';
+            const typePlural = { daily: 'DAYS', weekly: 'WEEKS', monthly: 'MONTHS', yearly: 'YEARS' }[recurrence.type] || '';
             return typePlural ? `EVERY ${recurrence.interval} ${typePlural}` : (labels[recurrence.type] || recurrence.type);
         },
         formatDurationLabel(duration) {
@@ -484,7 +484,7 @@
             return map[complexity] || map.moderate;
         },
         getRecurrenceBadgeClass(type) {
-            const map = { daily: 'bg-blue-800/10 text-blue-800', weekly: 'bg-purple-800/10 text-purple-800', monthly: 'bg-indigo-800/10 text-indigo-800', yearly: 'bg-pink-800/10 text-pink-800', custom: 'bg-gray-800/10 text-gray-800' };
+            const map = { daily: 'bg-blue-800/10 text-blue-800', weekly: 'bg-purple-800/10 text-purple-800', monthly: 'bg-indigo-800/10 text-indigo-800', yearly: 'bg-pink-800/10 text-pink-800' };
             return map[type] || 'bg-gray-800/10 text-gray-800';
         },
         setFormDataByPath(path, value) {
