@@ -1,6 +1,7 @@
 @props([
     'position' => 'top',
     'align' => 'end',
+    'selectedTags' => [],
 ])
 
 @php
@@ -84,17 +85,30 @@
         :class="{ 'shadow-md scale-[1.02]': open }"
         data-task-creation-safe
     >
-        <template x-for="tag in (tags || []).filter(t => (formData?.task?.tagIds || []).some(id => String(id) === String(t.id)))" :key="tag.id">
-            <span
-                class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
-                x-text="tag.name"
-            ></span>
-        </template>
-        <span
-            x-show="!formData?.task?.tagIds?.length"
-            x-cloak
-            class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
-        >{{ __('None') }}</span>
+        <span x-data="{ alpineReady: false }" x-init="alpineReady = true" class="contents">
+            {{-- Server-rendered first paint --}}
+            <span x-show="!alpineReady" class="inline-flex flex-wrap items-center gap-1.5">
+                @foreach ($selectedTags as $tag)
+                    <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground">{{ $tag->name ?? $tag['name'] ?? '' }}</span>
+                @endforeach
+                @if (count($selectedTags) === 0)
+                    <span class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{{ __('None') }}</span>
+                @endif
+            </span>
+            {{-- Alpine reactive (replaces server content when hydrated) --}}
+            <span x-show="alpineReady" class="inline-flex flex-wrap items-center gap-1.5" x-cloak>
+                <template x-for="tag in (tags || []).filter(t => (formData?.task?.tagIds || []).some(id => String(id) === String(t.id)))" :key="tag.id">
+                    <span
+                        class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
+                        x-text="tag.name"
+                    ></span>
+                </template>
+                <span
+                    x-show="!formData?.task?.tagIds?.length"
+                    class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+                >{{ __('None') }}</span>
+            </span>
+        </span>
     </button>
 
     <div

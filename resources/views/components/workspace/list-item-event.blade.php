@@ -477,7 +477,7 @@
             @tag-create-request="createTagOptimistic($event.detail.tagName)"
             @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
         >
-            <x-workspace.tag-selection position="top" align="end" />
+            <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" />
         </div>
     </div>
 </div>
