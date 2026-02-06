@@ -568,7 +568,7 @@
     @tag-deleted="onTagDeleted($event)"
     @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @recurring-selection-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
-    @task-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @item-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @tag-toggled="toggleTag($event.detail.tagId)"
     @tag-create-request="createTagOptimistic($event.detail.tagName)"
     @tag-delete-request="deleteTagOptimistic($event.detail.tag)"

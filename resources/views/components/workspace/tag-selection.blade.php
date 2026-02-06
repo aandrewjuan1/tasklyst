@@ -7,6 +7,23 @@
 @php
     $panelHeightEst = 220;
     $panelWidthEst = 192;
+
+    $selectedTagsSorted = collect($selectedTags)
+        ->sortBy(function (mixed $tag): string {
+            if (is_array($tag)) {
+                return (string) ($tag['name'] ?? '');
+            }
+
+            return (string) ($tag->name ?? '');
+        })
+        ->sortBy(function (mixed $tag): int {
+            if (is_array($tag)) {
+                return (int) ($tag['id'] ?? 0);
+            }
+
+            return (int) ($tag->id ?? 0);
+        })
+        ->values();
 @endphp
 
 <div
@@ -88,10 +105,10 @@
         <span x-data="{ alpineReady: false }" x-init="alpineReady = true" class="contents">
             {{-- Server-rendered first paint --}}
             <span x-show="!alpineReady" class="inline-flex flex-wrap items-center gap-1.5">
-                @foreach ($selectedTags as $tag)
+                @foreach ($selectedTagsSorted as $tag)
                     <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground">{{ $tag->name ?? $tag['name'] ?? '' }}</span>
                 @endforeach
-                @if (count($selectedTags) === 0)
+                @if ($selectedTagsSorted->count() === 0)
                     <span class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{{ __('None') }}</span>
                 @endif
             </span>

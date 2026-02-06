@@ -29,7 +29,7 @@
                 type="button"
                 class="{{ $dropdownItemClass }}"
                 x-bind:class="{ 'font-semibold text-foreground': formData.item.status === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.item.status', value: '{{ $opt['value'] }}' })"
+                @click="$dispatch('item-form-updated', { path: 'formData.item.status', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>

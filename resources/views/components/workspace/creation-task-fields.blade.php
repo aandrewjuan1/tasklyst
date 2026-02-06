@@ -28,7 +28,7 @@
                 type="button"
                 class="{{ $dropdownItemClass }}"
                 x-bind:class="{ 'font-semibold text-foreground': formData.item.status === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.item.status', value: '{{ $opt['value'] }}' })"
+                @click="$dispatch('item-form-updated', { path: 'formData.item.status', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>
@@ -62,7 +62,7 @@
                 type="button"
                 class="{{ $dropdownItemClass }}"
                 x-bind:class="{ 'font-semibold text-foreground': formData.item.priority === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.item.priority', value: '{{ $opt['value'] }}' })"
+                @click="$dispatch('item-form-updated', { path: 'formData.item.priority', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>
@@ -96,7 +96,7 @@
                 type="button"
                 class="{{ $dropdownItemClass }}"
                 x-bind:class="{ 'font-semibold text-foreground': formData.item.complexity === '{{ $opt['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.item.complexity', value: '{{ $opt['value'] }}' })"
+                @click="$dispatch('item-form-updated', { path: 'formData.item.complexity', value: '{{ $opt['value'] }}' })"
             >
                 {{ $opt['label'] }}
             </button>
@@ -130,7 +130,7 @@
                 type="button"
                 class="{{ $dropdownItemClass }}"
                 x-bind:class="{ 'font-semibold text-foreground': formData.item.duration == '{{ $dur['value'] }}' }"
-                @click="$dispatch('task-form-updated', { path: 'formData.item.duration', value: '{{ $dur['value'] }}' })"
+                @click="$dispatch('item-form-updated', { path: 'formData.item.duration', value: '{{ $dur['value'] }}' })"
             >
                 {{ $dur['label'] }}
             </button>
