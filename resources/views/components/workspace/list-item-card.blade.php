@@ -221,18 +221,13 @@
         /**
          * Determine if a task is still relevant for the current list filter date.
          *
-         * This mirrors the backend Task::scopeRelevantForDate logic for non‑recurring tasks:
+         * This mirrors the backend Task::scopeRelevantForDate logic:
          * - tasks with no dates are always relevant
          * - tasks with only an end date are relevant up to and including that end date
          * - tasks with a start (and optional end) are relevant if their window overlaps the day
          */
         isTaskStillRelevantForList(startDatetime, endDatetime) {
             if (this.kind !== 'task' || !this.listFilterDate) {
-                return true;
-            }
-
-            // Let the backend decide for recurring tasks; we always keep them visible here.
-            if (this.isRecurringTask) {
                 return true;
             }
 
@@ -297,18 +292,13 @@
         /**
          * Determine if an event is still relevant for the current list filter date.
          *
-         * Mirrors Event::scopeActiveForDate for non‑recurring events:
+         * Mirrors Event::scopeActiveForDate:
          * - no dates => always relevant
          * - only end date => relevant while end date (by calendar date) is on/after the filter date
          * - start/end window overlaps the day => relevant
          */
         isEventStillRelevantForList(startDatetime, endDatetime) {
             if (this.kind !== 'event' || !this.listFilterDate) {
-                return true;
-            }
-
-            // Let the backend decide for recurring events; we always keep them visible here.
-            if (this.hasRecurringEvent) {
                 return true;
             }
 

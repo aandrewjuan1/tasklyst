@@ -7,6 +7,7 @@ use App\Enums\TaskStatus;
 use App\Models\Collaboration;
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
@@ -181,6 +182,40 @@ it('only marks items as overdue when end/due date is before today, not selected 
         ->set('selectedDate', $tomorrow->toDateString())
         ->assertSee('Actually Overdue Task')
         ->assertDontSee('Task Due Today');
+});
+
+it('excludes recurring tasks and events from overdue section', function (): void {
+    $user = User::factory()->create();
+
+    $overdueNonRecurringTask = Task::factory()->for($user)->create([
+        'title' => 'Overdue Non-Recurring Task',
+        'end_datetime' => now()->subDays(2),
+        'completed_at' => null,
+    ]);
+
+    $overdueRecurringTask = Task::factory()->for($user)->create([
+        'title' => 'Overdue Recurring Task',
+        'end_datetime' => now()->subDays(2),
+        'completed_at' => null,
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $overdueRecurringTask->id,
+    ]);
+
+    $overdueRecurringEvent = Event::factory()->for($user)->create([
+        'title' => 'Overdue Recurring Event',
+        'end_datetime' => now()->subDay(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+    RecurringEvent::factory()->create([
+        'event_id' => $overdueRecurringEvent->id,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->assertSee('Overdue Non-Recurring Task')
+        ->assertDontSee('Overdue Recurring Task')
+        ->assertDontSee('Overdue Recurring Event');
 });
 
 it('can create a task from the workspace component', function (): void {
