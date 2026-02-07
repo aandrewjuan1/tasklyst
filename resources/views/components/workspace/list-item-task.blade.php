@@ -392,14 +392,21 @@
             }
             this.editDateRangeError = null;
             if (path === 'startDatetime' || path === 'endDatetime') {
+                window.dispatchEvent(new CustomEvent('task-date-update-started', {
+                    detail: { taskId: this.itemId, startDatetime: startVal, endDatetime: endVal },
+                    bubbles: true,
+                }));
                 $dispatch('task-date-updated', { startDatetime: startVal, endDatetime: endVal });
             }
             const ok = await this.updateProperty(path, value);
             if (!ok) {
                 const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                 this.dispatchDatePickerRevert(e.target, path, realValue);
-                if (path === 'startDatetime') {
-                    window.dispatchEvent(new CustomEvent('task-date-update-failed', { detail: { taskId: this.itemId }, bubbles: true }));
+                if (path === 'startDatetime' || path === 'endDatetime') {
+                    window.dispatchEvent(new CustomEvent('task-date-update-failed', {
+                        detail: { taskId: this.itemId },
+                        bubbles: true,
+                    }));
                 }
             }
         },

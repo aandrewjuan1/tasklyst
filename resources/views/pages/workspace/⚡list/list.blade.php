@@ -538,10 +538,6 @@
                     this.tags.push({ id, name });
                     this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
-
-                if (this.formData?.item?.tagIds && !this.formData.item.tagIds.includes(id)) {
-                    this.formData.item.tagIds.push(id);
-                }
             }
         },
         onTagDeleted(event) {
@@ -596,6 +592,12 @@
                             showItemCreation = false;
                         } else {
                             creationKind = 'task';
+                            formData.item.status = 'to_do';
+                            formData.item.priority = 'medium';
+                            formData.item.complexity = 'moderate';
+                            formData.item.duration = '60';
+                            formData.item.allDay = false;
+                            formData.item.projectId = null;
                             showItemCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }
@@ -610,6 +612,8 @@
                             showItemCreation = false;
                         } else {
                             creationKind = 'event';
+                            formData.item.status = 'scheduled';
+                            formData.item.allDay = false;
                             showItemCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }

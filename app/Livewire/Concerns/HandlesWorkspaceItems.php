@@ -40,6 +40,7 @@ trait HandlesWorkspaceItems
         $this->authorize('create', Task::class);
 
         $this->taskPayload = array_replace_recursive(TaskPayloadValidation::defaults(), $payload);
+        $this->taskPayload['tagIds'] = $this->filterValidTagIdsForUser($user->id, $this->taskPayload['tagIds'] ?? []);
 
         try {
             /** @var array{taskPayload: array<string, mixed>} $validated */
@@ -113,6 +114,7 @@ trait HandlesWorkspaceItems
         $this->authorize('create', Event::class);
 
         $this->eventPayload = array_replace_recursive(EventPayloadValidation::defaults(), $payload);
+        $this->eventPayload['tagIds'] = $this->filterValidTagIdsForUser($user->id, $this->eventPayload['tagIds'] ?? []);
 
         try {
             /** @var array{eventPayload: array<string, mixed>} $validated */
@@ -254,7 +256,9 @@ trait HandlesWorkspaceItems
         $tag = Tag::query()->forUser($user->id)->find($tagId);
 
         if ($tag === null) {
-            $this->dispatch('toast', type: 'error', message: __('Tag not found.'));
+            if (! $silentToasts) {
+                $this->dispatch('toast', type: 'error', message: __('Tag not found.'));
+            }
 
             return;
         }
@@ -391,6 +395,11 @@ trait HandlesWorkspaceItems
 
         if ($property === 'tagIds') {
             $oldTagIds = $task->tags()->pluck('tags.id')->all();
+            $addedIds = array_values(array_diff($validatedValue, $oldTagIds));
+            $removedIds = array_values(array_diff($oldTagIds, $validatedValue));
+            $addedTagName = count($addedIds) === 1 ? (Tag::find($addedIds[0])?->name ?? null) : null;
+            $removedTagName = count($removedIds) === 1 ? (Tag::find($removedIds[0])?->name ?? null) : null;
+
             try {
                 $task->tags()->sync($validatedValue);
             } catch (\Throwable $e) {
@@ -404,7 +413,7 @@ trait HandlesWorkspaceItems
                 return false;
             }
             if (! $silentToasts) {
-                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $task->title));
+                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $task->title, $addedTagName, $removedTagName));
             }
 
             return true;
@@ -670,6 +679,11 @@ trait HandlesWorkspaceItems
 
         if ($property === 'tagIds') {
             $oldTagIds = $event->tags()->pluck('tags.id')->all();
+            $addedIds = array_values(array_diff($validatedValue, $oldTagIds));
+            $removedIds = array_values(array_diff($oldTagIds, $validatedValue));
+            $addedTagName = count($addedIds) === 1 ? (Tag::find($addedIds[0])?->name ?? null) : null;
+            $removedTagName = count($removedIds) === 1 ? (Tag::find($removedIds[0])?->name ?? null) : null;
+
             try {
                 $event->tags()->sync($validatedValue);
             } catch (\Throwable $e) {
@@ -683,7 +697,7 @@ trait HandlesWorkspaceItems
                 return false;
             }
             if (! $silentToasts) {
-                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $event->title));
+                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $event->title, $addedTagName, $removedTagName));
             }
 
             return true;
@@ -898,6 +912,23 @@ trait HandlesWorkspaceItems
         }
 
         return $user;
+    }
+
+    /**
+     * Filter tag IDs to only those that exist and belong to the user.
+     * Prevents validation errors when the frontend has stale tag IDs (e.g. deleted tags).
+     *
+     * @param  array<int|string>  $tagIds
+     * @return array<int>
+     */
+    private function filterValidTagIdsForUser(int $userId, array $tagIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $tagIds))));
+        if ($ids === []) {
+            return [];
+        }
+
+        return Tag::query()->forUser($userId)->whereIn('id', $ids)->pluck('id')->all();
     }
 
     /**

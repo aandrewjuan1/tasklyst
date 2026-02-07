@@ -83,9 +83,11 @@ class Event extends Model
     /**
      * Build a friendly toast payload for inline Event edits.
      *
+     * @param  string|null  $addedTagName  When exactly one tag was added (optional).
+     * @param  string|null  $removedTagName  When exactly one tag was removed (optional).
      * @return array{type: 'success'|'error'|'info', message: string, icon: string}
      */
-    public static function toastPayloadForPropertyUpdate(string $property, mixed $fromValue, mixed $toValue, bool $success, ?string $eventTitle = null): array
+    public static function toastPayloadForPropertyUpdate(string $property, mixed $fromValue, mixed $toValue, bool $success, ?string $eventTitle = null, ?string $addedTagName = null, ?string $removedTagName = null): array
     {
         $type = $success ? 'success' : 'error';
         $eventSuffix = self::toastEventSuffix($eventTitle);
@@ -111,6 +113,39 @@ class Event extends Model
             return [
                 'type' => $type,
                 'message' => __('Saved changes.').$eventSuffix,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($property === 'tagIds') {
+            $fromCount = is_array($fromValue) ? count($fromValue) : 0;
+            $toCount = is_array($toValue) ? count($toValue) : 0;
+            $trimmedTitle = $eventTitle !== null ? trim($eventTitle) : '';
+            $quotedTitle = $trimmedTitle !== '' ? '"'.$trimmedTitle.'"' : null;
+            $quotedTag = $addedTagName !== null && $addedTagName !== '' ? '"'.trim($addedTagName).'"' : null;
+            $quotedRemovedTag = $removedTagName !== null && $removedTagName !== '' ? '"'.trim($removedTagName).'"' : null;
+
+            $message = match (true) {
+                $toCount > $fromCount => match (true) {
+                    $quotedTag !== null && $quotedTitle !== null => __('Tag :tag added to :title.', ['tag' => $quotedTag, 'title' => $quotedTitle]),
+                    $quotedTag !== null => __('Tag :tag added.', ['tag' => $quotedTag]),
+                    $quotedTitle !== null => __('Tag added to :title.', ['title' => $quotedTitle]),
+                    default => __('Tag added.'),
+                },
+                $toCount < $fromCount => match (true) {
+                    $quotedRemovedTag !== null && $quotedTitle !== null => __('Tag :tag removed from :title.', ['tag' => $quotedRemovedTag, 'title' => $quotedTitle]),
+                    $quotedRemovedTag !== null => __('Tag :tag removed.', ['tag' => $quotedRemovedTag]),
+                    $quotedTitle !== null => __('Tag removed from :title.', ['title' => $quotedTitle]),
+                    default => __('Tag removed.'),
+                },
+                default => $quotedTitle !== null
+                    ? __('Tags updated on :title.', ['title' => $quotedTitle])
+                    : __('Tags updated.'),
+            };
+
+            return [
+                'type' => $type,
+                'message' => $message,
                 'icon' => $icon,
             ];
         }

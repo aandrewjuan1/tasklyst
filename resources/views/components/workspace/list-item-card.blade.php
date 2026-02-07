@@ -180,6 +180,7 @@
     wire:ignore
     x-data="{
         deletingInProgress: false,
+        dateUpdateInProgress: false,
         hideCard: false,
         dropdownOpenCount: 0,
         kind: @js($kind),
@@ -206,12 +207,12 @@
                 return;
             }
             this.hideCard = true;
-            // Defer the list-item-hidden event slightly so the card is removed
-            // from layout before the empty-state card is shown.
+            // Delay list-item-hidden until the leave transition (150ms) completes
+            // so the card can fade out before the parent container updates.
             this.$nextTick(() => {
                 setTimeout(() => {
                     $dispatch('list-item-hidden');
-                }, 0);
+                }, 150);
             });
         },
         /**
@@ -493,6 +494,9 @@
         },
     }"
     x-show="!hideCard"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100 scale-100"
+    x-transition:leave-end="opacity-0 scale-[0.98]"
     @dropdown-opened="dropdownOpenCount++"
     @dropdown-closed="dropdownOpenCount--"
     @recurring-selection-updated="
@@ -512,9 +516,19 @@
             hideFromList();
         }
     "
-    @task-date-update-failed.window="if ($event.detail && $event.detail.taskId === itemId) { hideCard = false; $dispatch('list-item-shown') }"
-    @event-date-update-failed.window="if ($event.detail && $event.detail.eventId === itemId) { hideCard = false; $dispatch('list-item-shown') }"
-    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
+    @task-date-update-started.window="
+        if (kind === 'task' && $event.detail?.taskId === itemId && !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
+            dateUpdateInProgress = true;
+        }
+    "
+    @event-date-update-started.window="
+        if (kind === 'event' && $event.detail?.eventId === itemId && !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
+            dateUpdateInProgress = true;
+        }
+    "
+    @task-date-update-failed.window="if ($event.detail?.taskId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown') }"
+    @event-date-update-failed.window="if ($event.detail?.eventId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown') }"
+    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress || dateUpdateInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
@@ -953,12 +967,22 @@
                     }
                     this.editDateRangeError = null;
                     if (path === 'startDatetime' || path === 'endDatetime') {
+                        window.dispatchEvent(new CustomEvent('event-date-update-started', {
+                            detail: { eventId: this.itemId, startDatetime: startVal, endDatetime: endVal },
+                            bubbles: true,
+                        }));
                         $dispatch('event-date-updated', { startDatetime: startVal, endDatetime: endVal });
                     }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
+                        if (path === 'startDatetime' || path === 'endDatetime') {
+                            window.dispatchEvent(new CustomEvent('event-date-update-failed', {
+                                detail: { eventId: this.itemId },
+                                bubbles: true,
+                            }));
+                        }
                     }
                 },
                 async handleRecurringSelectionUpdated(e) {
@@ -1071,9 +1095,9 @@
                 {{ __('Tags') }}:
             </span>
             <div
-                @tag-toggled="toggleTag($event.detail.tagId)"
-                @tag-create-request="createTagOptimistic($event.detail.tagName)"
-                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+                @tag-toggled.stop="toggleTag($event.detail.tagId)"
+                @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
             >
                 <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" />
             </div>
@@ -1396,14 +1420,21 @@
                     }
                     this.editDateRangeError = null;
                     if (path === 'startDatetime' || path === 'endDatetime') {
+                        window.dispatchEvent(new CustomEvent('task-date-update-started', {
+                            detail: { taskId: this.itemId, startDatetime: startVal, endDatetime: endVal },
+                            bubbles: true,
+                        }));
                         $dispatch('task-date-updated', { startDatetime: startVal, endDatetime: endVal });
                     }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
-                        if (path === 'startDatetime') {
-                            window.dispatchEvent(new CustomEvent('task-date-update-failed', { detail: { taskId: this.itemId }, bubbles: true }));
+                        if (path === 'startDatetime' || path === 'endDatetime') {
+                            window.dispatchEvent(new CustomEvent('task-date-update-failed', {
+                                detail: { taskId: this.itemId },
+                                bubbles: true,
+                            }));
                         }
                     }
                 },
@@ -1601,9 +1632,9 @@
                 {{ __('Tags') }}:
             </span>
             <div
-                @tag-toggled="toggleTag($event.detail.tagId)"
-                @tag-create-request="createTagOptimistic($event.detail.tagName)"
-                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+                @tag-toggled.stop="toggleTag($event.detail.tagId)"
+                @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
             >
                 <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" />
             </div>
