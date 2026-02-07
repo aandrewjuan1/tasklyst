@@ -332,7 +332,6 @@ trait HandlesWorkspaceItems
             return false;
         }
 
-        $this->listRefresh++;
         $this->dispatch('toast', ...Task::toastPayload('delete', true, $task->title));
 
         return true;
@@ -456,7 +455,9 @@ trait HandlesWorkspaceItems
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $task->title));
                     }
-                    $this->listRefresh++;
+                    if ($statusEnum !== \App\Enums\TaskStatus::Done) {
+                        $this->listRefresh++;
+                    }
 
                     return true;
                 } catch (\Throwable $e) {
@@ -523,7 +524,7 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
         }
 
-        if (in_array($property, ['startDatetime', 'endDatetime', 'status'], true)) {
+        if ($property === 'status' && $validatedValue !== 'done') {
             $this->listRefresh++;
         }
 
@@ -570,7 +571,6 @@ trait HandlesWorkspaceItems
             return false;
         }
 
-        $this->listRefresh++;
         $this->dispatch('toast', type: 'success', message: __('Project deleted.'));
 
         return true;
@@ -616,7 +616,6 @@ trait HandlesWorkspaceItems
             return false;
         }
 
-        $this->listRefresh++;
         $this->dispatch('toast', ...Event::toastPayload('delete', true, $event->title));
 
         return true;
@@ -740,7 +739,10 @@ trait HandlesWorkspaceItems
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $event->title));
                     }
-                    $this->listRefresh++;
+                    $isHidingStatus = in_array($validatedValue, [EventStatus::Completed->value, EventStatus::Cancelled->value], true);
+                    if (! $isHidingStatus) {
+                        $this->listRefresh++;
+                    }
 
                     return true;
                 } catch (\Throwable $e) {
@@ -806,8 +808,11 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $event->title));
         }
 
-        if (in_array($property, ['startDatetime', 'endDatetime', 'status'], true)) {
-            $this->listRefresh++;
+        if ($property === 'status') {
+            $isHidingStatus = in_array($validatedValue, [EventStatus::Completed->value, EventStatus::Cancelled->value], true);
+            if (! $isHidingStatus) {
+                $this->listRefresh++;
+            }
         }
 
         return true;

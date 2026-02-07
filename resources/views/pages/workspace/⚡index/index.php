@@ -54,4 +54,9 @@ class extends Component
     {
         $this->selectedDate = now()->toDateString();
     }
+
+    public function incrementListRefresh(): void
+    {
+        $this->listRefresh++;
+    }
 };

@@ -139,25 +139,24 @@
         role="menu"
     >
         <div wire:ignore class="flex flex-col gap-2">
-            <form
-                class="flex items-center gap-1.5 border-b border-border/60 px-3 py-1.5"
-                @submit.prevent="!creatingTag && newTagName?.trim() && $dispatch('tag-create-request', { tagName: newTagName })"
-            >
+            <div class="flex items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
                 <flux:input
                     x-model="newTagName"
                     x-ref="newTagInput"
                     placeholder="{{ __('Create tag...') }}"
                     size="sm"
                     class="flex-1"
+                    @keydown.enter.prevent="!creatingTag && newTagName?.trim() && $dispatch('tag-create-request', { tagName: newTagName })"
                 />
                 <button
-                    type="submit"
+                    type="button"
                     x-bind:disabled="!newTagName || !newTagName.trim() || creatingTag"
                     class="cursor-pointer shrink-0 rounded-md p-1 hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
+                    @click="!creatingTag && newTagName?.trim() && $dispatch('tag-create-request', { tagName: newTagName })"
                 >
                     <flux:icon name="paper-airplane" class="size-3.5" />
                 </button>
-            </form>
+            </div>
 
             <div class="max-h-40 overflow-y-auto">
                 <template x-for="tag in tags || []" :key="tag.id">

@@ -3,6 +3,7 @@
     'item',
     'listFilterDate' => null,
     'availableTags' => [],
+    'isOverdue' => false,
 ])
 
 @php
@@ -181,6 +182,7 @@
     x-data="{
         deletingInProgress: false,
         dateUpdateInProgress: false,
+        dateChangeHidingCard: false,
         hideCard: false,
         dropdownOpenCount: 0,
         kind: @js($kind),
@@ -202,7 +204,8 @@
         titleErrorToast: @js(__('Title cannot be empty.')),
         titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
         recurrenceUpdateErrorToast: @js(__('Something went wrong. Please try again.')),
-        hideFromList() {
+        isOverdue: @js($isOverdue),
+        hideFromList(requestRefresh = false) {
             if (this.hideCard) {
                 return;
             }
@@ -211,7 +214,7 @@
             // so the card can fade out before the parent container updates.
             this.$nextTick(() => {
                 setTimeout(() => {
-                    $dispatch('list-item-hidden');
+                    $dispatch('list-item-hidden', { fromOverdue: this.isOverdue, requestRefresh });
                 }, 150);
             });
         },
@@ -365,13 +368,40 @@
 
             return false;
         },
+        /**
+         * Determine if an item is still overdue (end date before today).
+         * Mirrors Task::scopeOverdue / Event::scopeOverdue.
+         */
+        isStillOverdue(startDatetime, endDatetime) {
+            const today = new Date();
+            const todayStr = today.toISOString().slice(0, 10);
+
+            const parseDateTime = (value) => {
+                if (value == null || value === '') {
+                    return null;
+                }
+                const d = new Date(value);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+
+            const end = parseDateTime(endDatetime);
+            if (!end) {
+                return false;
+            }
+            try {
+                const endDateStr = end.toISOString().slice(0, 10);
+                return endDateStr < todayStr;
+            } catch (_) {
+                return true;
+            }
+        },
         async deleteItem() {
             if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
             this.deletingInProgress = true;
             try {
                 const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
                 if (ok) {
-                    this.hideFromList();
+                    this.hideFromList(true);
                 } else {
                     this.deletingInProgress = false;
                     $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
@@ -505,29 +535,51 @@
         }
     "
     @task-date-updated="
-        if (kind === 'task' && !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
-            hideFromList();
+        if (kind === 'task') {
+            const shouldHide = isOverdue
+                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
+                : !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
+            if (shouldHide) {
+                dateChangeHidingCard = true;
+                hideFromList(true);
+            } else {
+                dateChangeHidingCard = false;
+            }
         }
     "
-    @task-status-done-for-recurring="hideFromList()"
-    @event-status-completed-or-cancelled-for-recurring="hideFromList()"
+    @task-status-done="hideFromList(true)"
+    @event-status-completed-or-cancelled="hideFromList(true)"
     @event-date-updated="
-        if (kind === 'event' && !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
-            hideFromList();
+        if (kind === 'event') {
+            const shouldHide = isOverdue
+                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
+                : !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
+            if (shouldHide) {
+                dateChangeHidingCard = true;
+                hideFromList(true);
+            } else {
+                dateChangeHidingCard = false;
+            }
         }
     "
     @task-date-update-started.window="
-        if (kind === 'task' && $event.detail?.taskId === itemId && !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
-            dateUpdateInProgress = true;
+        if (kind === 'task' && $event.detail?.taskId === itemId) {
+            const shouldDim = isOverdue
+                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
+                : !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
+            if (shouldDim) dateUpdateInProgress = true;
         }
     "
     @event-date-update-started.window="
-        if (kind === 'event' && $event.detail?.eventId === itemId && !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime)) {
-            dateUpdateInProgress = true;
+        if (kind === 'event' && $event.detail?.eventId === itemId) {
+            const shouldDim = isOverdue
+                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
+                : !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
+            if (shouldDim) dateUpdateInProgress = true;
         }
     "
-    @task-date-update-failed.window="if ($event.detail?.taskId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown') }"
-    @event-date-update-failed.window="if ($event.detail?.eventId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown') }"
+    @task-date-update-failed.window="if ($event.detail?.taskId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
+    @event-date-update-failed.window="if ($event.detail?.eventId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress || dateUpdateInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
@@ -913,8 +965,8 @@
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-                        if (property === 'status' && this.isRecurringEvent && (value === 'completed' || value === 'cancelled')) {
-                            $dispatch('event-status-completed-or-cancelled-for-recurring');
+                        if (property === 'status' && (value === 'completed' || value === 'cancelled')) {
+                            $dispatch('event-status-completed-or-cancelled');
                         }
                         return true;
                     } catch (err) {
@@ -983,6 +1035,8 @@
                                 bubbles: true,
                             }));
                         }
+                    } else if (path === 'startDatetime' || path === 'endDatetime') {
+                        if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
                     }
                 },
                 async handleRecurringSelectionUpdated(e) {
@@ -1362,8 +1416,8 @@
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-                        if (property === 'status' && value === 'done' && this.isRecurringTask) {
-                            $dispatch('task-status-done-for-recurring');
+                        if (property === 'status' && value === 'done') {
+                            $dispatch('task-status-done');
                         }
                         return true;
                     } catch (err) {
@@ -1436,6 +1490,8 @@
                                 bubbles: true,
                             }));
                         }
+                    } else if (path === 'startDatetime' || path === 'endDatetime') {
+                        if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
                     }
                 },
                 async handleRecurringSelectionUpdated(e) {

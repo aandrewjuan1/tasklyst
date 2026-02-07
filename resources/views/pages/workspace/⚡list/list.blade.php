@@ -629,7 +629,12 @@
 
         <div
             x-show="showItemCreation"
-            x-transition
+            x-transition:enter="transition ease-out duration-150"
+            x-transition:enter-start="opacity-0 scale-[0.98]"
+            x-transition:enter-end="opacity-100 scale-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100 scale-100"
+            x-transition:leave-end="opacity-0 scale-[0.98]"
             x-ref="taskCreationCard"
             @click.outside="
                 const target = $event.target;
@@ -732,6 +737,9 @@
     <div
         x-show="showItemLoading"
         x-cloak
+        x-transition:enter="transition ease-out duration-150"
+        x-transition:enter-start="opacity-0 scale-[0.98]"
+        x-transition:enter-end="opacity-100 scale-100"
         data-test="task-loading-card"
         class="mt-4 flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm backdrop-blur opacity-60"
     >
@@ -879,32 +887,6 @@
 
         $totalItemsCount = $items->count();
     @endphp
-    @if($overdue->isNotEmpty())
-        <div class="mt-4 space-y-3 border-y border-red-500/40 dark:border-red-400/30 py-4" data-test="overdue-container">
-            <div class="flex flex-col gap-0.5">
-                <div class="flex items-center gap-2">
-                    <flux:icon name="exclamation-triangle" class="size-5 text-red-500/70 dark:text-red-400/70" />
-                    <flux:text class="text-sm font-medium text-red-700/90 dark:text-red-400/90">
-                        {{ __('Overdue') }}
-                    </flux:text>
-                </div>
-                <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('Tasks and events past their due date') }}
-                </flux:text>
-            </div>
-            <div class="space-y-3">
-                @foreach ($overdue as $entry)
-                    <x-workspace.list-item-card
-                        :kind="$entry['kind']"
-                        :item="$entry['item']"
-                        :list-filter-date="null"
-                        :available-tags="$tags"
-                        wire:key="overdue-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
-                    />
-                @endforeach
-            </div>
-        </div>
-    @endif
     @if($items->isEmpty() && $overdue->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
             <div class="flex items-center gap-2">
@@ -945,17 +927,77 @@
                         }
                         this.showEmptyState = false;
                     }
+                },
+                handleListItemHidden(e) {
+                    const fromOverdue = e.detail?.fromOverdue ?? false;
+                    const requestRefresh = e.detail?.requestRefresh ?? false;
+                    if (fromOverdue) {
+                        this.overdueCount--;
+                    } else {
+                        this.visibleItemCount--;
+                    }
+                    if (requestRefresh) {
+                        const delay = fromOverdue && this.overdueCount === 0 ? 150 : 0;
+                        setTimeout(() => $dispatch('list-refresh-requested'), delay);
+                    }
+                },
+                handleListItemShown(e) {
+                    if (e.detail?.fromOverdue) {
+                        this.overdueCount++;
+                    } else {
+                        this.visibleItemCount++;
+                    }
                 }
             }"
-            @list-item-hidden="visibleItemCount--"
-            @list-item-shown="visibleItemCount++"
+            @list-item-hidden.window="handleListItemHidden($event)"
+            @list-item-shown.window="handleListItemShown($event)"
         >
+            @if($overdue->isNotEmpty())
+            <div
+                x-show="overdueCount > 0"
+                x-transition:enter="transition ease-out duration-150"
+                x-transition:enter-start="opacity-0 scale-[0.98]"
+                x-transition:enter-end="opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100 scale-100"
+                x-transition:leave-end="opacity-0 scale-[0.98]"
+                class="mt-4 space-y-3 border-y border-red-500/40 dark:border-red-400/30 py-4"
+                data-test="overdue-container"
+            >
+                <div class="flex flex-col gap-0.5">
+                    <div class="flex items-center gap-2">
+                        <flux:icon name="exclamation-triangle" class="size-5 text-red-500/70 dark:text-red-400/70" />
+                        <flux:text class="text-sm font-medium text-red-700/90 dark:text-red-400/90">
+                            {{ __('Overdue') }}
+                        </flux:text>
+                    </div>
+                    <flux:text class="text-xs text-muted-foreground/70">
+                        {{ __('Tasks and events past their due date') }}
+                    </flux:text>
+                </div>
+                <div class="space-y-3">
+                    @foreach ($overdue as $entry)
+                        <x-workspace.list-item-card
+                            :kind="$entry['kind']"
+                            :item="$entry['item']"
+                            :list-filter-date="null"
+                            :available-tags="$tags"
+                            :is-overdue="true"
+                            wire:key="overdue-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
+                        />
+                    @endforeach
+                </div>
+            </div>
+            @endif
             <div
                 x-show="showEmptyState"
                 x-cloak
                 x-transition:enter="transition ease-out duration-150"
                 x-transition:enter-start="opacity-0 scale-[0.98]"
                 x-transition:enter-end="opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100 scale-100"
+                x-transition:leave-end="opacity-0 scale-[0.98]"
                 class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur"
             >
                 <div class="flex items-center gap-2">
