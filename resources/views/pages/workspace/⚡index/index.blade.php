@@ -12,6 +12,8 @@
         </div>
     </div>
 
+    <x-workspace.filter-bar :filters="$this->getFilters()" />
+
     <livewire:pages::workspace.list
         :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"
         :selected-date="$this->selectedDate"
@@ -20,5 +22,6 @@
         :tasks="$this->tasks"
         :overdue="$this->overdue"
         :tags="$this->tags"
+        :filters="$this->getFilters()"
     />
 </section>

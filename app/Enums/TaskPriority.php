@@ -18,4 +18,14 @@ enum TaskPriority: string
             self::Urgent => 'red-800',
         };
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Low => __('Low'),
+            self::Medium => __('Medium'),
+            self::High => __('High'),
+            self::Urgent => __('Urgent'),
+        };
+    }
 }

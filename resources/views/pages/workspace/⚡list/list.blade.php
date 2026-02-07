@@ -1082,6 +1082,25 @@
                         {{ __('No tasks, projects, or events are currently visible for :date', ['date' => $emptyDateLabel]) }}
                     </flux:text>
                 </div>
+                @php
+                    $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
+                    $activeFilterParts = array_filter([
+                        ($filters['taskStatus'] ?? null)
+                            ? __('Status') . ': ' . (\App\Enums\TaskStatus::tryFrom($filters['taskStatus'])?->label() ?? $filters['taskStatus'])
+                            : null,
+                        ($filters['taskPriority'] ?? null)
+                            ? __('Priority') . ': ' . (\App\Enums\TaskPriority::tryFrom($filters['taskPriority'])?->label() ?? $filters['taskPriority'])
+                            : null,
+                        ($filters['eventStatus'] ?? null)
+                            ? __('Event status') . ': ' . (\App\Enums\EventStatus::tryFrom($filters['eventStatus'])?->label() ?? $filters['eventStatus'])
+                            : null,
+                    ]);
+                @endphp
+                @if ($hasActiveFilters && $activeFilterParts !== [])
+                    <flux:text class="text-xs text-muted-foreground/70">
+                        {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
+                    </flux:text>
+                @endif
                 <flux:text class="text-xs text-muted-foreground/70">
                     {{ __('Try adjusting item dates or filters, or add a new task, project, or event for this day') }}
                 </flux:text>

@@ -1121,14 +1121,17 @@ trait HandlesWorkspaceItems
 
         $date = Carbon::parse($this->selectedDate);
 
-        $tasks = Task::query()
+        $taskQuery = Task::query()
             ->with(['project', 'event', 'recurringTask', 'tags', 'collaborations'])
             ->forUser($userId)
             ->incomplete()
-            ->relevantForDate($date)
-            ->orderByDesc('created_at')
-            ->limit(50)
-            ->get();
+            ->relevantForDate($date);
+
+        if (method_exists($this, 'applyTaskFilters')) {
+            $this->applyTaskFilters($taskQuery);
+        }
+
+        $tasks = $taskQuery->orderByDesc('created_at')->limit(50)->get();
 
         $recurringTasks = $tasks->pluck('recurringTask')->filter();
         $relevantIds = $recurringTasks->isNotEmpty()
@@ -1156,7 +1159,7 @@ trait HandlesWorkspaceItems
                 ->keyBy('recurring_task_id')
             : collect();
 
-        return $filteredTasks
+        $result = $filteredTasks
             ->map(function (Task $task) use ($date, $instancesByRecurringId): Task {
                 if ($task->recurringTask !== null) {
                     $task->instanceForDate = $instancesByRecurringId->get($task->recurringTask->id);
@@ -1166,6 +1169,12 @@ trait HandlesWorkspaceItems
                 return $task;
             })
             ->values();
+
+        if (method_exists($this, 'filterTaskCollection')) {
+            $result = $this->filterTaskCollection($result);
+        }
+
+        return $result;
     }
 
     /**
@@ -1184,27 +1193,33 @@ trait HandlesWorkspaceItems
 
         $today = Carbon::today();
 
-        $overdueTasks = Task::query()
+        $overdueTaskQuery = Task::query()
             ->with(['project', 'tags', 'collaborations'])
             ->forUser($userId)
             ->incomplete()
             ->overdue($today)
-            ->whereDoesntHave('recurringTask')
-            ->orderByPriority()
-            ->limit(50)
-            ->get()
+            ->whereDoesntHave('recurringTask');
+
+        if (method_exists($this, 'applyOverdueTaskFilters')) {
+            $this->applyOverdueTaskFilters($overdueTaskQuery);
+        }
+
+        $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
             ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
 
-        $overdueEvents = Event::query()
+        $overdueEventQuery = Event::query()
             ->with(['tags', 'collaborations'])
             ->forUser($userId)
             ->notCancelled()
             ->where('status', '!=', EventStatus::Completed->value)
             ->overdue($today)
-            ->whereDoesntHave('recurringEvent')
-            ->orderBy('end_datetime')
-            ->limit(50)
-            ->get()
+            ->whereDoesntHave('recurringEvent');
+
+        if (method_exists($this, 'applyOverdueEventFilters')) {
+            $this->applyOverdueEventFilters($overdueEventQuery);
+        }
+
+        $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
             ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
 
         return collect($overdueTasks)
@@ -1255,15 +1270,18 @@ trait HandlesWorkspaceItems
 
         $date = Carbon::parse($this->selectedDate);
 
-        $events = Event::query()
+        $eventQuery = Event::query()
             ->with(['recurringEvent', 'tags', 'collaborations'])
             ->forUser($userId)
-            ->notCancelled()
-            ->where('status', '!=', EventStatus::Completed->value)
-            ->activeForDate($date)
-            ->orderByDesc('created_at')
-            ->limit(50)
-            ->get();
+            ->activeForDate($date);
+
+        if (method_exists($this, 'applyEventFilters')) {
+            $this->applyEventFilters($eventQuery);
+        } else {
+            $eventQuery->notCancelled()->where('status', '!=', EventStatus::Completed->value);
+        }
+
+        $events = $eventQuery->orderByDesc('created_at')->limit(50)->get();
 
         $recurringEvents = $events->pluck('recurringEvent')->filter();
         $relevantIds = $recurringEvents->isNotEmpty()
@@ -1291,7 +1309,7 @@ trait HandlesWorkspaceItems
                 ->keyBy('recurring_event_id')
             : collect();
 
-        return $filteredEvents
+        $result = $filteredEvents
             ->map(function (Event $event) use ($date, $instancesByRecurringId): Event {
                 if ($event->recurringEvent !== null) {
                     $event->instanceForDate = $instancesByRecurringId->get($event->recurringEvent->id);
@@ -1301,6 +1319,12 @@ trait HandlesWorkspaceItems
                 return $event;
             })
             ->values();
+
+        if (method_exists($this, 'filterEventCollection')) {
+            $result = $this->filterEventCollection($result);
+        }
+
+        return $result;
     }
 
     /**

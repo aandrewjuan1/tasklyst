@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Concerns\HandlesWorkspaceFiltering;
 use App\Livewire\Concerns\HandlesWorkspaceItems;
 use App\Models\Event;
 use App\Models\Project;
@@ -20,6 +21,7 @@ new
 class extends Component
 {
     use AuthorizesRequests;
+    use HandlesWorkspaceFiltering;
     use HandlesWorkspaceItems;
 
     public string $selectedDate;

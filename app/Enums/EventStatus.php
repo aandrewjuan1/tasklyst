@@ -20,4 +20,15 @@ enum EventStatus: string
             self::Ongoing => 'purple-800',
         };
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Scheduled => __('Scheduled'),
+            self::Cancelled => __('Cancelled'),
+            self::Completed => __('Completed'),
+            self::Tentative => __('Tentative'),
+            self::Ongoing => __('Ongoing'),
+        };
+    }
 }

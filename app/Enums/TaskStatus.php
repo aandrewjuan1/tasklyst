@@ -16,4 +16,13 @@ enum TaskStatus: string
             self::Done => 'green-800',
         };
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::ToDo => __('To Do'),
+            self::Doing => __('Doing'),
+            self::Done => __('Done'),
+        };
+    }
 }
