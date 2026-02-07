@@ -80,12 +80,9 @@ class EventService
         $interval = max(1, (int) ($recurrenceData['interval'] ?? 1));
         $daysOfWeek = $recurrenceData['daysOfWeek'] ?? [];
 
+        // Use event's start_datetime and end_datetime. When both are null, the item is treated as "always relevant" in the list.
         $startDatetime = $event->start_datetime;
         $endDatetime = $event->end_datetime;
-
-        if ($startDatetime === null) {
-            $startDatetime = now();
-        }
 
         $daysOfWeekString = null;
         if (is_array($daysOfWeek) && ! empty($daysOfWeek)) {

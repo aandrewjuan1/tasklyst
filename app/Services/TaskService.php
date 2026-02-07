@@ -80,14 +80,10 @@ class TaskService
         $interval = max(1, (int) ($recurrenceData['interval'] ?? 1));
         $daysOfWeek = $recurrenceData['daysOfWeek'] ?? [];
 
-        // Use task's start_datetime and end_datetime for the recurring task
+        // Use task's start_datetime and end_datetime for the recurring task.
+        // When both are null, the item is treated as "always relevant" in the list.
         $startDatetime = $task->start_datetime;
         $endDatetime = $task->end_datetime;
-
-        // Require start_datetime for recurring tasks - use current time if task doesn't have one
-        if ($startDatetime === null) {
-            $startDatetime = now();
-        }
 
         // Convert days_of_week array to JSON string for storage
         $daysOfWeekString = null;

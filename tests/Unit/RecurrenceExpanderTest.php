@@ -1,6 +1,9 @@
 <?php
 
+use App\Enums\EventRecurrenceType;
 use App\Enums\TaskRecurrenceType;
+use App\Models\Event;
+use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\TaskException;
@@ -242,6 +245,54 @@ it('excludes dates with is_deleted exception', function (): void {
     expect($dateStrings)->toContain('2026-02-04');
     expect($dateStrings)->toContain('2026-02-05');
     expect($dates)->toHaveCount(4);
+});
+
+it('always includes recurring tasks with no start or end date', function (): void {
+    $task = Task::factory()->create([
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    $recurringTask = RecurringTask::factory()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Monthly,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $result = $this->expander->getRelevantRecurringIdsForDate(
+        collect([$recurringTask]),
+        collect(),
+        Carbon::parse('2026-02-15')
+    );
+
+    expect($result['task_ids'])->toContain($recurringTask->id);
+    expect($result['task_ids'])->toHaveCount(1);
+});
+
+it('always includes recurring events with no start or end date', function (): void {
+    $event = Event::factory()->create([
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    $recurringEvent = RecurringEvent::factory()->create([
+        'event_id' => $event->id,
+        'recurrence_type' => EventRecurrenceType::Yearly,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $result = $this->expander->getRelevantRecurringIdsForDate(
+        collect(),
+        collect([$recurringEvent]),
+        Carbon::parse('2026-03-20')
+    );
+
+    expect($result['event_ids'])->toContain($recurringEvent->id);
+    expect($result['event_ids'])->toHaveCount(1);
 });
 
 it('excludes original date and includes replacement date when replacement_instance_id is set', function (): void {

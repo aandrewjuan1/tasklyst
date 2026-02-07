@@ -74,6 +74,25 @@ it('updates and deletes a task', function (): void {
     ]);
 });
 
+it('creates recurring task with no dates and stores null start/end on RecurringTask', function (): void {
+    $task = app(TaskService::class)->createTask(User::factory()->create(), [
+        'title' => 'Undated Recurring Task',
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'recurrence' => [
+            'enabled' => true,
+            'type' => 'monthly',
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    $recurring = $task->recurringTask;
+    expect($recurring)->not->toBeNull();
+    expect($recurring->start_datetime)->toBeNull();
+    expect($recurring->end_datetime)->toBeNull();
+});
+
 it('updateTask syncs start_datetime and end_datetime to RecurringTask when present', function (): void {
     $task = app(TaskService::class)->createTask(User::factory()->create(), [
         'title' => 'Recurring Task',

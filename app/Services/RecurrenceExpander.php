@@ -138,6 +138,11 @@ class RecurrenceExpander
         $eventExceptionMap = $this->preloadEventExceptions($recurringEvents->pluck('id'), $date, $date);
 
         foreach ($recurringTasks as $recurring) {
+            if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
+                $taskIds[] = $recurring->id;
+
+                continue;
+            }
             $occurrences = $this->expand($recurring, $date, $date, $taskExceptionMap[$recurring->id] ?? null);
             if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $date->format('Y-m-d'))) {
                 $taskIds[] = $recurring->id;
@@ -145,6 +150,11 @@ class RecurrenceExpander
         }
 
         foreach ($recurringEvents as $recurring) {
+            if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
+                $eventIds[] = $recurring->id;
+
+                continue;
+            }
             $occurrences = $this->expand($recurring, $date, $date, $eventExceptionMap[$recurring->id] ?? null);
             if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $date->format('Y-m-d'))) {
                 $eventIds[] = $recurring->id;
