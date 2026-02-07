@@ -140,6 +140,15 @@
             const selectedTags = this.tags.filter(tag => selectedIds.some(id => String(id) === String(tag.id)));
             return selectedTags.map(tag => tag.name).join(', ');
         },
+        getSelectedTags() {
+            if (!this.tags || !this.formData.item.tagIds || this.formData.item.tagIds.length === 0) {
+                return [];
+            }
+            const selectedIds = this.formData.item.tagIds;
+            return this.tags
+                .filter(tag => selectedIds.some(id => String(id) === String(tag.id)))
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        },
         newTagName: '',
         creatingTag: false,
         deletingTagIds: new Set(),
@@ -752,13 +761,25 @@
         </div>
         <div class="flex flex-col gap-2 px-3 pt-3 pb-2">
         <div class="flex items-start justify-between gap-2">
-            <div class="flex min-w-0 flex-1 items-center gap-2">
-                <p class="truncate text-base font-semibold leading-tight" x-text="formData.item.title"></p>
+            <div class="min-w-0 flex-1">
+                <p class="truncate text-lg font-semibold leading-tight" x-text="formData.item.title"></p>
             </div>
             <div class="flex items-center gap-2">
-                <span class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span
+                    class="cursor-default inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out"
+                    :class="(formData.item.recurrence?.enabled && formData.item.recurrence?.type) ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300 dark:border-indigo-400/25' : 'border-border/60 bg-muted text-muted-foreground'"
+                >
+                    <flux:icon name="arrow-path" class="size-3" />
+                    <span x-show="formData.item.recurrence?.enabled && formData.item.recurrence?.type" class="inline-flex items-baseline gap-1" x-cloak>
+                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Repeats') }}:</span>
+                        <span class="text-xs" x-text="recurrenceLabel(formData.item.recurrence)"></span>
+                    </span>
+                    <flux:icon name="chevron-down" class="size-3" x-show="formData.item.recurrence?.enabled && formData.item.recurrence?.type" x-cloak></flux:icon>
+                </span>
+                <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <span x-text="creationKind === 'task' ? '{{ __('Task') }}' : '{{ __('Event') }}'"></span>
                 </span>
+                <flux:button size="xs" icon="ellipsis-horizontal" disabled class="pointer-events-none opacity-70" />
             </div>
         </div>
         <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
@@ -801,13 +822,6 @@
                             <span class="uppercase" x-text="formatDurationLabel(formData.item.duration)"></span>
                         </span>
                     </span>
-                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                        <flux:icon name="arrow-path" class="size-3" />
-                        <span class="inline-flex items-baseline gap-1">
-                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurring') }}:</span>
-                            <span class="uppercase" x-text="(formData.item.recurrence?.enabled && formData.item.recurrence?.type) ? recurrenceLabel(formData.item.recurrence) : '{{ __('Not set') }}'"></span>
-                        </span>
-                    </span>
                 </div>
             </template>
             <template x-if="creationKind === 'event'">
@@ -848,13 +862,6 @@
                     <span class="text-xs uppercase" x-text="formData.item.endDatetime ? formatDatetime(formData.item.endDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
             </span>
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="tag" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Tags') }}:</span>
-                    <span class="uppercase" x-text="formData.item.tagIds && formData.item.tagIds.length > 0 ? formData.item.tagIds.length : '{{ __('None') }}'"></span>
-                </span>
-            </span>
             <span
                 x-show="formData.item.projectId && projectNames[formData.item.projectId]"
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10"
@@ -865,6 +872,19 @@
                     <span class="truncate max-w-[120px] uppercase" x-text="projectNames[formData.item.projectId] || ''"></span>
                 </span>
             </span>
+        </div>
+        <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-1.5 mt-1 text-[10px]">
+            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                <flux:icon name="tag" class="size-3" />
+                {{ __('Tags') }}:
+            </span>
+            <template x-for="tag in getSelectedTags()" :key="tag.id">
+                <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground" x-text="tag.name"></span>
+            </template>
+            <span
+                x-show="!(formData.item.tagIds && formData.item.tagIds.length > 0)"
+                class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
+            >{{ __('None') }}</span>
         </div>
         </div>
     </div>

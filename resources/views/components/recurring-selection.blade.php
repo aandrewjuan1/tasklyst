@@ -128,6 +128,7 @@
             if (!this.enabled) {
                 this.enabled = true;
                 this.type = 'daily';
+                this.$dispatch('recurring-selection-updated', { path: this.modelPath, value: this.getCurrentRecurrenceValue() });
             }
 
             const rect = this.$refs.button.getBoundingClientRect();
