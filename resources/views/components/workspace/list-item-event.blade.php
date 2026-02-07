@@ -67,7 +67,10 @@
         tagMessages: {
             tagAlreadyExists: @js(__('Tag already exists.')),
             tagError: @js(__('Something went wrong. Please try again.')),
+            tagRemovedFromItem: @js(__('Tag ":tag" removed from :type ":item".')),
         },
+        itemTitle: @js($item->title ?? ''),
+        itemTypeLabel: @js(__('Event')),
         editDateRangeError: null,
         datePickerOriginals: {},
         dateRangeMessages: {
@@ -106,7 +109,7 @@
             this.newTagName = '';
             const tagNameLower = tagName.toLowerCase();
             const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
-            if (existingTag) {
+            if (existingTag && !String(existingTag.id).startsWith('temp-')) {
                 if (!this.formData.item.tagIds) {
                     this.formData.item.tagIds = [];
                 }
@@ -163,10 +166,17 @@
                     this.formData.item.tagIds.splice(selectedIndex, 1);
                 }
                 if (!isTempTag) {
-                    await $wire.$parent.$call('deleteTag', tag.id);
+                    await $wire.$parent.$call('deleteTag', tag.id, true);
                 }
                 const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
                 await this.updateProperty('tagIds', realTagIds, true);
+                if (!isTempTag && tag.name && this.itemTitle) {
+                    const msg = this.tagMessages.tagRemovedFromItem
+                        .replace(':tag', tag.name)
+                        .replace(':type', this.itemTypeLabel)
+                        .replace(':item', this.itemTitle);
+                    $wire.$dispatch('toast', { type: 'success', message: msg });
+                }
             } catch (err) {
                 if (tagIndex !== -1 && this.tags) {
                     this.tags.splice(tagIndex, 0, snapshot);

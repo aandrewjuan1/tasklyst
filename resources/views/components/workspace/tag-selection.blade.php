@@ -11,17 +11,10 @@
     $selectedTagsSorted = collect($selectedTags)
         ->sortBy(function (mixed $tag): string {
             if (is_array($tag)) {
-                return (string) ($tag['name'] ?? '');
+                return strtolower((string) ($tag['name'] ?? ''));
             }
 
-            return (string) ($tag->name ?? '');
-        })
-        ->sortBy(function (mixed $tag): int {
-            if (is_array($tag)) {
-                return (int) ($tag['id'] ?? 0);
-            }
-
-            return (int) ($tag->id ?? 0);
+            return strtolower((string) ($tag->name ?? ''));
         })
         ->values();
 @endphp
@@ -114,7 +107,7 @@
             </span>
             {{-- Alpine reactive (replaces server content when hydrated) --}}
             <span x-show="alpineReady" class="inline-flex flex-wrap items-center gap-1.5" x-cloak>
-                <template x-for="tag in (tags || []).filter(t => (formData?.item?.tagIds || []).some(id => String(id) === String(t.id)))" :key="tag.id">
+                <template x-for="tag in (tags || []).filter(t => (formData?.item?.tagIds || []).some(id => String(id) === String(t.id))).sort((a, b) => (a.name || '').localeCompare(b.name || ''))" :key="tag.id">
                     <span
                         class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
                         x-text="tag.name"
@@ -146,24 +139,25 @@
         role="menu"
     >
         <div wire:ignore class="flex flex-col gap-2">
-            <div class="flex items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
+            <form
+                class="flex items-center gap-1.5 border-b border-border/60 px-3 py-1.5"
+                @submit.prevent="!creatingTag && newTagName?.trim() && $dispatch('tag-create-request', { tagName: newTagName })"
+            >
                 <flux:input
                     x-model="newTagName"
                     x-ref="newTagInput"
                     placeholder="{{ __('Create tag...') }}"
                     size="sm"
                     class="flex-1"
-                    @keydown.enter.prevent="$dispatch('tag-create-request', { tagName: newTagName })"
                 />
                 <button
-                    type="button"
-                    @click="$dispatch('tag-create-request', { tagName: newTagName })"
+                    type="submit"
                     x-bind:disabled="!newTagName || !newTagName.trim() || creatingTag"
                     class="cursor-pointer shrink-0 rounded-md p-1 hover:bg-muted/80 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <flux:icon name="paper-airplane" class="size-3.5" />
                 </button>
-            </div>
+            </form>
 
             <div class="max-h-40 overflow-y-auto">
                 <template x-for="tag in tags || []" :key="tag.id">

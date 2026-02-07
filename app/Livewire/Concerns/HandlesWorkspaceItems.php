@@ -213,9 +213,6 @@ trait HandlesWorkspaceItems
 
             if ($existingTag !== null) {
                 $this->dispatch('tag-created', id: $existingTag->id, name: $existingTag->name);
-                if (! $silentToasts) {
-                    $this->dispatch('toast', type: 'info', message: __('Tag already exists.'));
-                }
 
                 return;
             }
@@ -286,7 +283,7 @@ trait HandlesWorkspaceItems
 
         $this->dispatch('tag-deleted', id: $tagId);
         if (! $silentToasts) {
-            $this->dispatch('toast', type: 'success', message: __('Tag deleted.'));
+            $this->dispatch('toast', type: 'success', message: __('Tag ":name" deleted.', ['name' => $tag->name]));
         }
         $this->dispatch('$refresh');
     }

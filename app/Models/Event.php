@@ -356,7 +356,7 @@ class Event extends Model
 
     public function tags(): MorphToMany
     {
-        return $this->morphToMany(Tag::class, 'taggable');
+        return $this->morphToMany(Tag::class, 'taggable')->orderBy('tags.name');
     }
 
     public function scopeForUser(Builder $query, int $userId): Builder

@@ -214,7 +214,7 @@
             // If tag already exists in Alpine state (case-insensitive), select it and show toast (no server call)
             const tagNameLower = tagName.toLowerCase();
             const existingTag = this.tags?.find(t => (t.name || '').trim().toLowerCase() === tagNameLower);
-            if (existingTag) {
+            if (existingTag && !String(existingTag.id).startsWith('temp-')) {
                 if (!this.formData.item.tagIds) {
                     this.formData.item.tagIds = [];
                 }
