@@ -3,13 +3,14 @@
 namespace App\Livewire\Concerns;
 
 use App\Enums\EventStatus;
-use App\Enums\TaskStatus;
 use App\Models\Event;
+use App\Models\EventInstance;
 use App\Models\Project;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\TaskInstance;
 use App\Models\User;
 use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\ProjectPayloadValidation;
@@ -341,7 +342,7 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
-    public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false): bool
+    public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
     {
         $user = $this->requireAuth(__('You must be logged in to update tasks.'));
         if ($user === null) {
@@ -437,19 +438,23 @@ trait HandlesWorkspaceItems
             if ($recurringTask !== null) {
                 $task->setRelation('recurringTask', $recurringTask);
                 try {
-                    $date = Carbon::parse($this->selectedDate);
-                    $oldStatus = $this->taskService->getEffectiveStatusForDate($task, $date)?->value;
-                    $this->taskService->updateRecurringOccurrenceStatus($task, $date, TaskStatus::from($validatedValue));
-                    // Do not listRefresh++ for recurring status updates: the frontend hides the card via
-                    // hideFromList() when status is 'done'. A full re-render would recreate the list and
-                    // overwrite the optimistic status before the hide transition runs.
+                    $oldStatus = $task->status?->value;
+                    $statusEnum = \App\Enums\TaskStatus::tryFrom($validatedValue) ?? $task->status;
+
+                    if ($occurrenceDate !== null && $occurrenceDate !== '') {
+                        $this->taskService->updateRecurringOccurrenceStatus($task, Carbon::parse($occurrenceDate), $statusEnum);
+                    } else {
+                        $this->taskService->updateTask($task, ['status' => $validatedValue]);
+                    }
+
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $task->title));
                     }
+                    $this->listRefresh++;
 
                     return true;
                 } catch (\Throwable $e) {
-                    Log::error('Failed to update recurring task occurrence status from workspace.', [
+                    Log::error('Failed to update recurring task status from workspace.', [
                         'user_id' => $user->id,
                         'task_id' => $taskId,
                         'exception' => $e,
@@ -616,7 +621,7 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
-    public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false): bool
+    public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
     {
         $user = $this->requireAuth(__('You must be logged in to update events.'));
         if ($user === null) {
@@ -712,18 +717,23 @@ trait HandlesWorkspaceItems
             if ($recurringEvent !== null) {
                 $event->setRelation('recurringEvent', $recurringEvent);
                 try {
-                    $date = Carbon::parse($this->selectedDate);
-                    $oldStatus = $this->eventService->getEffectiveStatusForDate($event, $date)?->value;
-                    $this->eventService->updateRecurringOccurrenceStatus($event, $date, EventStatus::from($validatedValue));
-                    // Do not listRefresh++ for recurring status updates: avoids full re-render that
-                    // overwrites optimistic status before frontend can hide the card.
+                    $oldStatus = $event->status?->value;
+                    $statusEnum = \App\Enums\EventStatus::tryFrom($validatedValue) ?? $event->status;
+
+                    if ($occurrenceDate !== null && $occurrenceDate !== '') {
+                        $this->eventService->updateRecurringOccurrenceStatus($event, Carbon::parse($occurrenceDate), $statusEnum);
+                    } else {
+                        $this->eventService->updateEvent($event, ['status' => $validatedValue]);
+                    }
+
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $event->title));
                     }
+                    $this->listRefresh++;
 
                     return true;
                 } catch (\Throwable $e) {
-                    Log::error('Failed to update recurring event occurrence status from workspace.', [
+                    Log::error('Failed to update recurring event status from workspace.', [
                         'user_id' => $user->id,
                         'event_id' => $eventId,
                         'exception' => $e,
@@ -981,13 +991,7 @@ trait HandlesWorkspaceItems
         $date = Carbon::parse($this->selectedDate);
 
         $tasks = Task::query()
-            ->with([
-                'project',
-                'event',
-                'recurringTask.taskInstances' => fn ($q) => $q->where('instance_date', $date->format('Y-m-d')),
-                'tags',
-                'collaborations',
-            ])
+            ->with(['project', 'event', 'recurringTask', 'tags', 'collaborations'])
             ->forUser($userId)
             ->incomplete()
             ->relevantForDate($date)
@@ -1002,19 +1006,30 @@ trait HandlesWorkspaceItems
 
         $relevantTaskIds = array_flip($relevantIds['task_ids']);
 
-        return $tasks
+        $filteredTasks = $tasks
             ->filter(function (Task $task) use ($relevantTaskIds): bool {
                 if ($task->recurringTask === null) {
                     return true;
                 }
-                if (! isset($relevantTaskIds[$task->recurringTask->id])) {
-                    return false;
-                }
-                $instance = $task->recurringTask->taskInstances->first();
 
-                return $instance === null || $instance->status !== TaskStatus::Done;
+                return isset($relevantTaskIds[$task->recurringTask->id]);
             })
-            ->map(function (Task $task) use ($date): Task {
+            ->values();
+
+        $recurringTaskIds = $filteredTasks->pluck('recurringTask.id')->filter()->values();
+        $instancesByRecurringId = $recurringTaskIds->isNotEmpty()
+            ? TaskInstance::query()
+                ->whereIn('recurring_task_id', $recurringTaskIds)
+                ->whereDate('instance_date', $date)
+                ->get()
+                ->keyBy('recurring_task_id')
+            : collect();
+
+        return $filteredTasks
+            ->map(function (Task $task) use ($date, $instancesByRecurringId): Task {
+                if ($task->recurringTask !== null) {
+                    $task->instanceForDate = $instancesByRecurringId->get($task->recurringTask->id);
+                }
                 $task->effectiveStatusForDate = $this->taskService->getEffectiveStatusForDate($task, $date);
 
                 return $task;
@@ -1108,12 +1123,10 @@ trait HandlesWorkspaceItems
         $date = Carbon::parse($this->selectedDate);
 
         $events = Event::query()
-            ->with([
-                'recurringEvent.eventInstances' => fn ($q) => $q->whereDate('instance_date', $date->format('Y-m-d')),
-                'tags',
-                'collaborations',
-            ])
+            ->with(['recurringEvent', 'tags', 'collaborations'])
             ->forUser($userId)
+            ->notCancelled()
+            ->where('status', '!=', EventStatus::Completed->value)
             ->activeForDate($date)
             ->orderByDesc('created_at')
             ->limit(50)
@@ -1126,20 +1139,30 @@ trait HandlesWorkspaceItems
 
         $relevantEventIds = array_flip($relevantIds['event_ids']);
 
-        return $events
+        $filteredEvents = $events
             ->filter(function (Event $event) use ($relevantEventIds): bool {
                 if ($event->recurringEvent === null) {
                     return true;
                 }
-                if (! isset($relevantEventIds[$event->recurringEvent->id])) {
-                    return false;
-                }
-                $instance = $event->recurringEvent->eventInstances->first();
 
-                return $instance === null
-                    || ($instance->status !== EventStatus::Completed && $instance->status !== EventStatus::Cancelled);
+                return isset($relevantEventIds[$event->recurringEvent->id]);
             })
-            ->map(function (Event $event) use ($date): Event {
+            ->values();
+
+        $recurringEventIds = $filteredEvents->pluck('recurringEvent.id')->filter()->values();
+        $instancesByRecurringId = $recurringEventIds->isNotEmpty()
+            ? EventInstance::query()
+                ->whereIn('recurring_event_id', $recurringEventIds)
+                ->whereDate('instance_date', $date)
+                ->get()
+                ->keyBy('recurring_event_id')
+            : collect();
+
+        return $filteredEvents
+            ->map(function (Event $event) use ($date, $instancesByRecurringId): Event {
+                if ($event->recurringEvent !== null) {
+                    $event->instanceForDate = $instancesByRecurringId->get($event->recurringEvent->id);
+                }
                 $event->effectiveStatusForDate = $this->eventService->getEffectiveStatusForDate($event, $date);
 
                 return $event;

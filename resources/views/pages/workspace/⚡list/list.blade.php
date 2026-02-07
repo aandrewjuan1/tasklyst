@@ -596,7 +596,6 @@
                             showItemCreation = false;
                         } else {
                             creationKind = 'task';
-                            resetForm();
                             showItemCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }
@@ -611,7 +610,6 @@
                             showItemCreation = false;
                         } else {
                             creationKind = 'event';
-                            resetForm();
                             showItemCreation = true;
                             $nextTick(() => $refs.taskTitle?.focus());
                         }

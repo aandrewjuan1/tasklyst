@@ -103,6 +103,34 @@ class TaskService
             'end_datetime' => $endDatetime,
             'days_of_week' => $daysOfWeekString,
         ]);
+
+        $this->normalizeBaseStatusForRecurringTask($task);
+    }
+
+    /**
+     * When enabling recurrence with a non-default status (e.g. Doing, Done), create an instance
+     * for today to preserve that status, and reset base status to To Do for future occurrences.
+     */
+    private function normalizeBaseStatusForRecurringTask(Task $task): void
+    {
+        $task->load('recurringTask');
+        if ($task->recurringTask === null) {
+            return;
+        }
+
+        if ($task->status === null || $task->status === TaskStatus::ToDo) {
+            return;
+        }
+
+        $today = now()->toDateString();
+        $startOfDay = now()->copy()->startOfDay();
+        $endOfDay = now()->copy()->endOfDay();
+        $occurrences = $this->recurrenceExpander->expand($task->recurringTask, $startOfDay, $endOfDay);
+        if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $today)) {
+            $this->updateRecurringOccurrenceStatus($task, now(), $task->status);
+        }
+
+        $task->update(['status' => TaskStatus::ToDo]);
     }
 
     /**
@@ -188,44 +216,15 @@ class TaskService
 
     /**
      * Get the effective status for a task on a given date.
-     * For recurring tasks: returns the status of the instance on that date, if one exists.
-     * If there is no instance for that date, falls back to the base task status (or ToDo).
+     * For recurring tasks: returns instance status when instanceForDate is set (lazy instance), else base task status.
      * For non-recurring: returns base task status.
-     * Uses eager-loaded taskInstances when available to avoid N+1 queries.
      */
     public function getEffectiveStatusForDate(Task $task, CarbonInterface $date): TaskStatus
     {
-        $recurringTask = $task->recurringTask;
-        if ($recurringTask === null) {
-            return $task->status ?? TaskStatus::ToDo;
-        }
+        $instance = $task->instanceForDate ?? null;
 
-        $dateStr = $date instanceof \DateTimeInterface
-            ? $date->format('Y-m-d')
-            : \Carbon\Carbon::parse($date)->format('Y-m-d');
-
-        if ($recurringTask->relationLoaded('taskInstances')) {
-            /** @var \Illuminate\Support\Collection<int, TaskInstance> $instances */
-            $instances = $recurringTask->taskInstances;
-
-            $instance = $instances->first(function (TaskInstance $instance) use ($dateStr): bool {
-                $instanceDate = $instance->instance_date;
-
-                if ($instanceDate instanceof CarbonInterface) {
-                    return $instanceDate->format('Y-m-d') === $dateStr;
-                }
-
-                return \Carbon\Carbon::parse((string) $instanceDate)->format('Y-m-d') === $dateStr;
-            });
-        } else {
-            $instance = TaskInstance::query()
-                ->where('recurring_task_id', $recurringTask->id)
-                ->whereDate('instance_date', $dateStr)
-                ->first();
-        }
-
-        if ($instance !== null) {
-            return $instance->status;
+        if ($instance instanceof TaskInstance) {
+            return $instance->status ?? TaskStatus::ToDo;
         }
 
         return $task->status ?? TaskStatus::ToDo;

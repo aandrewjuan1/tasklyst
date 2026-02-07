@@ -5,11 +5,9 @@ use App\Enums\EventStatus;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
-use App\Models\EventInstance;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
-use App\Models\TaskInstance;
 use App\Services\EventService;
 use App\Services\TaskService;
 use Carbon\Carbon;
@@ -77,46 +75,7 @@ it('renders recurring selection for non-recurring events', function (): void {
     expect($html)->toContain('aria-label="Set recurrence"');
 });
 
-it('uses effectiveStatusForDate for recurring task when instance exists for selected date', function (): void {
-    Carbon::setTestNow('2026-02-06 10:00:00');
-
-    $task = Task::factory()->create([
-        'status' => TaskStatus::ToDo,
-    ]);
-
-    $recurring = RecurringTask::query()->create([
-        'task_id' => $task->id,
-        'recurrence_type' => TaskRecurrenceType::Daily,
-        'interval' => 1,
-        'start_datetime' => Carbon::parse('2026-02-01 00:00:00'),
-        'end_datetime' => null,
-        'days_of_week' => null,
-    ]);
-
-    TaskInstance::query()->create([
-        'recurring_task_id' => $recurring->id,
-        'task_id' => $task->id,
-        'instance_date' => '2026-02-06',
-        'status' => TaskStatus::Doing,
-    ]);
-
-    $task->load('recurringTask.taskInstances');
-
-    $effectiveStatus = app(TaskService::class)->getEffectiveStatusForDate(
-        $task,
-        Carbon::parse('2026-02-06')
-    );
-
-    $task->effectiveStatusForDate = $effectiveStatus;
-
-    $html = Blade::render('<x-workspace.list-item-card kind="task" :item="$item" />', [
-        'item' => $task,
-    ]);
-
-    expect($html)->toContain('Doing');
-});
-
-it('uses base task status for recurring task with no instance on selected date', function (): void {
+it('uses base task status for recurring task', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 
     $task = Task::factory()->create([
@@ -132,7 +91,7 @@ it('uses base task status for recurring task with no instance on selected date',
         'days_of_week' => null,
     ]);
 
-    $task->load('recurringTask.taskInstances');
+    $task->load('recurringTask');
 
     $effectiveStatus = app(TaskService::class)->getEffectiveStatusForDate(
         $task,
@@ -148,46 +107,7 @@ it('uses base task status for recurring task with no instance on selected date',
     expect($html)->toContain('Doing');
 });
 
-it('uses effectiveStatusForDate for recurring event when instance exists for selected date', function (): void {
-    Carbon::setTestNow('2026-02-06 10:00:00');
-
-    $event = Event::factory()->create([
-        'status' => EventStatus::Scheduled,
-    ]);
-
-    $recurring = RecurringEvent::query()->create([
-        'event_id' => $event->id,
-        'recurrence_type' => EventRecurrenceType::Daily,
-        'interval' => 1,
-        'days_of_week' => null,
-        'start_datetime' => Carbon::parse('2026-02-01 00:00:00'),
-        'end_datetime' => null,
-    ]);
-
-    EventInstance::query()->create([
-        'recurring_event_id' => $recurring->id,
-        'event_id' => $event->id,
-        'instance_date' => '2026-02-06',
-        'status' => EventStatus::Ongoing,
-    ]);
-
-    $event->load('recurringEvent.eventInstances');
-
-    $effectiveStatus = app(EventService::class)->getEffectiveStatusForDate(
-        $event,
-        Carbon::parse('2026-02-06')
-    );
-
-    $event->effectiveStatusForDate = $effectiveStatus;
-
-    $html = Blade::render('<x-workspace.list-item-card kind="event" :item="$item" />', [
-        'item' => $event,
-    ]);
-
-    expect($html)->toContain('Ongoing');
-});
-
-it('uses base event status for recurring event with no instance on selected date', function (): void {
+it('uses base event status for recurring event', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 
     $event = Event::factory()->create([
@@ -203,7 +123,7 @@ it('uses base event status for recurring event with no instance on selected date
         'end_datetime' => null,
     ]);
 
-    $event->load('recurringEvent.eventInstances');
+    $event->load('recurringEvent');
 
     $effectiveStatus = app(EventService::class)->getEffectiveStatusForDate(
         $event,

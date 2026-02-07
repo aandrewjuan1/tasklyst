@@ -100,6 +100,34 @@ class EventService
             'start_datetime' => $startDatetime,
             'end_datetime' => $endDatetime,
         ]);
+
+        $this->normalizeBaseStatusForRecurringEvent($event);
+    }
+
+    /**
+     * When enabling recurrence with a non-default status (e.g. Ongoing, Completed, Tentative), create an instance
+     * for today to preserve that status, and reset base status to Scheduled for future occurrences.
+     */
+    private function normalizeBaseStatusForRecurringEvent(Event $event): void
+    {
+        $event->load('recurringEvent');
+        if ($event->recurringEvent === null) {
+            return;
+        }
+
+        if ($event->status === null || $event->status === EventStatus::Scheduled) {
+            return;
+        }
+
+        $today = now()->toDateString();
+        $startOfDay = now()->copy()->startOfDay();
+        $endOfDay = now()->copy()->endOfDay();
+        $occurrences = $this->recurrenceExpander->expand($event->recurringEvent, $startOfDay, $endOfDay);
+        if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $today)) {
+            $this->updateRecurringOccurrenceStatus($event, now(), $event->status);
+        }
+
+        $event->update(['status' => EventStatus::Scheduled]);
     }
 
     /**
@@ -180,30 +208,15 @@ class EventService
 
     /**
      * Get the effective status for an event on a given date.
-     * For recurring events: returns instance status if one exists for that date, otherwise falls back to the base event status (or Scheduled).
+     * For recurring events: returns instance status when instanceForDate is set (lazy instance), else base event status.
      * For non-recurring: returns base event status.
-     * Uses eager-loaded eventInstances when available to avoid N+1 queries.
      */
     public function getEffectiveStatusForDate(Event $event, CarbonInterface $date): EventStatus
     {
-        $recurringEvent = $event->recurringEvent;
-        if ($recurringEvent === null) {
-            return $event->status ?? EventStatus::Scheduled;
-        }
+        $instance = $event->instanceForDate ?? null;
 
-        $dateStr = $date instanceof \DateTimeInterface
-            ? $date->format('Y-m-d')
-            : \Carbon\Carbon::parse($date)->format('Y-m-d');
-
-        $instance = $recurringEvent->relationLoaded('eventInstances')
-            ? $recurringEvent->eventInstances->first()
-            : EventInstance::query()
-                ->where('recurring_event_id', $recurringEvent->id)
-                ->whereDate('instance_date', $dateStr)
-                ->first();
-
-        if ($instance !== null) {
-            return $instance->status;
+        if ($instance instanceof EventInstance) {
+            return $instance->status ?? EventStatus::Scheduled;
         }
 
         return $event->status ?? EventStatus::Scheduled;

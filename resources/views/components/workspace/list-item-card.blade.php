@@ -648,6 +648,7 @@
             x-data="{
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
+                listFilterDate: @js($listFilterDate),
                 isRecurringEvent: @js((bool) $item->recurringEvent),
                 status: @js($eventEffectiveStatus?->value ?? $item->status?->value),
                 allDay: @js($item->all_day),
@@ -876,7 +877,8 @@
                             this.recurrence = value;
                         }
 
-                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
+                        const occurrenceDate = (property === 'status' && this.isRecurringEvent && this.listFilterDate) ? this.listFilterDate : null;
+                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
                         const ok = await promise;
                         if (!ok) {
                             this.status = snapshot.status;
@@ -1077,6 +1079,7 @@
             x-data="{
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
+                listFilterDate: @js($listFilterDate),
                 isRecurringTask: @js((bool) $item->recurringTask),
                 status: @js($effectiveStatus?->value ?? $item->status?->value),
                 priority: @js($item->priority?->value),
@@ -1301,7 +1304,8 @@
                         else if (property === 'startDatetime') this.startDatetime = value;
                         else if (property === 'endDatetime') this.endDatetime = value;
                         else if (property === 'recurrence') this.recurrence = value;
-                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
+                        const occurrenceDate = (property === 'status' && this.isRecurringTask && this.listFilterDate) ? this.listFilterDate : null;
+                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
                         const ok = await promise;
                         if (!ok) {
                             this.status = snapshot.status;

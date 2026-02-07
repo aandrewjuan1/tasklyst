@@ -3,12 +3,12 @@
 use App\Enums\CollaborationPermission;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\EventRecurrenceType;
+use App\Enums\TaskStatus;
 use App\Models\Collaboration;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Task;
-use App\Models\TaskInstance;
 use App\Models\User;
 use Carbon\Carbon;
 use Livewire\Livewire;
@@ -514,7 +514,7 @@ it('updates task recurrence via updateTaskProperty', function (): void {
     expect($task->recurringTask)->toBeNull();
 });
 
-it('creates TaskInstance when marking recurring task as done via updateTaskProperty', function (): void {
+it('updates base task status when marking recurring task as done via updateTaskProperty', function (): void {
     $user = User::factory()->create();
     $date = now()->toDateString();
 
@@ -543,21 +543,11 @@ it('creates TaskInstance when marking recurring task as done via updateTaskPrope
         ->assertDispatched('toast', type: 'success');
 
     $task->refresh();
-    expect($task->status->value)->toBe('to_do');
-    expect($task->completed_at)->toBeNull();
-
-    $task->load('recurringTask');
-    $instance = TaskInstance::query()
-        ->where('recurring_task_id', $task->recurringTask->id)
-        ->whereDate('instance_date', $date)
-        ->first();
-
-    expect($instance)->not->toBeNull();
-    expect($instance->status->value)->toBe('done');
-    expect($instance->completed_at)->not->toBeNull();
+    expect($task->status->value)->toBe('done');
+    expect($task->completed_at)->not->toBeNull();
 });
 
-it('shows recurring task with completed instance for selected date in list', function (): void {
+it('shows recurring task for selected date in list', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
     $user = User::factory()->create();
     $date = now()->toDateString();
@@ -565,7 +555,7 @@ it('shows recurring task with completed instance for selected date in list', fun
     $task = Task::factory()
         ->for($user)
         ->create([
-            'title' => 'Recurring Task Done Today',
+            'title' => 'Recurring Task Today',
             'status' => 'to_do',
             'start_datetime' => now()->startOfDay()->addHours(9),
             'completed_at' => null,
@@ -578,14 +568,6 @@ it('shows recurring task with completed instance for selected date in list', fun
         'start_datetime' => now()->startOfDay(),
         'end_datetime' => null,
         'days_of_week' => null,
-    ]);
-
-    TaskInstance::query()->create([
-        'recurring_task_id' => $task->recurringTask->id,
-        'task_id' => $task->id,
-        'instance_date' => $date,
-        'status' => 'done',
-        'completed_at' => now(),
     ]);
 
     $task->load(['recurringTask', 'project', 'event', 'tags', 'collaborations']);
@@ -601,10 +583,10 @@ it('shows recurring task with completed instance for selected date in list', fun
             'overdue' => collect(),
             'tags' => collect(),
         ])
-        ->assertSee('Recurring Task Done Today');
+        ->assertSee('Recurring Task Today');
 });
 
-it('creates TaskInstance when updating recurring task status to doing via updateTaskProperty', function (): void {
+it('updates base task status when updating recurring task status to doing via updateTaskProperty without occurrence date', function (): void {
     $user = User::factory()->create();
     $date = now()->toDateString();
 
@@ -632,13 +614,49 @@ it('creates TaskInstance when updating recurring task status to doing via update
         ->call('updateTaskProperty', $task->id, 'status', 'doing')
         ->assertDispatched('toast', type: 'success');
 
-    $instance = TaskInstance::query()
+    $task->refresh();
+    expect($task->status->value)->toBe('doing');
+});
+
+it('creates TaskInstance when updating recurring task status with occurrence date', function (): void {
+    Carbon::setTestNow('2026-02-06 10:00:00');
+    $user = User::factory()->create();
+    $date = '2026-02-06';
+
+    $task = Task::factory()
+        ->for($user)
+        ->create([
+            'title' => 'Recurring Task',
+            'status' => TaskStatus::ToDo,
+            'start_datetime' => Carbon::parse('2026-02-01 09:00:00'),
+            'completed_at' => null,
+        ]);
+
+    RecurringTask::query()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-02-01 00:00:00'),
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('updateTaskProperty', $task->id, 'status', 'done', false, $date)
+        ->assertDispatched('toast', type: 'success');
+
+    $task->refresh();
+    expect($task->status->value)->toBe('to_do');
+
+    $instance = \App\Models\TaskInstance::query()
         ->where('recurring_task_id', $task->recurringTask->id)
         ->whereDate('instance_date', $date)
         ->first();
 
     expect($instance)->not->toBeNull();
-    expect($instance->status->value)->toBe('doing');
+    expect($instance->status->value)->toBe('done');
 });
 
 it('rejects updateTaskProperty for invalid property', function (): void {
