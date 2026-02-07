@@ -427,7 +427,7 @@
         <x-recurring-selection
             model="recurrence"
             :initial-value="$eventRecurrenceInitial"
-            triggerLabel="{{ __('Recurring') }}"
+            kind="event"
             position="top"
             align="end"
         />

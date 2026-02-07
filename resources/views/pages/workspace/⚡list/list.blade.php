@@ -659,20 +659,27 @@
                     @submit.prevent="creationKind === 'task' ? submitTask() : submitEvent()"
                 >
                     <div class="flex flex-col gap-2">
-                        <span
-                            class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                            x-show="creationKind === 'task'"
-                            x-cloak
-                        >
-                            {{ __('Task') }}
-                        </span>
-                        <span
-                            class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                            x-show="creationKind === 'event'"
-                            x-cloak
-                        >
-                            {{ __('Event') }}
-                        </span>
+                        <div class="flex items-center gap-2">
+                            <x-recurring-selection
+                                compactWhenDisabled
+                                position="top"
+                                align="end"
+                            />
+                            <span
+                                class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                x-show="creationKind === 'task'"
+                                x-cloak
+                            >
+                                {{ __('Task') }}
+                            </span>
+                            <span
+                                class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                x-show="creationKind === 'event'"
+                                x-cloak
+                            >
+                                {{ __('Event') }}
+                            </span>
+                        </div>
 
                         <div class="flex items-center gap-2">
                             <flux:input
@@ -708,12 +715,6 @@
                                     align="end"
                                 />
                             @endforeach
-
-                            <x-recurring-selection
-                                triggerLabel="{{ __('Recurring') }}"
-                                position="bottom"
-                                align="end"
-                            />
 
                             <div class="flex w-full items-center gap-1.5" x-show="errors.dateRange" x-cloak>
                                 <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />

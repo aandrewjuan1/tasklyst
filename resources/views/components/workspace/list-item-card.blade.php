@@ -608,7 +608,7 @@
                     <x-recurring-selection
                         model="recurrence"
                         :initial-value="$headerRecurrenceInitial"
-                        triggerLabel="{{ __('Recurring') }}"
+                        :kind="$kind"
                         compactWhenDisabled
                         position="top"
                         align="end"

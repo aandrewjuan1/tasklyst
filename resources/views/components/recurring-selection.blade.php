@@ -1,10 +1,11 @@
 @props([
     'model' => 'formData.item.recurrence',
-    'triggerLabel' => 'Recurring',
+    'triggerLabel' => 'Repeats',
     'position' => 'bottom',
     'align' => 'end',
     'initialValue' => null,
     'compactWhenDisabled' => false,
+    'kind' => null,
 ])
 
 @php
@@ -22,17 +23,17 @@
         $type = $initialRecurrence['type'];
         $interval = (int) ($initialRecurrence['interval'] ?? 1);
         $daysOfWeek = $initialRecurrence['daysOfWeek'] ?? [];
-        $dayDisplayLabels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-        $typeLabels = ['daily' => 'DAILY', 'weekly' => 'WEEKLY', 'monthly' => 'MONTHLY', 'yearly' => 'YEARLY'];
+        $dayDisplayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        $typeLabels = ['daily' => 'Daily', 'weekly' => 'Weekly', 'monthly' => 'Monthly', 'yearly' => 'Yearly'];
         if ($type === 'weekly' && is_array($daysOfWeek) && count($daysOfWeek) > 0) {
             $dayNames = implode(', ', array_map(fn ($d) => $dayDisplayLabels[$d] ?? '', $daysOfWeek));
-            $intervalPart = $interval === 1 ? 'WEEKLY' : 'EVERY ' . $interval . ' WEEKS';
+            $intervalPart = $interval === 1 ? 'Weekly' : 'Every ' . $interval . ' weeks';
             $initialDisplayLabel = $intervalPart . ' (' . $dayNames . ')';
         } elseif ($interval === 1) {
-            $initialDisplayLabel = $typeLabels[$type] ?? strtoupper($type);
+            $initialDisplayLabel = $typeLabels[$type] ?? ucfirst($type);
         } else {
-            $typePlural = ['daily' => 'DAYS', 'weekly' => 'WEEKS', 'monthly' => 'MONTHS', 'yearly' => 'YEARS'][$type] ?? '';
-            $initialDisplayLabel = $typePlural ? 'EVERY ' . $interval . ' ' . $typePlural : ($typeLabels[$type] ?? strtoupper($type));
+            $typePlural = ['daily' => 'days', 'weekly' => 'weeks', 'monthly' => 'months', 'yearly' => 'years'][$type] ?? '';
+            $initialDisplayLabel = $typePlural ? 'Every ' . $interval . ' ' . $typePlural : ($typeLabels[$type] ?? ucfirst($type));
         }
     }
 
@@ -41,11 +42,22 @@
 
     $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out';
     $triggerInitialStateClass = $shouldRenderCompact
-        ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 shadow-sm dark:text-indigo-300'
+        ? 'border-border/60 bg-muted text-muted-foreground'
         : ($isInitiallyEnabled
             ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
             : 'border-border/60 bg-muted text-muted-foreground');
     $triggerInitialClass = $triggerBaseClass . ' ' . $triggerInitialStateClass;
+
+    $repeatTooltip = match ($kind) {
+        'task' => __('Repeat this task'),
+        'event' => __('Repeat this event'),
+        default => __('Repeat this item'),
+    };
+    $changeTooltip = match ($kind) {
+        'task' => __('Change repeat for this task'),
+        'event' => __('Change repeat for this event'),
+        default => __('Change repeat'),
+    };
 @endphp
 
 <div
@@ -68,7 +80,7 @@
         panelHeightEst: 500,
         panelWidthEst: 360,
         dayLabels: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
-        dayDisplayLabels: ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'],
+        dayDisplayLabels: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
         dayFullLabels: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
 
         init() {
@@ -111,6 +123,12 @@
         toggle() {
             if (this.open) return this.close(this.$refs.button);
             this.$refs.button.focus();
+
+            // When opening with recurrence disabled, auto-enable and set to daily
+            if (!this.enabled) {
+                this.enabled = true;
+                this.type = 'daily';
+            }
 
             const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
@@ -194,20 +212,20 @@
             if (!this.enabled || !this.type) {
                 return this.notSetLabel;
             }
-            const typeLabels = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+            const typeLabels = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly', yearly: 'Yearly' };
             const typeLabel = typeLabels[this.type] || this.type;
 
             if (this.type === 'weekly' && Array.isArray(this.daysOfWeek) && this.daysOfWeek.length > 0) {
                 const dayNames = this.daysOfWeek.map(d => this.dayDisplayLabels[d]).join(', ');
-                const intervalPart = this.interval === 1 ? 'WEEKLY' : `EVERY ${this.interval} WEEKS`;
+                const intervalPart = this.interval === 1 ? 'Weekly' : `Every ${this.interval} weeks`;
                 return `${intervalPart} (${dayNames})`;
             }
 
             if (this.interval === 1) {
                 return typeLabel;
             }
-            const typePlural = this.type === 'daily' ? 'DAYS' : this.type === 'weekly' ? 'WEEKS' : this.type === 'monthly' ? 'MONTHS' : 'YEARS';
-            return `EVERY ${this.interval} ${typePlural}`;
+            const typePlural = this.type === 'daily' ? 'days' : this.type === 'weekly' ? 'weeks' : this.type === 'monthly' ? 'months' : 'years';
+            return `Every ${this.interval} ${typePlural}`;
         },
 
         get panelPlacementClasses() {
@@ -235,6 +253,7 @@
     data-task-creation-safe
     {{ $attributes }}
 >
+    <flux:tooltip :content="$compactWhenDisabled ? $repeatTooltip : $changeTooltip">
     <button
         x-ref="button"
         type="button"
@@ -243,14 +262,13 @@
         :aria-expanded="open"
         :aria-controls="$id('recurring-selection-dropdown')"
         @if($compactWhenDisabled)
-            aria-label="{{ __('Set recurrence') }}"
-            title="{{ __('Set recurrence') }}"
+            aria-label="{{ $repeatTooltip }}"
         @endif
         class="{{ $triggerInitialClass }}"
         x-effect="
             const base = @js($triggerBaseClass);
             const state = (!enabled && compactWhenDisabled)
-                ? 'border-indigo-500/20 bg-indigo-500/10 text-indigo-600 shadow-sm dark:text-indigo-300'
+                ? 'border-border/60 bg-muted text-muted-foreground'
                 : (enabled
                     ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
                     : 'border-border/60 bg-muted text-muted-foreground');
@@ -266,31 +284,31 @@
             x-show="!enabled && compactWhenDisabled"
             style="{{ $shouldRenderCompact ? '' : 'display:none;' }}"
         >
-            {{ __('Set recurrence') }}
+            {{ $repeatTooltip }}
         </span>
 
         <span
             class="inline-flex items-baseline gap-1"
-            x-show="enabled || !compactWhenDisabled"
-            style="{{ $shouldRenderCompact ? 'display:none;' : '' }}"
+            x-show="enabled"
+            style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
         >
             <span
                 class="text-[10px] font-semibold uppercase tracking-wide opacity-70"
-                x-show="!enabled"
-                style="{{ $isInitiallyEnabled ? 'display:none;' : '' }}"
+                x-show="enabled"
             >
-                {{ $triggerLabel }}:
+                {{ __($triggerLabel) }}:
             </span>
-            <span class="text-xs uppercase" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
+            <span class="text-xs" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
         </span>
 
         <flux:icon
             name="chevron-down"
             class="size-3"
-            x-show="enabled || !compactWhenDisabled"
-            style="{{ $shouldRenderCompact ? 'display:none;' : '' }}"
+            x-show="enabled"
+            style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
         />
     </button>
+    </flux:tooltip>
 
     <div
         x-ref="panel"
@@ -309,101 +327,94 @@
         class="absolute z-50 flex min-w-80 flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
         data-task-creation-safe
     >
-        <div class="space-y-4 p-4">
-            <!-- Enable/Disable Toggle -->
-            <div class="flex items-center justify-between border-b border-border/60 pb-3">
-                <label class="text-sm font-medium text-foreground">
-                    {{ __('Enable Recurrence') }}
+        <div class="flex flex-col items-center space-y-4 p-4">
+            <!-- Recurrence Type Selection -->
+            <div class="flex flex-col items-center">
+                <label class="mb-2 block text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ __('How often?') }}
                 </label>
-                <flux:switch
-                    x-model="enabled"
-                />
+                <div class="grid grid-cols-2 gap-2">
+                    <button
+                        type="button"
+                        @click="updateField('type', 'daily')"
+                        class="rounded-md border px-3 py-2 text-sm transition-colors"
+                        :class="type === 'daily' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                    >
+                        {{ __('Daily') }}
+                    </button>
+                    <button
+                        type="button"
+                        @click="updateField('type', 'weekly')"
+                        class="rounded-md border px-3 py-2 text-sm transition-colors"
+                        :class="type === 'weekly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                    >
+                        {{ __('Weekly') }}
+                    </button>
+                    <button
+                        type="button"
+                        @click="updateField('type', 'monthly')"
+                        class="rounded-md border px-3 py-2 text-sm transition-colors"
+                        :class="type === 'monthly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                    >
+                        {{ __('Monthly') }}
+                    </button>
+                    <button
+                        type="button"
+                        @click="updateField('type', 'yearly')"
+                        class="rounded-md border px-3 py-2 text-sm transition-colors"
+                        :class="type === 'yearly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                    >
+                        {{ __('Yearly') }}
+                    </button>
+                </div>
             </div>
 
-            <template x-if="enabled">
-                <div class="space-y-4">
-                    <!-- Recurrence Type Selection -->
-                    <div>
-                        <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {{ __('Recurrence Type') }}
-                        </label>
-                        <div class="grid grid-cols-2 gap-2">
-                            <button
-                                type="button"
-                                @click="updateField('type', 'daily')"
-                                class="rounded-md border px-3 py-2 text-sm transition-colors"
-                                :class="type === 'daily' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
-                            >
-                                {{ __('Daily') }}
-                            </button>
-                            <button
-                                type="button"
-                                @click="updateField('type', 'weekly')"
-                                class="rounded-md border px-3 py-2 text-sm transition-colors"
-                                :class="type === 'weekly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
-                            >
-                                {{ __('Weekly') }}
-                            </button>
-                            <button
-                                type="button"
-                                @click="updateField('type', 'monthly')"
-                                class="rounded-md border px-3 py-2 text-sm transition-colors"
-                                :class="type === 'monthly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
-                            >
-                                {{ __('Monthly') }}
-                            </button>
-                            <button
-                                type="button"
-                                @click="updateField('type', 'yearly')"
-                                class="rounded-md border px-3 py-2 text-sm transition-colors"
-                                :class="type === 'yearly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
-                            >
-                                {{ __('Yearly') }}
-                            </button>
-                        </div>
+            <!-- Interval Input -->
+            <template x-if="type">
+                <div class="flex flex-nowrap items-center justify-center gap-2">
+                    <span class="shrink-0 text-sm text-muted-foreground">{{ __('Every') }}</span>
+                    <div class="w-12 shrink-0">
+                        <flux:input
+                            type="number"
+                            min="1"
+                            x-model.number="interval"
+                            class="w-full min-w-0"
+                            size="sm"
+                        />
                     </div>
-
-                    <!-- Interval Input -->
-                    <template x-if="type">
-                        <div>
-                            <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                <span x-text="intervalLabel"></span>
-                            </label>
-                            <div class="flex items-center gap-2">
-                                <span class="text-sm text-muted-foreground">{{ __('Every') }}</span>
-                                <flux:input
-                                    type="number"
-                                    min="1"
-                                    x-model.number="interval"
-                                    class="w-20"
-                                    size="sm"
-                                />
-                                <span class="text-sm text-muted-foreground" x-text="type === 'daily' ? 'day(s)' : type === 'weekly' ? 'week(s)' : type === 'monthly' ? 'month(s)' : 'year(s)'"></span>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Days of Week (Weekly only) -->
-                    <template x-if="type === 'weekly'">
-                        <div>
-                            <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ __('Days of Week') }}
-                            </label>
-                            <div class="grid grid-cols-7 gap-1.5">
-                                <template x-for="(dayLabel, index) in dayLabels" :key="index">
-                                    <button
-                                        type="button"
-                                        @click="toggleDay(index)"
-                                        class="rounded-md border px-2 py-1.5 text-xs transition-colors"
-                                        :class="isDaySelected(index) ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400 font-semibold' : 'border-border bg-muted/50 hover:bg-muted'"
-                                        x-text="dayLabel"
-                                    ></button>
-                                </template>
-                            </div>
-                        </div>
-                    </template>
+                    <span class="shrink-0 text-sm text-muted-foreground" x-text="(type === 'daily' ? (interval === 1 ? 'day' : 'days') : type === 'weekly' ? (interval === 1 ? 'week' : 'weeks') : type === 'monthly' ? (interval === 1 ? 'month' : 'months') : (interval === 1 ? 'year' : 'years'))"></span>
                 </div>
             </template>
+
+            <!-- Days of Week (Weekly only) -->
+            <template x-if="type === 'weekly'">
+                <div class="flex flex-col items-center">
+                    <label class="mb-2 block text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {{ __('On which days?') }}
+                    </label>
+                    <div class="grid grid-cols-7 gap-1.5">
+                        <template x-for="(dayLabel, index) in dayLabels" :key="index">
+                            <button
+                                type="button"
+                                @click="toggleDay(index)"
+                                class="rounded-md border px-2 py-1.5 text-xs transition-colors"
+                                :class="isDaySelected(index) ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400 font-semibold' : 'border-border bg-muted/50 hover:bg-muted'"
+                                x-text="dayLabel"
+                            ></button>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            <div class="flex w-full justify-center pt-3 border-t border-border/60">
+                <button
+                    type="button"
+                    @click="enabled = false; type = null; daysOfWeek = []; close($refs.button)"
+                    class="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                >
+                    {{ __('Don\'t repeat') }}
+                </button>
+            </div>
         </div>
     </div>
 </div>

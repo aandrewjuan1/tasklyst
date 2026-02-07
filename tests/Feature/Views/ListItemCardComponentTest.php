@@ -41,7 +41,7 @@ it('renders recurring selection for non-recurring tasks', function (): void {
         'item' => $task,
     ]);
 
-    expect($html)->toContain('aria-label="Set recurrence"');
+    expect($html)->toContain('aria-label="Repeat this task"');
 });
 
 it('renders recurring pill for recurring events', function (): void {
@@ -72,7 +72,7 @@ it('renders recurring selection for non-recurring events', function (): void {
         'item' => $event,
     ]);
 
-    expect($html)->toContain('aria-label="Set recurrence"');
+    expect($html)->toContain('aria-label="Repeat this event"');
 });
 
 it('uses base task status for recurring task', function (): void {
