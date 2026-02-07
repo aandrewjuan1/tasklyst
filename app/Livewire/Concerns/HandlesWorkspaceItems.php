@@ -21,7 +21,9 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Livewire\Attributes\Async;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Renderless;
 
 trait HandlesWorkspaceItems
 {
@@ -175,6 +177,8 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success/info toasts (e.g. when creating from list-item-card so only "Task updated." is shown).
      */
+    #[Async]
+    #[Renderless]
     public function createTag(string $name, bool $silentToasts = false): void
     {
         $user = $this->requireAuth(__('You must be logged in to create tags.'));
@@ -246,6 +250,8 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when deleting from list-item-card so only "Task updated." is shown).
      */
+    #[Async]
+    #[Renderless]
     public function deleteTag(int $tagId, bool $silentToasts = false): void
     {
         $user = $this->requireAuth(__('You must be logged in to delete tags.'));
@@ -295,6 +301,8 @@ trait HandlesWorkspaceItems
     /**
      * Delete a task for the authenticated user.
      */
+    #[Async]
+    #[Renderless]
     public function deleteTask(int $taskId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to delete tasks.'));
@@ -342,6 +350,8 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
+    #[Async]
+    #[Renderless]
     public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
     {
         $user = $this->requireAuth(__('You must be logged in to update tasks.'));
@@ -455,9 +465,6 @@ trait HandlesWorkspaceItems
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $task->title));
                     }
-                    if ($statusEnum !== \App\Enums\TaskStatus::Done) {
-                        $this->listRefresh++;
-                    }
 
                     return true;
                 } catch (\Throwable $e) {
@@ -524,10 +531,6 @@ trait HandlesWorkspaceItems
             $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
         }
 
-        if ($property === 'status' && $validatedValue !== 'done') {
-            $this->listRefresh++;
-        }
-
         return true;
     }
 
@@ -579,6 +582,8 @@ trait HandlesWorkspaceItems
     /**
      * Delete an event for the authenticated user.
      */
+    #[Async]
+    #[Renderless]
     public function deleteEvent(int $eventId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to delete events.'));
@@ -626,6 +631,8 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
+    #[Async]
+    #[Renderless]
     public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
     {
         $user = $this->requireAuth(__('You must be logged in to update events.'));
@@ -739,10 +746,6 @@ trait HandlesWorkspaceItems
                     if (! $silentToasts) {
                         $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $event->title));
                     }
-                    $isHidingStatus = in_array($validatedValue, [EventStatus::Completed->value, EventStatus::Cancelled->value], true);
-                    if (! $isHidingStatus) {
-                        $this->listRefresh++;
-                    }
 
                     return true;
                 } catch (\Throwable $e) {
@@ -806,13 +809,6 @@ trait HandlesWorkspaceItems
         if (! $silentToasts) {
             $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
             $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $event->title));
-        }
-
-        if ($property === 'status') {
-            $isHidingStatus = in_array($validatedValue, [EventStatus::Completed->value, EventStatus::Cancelled->value], true);
-            if (! $isHidingStatus) {
-                $this->listRefresh++;
-            }
         }
 
         return true;
@@ -1091,7 +1087,6 @@ trait HandlesWorkspaceItems
             ->forUser($userId)
             ->incomplete()
             ->overdue($today)
-            ->whereDoesntHave('recurringTask')
             ->orderByPriority()
             ->limit(50)
             ->get()

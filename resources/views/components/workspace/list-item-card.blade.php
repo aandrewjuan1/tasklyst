@@ -210,13 +210,7 @@
                 return;
             }
             this.hideCard = true;
-            // Delay list-item-hidden until the leave transition (150ms) completes
-            // so the card can fade out before the parent container updates.
-            this.$nextTick(() => {
-                setTimeout(() => {
-                    $dispatch('list-item-hidden', { fromOverdue: this.isOverdue, requestRefresh });
-                }, 150);
-            });
+            $dispatch('list-item-hidden', { fromOverdue: this.isOverdue, requestRefresh });
         },
         /**
          * Determine if a task is still relevant for the current list filter date.
@@ -387,18 +381,30 @@
         },
         async deleteItem() {
             if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
+
+            const wasOverdue = this.isOverdue;
             this.deletingInProgress = true;
+
             try {
+                // Phase 1: Optimistic update – hide immediately
+                this.hideFromList(true);
+
+                // Phase 2: Call server
                 const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
-                if (ok) {
-                    this.hideFromList(true);
-                } else {
-                    this.deletingInProgress = false;
+
+                if (!ok) {
+                    // Phase 3: Rollback – show card again
+                    this.hideCard = false;
+                    $dispatch('list-item-shown', { fromOverdue: wasOverdue });
                     $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
                 }
             } catch (e) {
-                this.deletingInProgress = false;
+                // Rollback – show card again
+                this.hideCard = false;
+                $dispatch('list-item-shown', { fromOverdue: wasOverdue });
                 $wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
+            } finally {
+                this.deletingInProgress = false;
             }
         },
         startEditingTitle() {

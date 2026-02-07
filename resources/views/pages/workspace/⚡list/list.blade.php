@@ -958,8 +958,7 @@
                         this.visibleItemCount--;
                     }
                     if (requestRefresh) {
-                        const delay = fromOverdue && this.overdueCount === 0 ? 150 : 0;
-                        setTimeout(() => $dispatch('list-refresh-requested'), delay);
+                        $dispatch('list-refresh-requested');
                     }
                 },
                 handleListItemShown(e) {
