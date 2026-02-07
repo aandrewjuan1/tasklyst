@@ -353,6 +353,75 @@
             return false;
         },
         /**
+         * Determine if a project is still relevant for the current list filter date.
+         *
+         * Mirrors Project::scopeActiveForDate:
+         * - no dates => always relevant
+         * - only end date => relevant while end date (by calendar date) is on/after the filter date
+         * - start/end window overlaps the day => relevant
+         */
+        isProjectStillRelevantForList(startDatetime, endDatetime) {
+            if (this.kind !== 'project' || !this.listFilterDate) {
+                return true;
+            }
+
+            const filterDate = String(this.listFilterDate).slice(0, 10);
+
+            const parseDateTime = (value) => {
+                if (value == null || value === '') {
+                    return null;
+                }
+                const d = new Date(value);
+                return Number.isNaN(d.getTime()) ? null : d;
+            };
+
+            const start = parseDateTime(startDatetime);
+            const end = parseDateTime(endDatetime);
+
+            // No dates at all => always relevant.
+            if (!start && !end) {
+                return true;
+            }
+
+            const startOfDay = new Date(filterDate + 'T00:00:00');
+            const endOfDay = new Date(filterDate + 'T23:59:59.999');
+            const startOfDayMs = startOfDay.getTime();
+            const endOfDayMs = endOfDay.getTime();
+
+            // Only end date: relevant while end date (by calendar date) is on/after the filter date.
+            if (!start && end) {
+                try {
+                    const endDate = end.toISOString().slice(0, 10);
+                    return endDate >= filterDate;
+                } catch (_) {
+                    return true;
+                }
+            }
+
+            // From here we have a start; end may be null.
+            if (!start) {
+                return true;
+            }
+
+            const startMs = start.getTime();
+
+            // Start falls within the day window.
+            if (startMs >= startOfDayMs && startMs <= endOfDayMs) {
+                return true;
+            }
+
+            // Started before this day – keep if it is still active through this day.
+            if (startMs <= startOfDayMs) {
+                if (!end) {
+                    return true;
+                }
+                const endMs = end.getTime();
+                return endMs >= endOfDayMs;
+            }
+
+            return false;
+        },
+        /**
          * Determine if an item is still overdue (end date before today).
          * Mirrors Task::scopeOverdue / Event::scopeOverdue.
          */
@@ -576,6 +645,24 @@
     "
     @task-date-update-failed.window="if ($event.detail?.taskId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
     @event-date-update-failed.window="if ($event.detail?.eventId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
+    @project-date-updated="
+        if (kind === 'project') {
+            const shouldHide = !isProjectStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
+            if (shouldHide) {
+                dateChangeHidingCard = true;
+                hideFromList(true);
+            } else {
+                dateChangeHidingCard = false;
+            }
+        }
+    "
+    @project-date-update-started.window="
+        if (kind === 'project' && $event.detail?.projectId === itemId) {
+            const shouldDim = !isProjectStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
+            if (shouldDim) dateUpdateInProgress = true;
+        }
+    "
+    @project-date-update-failed.window="if ($event.detail?.projectId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress || dateUpdateInProgress }"
 >
     <div class="flex items-start justify-between gap-2">

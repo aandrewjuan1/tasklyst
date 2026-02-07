@@ -120,6 +120,8 @@
                 if (path === 'startDatetime' || path === 'endDatetime') {
                     window.dispatchEvent(new CustomEvent('project-date-update-failed', { detail: { projectId: this.itemId }, bubbles: true }));
                 }
+            } else if (path === 'startDatetime' || path === 'endDatetime') {
+                if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
             }
         },
     }"
