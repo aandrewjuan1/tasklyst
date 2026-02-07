@@ -1087,6 +1087,7 @@ trait HandlesWorkspaceItems
             ->forUser($userId)
             ->incomplete()
             ->overdue($today)
+            ->whereDoesntHave('recurringTask')
             ->orderByPriority()
             ->limit(50)
             ->get()

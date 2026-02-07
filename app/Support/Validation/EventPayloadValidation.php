@@ -81,6 +81,7 @@ final class EventPayloadValidation
     {
         return [
             'title',
+            'description',
             'status',
             'startDatetime',
             'endDatetime',
@@ -107,6 +108,7 @@ final class EventPayloadValidation
 
         $rules = match ($property) {
             'title' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
+            'description' => ['value' => ['nullable', 'string', 'max:65535']],
             'status' => ['value' => ['nullable', Rule::in(array_map(fn (EventStatus $s) => $s->value, EventStatus::cases()))]],
             'startDatetime' => ['value' => ['nullable', 'date']],
             'endDatetime' => ['value' => ['nullable', 'date']],

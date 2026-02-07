@@ -55,8 +55,8 @@ class Event extends Model
                 : [
                     'type' => $type,
                     'message' => $hasTitle
-                        ? __('Couldn\'t save changes to :title. Try again.', ['title' => $quotedTitle])
-                        : __('Couldn\'t save changes. Try again.'),
+                        ? __("Couldn't save changes to :title. Try again.", ['title' => $quotedTitle])
+                        : __("Couldn't save changes. Try again."),
                     'icon' => 'exclamation-triangle',
                 ],
             'delete' => $success
