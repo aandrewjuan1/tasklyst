@@ -1,7 +1,12 @@
 <?php
 
 use App\Livewire\Concerns\HandlesWorkspaceItems;
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Tag;
+use App\Models\Task;
 use App\Services\EventService;
+use Illuminate\Support\Facades\Auth;
 use App\Services\ProjectService;
 use App\Services\RecurrenceExpander;
 use App\Services\TagService;
@@ -57,6 +62,12 @@ class extends Component
 
     public function mount(): void
     {
+        if (Auth::check()) {
+            $this->authorize('viewAny', Task::class);
+            $this->authorize('viewAny', Event::class);
+            $this->authorize('viewAny', Project::class);
+            $this->authorize('viewAny', Tag::class);
+        }
         $this->selectedDate = now()->toDateString();
     }
 

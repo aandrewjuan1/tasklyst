@@ -59,6 +59,17 @@ trait HandlesWorkspaceItems
 
         $validatedTask = $validated['taskPayload'];
 
+        $projectId = $validatedTask['projectId'] ?? null;
+        if ($projectId !== null) {
+            $project = Project::query()->forUser($user->id)->find((int) $projectId);
+            if ($project === null) {
+                $this->dispatch('toast', type: 'error', message: __('Project not found.'));
+
+                return;
+            }
+            $this->authorize('update', $project);
+        }
+
         $title = (string) ($validatedTask['title'] ?? '');
         $startDatetime = $this->parseOptionalDatetime($validatedTask['startDatetime'] ?? null);
         $endDatetime = $this->parseOptionalDatetime($validatedTask['endDatetime'] ?? null);
@@ -1028,7 +1039,11 @@ trait HandlesWorkspaceItems
     private function resolveTagIdsFromPayload(User $user, array $validated, string $context): array
     {
         $tagIds = array_values(array_unique(array_map('intval', $validated['tagIds'] ?? [])));
-        foreach ($validated['pendingTagNames'] ?? [] as $name) {
+        $pendingTagNames = $validated['pendingTagNames'] ?? [];
+        if ($pendingTagNames !== []) {
+            $this->authorize('create', Tag::class);
+        }
+        foreach ($pendingTagNames as $name) {
             $name = trim((string) $name);
             if ($name === '') {
                 continue;

@@ -269,6 +269,65 @@ it('creates task with project association', function (): void {
     ]);
 });
 
+it('rejects createTask when projectId references a project the user cannot access', function (): void {
+    $user = User::factory()->create();
+    $otherUser = User::factory()->create();
+    $otherProject = Project::factory()->for($otherUser)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('createTask', [
+            'title' => 'Task with unauthorized project',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'projectId' => $otherProject->id,
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('Project not found.'));
+
+    $this->assertDatabaseMissing('tasks', [
+        'title' => 'Task with unauthorized project',
+        'user_id' => $user->id,
+        'project_id' => $otherProject->id,
+    ]);
+});
+
+it('rejects createTask when projectId references a project the user can view but not update', function (): void {
+    $user = User::factory()->create();
+    $owner = User::factory()->create();
+    $project = Project::factory()->for($owner)->create();
+
+    Collaboration::create([
+        'collaboratable_type' => Project::class,
+        'collaboratable_id' => $project->id,
+        'user_id' => $user->id,
+        'permission' => CollaborationPermission::View,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('createTask', [
+            'title' => 'Task with view-only project',
+            'status' => 'to_do',
+            'priority' => 'medium',
+            'complexity' => 'moderate',
+            'duration' => 60,
+            'startDatetime' => null,
+            'endDatetime' => null,
+            'projectId' => $project->id,
+        ])
+        ->assertForbidden();
+
+    $this->assertDatabaseMissing('tasks', [
+        'title' => 'Task with view-only project',
+        'user_id' => $user->id,
+        'project_id' => $project->id,
+    ]);
+});
+
 it('creates task with datetime', function (): void {
     $user = User::factory()->create();
 
