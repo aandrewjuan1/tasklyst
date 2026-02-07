@@ -5,6 +5,7 @@ use App\Enums\EventStatus;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
+use App\Models\Project;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
@@ -12,6 +13,22 @@ use App\Services\EventService;
 use App\Services\TaskService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Blade;
+
+it('renders project card with list-item-project date pickers', function (): void {
+    $project = Project::factory()->create([
+        'name' => 'Test Project',
+        'start_datetime' => now()->startOfDay(),
+        'end_datetime' => now()->startOfDay()->addHours(2),
+    ]);
+
+    $html = Blade::render('<x-workspace.list-item-card kind="project" :item="$item" />', [
+        'item' => $project,
+    ]);
+
+    expect($html)->toContain('Test Project')
+        ->toContain(__('Start'))
+        ->toContain(__('End'));
+});
 
 it('renders recurring pill for recurring tasks', function (): void {
     $task = Task::factory()->create();

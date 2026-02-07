@@ -36,12 +36,21 @@
                     daysOfWeek: [],
                 },
             },
+            project: {
+                name: '',
+                description: null,
+                startDatetime: null,
+                endDatetime: null,
+            },
         },
         validateDateRange() {
             this.errors.dateRange = null;
 
-            const start = this.formData.item.startDatetime;
-            const end = this.formData.item.endDatetime;
+            const dates = this.creationKind === 'project'
+                ? { start: this.formData.project.startDatetime, end: this.formData.project.endDatetime }
+                : { start: this.formData.item.startDatetime, end: this.formData.item.endDatetime };
+            const start = dates.start;
+            const end = dates.end;
 
             if (!start || !end) {
                 return true;
@@ -102,6 +111,11 @@
                 this.formData.item.status = 'scheduled';
                 this.formData.item.allDay = false;
                 // Events don't have priority, complexity, duration, or projectId
+            } else if (this.creationKind === 'project') {
+                this.formData.project.name = '';
+                this.formData.project.description = null;
+                this.formData.project.startDatetime = null;
+                this.formData.project.endDatetime = null;
             }
         },
         toggleTag(tagId) {
@@ -376,6 +390,44 @@
                     }, remaining);
                 });
         },
+        submitProject() {
+            if (this.isSubmitting) {
+                return;
+            }
+
+            if (!this.formData.project.name || !this.formData.project.name.trim()) {
+                return;
+            }
+
+            if (!this.validateDateRange()) {
+                return;
+            }
+
+            this.isSubmitting = true;
+            this.formData.project.name = this.formData.project.name.trim();
+
+            this.showItemCreation = false;
+            this.showItemLoading = true;
+            this.loadingStartedAt = Date.now();
+
+            const payload = {
+                name: this.formData.project.name,
+                description: this.formData.project.description || null,
+                startDatetime: this.formData.project.startDatetime || null,
+                endDatetime: this.formData.project.endDatetime || null,
+            };
+            const minLoadingMs = 500;
+
+            $wire.$parent.$call('createProject', payload)
+                .finally(() => {
+                    const elapsed = Date.now() - this.loadingStartedAt;
+                    const remaining = Math.max(0, minLoadingMs - elapsed);
+                    setTimeout(() => {
+                        this.showItemLoading = false;
+                        this.isSubmitting = false;
+                    }, remaining);
+                });
+        },
         formatDatetime(datetimeString) {
             const notSet = 'Not set';
             if (!datetimeString) return notSet;
@@ -569,6 +621,7 @@
     }"
     @task-created="resetForm()"
     @event-created="resetForm()"
+    @project-created="resetForm()"
     @tag-created.window="onTagCreated($event)"
     @tag-deleted.window="onTagDeleted($event)"
     @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
@@ -580,6 +633,8 @@
     x-effect="
         formData.item.startDatetime;
         formData.item.endDatetime;
+        formData.project.startDatetime;
+        formData.project.endDatetime;
         creationKind === 'task' ? formData.item.duration : null;
         validateDateRange();
     "
@@ -630,7 +685,22 @@
                 >
                     {{ __('Event') }}
                 </flux:menu.item>
-                <flux:menu.item variant="danger" icon="clipboard-document-list">
+                <flux:menu.item
+                    icon="clipboard-document-list"
+                    @click="
+                        if (showItemCreation && creationKind === 'project') {
+                            showItemCreation = false;
+                        } else {
+                            creationKind = 'project';
+                            formData.project.name = '';
+                            formData.project.description = null;
+                            formData.project.startDatetime = null;
+                            formData.project.endDatetime = null;
+                            showItemCreation = true;
+                            $nextTick(() => $refs.projectName?.focus());
+                        }
+                    "
+                >
                     {{ __('Project') }}
                 </flux:menu.item>
             </flux:menu>
@@ -665,15 +735,17 @@
             <div class="flex items-start justify-between gap-3">
                 <form
                     class="min-w-0 flex-1"
-                    @submit.prevent="creationKind === 'task' ? submitTask() : submitEvent()"
+                    @submit.prevent="creationKind === 'project' ? submitProject() : (creationKind === 'task' ? submitTask() : submitEvent())"
                 >
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center gap-2">
-                            <x-recurring-selection
-                                compactWhenDisabled
-                                position="top"
-                                align="end"
-                            />
+                            <div x-show="creationKind !== 'project'" x-cloak>
+                                <x-recurring-selection
+                                    compactWhenDisabled
+                                    position="top"
+                                    align="end"
+                                />
+                            </div>
                             <span
                                 class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
                                 x-show="creationKind === 'task'"
@@ -688,42 +760,66 @@
                             >
                                 {{ __('Event') }}
                             </span>
+                            <span
+                                class="inline-flex w-fit items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                                x-show="creationKind === 'project'"
+                                x-cloak
+                            >
+                                {{ __('Project') }}
+                            </span>
                         </div>
 
                         <div class="flex items-center gap-2">
-                            <flux:input
-                                x-model="formData.item.title"
-                                x-ref="taskTitle"
-                                x-bind:disabled="isSubmitting"
-                                placeholder="{{ __('Enter title...') }}"
-                                class="flex-1 text-sm font-medium"
-                                @keydown.enter.prevent="if (!isSubmitting && formData.item.title && formData.item.title.trim()) { creationKind === 'task' ? submitTask() : submitEvent(); }"
-                            />
+                            <div class="min-w-0 flex-1">
+                                <flux:input
+                                    x-show="creationKind !== 'project'"
+                                    x-cloak
+                                    x-model="formData.item.title"
+                                    x-ref="taskTitle"
+                                    x-bind:disabled="isSubmitting"
+                                    placeholder="{{ __('Enter title...') }}"
+                                    class="w-full text-sm font-medium"
+                                    @keydown.enter.prevent="if (!isSubmitting && formData.item.title && formData.item.title.trim()) { creationKind === 'task' ? submitTask() : submitEvent(); }"
+                                />
+                                <flux:input
+                                    x-show="creationKind === 'project'"
+                                    x-cloak
+                                    x-model="formData.project.name"
+                                    x-ref="projectName"
+                                    x-bind:disabled="isSubmitting"
+                                    placeholder="{{ __('Enter project name...') }}"
+                                    class="w-full text-sm font-medium"
+                                    @keydown.enter.prevent="if (!isSubmitting && formData.project.name && formData.project.name.trim()) { submitProject(); }"
+                                />
+                            </div>
 
                             <flux:button
                                 type="button"
                                 variant="primary"
                                 icon="paper-airplane"
                                 class="shrink-0 rounded-full"
-                                x-bind:disabled="isSubmitting || !formData.item.title || !formData.item.title.trim()"
-                                @click="creationKind === 'task' ? submitTask() : submitEvent()"
+                                x-bind:disabled="isSubmitting || (creationKind === 'project' ? (!formData.project.name || !formData.project.name.trim()) : (!formData.item.title || !formData.item.title.trim()))"
+                                @click="creationKind === 'project' ? submitProject() : (creationKind === 'task' ? submitTask() : submitEvent())"
                             />
                         </div>
 
                         <div class="flex flex-wrap gap-2">
                             <x-workspace.creation-task-fields />
                             <x-workspace.creation-event-fields />
+                            <x-workspace.creation-project-fields />
 
-                            @foreach ([['label' => __('Start'), 'model' => 'formData.item.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.item.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
-                                <x-date-picker
-                                    :triggerLabel="$dateField['label']"
-                                    :label="$dateField['datePickerLabel']"
-                                    :model="$dateField['model']"
-                                    type="datetime-local"
-                                    position="bottom"
-                                    align="end"
-                                />
-                            @endforeach
+                            <div x-show="creationKind !== 'project'" x-cloak class="contents">
+                                @foreach ([['label' => __('Start'), 'model' => 'formData.item.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.item.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
+                                    <x-date-picker
+                                        :triggerLabel="$dateField['label']"
+                                        :label="$dateField['datePickerLabel']"
+                                        :model="$dateField['model']"
+                                        type="datetime-local"
+                                        position="bottom"
+                                        align="end"
+                                    />
+                                @endforeach
+                            </div>
 
                             <div class="flex w-full items-center gap-1.5" x-show="errors.dateRange" x-cloak>
                                 <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
@@ -731,7 +827,7 @@
                             </div>
                         </div>
 
-                        <div class="w-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+                        <div class="w-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]" x-show="creationKind !== 'project'" x-cloak>
                             <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
                                 <flux:icon name="tag" class="size-3" />
                                 {{ __('Tags') }}:
@@ -762,10 +858,12 @@
         <div class="flex flex-col gap-2 px-3 pt-3 pb-2">
         <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
-                <p class="truncate text-lg font-semibold leading-tight" x-text="formData.item.title"></p>
+                <p class="truncate text-lg font-semibold leading-tight" x-text="creationKind === 'project' ? formData.project.name : formData.item.title"></p>
             </div>
             <div class="flex items-center gap-2">
                 <span
+                    x-show="creationKind !== 'project'"
+                    x-cloak
                     class="cursor-default inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out"
                     :class="(formData.item.recurrence?.enabled && formData.item.recurrence?.type) ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300 dark:border-indigo-400/25' : 'border-border/60 bg-muted text-muted-foreground'"
                 >
@@ -777,7 +875,7 @@
                     <flux:icon name="chevron-down" class="size-3" x-show="formData.item.recurrence?.enabled && formData.item.recurrence?.type" x-cloak></flux:icon>
                 </span>
                 <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    <span x-text="creationKind === 'task' ? '{{ __('Task') }}' : '{{ __('Event') }}'"></span>
+                    <span x-text="creationKind === 'task' ? '{{ __('Task') }}' : (creationKind === 'event' ? '{{ __('Event') }}' : '{{ __('Project') }}')"></span>
                 </span>
                 <flux:button size="xs" icon="ellipsis-horizontal" disabled class="pointer-events-none opacity-70" />
             </div>
@@ -848,22 +946,25 @@
                     </span>
                 </div>
             </template>
+            <template x-if="creationKind === 'project'">
+                <div class="flex flex-wrap items-center gap-2"></div>
+            </template>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
-                    <span class="text-xs uppercase" x-text="formData.item.startDatetime ? formatDatetime(formData.item.startDatetime) : '{{ __('Not set') }}'"></span>
+                    <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.startDatetime : formData.item.startDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.startDatetime : formData.item.startDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
             </span>
             <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
                 <flux:icon name="clock" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70" x-text="creationKind === 'task' ? '{{ __('Due') }}:' : '{{ __('End') }}:'"></span>
-                    <span class="text-xs uppercase" x-text="formData.item.endDatetime ? formatDatetime(formData.item.endDatetime) : '{{ __('Not set') }}'"></span>
+                    <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.endDatetime : formData.item.endDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.endDatetime : formData.item.endDatetime) : '{{ __('Not set') }}'"></span>
                 </span>
             </span>
             <span
-                x-show="formData.item.projectId && projectNames[formData.item.projectId]"
+                x-show="creationKind !== 'project' && formData.item.projectId && projectNames[formData.item.projectId]"
                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10"
             >
                 <flux:icon name="folder" class="size-3" />
@@ -873,7 +974,7 @@
                 </span>
             </span>
         </div>
-        <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-1.5 mt-1 text-[10px]">
+        <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-1.5 mt-1 text-[10px]" x-show="creationKind !== 'project'" x-cloak>
             <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
                 <flux:icon name="tag" class="size-3" />
                 {{ __('Tags') }}:

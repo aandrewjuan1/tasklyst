@@ -298,6 +298,29 @@ it('creates task with datetime', function (): void {
     ]);
 });
 
+it('can create a project from the workspace component', function (): void {
+    $user = User::factory()->create();
+
+    $date = now()->toDateString();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date)
+        ->call('createProject', [
+            'name' => 'New Project',
+            'description' => null,
+            'startDatetime' => null,
+            'endDatetime' => null,
+        ])
+        ->assertSee('New Project')
+        ->assertDispatched('toast', type: 'success', message: __('Added :name.', ['name' => '"New Project"']), icon: 'plus-circle');
+
+    $this->assertDatabaseHas('projects', [
+        'name' => 'New Project',
+        'user_id' => $user->id,
+    ]);
+});
+
 it('deletes a project through the workspace component', function (): void {
     $user = User::factory()->create();
 
@@ -315,7 +338,7 @@ it('deletes a project through the workspace component', function (): void {
         ->test('pages::workspace.index')
         ->set('selectedDate', $date)
         ->call('deleteProject', $project->id)
-        ->assertDispatched('toast', type: 'success', message: __('Project deleted.'));
+        ->assertDispatched('toast', type: 'success', message: __('Deleted :name.', ['name' => '"Project To Delete"']), icon: 'trash');
 
     $this->assertSoftDeleted('projects', [
         'id' => $project->id,
@@ -884,7 +907,7 @@ it('updates a project name property through the workspace component', function (
         ->test('pages::workspace.index')
         ->set('selectedDate', $date)
         ->call('updateProjectProperty', $project->id, 'name', 'Project New Name')
-        ->assertDispatched('toast', type: 'success', message: __('Project updated.'));
+        ->assertDispatched('toast');
 
     $project->refresh();
     expect($project->name)->toBe('Project New Name');

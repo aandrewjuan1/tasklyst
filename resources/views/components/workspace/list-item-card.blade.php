@@ -648,47 +648,7 @@
 
     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
     @if($kind === 'project')
-        @if($item->user)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10">
-                <flux:icon name="user" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Owner') }}:
-                    </span>
-                    <span class="truncate max-w-[140px] uppercase">
-                        {{ $item->user->name }}
-                    </span>
-                </span>
-            </span>
-        @endif
-
-        @if($item->start_datetime)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="calendar-days" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Start') }}:
-                    </span>
-                    <span class="uppercase">
-                        {{ $item->start_datetime->toDateString() }}
-                    </span>
-                </span>
-            </span>
-        @endif
-
-        @if($item->end_datetime)
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                <flux:icon name="calendar-days" class="size-3" />
-                <span class="inline-flex items-baseline gap-1">
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                        {{ __('Due') }}:
-                    </span>
-                    <span class="uppercase">
-                        {{ $item->end_datetime->toDateString() }}
-                    </span>
-                </span>
-            </span>
-        @endif
+        <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" />
 
         <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500 dark:border-white/10">
             <flux:icon name="list-bullet" class="size-3" />
@@ -701,8 +661,6 @@
                 </span>
             </span>
         </span>
-
-        <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
     </div>
     @elseif($kind === 'event')
         <div

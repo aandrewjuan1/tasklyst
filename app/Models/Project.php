@@ -188,4 +188,174 @@ class Project extends Model
     {
         return $query->whereHas('tasks');
     }
+
+    /**
+     * Build a friendly toast payload for Project CRUD actions.
+     *
+     * @return array{type: 'success'|'error'|'info', message: string, icon: string}
+     */
+    public static function toastPayload(string $action, bool $success, ?string $name = null): array
+    {
+        $trimmedName = $name !== null ? trim($name) : null;
+        $hasName = $trimmedName !== null && $trimmedName !== '';
+
+        $quotedName = $hasName ? '"'.$trimmedName.'"' : null;
+
+        $type = $success ? 'success' : 'error';
+
+        return match ($action) {
+            'create' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasName ? __('Added :name.', ['name' => $quotedName]) : __('Added the project.'),
+                    'icon' => 'plus-circle',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasName
+                        ? __('Couldn\'t add :name. Try again.', ['name' => $quotedName])
+                        : __('Couldn\'t add the project. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            'update' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasName ? __('Saved changes to :name.', ['name' => $quotedName]) : __('Saved changes.'),
+                    'icon' => 'pencil-square',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasName
+                        ? __('Couldn\'t save changes to :name. Try again.', ['name' => $quotedName])
+                        : __('Couldn\'t save changes. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            'delete' => $success
+                ? [
+                    'type' => $type,
+                    'message' => $hasName ? __('Deleted :name.', ['name' => $quotedName]) : __('Deleted the project.'),
+                    'icon' => 'trash',
+                ]
+                : [
+                    'type' => $type,
+                    'message' => $hasName
+                        ? __('Couldn\'t delete :name. Try again.', ['name' => $quotedName])
+                        : __('Couldn\'t delete the project. Try again.'),
+                    'icon' => 'exclamation-triangle',
+                ],
+            default => [
+                'type' => $type,
+                'message' => $success ? __('Done.') : __('Something went wrong. Please try again.'),
+                'icon' => $success ? 'check-circle' : 'exclamation-triangle',
+            ],
+        };
+    }
+
+    /**
+     * Build a friendly toast payload for inline Project edits.
+     *
+     * @return array{type: 'success'|'error'|'info', message: string, icon: string}
+     */
+    public static function toastPayloadForPropertyUpdate(string $property, mixed $fromValue, mixed $toValue, bool $success, ?string $projectName = null): array
+    {
+        $type = $success ? 'success' : 'error';
+        $projectSuffix = self::toastProjectSuffix($projectName);
+
+        $propertyLabel = self::propertyLabel($property);
+        $formattedFrom = self::formatPropertyValue($property, $fromValue);
+        $formattedTo = self::formatPropertyValue($property, $toValue);
+        $icon = self::propertyIcon($property, $success);
+
+        if (! $success) {
+            $message = $propertyLabel !== null
+                ? __('Couldn\'t save :property. Try again.', ['property' => $propertyLabel]).$projectSuffix
+                : __('Couldn\'t save changes. Try again.').$projectSuffix;
+
+            return [
+                'type' => $type,
+                'message' => $message,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($propertyLabel === null) {
+            return [
+                'type' => $type,
+                'message' => __('Saved changes.').$projectSuffix,
+                'icon' => $icon,
+            ];
+        }
+
+        if ($formattedFrom !== null || $formattedTo !== null) {
+            $message = __(':property: :from → :to.', [
+                'property' => $propertyLabel,
+                'from' => $formattedFrom ?? __('Not set'),
+                'to' => $formattedTo ?? __('Not set'),
+            ]).$projectSuffix;
+        } else {
+            $message = __('Saved :property.', ['property' => $propertyLabel]).$projectSuffix;
+        }
+
+        return [
+            'type' => $type,
+            'message' => $message,
+            'icon' => $icon,
+        ];
+    }
+
+    private static function toastProjectSuffix(?string $projectName): string
+    {
+        $trimmed = $projectName !== null ? trim($projectName) : '';
+        if ($trimmed === '') {
+            return '';
+        }
+
+        return ' — '.__('Project').': '.'"'.$trimmed.'"';
+    }
+
+    private static function propertyLabel(string $property): ?string
+    {
+        return match ($property) {
+            'name' => __('Name'),
+            'description' => __('Description'),
+            'startDatetime' => __('Start'),
+            'endDatetime' => __('End'),
+            default => null,
+        };
+    }
+
+    private static function propertyIcon(string $property, bool $success): string
+    {
+        if (! $success) {
+            return 'exclamation-triangle';
+        }
+
+        return match ($property) {
+            'name', 'description' => 'pencil-square',
+            'startDatetime', 'endDatetime' => 'clock',
+            default => 'pencil-square',
+        };
+    }
+
+    private static function formatPropertyValue(string $property, mixed $value): ?string
+    {
+        return match ($property) {
+            'name', 'description' => is_string($value) ? '"'.trim($value).'"' : null,
+            'startDatetime', 'endDatetime' => self::formatDatetime($value),
+            default => is_scalar($value) ? (string) $value : null,
+        };
+    }
+
+    private static function formatDatetime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return __('Not set');
+        }
+
+        try {
+            return \Carbon\Carbon::parse((string) $value)->translatedFormat('M j, Y · g:i A');
+        } catch (\Throwable) {
+            return __('Not set');
+        }
+    }
 }

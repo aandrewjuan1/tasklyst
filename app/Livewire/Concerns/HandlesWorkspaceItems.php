@@ -173,6 +173,67 @@ trait HandlesWorkspaceItems
     }
 
     /**
+     * Create a new project for the authenticated user.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function createProject(array $payload): void
+    {
+        $user = $this->requireAuth(__('You must be logged in to create projects.'));
+        if ($user === null) {
+            return;
+        }
+
+        $this->authorize('create', Project::class);
+
+        $this->projectPayload = array_replace_recursive(ProjectPayloadValidation::defaults(), $payload);
+
+        try {
+            /** @var array{projectPayload: array<string, mixed>} $validated */
+            $validated = $this->validate(ProjectPayloadValidation::rules());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Project validation failed', [
+                'errors' => $e->errors(),
+                'payload' => $this->projectPayload,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Please fix the project details and try again.'));
+
+            return;
+        }
+
+        $validatedProject = $validated['projectPayload'];
+
+        $name = (string) ($validatedProject['name'] ?? '');
+        $startDatetime = $this->parseOptionalDatetime($validatedProject['startDatetime'] ?? null);
+        $endDatetime = $this->parseOptionalDatetime($validatedProject['endDatetime'] ?? null);
+
+        $projectAttributes = [
+            'name' => $name,
+            'description' => $validatedProject['description'] ?? null,
+            'start_datetime' => $startDatetime,
+            'end_datetime' => $endDatetime,
+        ];
+
+        try {
+            $project = $this->projectService->createProject($user, $projectAttributes);
+        } catch (\Throwable $e) {
+            Log::error('Failed to create project from workspace.', [
+                'user_id' => $user->id,
+                'payload' => $this->projectPayload,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', ...Project::toastPayload('create', false, $name));
+
+            return;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('project-created', id: $project->id, name: $project->name);
+        $this->dispatch('toast', ...Project::toastPayload('create', true, $project->name));
+    }
+
+    /**
      * Create a new tag for the authenticated user.
      *
      * @param  bool  $silentToasts  When true, do not dispatch success/info toasts (e.g. when creating from list-item-card so only "Task updated." is shown).
@@ -537,6 +598,8 @@ trait HandlesWorkspaceItems
     /**
      * Delete a project for the authenticated user.
      */
+    #[Async]
+    #[Renderless]
     public function deleteProject(int $projectId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to delete projects.'));
@@ -563,18 +626,18 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the project.'));
+            $this->dispatch('toast', ...Project::toastPayload('delete', false, $project->name));
 
             return false;
         }
 
         if (! $deleted) {
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the project.'));
+            $this->dispatch('toast', ...Project::toastPayload('delete', false, $project->name));
 
             return false;
         }
 
-        $this->dispatch('toast', type: 'success', message: __('Project deleted.'));
+        $this->dispatch('toast', ...Project::toastPayload('delete', true, $project->name));
 
         return true;
     }
@@ -819,17 +882,16 @@ trait HandlesWorkspaceItems
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
+    #[Async]
+    #[Renderless]
     public function updateProjectProperty(int $projectId, string $property, mixed $value, bool $silentToasts = false): bool
     {
-        $user = Auth::user();
-
+        $user = $this->requireAuth(__('You must be logged in to update projects.'));
         if ($user === null) {
-            $this->dispatch('toast', type: 'error', message: __('You must be logged in to update projects.'));
-
             return false;
         }
 
-        $project = Project::query()->find($projectId);
+        $project = Project::query()->forUser($user->id)->find($projectId);
 
         if ($project === null) {
             $this->dispatch('toast', type: 'error', message: __('Project not found.'));
@@ -872,7 +934,31 @@ trait HandlesWorkspaceItems
 
         $validatedValue = $validator->validated()['value'];
 
-        $attributes = [$property => $validatedValue];
+        if ($property === 'endDatetime' && $validatedValue !== null && $project->start_datetime !== null) {
+            $endDatetime = $this->parseOptionalDatetime($validatedValue);
+            if ($endDatetime !== null && $endDatetime->lt($project->start_datetime)) {
+                $this->dispatch('toast', type: 'error', message: __('End date must be the same as or after the start date.'));
+
+                return false;
+            }
+        }
+
+        $column = match ($property) {
+            'startDatetime' => 'start_datetime',
+            'endDatetime' => 'end_datetime',
+            default => $property,
+        };
+
+        $oldValue = match ($column) {
+            'start_datetime' => $project->start_datetime,
+            'end_datetime' => $project->end_datetime,
+            default => $project->{$column},
+        };
+
+        $attributes = [$column => $validatedValue];
+        if ($column === 'start_datetime' || $column === 'end_datetime') {
+            $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
+        }
 
         try {
             $this->projectService->updateProject($project, $attributes);
@@ -883,13 +969,14 @@ trait HandlesWorkspaceItems
                 'property' => $property,
                 'exception' => $e,
             ]);
-            $this->dispatch('toast', type: 'error', message: __('Something went wrong updating the project.'));
+            $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $oldValue, $validatedValue, false, $project->name));
 
             return false;
         }
 
         if (! $silentToasts) {
-            $this->dispatch('toast', type: 'success', message: __('Project updated.'));
+            $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+            $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $project->name));
         }
 
         return true;

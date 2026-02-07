@@ -96,6 +96,22 @@ it('displays add new item dropdown button', function (): void {
         ->assertSee('Add');
 });
 
+it('includes project option in add dropdown with task and event', function (): void {
+    $user = User::factory()->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.list', [
+            'projects' => collect(),
+            'events' => collect(),
+            'tasks' => collect(),
+            'overdue' => collect(),
+            'tags' => collect(),
+        ])
+        ->assertSee(__('Task'))
+        ->assertSee(__('Event'))
+        ->assertSee(__('Project'));
+});
+
 it('includes inline task date range validation message', function (): void {
     $user = User::factory()->create();
 
