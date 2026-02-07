@@ -99,9 +99,8 @@ it('shows tasks, projects, and events for the selected date', function (): void 
         ->assertSee($event->title);
 });
 
-it('shows overdue tasks and events in the overdue section', function (): void {
+it('shows overdue tasks and events in the main list with overdue badge', function (): void {
     $user = User::factory()->create();
-    $today = now()->toDateString();
 
     $overdueTask = Task::factory()->for($user)->create([
         'title' => 'Overdue Task Title',
@@ -120,11 +119,10 @@ it('shows overdue tasks and events in the overdue section', function (): void {
         ->assertOk()
         ->assertSee(__('Overdue'))
         ->assertSee('Overdue Task Title')
-        ->assertSee('Overdue Event Title')
-        ->assertSee(__('Tasks and events past their due date'));
+        ->assertSee('Overdue Event Title');
 });
 
-it('removes overdue task from overdue section when marked done', function (): void {
+it('removes overdue task from list when marked done', function (): void {
     $user = User::factory()->create();
 
     $overdueTask = Task::factory()->for($user)->create([
@@ -138,11 +136,10 @@ it('removes overdue task from overdue section when marked done', function (): vo
         ->assertSee('Overdue Task To Complete')
         ->assertSee(__('Overdue'))
         ->call('updateTaskProperty', $overdueTask->id, 'status', 'done')
-        ->assertDontSee('Overdue Task To Complete')
-        ->assertDontSee('data-test="overdue-container"', escape: false);
+        ->assertDontSee('Overdue Task To Complete');
 });
 
-it('removes overdue event from overdue section when marked completed', function (): void {
+it('removes overdue event from list when marked completed', function (): void {
     $user = User::factory()->create();
 
     $overdueEvent = Event::factory()->for($user)->create([
@@ -156,8 +153,7 @@ it('removes overdue event from overdue section when marked completed', function 
         ->assertSee('Overdue Event To Complete')
         ->assertSee(__('Overdue'))
         ->call('updateEventProperty', $overdueEvent->id, 'status', \App\Enums\EventStatus::Completed->value)
-        ->assertDontSee('Overdue Event To Complete')
-        ->assertDontSee('data-test="overdue-container"', escape: false);
+        ->assertDontSee('Overdue Event To Complete');
 });
 
 it('only marks items as overdue when end/due date is before today, not selected date', function (): void {

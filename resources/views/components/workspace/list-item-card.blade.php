@@ -625,6 +625,13 @@
                     {{ $type }}
                 </span>
 
+                @if(in_array($kind, ['task', 'event'], true) && $isOverdue)
+                    <span class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400">
+                        <flux:icon name="exclamation-triangle" class="size-3 shrink-0" />
+                        {{ __('Overdue') }}
+                    </span>
+                @endif
+
                 @if($deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
@@ -1089,6 +1096,7 @@
             position="top"
             align="end"
             :initial-value="$eventEndDatetimeInitial"
+            :overdue="$isOverdue"
             data-task-creation-safe
         />
 
@@ -1628,6 +1636,7 @@
             position="top"
             align="end"
             :initial-value="$endDatetimeInitial"
+            :overdue="$isOverdue"
             data-task-creation-safe
         />
 

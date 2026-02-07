@@ -1000,13 +1000,16 @@
                     ? __('yesterday')
                     : $date->translatedFormat('l, F j, Y')));
 
-        $items = collect()
-            ->merge($projects->map(fn ($item) => ['kind' => 'project', 'item' => $item]))
-            ->merge($events->map(fn ($item) => ['kind' => 'event', 'item' => $item]))
-            ->merge($tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item]))
+        $overdueItems = $overdue->map(fn (array $entry) => array_merge($entry, ['isOverdue' => true]));
+
+        $dateItems = collect()
+            ->merge($projects->map(fn ($item) => ['kind' => 'project', 'item' => $item, 'isOverdue' => false]))
+            ->merge($events->map(fn ($item) => ['kind' => 'event', 'item' => $item, 'isOverdue' => false]))
+            ->merge($tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item, 'isOverdue' => false]))
             ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
             ->values();
 
+        $items = $overdueItems->merge($dateItems)->values();
         $totalItemsCount = $items->count();
     @endphp
     @if($items->isEmpty() && $overdue->isEmpty())
@@ -1026,16 +1029,14 @@
             class="space-y-4"
             x-data="{
                 visibleItemCount: {{ $totalItemsCount }},
-                overdueCount: {{ $overdue->count() }},
                 showEmptyState: false,
                 emptyStateTimeout: null,
                 init() {
                     this.$watch('visibleItemCount', () => this.syncEmptyState());
-                    this.$watch('overdueCount', () => this.syncEmptyState());
                     this.syncEmptyState();
                 },
                 syncEmptyState() {
-                    const shouldBeEmpty = this.visibleItemCount === 0 && this.overdueCount === 0;
+                    const shouldBeEmpty = this.visibleItemCount === 0;
                     if (shouldBeEmpty) {
                         if (this.emptyStateTimeout) return;
                         this.emptyStateTimeout = setTimeout(() => {
@@ -1051,65 +1052,19 @@
                     }
                 },
                 handleListItemHidden(e) {
-                    const fromOverdue = e.detail?.fromOverdue ?? false;
                     const requestRefresh = e.detail?.requestRefresh ?? false;
-                    if (fromOverdue) {
-                        this.overdueCount--;
-                    } else {
-                        this.visibleItemCount--;
-                    }
+                    this.visibleItemCount--;
                     if (requestRefresh) {
                         $dispatch('list-refresh-requested');
                     }
                 },
                 handleListItemShown(e) {
-                    if (e.detail?.fromOverdue) {
-                        this.overdueCount++;
-                    } else {
-                        this.visibleItemCount++;
-                    }
+                    this.visibleItemCount++;
                 }
             }"
             @list-item-hidden.window="handleListItemHidden($event)"
             @list-item-shown.window="handleListItemShown($event)"
         >
-            @if($overdue->isNotEmpty())
-            <div
-                x-show="overdueCount > 0"
-                x-transition:enter="transition ease-out duration-150"
-                x-transition:enter-start="opacity-0 scale-[0.98]"
-                x-transition:enter-end="opacity-100 scale-100"
-                x-transition:leave="transition ease-in duration-150"
-                x-transition:leave-start="opacity-100 scale-100"
-                x-transition:leave-end="opacity-0 scale-[0.98]"
-                class="mt-4 space-y-3 border-y border-red-500/40 dark:border-red-400/30 py-4"
-                data-test="overdue-container"
-            >
-                <div class="flex flex-col gap-0.5">
-                    <div class="flex items-center gap-2">
-                        <flux:icon name="exclamation-triangle" class="size-5 text-red-500/70 dark:text-red-400/70" />
-                        <flux:text class="text-sm font-medium text-red-700/90 dark:text-red-400/90">
-                            {{ __('Overdue') }}
-                        </flux:text>
-                    </div>
-                    <flux:text class="text-xs text-muted-foreground/70">
-                        {{ __('Tasks and events past their due date') }}
-                    </flux:text>
-                </div>
-                <div class="space-y-3">
-                    @foreach ($overdue as $entry)
-                        <x-workspace.list-item-card
-                            :kind="$entry['kind']"
-                            :item="$entry['item']"
-                            :list-filter-date="null"
-                            :available-tags="$tags"
-                            :is-overdue="true"
-                            wire:key="overdue-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
-                        />
-                    @endforeach
-                </div>
-            </div>
-            @endif
             <div
                 x-show="showEmptyState"
                 x-cloak
@@ -1137,8 +1092,9 @@
                         <x-workspace.list-item-card
                             :kind="$entry['kind']"
                             :item="$entry['item']"
-                            :list-filter-date="$selectedDate"
+                            :list-filter-date="$entry['isOverdue'] ? null : $selectedDate"
                             :available-tags="$tags"
+                            :is-overdue="$entry['isOverdue']"
                             wire:key="{{ $entry['kind'] }}-{{ $entry['item']->id }}"
                         />
                     @endforeach

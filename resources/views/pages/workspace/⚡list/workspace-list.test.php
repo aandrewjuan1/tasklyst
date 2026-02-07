@@ -341,7 +341,7 @@ it('displays clickable property dropdowns for task with status priority complexi
     $component->assertSee('aria-haspopup="menu"', escape: false);
 });
 
-it('hides overdue section when there are no overdue items', function (): void {
+it('does not show overdue badge when there are no overdue items', function (): void {
     $user = User::factory()->create();
 
     Livewire::actingAs($user)
@@ -352,11 +352,10 @@ it('hides overdue section when there are no overdue items', function (): void {
             'overdue' => collect(),
             'tags' => collect(),
         ])
-        ->assertDontSee(__('Overdue'))
-        ->assertDontSee('data-test="overdue-container"', escape: false);
+        ->assertDontSee(__('Overdue'));
 });
 
-it('shows overdue section when there are overdue items', function (): void {
+it('shows overdue items in main list with overdue badge', function (): void {
     $user = User::factory()->create();
     $overdueTask = Task::factory()->for($user)->create([
         'title' => 'Overdue Task',
@@ -372,8 +371,6 @@ it('shows overdue section when there are overdue items', function (): void {
             'tags' => collect(),
         ])
         ->assertSee(__('Overdue'))
-        ->assertSee('data-test="overdue-container"', escape: false)
-        ->assertSee(__('Tasks and events past their due date'))
         ->assertSee('Overdue Task');
 });
 

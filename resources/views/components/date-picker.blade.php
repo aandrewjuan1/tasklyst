@@ -6,6 +6,7 @@
     'position' => 'top',
     'align' => 'end',
     'initialValue' => null,
+    'overdue' => false,
 ])
 
 @php
@@ -371,16 +372,16 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
-        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out {{ $overdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground' }}"
         :class="{ 'pointer-events-none': open, 'shadow-md scale-[1.02]': open }"
         data-task-creation-safe
     >
-        <flux:icon name="clock" class="size-3" />
+        <flux:icon name="clock" class="size-3 {{ $overdue ? 'text-red-600 dark:text-red-400' : '' }}" />
         <span class="inline-flex items-baseline gap-1">
-            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+            <span class="text-[10px] font-semibold uppercase tracking-wide {{ $overdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70' }}">
                 {{ $triggerLabel }}:
             </span>
-            <span class="text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+            <span class="text-xs uppercase {{ $overdue ? 'font-semibold text-red-700 dark:text-red-400' : '' }}" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
         </span>
         <flux:icon name="chevron-down" class="size-3" />
     </button>
