@@ -50,20 +50,21 @@
                     this.endDatetime = value;
                 }
 
-                const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
-                const ok = await promise;
+                $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
+
+                const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
                 if (!ok) {
                     this.startDatetime = snapshot.startDatetime;
                     this.endDatetime = snapshot.endDatetime;
+                    $dispatch('item-update-rollback');
                     $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                     return false;
                 }
-
-                $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                 return true;
             } catch (err) {
                 this.startDatetime = snapshot.startDatetime;
                 this.endDatetime = snapshot.endDatetime;
+                $dispatch('item-update-rollback');
                 $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                 return false;
             }

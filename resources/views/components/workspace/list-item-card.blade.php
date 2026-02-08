@@ -687,6 +687,12 @@
             }
         }
     "
+    @item-update-rollback="
+        if (hideCard) {
+            hideCard = false;
+            $dispatch('list-item-shown', { fromOverdue: isOverdue });
+        }
+    "
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
@@ -995,15 +1001,17 @@
                 },
                 async updateProperty(property, value, silentSuccessToast = false) {
                     if (property === 'tagIds') {
+                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         try {
                             const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, silentSuccessToast);
                             if (!ok) {
+                                $dispatch('item-update-rollback');
                                 $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                                 return false;
                             }
-                            $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                             return true;
                         } catch (err) {
+                            $dispatch('item-update-rollback');
                             $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                             return false;
                         }
@@ -1030,19 +1038,20 @@
                             this.recurrence = value;
                         }
 
+                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
+
                         const occurrenceDate = (property === 'status' && this.isRecurringEvent && this.listFilterDate) ? this.listFilterDate : null;
-                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
-                        const ok = await promise;
+                        const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
                         if (!ok) {
                             this.status = snapshot.status;
                             this.allDay = snapshot.allDay;
                             this.startDatetime = snapshot.startDatetime;
                             this.endDatetime = snapshot.endDatetime;
                             this.recurrence = snapshot.recurrence;
+                            $dispatch('item-update-rollback');
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         return true;
                     } catch (err) {
                         this.status = snapshot.status;
@@ -1050,6 +1059,7 @@
                         this.startDatetime = snapshot.startDatetime;
                         this.endDatetime = snapshot.endDatetime;
                         this.recurrence = snapshot.recurrence;
+                        $dispatch('item-update-rollback');
                         $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                         return false;
                     }
@@ -1440,15 +1450,17 @@
                 },
                 async updateProperty(property, value, silentSuccessToast = false) {
                     if (property === 'tagIds') {
+                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         try {
                             const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, silentSuccessToast);
                             if (!ok) {
+                                $dispatch('item-update-rollback');
                                 $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                                 return false;
                             }
-                            $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                             return true;
                         } catch (err) {
+                            $dispatch('item-update-rollback');
                             $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                             return false;
                         }
@@ -1470,9 +1482,11 @@
                         else if (property === 'startDatetime') this.startDatetime = value;
                         else if (property === 'endDatetime') this.endDatetime = value;
                         else if (property === 'recurrence') this.recurrence = value;
+
+                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
+
                         const occurrenceDate = (property === 'status' && this.isRecurringTask && this.listFilterDate) ? this.listFilterDate : null;
-                        const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
-                        const ok = await promise;
+                        const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
                         if (!ok) {
                             this.status = snapshot.status;
                             this.priority = snapshot.priority;
@@ -1481,10 +1495,10 @@
                             this.startDatetime = snapshot.startDatetime;
                             this.endDatetime = snapshot.endDatetime;
                             this.recurrence = snapshot.recurrence;
+                            $dispatch('item-update-rollback');
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         return true;
                     } catch (err) {
                         this.status = snapshot.status;
@@ -1494,6 +1508,7 @@
                         this.startDatetime = snapshot.startDatetime;
                         this.endDatetime = snapshot.endDatetime;
                         this.recurrence = snapshot.recurrence;
+                        $dispatch('item-update-rollback');
                         $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                         return false;
                     }
