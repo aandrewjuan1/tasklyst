@@ -740,6 +740,11 @@ trait HandlesWorkspaceItems
             return collect();
         }
 
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
+        if ($filterItemType !== null && $filterItemType !== 'all' && $filterItemType !== 'tasks') {
+            return collect();
+        }
+
         $date = Carbon::parse($this->selectedDate);
 
         $taskQuery = Task::query()
@@ -777,6 +782,8 @@ trait HandlesWorkspaceItems
             return collect();
         }
 
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
+
         $today = Carbon::today();
 
         $overdueTaskQuery = Task::query()
@@ -808,8 +815,20 @@ trait HandlesWorkspaceItems
         $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
             ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
 
-        return collect($overdueTasks)
-            ->merge($overdueEvents)
+        if ($filterItemType !== null && $filterItemType !== 'all') {
+            if ($filterItemType === 'tasks') {
+                return collect($overdueTasks->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
+            }
+            if ($filterItemType === 'events') {
+                return collect($overdueEvents->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
+            }
+            if ($filterItemType === 'projects') {
+                return collect();
+            }
+        }
+
+        return collect($overdueTasks->all())
+            ->merge($overdueEvents->all())
             ->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)
             ->values();
     }
@@ -823,6 +842,11 @@ trait HandlesWorkspaceItems
         $userId = Auth::id();
 
         if ($userId === null) {
+            return collect();
+        }
+
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
+        if ($filterItemType !== null && $filterItemType !== 'all' && $filterItemType !== 'projects') {
             return collect();
         }
 
@@ -851,6 +875,11 @@ trait HandlesWorkspaceItems
         $userId = Auth::id();
 
         if ($userId === null) {
+            return collect();
+        }
+
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
+        if ($filterItemType !== null && $filterItemType !== 'all' && $filterItemType !== 'events') {
             return collect();
         }
 

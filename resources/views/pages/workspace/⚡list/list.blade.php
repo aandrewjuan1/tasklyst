@@ -1084,7 +1084,15 @@
                 </div>
                 @php
                     $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
+                    $itemTypeLabels = [
+                        'tasks' => __('Tasks'),
+                        'events' => __('Events'),
+                        'projects' => __('Projects'),
+                    ];
                     $activeFilterParts = array_filter([
+                        ($filters['itemType'] ?? null)
+                            ? __('Show') . ': ' . ($itemTypeLabels[$filters['itemType']] ?? $filters['itemType'])
+                            : null,
                         ($filters['taskStatus'] ?? null)
                             ? __('Status') . ': ' . (\App\Enums\TaskStatus::tryFrom($filters['taskStatus'])?->label() ?? $filters['taskStatus'])
                             : null,

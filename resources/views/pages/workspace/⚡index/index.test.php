@@ -86,6 +86,8 @@ it('shows tasks, projects, and events for the selected date', function (): void 
 
     $event = Event::factory()->for($user)->create([
         'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
     ]);
 
     $formattedDate = $date->translatedFormat('D, M j, Y');
@@ -1011,4 +1013,282 @@ it('dispatches error toast when task validation fails', function (): void {
             'projectId' => null,
         ])
         ->assertDispatched('toast', type: 'error', message: __('Please fix the task details and try again.'));
+});
+
+it('filters workspace by item type showing only tasks when setFilter itemType is tasks', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Visible Task',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Hidden Event',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'itemType', 'tasks')
+        ->assertSet('filterItemType', 'tasks');
+
+    expect($component->get('tasks'))->toHaveCount(1);
+    expect($component->get('events'))->toHaveCount(0);
+    expect($component->get('projects'))->toHaveCount(0);
+});
+
+it('filters workspace by item type showing only events when setFilter itemType is events', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Hidden Task',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Visible Event',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'itemType', 'events')
+        ->assertSet('filterItemType', 'events');
+
+    expect($component->get('tasks'))->toHaveCount(0);
+    expect($component->get('events'))->toHaveCount(1);
+    expect($component->get('projects'))->toHaveCount(0);
+});
+
+it('filters workspace by item type showing only projects when setFilter itemType is projects', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    Project::factory()->for($user)->create([
+        'name' => 'Visible Project',
+        'start_datetime' => $date->copy()->startOfDay(),
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Hidden Task',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Hidden Event',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'itemType', 'projects')
+        ->assertSet('filterItemType', 'projects');
+
+    expect($component->get('tasks'))->toHaveCount(0);
+    expect($component->get('events'))->toHaveCount(0);
+    expect($component->get('projects'))->toHaveCount(1);
+});
+
+it('shows all item types when clearFilter itemType is called', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $project = Project::factory()->for($user)->create([
+        'start_datetime' => $date->copy()->startOfDay(),
+    ]);
+
+    Task::factory()->for($user)->for($project)->create([
+        'title' => 'Task Title',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Event Title',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'itemType', 'tasks')
+        ->assertSet('filterItemType', 'tasks')
+        ->call('clearFilter', 'itemType')
+        ->assertSet('filterItemType', null);
+
+    expect($component->get('tasks'))->toHaveCount(1);
+    expect($component->get('events'))->toHaveCount(1);
+    expect($component->get('projects'))->toHaveCount(1);
+});
+
+it('increments listRefresh when item type filter changes', function (): void {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index');
+
+    $initialRefresh = $component->get('listRefresh');
+
+    $component->call('setFilter', 'itemType', 'tasks');
+    expect($component->get('listRefresh'))->toBe($initialRefresh + 1);
+
+    $component->call('setFilter', 'itemType', 'events');
+    expect($component->get('listRefresh'))->toBe($initialRefresh + 2);
+});
+
+it('applies item type filter from URL query parameter', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Task From URL',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Hidden Event',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+
+    Livewire::actingAs($user)
+        ->withQueryParams(['type' => 'tasks'])
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->assertSet('filterItemType', 'tasks')
+        ->assertSee('Task From URL')
+        ->assertDontSee('Hidden Event');
+});
+
+it('filters tasks by complexity when setFilter taskComplexity is called', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $simpleTask = Task::factory()->for($user)->create([
+        'title' => 'Simple Task',
+        'complexity' => \App\Enums\TaskComplexity::Simple,
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Complex Task',
+        'complexity' => \App\Enums\TaskComplexity::Complex,
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'taskComplexity', 'simple')
+        ->assertSet('filterTaskComplexity', 'simple');
+
+    expect($component->get('tasks'))->toHaveCount(1);
+    expect($component->get('tasks')->first()->title)->toBe('Simple Task');
+});
+
+it('filters tasks and events by tag when setFilter tagIds is called', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $tagWork = \App\Models\Tag::factory()->for($user)->create(['name' => 'work']);
+    $tagPersonal = \App\Models\Tag::factory()->for($user)->create(['name' => 'personal']);
+
+    $taskWithWork = Task::factory()->for($user)->create([
+        'title' => 'Task With Work Tag',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+    $taskWithWork->tags()->attach($tagWork);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Task With Personal Tag',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ])->tags()->attach($tagPersonal);
+
+    $eventWithWork = Event::factory()->for($user)->create([
+        'title' => 'Event With Work Tag',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => $date->copy()->startOfDay()->addHour(),
+        'status' => \App\Enums\EventStatus::Scheduled,
+    ]);
+    $eventWithWork->tags()->attach($tagWork);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'tagIds', [$tagWork->id]);
+
+    expect($component->get('tasks'))->toHaveCount(1);
+    expect($component->get('tasks')->first()->title)->toBe('Task With Work Tag');
+    expect($component->get('events'))->toHaveCount(1);
+    expect($component->get('events')->first()->title)->toBe('Event With Work Tag');
+});
+
+it('filters by recurring when setFilter recurring is recurring', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $recurringTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Task',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    \App\Models\RecurringTask::query()->create([
+        'task_id' => $recurringTask->id,
+        'recurrence_type' => \App\Enums\TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => $date->copy()->startOfDay(),
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'One-time Task',
+        'start_datetime' => $date->copy()->startOfDay(),
+        'completed_at' => null,
+    ]);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'recurring', 'recurring');
+
+    expect($component->get('tasks'))->toHaveCount(1);
+    expect($component->get('tasks')->first()->title)->toBe('Recurring Task');
+});
+
+it('clearAllFilters resets all filter properties', function (): void {
+    $user = User::factory()->create();
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('setFilter', 'taskComplexity', 'simple')
+        ->call('setFilter', 'tagIds', [1])
+        ->call('clearAllFilters');
+
+    expect($component->get('filterTaskComplexity'))->toBeNull();
+    expect($component->get('filterTagIds'))->toBeNull();
 });

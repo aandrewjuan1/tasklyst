@@ -16,4 +16,13 @@ enum TaskComplexity: string
             self::Complex => 'red-800',
         };
     }
+
+    public function label(): string
+    {
+        return match ($this) {
+            self::Simple => __('Simple'),
+            self::Moderate => __('Moderate'),
+            self::Complex => __('Complex'),
+        };
+    }
 }

@@ -12,7 +12,10 @@
         </div>
     </div>
 
-    <x-workspace.filter-bar :filters="$this->getFilters()" />
+    <x-workspace.filter-bar
+        :filters="$this->getFilters()"
+        :tags="$this->tags"
+    />
 
     <livewire:pages::workspace.list
         :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"

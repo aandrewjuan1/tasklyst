@@ -594,6 +594,14 @@ class Task extends Model
     }
 
     /**
+     * Filter tasks by complexity.
+     */
+    public function scopeByComplexity(Builder $query, string $complexity): Builder
+    {
+        return $query->where('complexity', $complexity);
+    }
+
+    /**
      * Tasks due within the next N days from the given date.
      */
     public function scopeDueSoon(Builder $query, CarbonInterface $fromDate, int $days = 7): Builder
