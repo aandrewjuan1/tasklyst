@@ -183,6 +183,8 @@
     x-data="{
         deletingInProgress: false,
         dateChangeHidingCard: false,
+        clientOverdue: false,
+        clientNotOverdue: false,
         hideCard: false,
         dropdownOpenCount: 0,
         kind: @js($kind),
@@ -462,14 +464,22 @@
                 const start = detailStart ?? null;
                 const end = detailEnd ?? null;
                 if (this.kind === 'task') {
-                    return this.isOverdue
-                        ? !this.isStillOverdue(start, end)
-                        : !this.isTaskStillRelevantForList(start, end);
+                    if (this.isOverdue) {
+                        return false;
+                    }
+                    if (this.isStillOverdue(start, end)) {
+                        return false;
+                    }
+                    return !this.isTaskStillRelevantForList(start, end);
                 }
                 if (this.kind === 'event') {
-                    return this.isOverdue
-                        ? !this.isStillOverdue(start, end)
-                        : !this.isEventStillRelevantForList(start, end);
+                    if (this.isOverdue) {
+                        return false;
+                    }
+                    if (this.isStillOverdue(start, end)) {
+                        return false;
+                    }
+                    return !this.isEventStillRelevantForList(start, end);
                 }
                 if (this.kind === 'project') {
                     return !this.isProjectStillRelevantForList(start, end);
@@ -664,6 +674,19 @@
             hideFromList(true);
         } else {
             dateChangeHidingCard = false;
+            const d = $event.detail;
+            if (['startDatetime', 'endDatetime'].includes(d?.property) && (kind === 'task' || kind === 'event')) {
+                const stillOverdue = isStillOverdue(d?.startDatetime ?? null, d?.endDatetime ?? null);
+                if (!isOverdue && stillOverdue) {
+                    clientOverdue = true;
+                    clientNotOverdue = false;
+                    $dispatch('list-refresh-requested');
+                } else if (isOverdue && !stillOverdue) {
+                    clientOverdue = false;
+                    clientNotOverdue = true;
+                    $dispatch('list-refresh-requested');
+                }
+            }
         }
     "
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
@@ -715,8 +738,12 @@
                     {{ $type }}
                 </span>
 
-                @if(in_array($kind, ['task', 'event'], true) && $isOverdue)
-                    <span class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400">
+                @if(in_array($kind, ['task', 'event'], true))
+                    <span
+                        x-show="(isOverdue || clientOverdue) && !clientNotOverdue"
+                        @if(!$isOverdue) style="display: none" @endif
+                        class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400"
+                    >
                         <flux:icon name="exclamation-triangle" class="size-3 shrink-0" />
                         {{ __('Overdue') }}
                     </span>
@@ -1041,6 +1068,11 @@
                     const startVal = path === 'startDatetime' ? value : this.startDatetime;
                     const endVal = path === 'endDatetime' ? value : this.endDatetime;
                     this.validateEditDateRange(startVal, endVal);
+                    if (path === 'endDatetime' && this.$parent.$parent?.isStillOverdue) {
+                        const stillOverdue = this.$parent.$parent.isStillOverdue(null, value);
+                        this.$parent.$parent.clientOverdue = stillOverdue;
+                        this.$parent.$parent.clientNotOverdue = !stillOverdue;
+                    }
                 },
                 getDatePickerOriginalValue(path) {
                     if (path in this.datePickerOriginals) {
@@ -1482,6 +1514,11 @@
                     const endVal = path === 'endDatetime' ? value : this.endDatetime;
                     const durationMinutes = parseInt(this.duration ?? '0', 10);
                     this.validateEditDateRange(startVal, endVal, durationMinutes);
+                    if (path === 'endDatetime' && this.$parent.$parent?.isStillOverdue) {
+                        const stillOverdue = this.$parent.$parent.isStillOverdue(null, value);
+                        this.$parent.$parent.clientOverdue = stillOverdue;
+                        this.$parent.$parent.clientNotOverdue = !stillOverdue;
+                    }
                 },
                 getDatePickerOriginalValue(path) {
                     if (path in this.datePickerOriginals) {
