@@ -3,6 +3,8 @@
 namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Event\CreateEventDto;
+use App\DataTransferObjects\Project\CreateProjectDto;
+use App\DataTransferObjects\Tag\CreateTagDto;
 use App\DataTransferObjects\Task\CreateTaskDto;
 use App\Models\Event;
 use App\Models\EventInstance;
@@ -11,7 +13,6 @@ use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskInstance;
 use App\Models\User;
-use App\Support\DateHelper;
 use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\ProjectPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
@@ -185,20 +186,10 @@ trait HandlesWorkspaceItems
         }
 
         $validatedProject = $validated['projectPayload'];
-
-        $name = (string) ($validatedProject['name'] ?? '');
-        $startDatetime = DateHelper::parseOptional($validatedProject['startDatetime'] ?? null);
-        $endDatetime = DateHelper::parseOptional($validatedProject['endDatetime'] ?? null);
-
-        $projectAttributes = [
-            'name' => $name,
-            'description' => $validatedProject['description'] ?? null,
-            'start_datetime' => $startDatetime,
-            'end_datetime' => $endDatetime,
-        ];
+        $dto = CreateProjectDto::fromValidated($validatedProject);
 
         try {
-            $project = $this->projectService->createProject($user, $projectAttributes);
+            $project = $this->createProjectAction->execute($user, $dto);
         } catch (\Throwable $e) {
             Log::error('Failed to create project from workspace.', [
                 'user_id' => $user->id,
@@ -206,7 +197,7 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', ...Project::toastPayload('create', false, $name));
+            $this->dispatch('toast', ...Project::toastPayload('create', false, $dto->name));
 
             return;
         }
@@ -257,19 +248,10 @@ trait HandlesWorkspaceItems
         }
 
         $validatedName = $validator->validated()['name'];
+        $dto = CreateTagDto::fromValidated($validatedName);
 
         try {
-            $existingTag = Tag::query()->forUser($user->id)->byName($validatedName)->first();
-
-            if ($existingTag !== null) {
-                $this->dispatch('tag-created', id: $existingTag->id, name: $existingTag->name);
-
-                return;
-            }
-
-            $tag = $this->tagService->createTag($user, [
-                'name' => $validatedName,
-            ]);
+            $result = $this->createTagAction->execute($user, $dto);
         } catch (\Throwable $e) {
             Log::error('Failed to create tag from workspace.', [
                 'user_id' => $user->id,
@@ -282,8 +264,8 @@ trait HandlesWorkspaceItems
             return;
         }
 
-        $this->dispatch('tag-created', id: $tag->id, name: $tag->name);
-        if (! $silentToasts) {
+        $this->dispatch('tag-created', id: $result->tag->id, name: $result->tag->name);
+        if (! $result->wasExisting && ! $silentToasts) {
             $this->dispatch('toast', type: 'success', message: __('Tag created.'));
         }
         $this->dispatch('$refresh');
@@ -316,7 +298,7 @@ trait HandlesWorkspaceItems
         $this->authorize('delete', $tag);
 
         try {
-            $deleted = $this->tagService->deleteTag($tag);
+            $deleted = $this->deleteTagAction->execute($tag);
         } catch (\Throwable $e) {
             Log::error('Failed to delete tag from workspace.', [
                 'user_id' => $user->id,
@@ -496,7 +478,7 @@ trait HandlesWorkspaceItems
         $this->authorize('delete', $project);
 
         try {
-            $deleted = $this->projectService->deleteProject($project);
+            $deleted = $this->deleteProjectAction->execute($project);
         } catch (\Throwable $e) {
             Log::error('Failed to delete project from workspace.', [
                 'user_id' => $user->id,
@@ -708,40 +690,20 @@ trait HandlesWorkspaceItems
 
         $validatedValue = $validator->validated()['value'];
 
-        if ($property === 'endDatetime' && $validatedValue !== null && $project->start_datetime !== null) {
-            $endDatetime = DateHelper::parseOptional($validatedValue);
-            if ($endDatetime !== null && $endDatetime->lt($project->start_datetime)) {
-                $this->dispatch('toast', type: 'error', message: __('End date must be the same as or after the start date.'));
+        $result = $this->updateProjectPropertyAction->execute($project, $property, $validatedValue);
 
-                return false;
+        if (! $result->success) {
+            if ($result->errorMessage !== null) {
+                $this->dispatch('toast', type: 'error', message: $result->errorMessage);
+            } else {
+                $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, false, $project->name));
             }
-        }
-
-        $column = Project::propertyToColumn($property);
-        $oldValue = $project->getPropertyValueForUpdate($property);
-
-        $attributes = [$column => $validatedValue];
-        if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $attributes[$column] = DateHelper::parseOptional($validatedValue);
-        }
-
-        try {
-            $this->projectService->updateProject($project, $attributes);
-        } catch (\Throwable $e) {
-            Log::error('Failed to update project property from workspace.', [
-                'user_id' => $user->id,
-                'project_id' => $projectId,
-                'property' => $property,
-                'exception' => $e,
-            ]);
-            $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $oldValue, $validatedValue, false, $project->name));
 
             return false;
         }
 
         if (! $silentToasts) {
-            $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
-            $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $project->name));
+            $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, true, $project->name));
         }
 
         return true;

@@ -3,6 +3,11 @@
 use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\DeleteEventAction;
 use App\Actions\Event\UpdateEventPropertyAction;
+use App\Actions\Project\CreateProjectAction;
+use App\Actions\Tag\CreateTagAction;
+use App\Actions\Tag\DeleteTagAction;
+use App\Actions\Project\DeleteProjectAction;
+use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
@@ -46,13 +51,23 @@ class extends Component
 
     protected CreateEventAction $createEventAction;
 
+    protected CreateProjectAction $createProjectAction;
+
+    protected CreateTagAction $createTagAction;
+
     protected CreateTaskAction $createTaskAction;
 
     protected DeleteEventAction $deleteEventAction;
 
+    protected DeleteTagAction $deleteTagAction;
+
+    protected DeleteProjectAction $deleteProjectAction;
+
     protected DeleteTaskAction $deleteTaskAction;
 
     protected UpdateEventPropertyAction $updateEventPropertyAction;
+
+    protected UpdateProjectPropertyAction $updateProjectPropertyAction;
 
     protected UpdateTaskPropertyAction $updateTaskPropertyAction;
 
@@ -78,10 +93,15 @@ class extends Component
         TagService $tagService,
         RecurrenceExpander $recurrenceExpander,
         CreateEventAction $createEventAction,
+        CreateProjectAction $createProjectAction,
+        CreateTagAction $createTagAction,
         CreateTaskAction $createTaskAction,
         DeleteEventAction $deleteEventAction,
+        DeleteProjectAction $deleteProjectAction,
+        DeleteTagAction $deleteTagAction,
         DeleteTaskAction $deleteTaskAction,
         UpdateEventPropertyAction $updateEventPropertyAction,
+        UpdateProjectPropertyAction $updateProjectPropertyAction,
         UpdateTaskPropertyAction $updateTaskPropertyAction
     ): void {
         $this->taskService = $taskService;
@@ -90,10 +110,15 @@ class extends Component
         $this->tagService = $tagService;
         $this->recurrenceExpander = $recurrenceExpander;
         $this->createEventAction = $createEventAction;
+        $this->createProjectAction = $createProjectAction;
+        $this->createTagAction = $createTagAction;
         $this->createTaskAction = $createTaskAction;
         $this->deleteEventAction = $deleteEventAction;
+        $this->deleteProjectAction = $deleteProjectAction;
+        $this->deleteTagAction = $deleteTagAction;
         $this->deleteTaskAction = $deleteTaskAction;
         $this->updateEventPropertyAction = $updateEventPropertyAction;
+        $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;
     }
 
