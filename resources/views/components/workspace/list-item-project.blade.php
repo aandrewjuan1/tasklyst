@@ -59,6 +59,7 @@
                     return false;
                 }
 
+                $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                 return true;
             } catch (err) {
                 this.startDatetime = snapshot.startDatetime;
@@ -106,20 +107,10 @@
                 return;
             }
             this.editDateRangeError = null;
-            if (path === 'startDatetime' || path === 'endDatetime') {
-                window.dispatchEvent(new CustomEvent('project-date-update-started', {
-                    detail: { projectId: this.itemId, startDatetime: startVal, endDatetime: endVal },
-                    bubbles: true,
-                }));
-                $dispatch('project-date-updated', { startDatetime: startVal, endDatetime: endVal });
-            }
             const ok = await this.updateProperty(path, value);
             if (!ok) {
                 const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                 this.dispatchDatePickerRevert(e.target, path, realValue);
-                if (path === 'startDatetime' || path === 'endDatetime') {
-                    window.dispatchEvent(new CustomEvent('project-date-update-failed', { detail: { projectId: this.itemId }, bubbles: true }));
-                }
             } else if (path === 'startDatetime' || path === 'endDatetime') {
                 if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
             }

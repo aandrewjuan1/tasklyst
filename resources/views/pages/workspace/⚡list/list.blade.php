@@ -1132,6 +1132,7 @@
                             :kind="$entry['kind']"
                             :item="$entry['item']"
                             :list-filter-date="$entry['isOverdue'] ? null : $selectedDate"
+                            :filters="$filters"
                             :available-tags="$tags"
                             :is-overdue="$entry['isOverdue']"
                             wire:key="{{ $entry['kind'] }}-{{ $entry['item']->id }}"

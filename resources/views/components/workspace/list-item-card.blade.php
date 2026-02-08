@@ -2,6 +2,7 @@
     'kind',
     'item',
     'listFilterDate' => null,
+    'filters' => [],
     'availableTags' => [],
     'isOverdue' => false,
 ])
@@ -181,12 +182,12 @@
     wire:ignore
     x-data="{
         deletingInProgress: false,
-        dateUpdateInProgress: false,
         dateChangeHidingCard: false,
         hideCard: false,
         dropdownOpenCount: 0,
         kind: @js($kind),
         listFilterDate: @js($listFilterDate),
+        filters: @js($filters ?? []),
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
@@ -448,6 +449,64 @@
                 return true;
             }
         },
+        /**
+         * Determine if the card should hide after a property update.
+         * Centralized logic for all filters: date, priority, status, complexity, tags, recurrence.
+         */
+        shouldHideAfterPropertyUpdate(detail) {
+            const { property, value, startDatetime: detailStart, endDatetime: detailEnd } = detail;
+            const f = this.filters ?? {};
+
+            // Date relevance: always check for date updates (uses listFilterDate, not filters)
+            if (['startDatetime', 'endDatetime'].includes(property)) {
+                const start = detailStart ?? null;
+                const end = detailEnd ?? null;
+                if (this.kind === 'task') {
+                    return this.isOverdue
+                        ? !this.isStillOverdue(start, end)
+                        : !this.isTaskStillRelevantForList(start, end);
+                }
+                if (this.kind === 'event') {
+                    return this.isOverdue
+                        ? !this.isStillOverdue(start, end)
+                        : !this.isEventStillRelevantForList(start, end);
+                }
+                if (this.kind === 'project') {
+                    return !this.isProjectStillRelevantForList(start, end);
+                }
+            }
+
+            // Non-date filters: only check when filters are active
+            if (!f?.hasActiveFilters) {
+                return false;
+            }
+
+            if (this.kind === 'task') {
+                if (f.taskPriority && property === 'priority' && value !== f.taskPriority) return true;
+                if (f.taskStatus && property === 'status' && value !== f.taskStatus) return true;
+                if (f.taskComplexity && property === 'complexity' && value !== f.taskComplexity) return true;
+            }
+
+            if (this.kind === 'event') {
+                if (f.eventStatus && property === 'status' && value !== f.eventStatus) return true;
+            }
+
+            if (f.tagIds?.length && property === 'tagIds') {
+                const ids = Array.isArray(value) ? value : [];
+                const hasMatch = ids.some((id) => f.tagIds.includes(Number(id)) || f.tagIds.includes(String(id)));
+                if (!hasMatch) return true;
+            }
+
+            if (f.recurring === 'recurring' && property === 'recurrence' && !value?.enabled) return true;
+            if (f.recurring === 'oneTime' && property === 'recurrence' && value?.enabled) return true;
+
+            if (property === 'status') {
+                if (this.kind === 'task' && value === 'done') return true;
+                if (this.kind === 'event' && ['completed', 'cancelled'].includes(value)) return true;
+            }
+
+            return false;
+        },
         async deleteItem() {
             if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
 
@@ -599,71 +658,15 @@
             updateRecurrence($event.detail.value);
         }
     "
-    @task-date-updated="
-        if (kind === 'task') {
-            const shouldHide = isOverdue
-                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
-                : !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
-            if (shouldHide) {
-                dateChangeHidingCard = true;
-                hideFromList(true);
-            } else {
-                dateChangeHidingCard = false;
-            }
+    @item-property-updated="
+        if (shouldHideAfterPropertyUpdate($event.detail)) {
+            dateChangeHidingCard = true;
+            hideFromList(true);
+        } else {
+            dateChangeHidingCard = false;
         }
     "
-    @task-status-done="hideFromList(true)"
-    @event-status-completed-or-cancelled="hideFromList(true)"
-    @event-date-updated="
-        if (kind === 'event') {
-            const shouldHide = isOverdue
-                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
-                : !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
-            if (shouldHide) {
-                dateChangeHidingCard = true;
-                hideFromList(true);
-            } else {
-                dateChangeHidingCard = false;
-            }
-        }
-    "
-    @task-date-update-started.window="
-        if (kind === 'task' && $event.detail?.taskId === itemId) {
-            const shouldDim = isOverdue
-                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
-                : !isTaskStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
-            if (shouldDim) dateUpdateInProgress = true;
-        }
-    "
-    @event-date-update-started.window="
-        if (kind === 'event' && $event.detail?.eventId === itemId) {
-            const shouldDim = isOverdue
-                ? !isStillOverdue($event.detail.startDatetime, $event.detail.endDatetime)
-                : !isEventStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
-            if (shouldDim) dateUpdateInProgress = true;
-        }
-    "
-    @task-date-update-failed.window="if ($event.detail?.taskId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
-    @event-date-update-failed.window="if ($event.detail?.eventId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
-    @project-date-updated="
-        if (kind === 'project') {
-            const shouldHide = !isProjectStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
-            if (shouldHide) {
-                dateChangeHidingCard = true;
-                hideFromList(true);
-            } else {
-                dateChangeHidingCard = false;
-            }
-        }
-    "
-    @project-date-update-started.window="
-        if (kind === 'project' && $event.detail?.projectId === itemId) {
-            const shouldDim = !isProjectStillRelevantForList($event.detail.startDatetime, $event.detail.endDatetime);
-            if (shouldDim) dateUpdateInProgress = true;
-        }
-    "
-    @project-date-update-failed.window="if ($event.detail?.projectId === itemId) { dateUpdateInProgress = false; hideCard = false; $dispatch('list-item-shown', { fromOverdue: isOverdue }) }"
-    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress || dateUpdateInProgress }"
+    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
@@ -973,6 +976,7 @@
                                 $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                                 return false;
                             }
+                            $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                             return true;
                         } catch (err) {
                             $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
@@ -1013,9 +1017,7 @@
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-                        if (property === 'status' && (value === 'completed' || value === 'cancelled')) {
-                            $dispatch('event-status-completed-or-cancelled');
-                        }
+                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         return true;
                     } catch (err) {
                         this.status = snapshot.status;
@@ -1066,23 +1068,10 @@
                         return;
                     }
                     this.editDateRangeError = null;
-                    if (path === 'startDatetime' || path === 'endDatetime') {
-                        window.dispatchEvent(new CustomEvent('event-date-update-started', {
-                            detail: { eventId: this.itemId, startDatetime: startVal, endDatetime: endVal },
-                            bubbles: true,
-                        }));
-                        $dispatch('event-date-updated', { startDatetime: startVal, endDatetime: endVal });
-                    }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
-                        if (path === 'startDatetime' || path === 'endDatetime') {
-                            window.dispatchEvent(new CustomEvent('event-date-update-failed', {
-                                detail: { eventId: this.itemId },
-                                bubbles: true,
-                            }));
-                        }
                     } else if (path === 'startDatetime' || path === 'endDatetime') {
                         if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
                     }
@@ -1428,6 +1417,7 @@
                                 $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                                 return false;
                             }
+                            $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                             return true;
                         } catch (err) {
                             $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
@@ -1465,9 +1455,7 @@
                             $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                             return false;
                         }
-                        if (property === 'status' && value === 'done') {
-                            $dispatch('task-status-done');
-                        }
+                        $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         return true;
                     } catch (err) {
                         this.status = snapshot.status;
@@ -1522,23 +1510,10 @@
                         return;
                     }
                     this.editDateRangeError = null;
-                    if (path === 'startDatetime' || path === 'endDatetime') {
-                        window.dispatchEvent(new CustomEvent('task-date-update-started', {
-                            detail: { taskId: this.itemId, startDatetime: startVal, endDatetime: endVal },
-                            bubbles: true,
-                        }));
-                        $dispatch('task-date-updated', { startDatetime: startVal, endDatetime: endVal });
-                    }
                     const ok = await this.updateProperty(path, value);
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
-                        if (path === 'startDatetime' || path === 'endDatetime') {
-                            window.dispatchEvent(new CustomEvent('task-date-update-failed', {
-                                detail: { taskId: this.itemId },
-                                bubbles: true,
-                            }));
-                        }
                     } else if (path === 'startDatetime' || path === 'endDatetime') {
                         if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
                     }
