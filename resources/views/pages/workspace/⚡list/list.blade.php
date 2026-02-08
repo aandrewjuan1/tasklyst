@@ -1011,6 +1011,27 @@
 
         $items = $overdueItems->merge($dateItems)->values();
         $totalItemsCount = $items->count();
+
+        $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
+        $itemTypeLabels = [
+            'tasks' => __('Tasks'),
+            'events' => __('Events'),
+            'projects' => __('Projects'),
+        ];
+        $activeFilterParts = array_filter([
+            ($filters['itemType'] ?? null)
+                ? __('Show') . ': ' . ($itemTypeLabels[$filters['itemType']] ?? $filters['itemType'])
+                : null,
+            ($filters['taskStatus'] ?? null)
+                ? __('Status') . ': ' . (\App\Enums\TaskStatus::tryFrom($filters['taskStatus'])?->label() ?? $filters['taskStatus'])
+                : null,
+            ($filters['taskPriority'] ?? null)
+                ? __('Priority') . ': ' . (\App\Enums\TaskPriority::tryFrom($filters['taskPriority'])?->label() ?? $filters['taskPriority'])
+                : null,
+            ($filters['eventStatus'] ?? null)
+                ? __('Event status') . ': ' . (\App\Enums\EventStatus::tryFrom($filters['eventStatus'])?->label() ?? $filters['eventStatus'])
+                : null,
+        ]);
     @endphp
     @if($items->isEmpty() && $overdue->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
@@ -1020,9 +1041,18 @@
                     {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
                 </flux:text>
             </div>
-            <flux:text class="text-xs text-muted-foreground/70">
-                {{ __('Add a task, project, or event for this day to get started') }}
-            </flux:text>
+            @if ($hasActiveFilters && $activeFilterParts !== [])
+                <flux:text class="text-xs text-muted-foreground/70">
+                    {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
+                </flux:text>
+                <flux:text class="text-xs text-muted-foreground/70">
+                    {{ __('Try adjusting filters or add a new task, project, or event for this day') }}
+                </flux:text>
+            @else
+                <flux:text class="text-xs text-muted-foreground/70">
+                    {{ __('Add a task, project, or event for this day to get started') }}
+                </flux:text>
+            @endif
         </div>
     @else
         <div
@@ -1079,39 +1109,21 @@
                 <div class="flex items-center gap-2">
                     <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
                     <flux:text class="text-sm font-medium text-muted-foreground">
-                        {{ __('No tasks, projects, or events are currently visible for :date', ['date' => $emptyDateLabel]) }}
+                        {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
                     </flux:text>
                 </div>
-                @php
-                    $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
-                    $itemTypeLabels = [
-                        'tasks' => __('Tasks'),
-                        'events' => __('Events'),
-                        'projects' => __('Projects'),
-                    ];
-                    $activeFilterParts = array_filter([
-                        ($filters['itemType'] ?? null)
-                            ? __('Show') . ': ' . ($itemTypeLabels[$filters['itemType']] ?? $filters['itemType'])
-                            : null,
-                        ($filters['taskStatus'] ?? null)
-                            ? __('Status') . ': ' . (\App\Enums\TaskStatus::tryFrom($filters['taskStatus'])?->label() ?? $filters['taskStatus'])
-                            : null,
-                        ($filters['taskPriority'] ?? null)
-                            ? __('Priority') . ': ' . (\App\Enums\TaskPriority::tryFrom($filters['taskPriority'])?->label() ?? $filters['taskPriority'])
-                            : null,
-                        ($filters['eventStatus'] ?? null)
-                            ? __('Event status') . ': ' . (\App\Enums\EventStatus::tryFrom($filters['eventStatus'])?->label() ?? $filters['eventStatus'])
-                            : null,
-                    ]);
-                @endphp
                 @if ($hasActiveFilters && $activeFilterParts !== [])
                     <flux:text class="text-xs text-muted-foreground/70">
                         {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
                     </flux:text>
+                    <flux:text class="text-xs text-muted-foreground/70">
+                        {{ __('Try adjusting filters or add a new task, project, or event for this day') }}
+                    </flux:text>
+                @else
+                    <flux:text class="text-xs text-muted-foreground/70">
+                        {{ __('Add a task, project, or event for this day to get started') }}
+                    </flux:text>
                 @endif
-                <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('Try adjusting item dates or filters, or add a new task, project, or event for this day') }}
-                </flux:text>
             </div>
             <div x-show="visibleItemCount > 0" class="space-y-4">
                 <div class="space-y-3">

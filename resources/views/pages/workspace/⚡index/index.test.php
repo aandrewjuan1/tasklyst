@@ -1138,6 +1138,20 @@ it('shows all item types when clearFilter itemType is called', function (): void
     expect($component->get('projects'))->toHaveCount(1);
 });
 
+it('renders skeleton loading placeholders for filter and date changes', function (): void {
+    $user = User::factory()->create();
+
+    $html = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->html();
+
+    expect($html)->toContain('wire:loading');
+    expect($html)->toContain('wire:target');
+    expect($html)->toContain('selectedDate,filterItemType');
+    expect($html)->toContain('data-flux-skeleton-group');
+    expect($html)->toContain('shimmer');
+});
+
 it('increments listRefresh when item type filter changes', function (): void {
     $user = User::factory()->create();
 
