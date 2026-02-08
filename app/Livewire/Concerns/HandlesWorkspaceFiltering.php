@@ -117,7 +117,7 @@ trait HandlesWorkspaceFiltering
             $this->filterTagId = $value !== null && count($value) === 1 ? (string) $value[0] : null;
         }
 
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     /**
@@ -155,7 +155,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterItemType = null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     public function updatedFilterTaskStatus(?string $value): void
@@ -163,7 +163,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterTaskStatus = null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     public function updatedFilterTaskPriority(?string $value): void
@@ -171,7 +171,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterTaskPriority = null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     public function updatedFilterTaskComplexity(?string $value): void
@@ -179,7 +179,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterTaskComplexity = null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     public function updatedFilterEventStatus(?string $value): void
@@ -187,7 +187,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterEventStatus = null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     public function updatedFilterRecurring(?string $value): void
@@ -195,7 +195,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterRecurring = null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     public function updatedFilterTagId(?string $value): void
@@ -207,7 +207,7 @@ trait HandlesWorkspaceFiltering
             $id = (int) $value;
             $this->filterTagIds = $id > 0 ? [$id] : null;
         }
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     /**
@@ -219,7 +219,7 @@ trait HandlesWorkspaceFiltering
             $this->{$property} = null;
         }
         $this->filterTagId = null;
-        $this->dispatch('filters-changed');
+        $this->incrementListRefresh();
     }
 
     /**

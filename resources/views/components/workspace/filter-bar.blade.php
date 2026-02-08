@@ -75,11 +75,11 @@
         <flux:menu keep-open class="min-w-[12rem] max-h-[min(70vh,32rem)] overflow-y-auto">
             {{-- Show --}}
             <flux:menu.submenu heading="{{ __('Show') }}" keep-open>
-                <flux:menu.radio.group wire:model="filterItemType" keep-open>
-                    <flux:menu.radio value="" wire:click="setFilter('itemType', null)">{{ __('All') }}</flux:menu.radio>
-                    <flux:menu.radio value="tasks" wire:click="setFilter('itemType', 'tasks')">{{ __('Tasks') }}</flux:menu.radio>
-                    <flux:menu.radio value="events" wire:click="setFilter('itemType', 'events')">{{ __('Events') }}</flux:menu.radio>
-                    <flux:menu.radio value="projects" wire:click="setFilter('itemType', 'projects')">{{ __('Projects') }}</flux:menu.radio>
+                <flux:menu.radio.group wire:model.change.live="filterItemType" keep-open>
+                    <flux:menu.radio value="">{{ __('All') }}</flux:menu.radio>
+                    <flux:menu.radio value="tasks">{{ __('Tasks') }}</flux:menu.radio>
+                    <flux:menu.radio value="events">{{ __('Events') }}</flux:menu.radio>
+                    <flux:menu.radio value="projects">{{ __('Projects') }}</flux:menu.radio>
                 </flux:menu.radio.group>
             </flux:menu.submenu>
 
@@ -87,30 +87,30 @@
 
             {{-- Task status --}}
             <flux:menu.submenu heading="{{ __('Task status') }}" keep-open>
-                <flux:menu.radio.group wire:model="filterTaskStatus" keep-open>
-                    <flux:menu.radio value="" wire:click="clearFilter('taskStatus')">{{ __('All') }}</flux:menu.radio>
+                <flux:menu.radio.group wire:model.change.live="filterTaskStatus" keep-open>
+                    <flux:menu.radio value="">{{ __('All') }}</flux:menu.radio>
                     @foreach ($taskStatuses as $value => $label)
-                        <flux:menu.radio value="{{ $value }}" wire:click="setFilter('taskStatus', '{{ $value }}')">{{ $label }}</flux:menu.radio>
+                        <flux:menu.radio value="{{ $value }}">{{ $label }}</flux:menu.radio>
                     @endforeach
                 </flux:menu.radio.group>
             </flux:menu.submenu>
 
             {{-- Task priority --}}
             <flux:menu.submenu heading="{{ __('Task priority') }}" keep-open>
-                <flux:menu.radio.group wire:model="filterTaskPriority" keep-open>
-                    <flux:menu.radio value="" wire:click="clearFilter('taskPriority')">{{ __('All') }}</flux:menu.radio>
+                <flux:menu.radio.group wire:model.change.live="filterTaskPriority" keep-open>
+                    <flux:menu.radio value="">{{ __('All') }}</flux:menu.radio>
                     @foreach ($taskPriorities as $value => $label)
-                        <flux:menu.radio value="{{ $value }}" wire:click="setFilter('taskPriority', '{{ $value }}')">{{ $label }}</flux:menu.radio>
+                        <flux:menu.radio value="{{ $value }}">{{ $label }}</flux:menu.radio>
                     @endforeach
                 </flux:menu.radio.group>
             </flux:menu.submenu>
 
             {{-- Task complexity --}}
             <flux:menu.submenu heading="{{ __('Task complexity') }}" keep-open>
-                <flux:menu.radio.group wire:model="filterTaskComplexity" keep-open>
-                    <flux:menu.radio value="" wire:click="clearFilter('taskComplexity')">{{ __('All') }}</flux:menu.radio>
+                <flux:menu.radio.group wire:model.change.live="filterTaskComplexity" keep-open>
+                    <flux:menu.radio value="">{{ __('All') }}</flux:menu.radio>
                     @foreach ($taskComplexities as $value => $label)
-                        <flux:menu.radio value="{{ $value }}" wire:click="setFilter('taskComplexity', '{{ $value }}')">{{ $label }}</flux:menu.radio>
+                        <flux:menu.radio value="{{ $value }}">{{ $label }}</flux:menu.radio>
                     @endforeach
                 </flux:menu.radio.group>
             </flux:menu.submenu>
@@ -119,10 +119,10 @@
 
             {{-- Event status --}}
             <flux:menu.submenu heading="{{ __('Event status') }}" keep-open>
-                <flux:menu.radio.group wire:model="filterEventStatus" keep-open>
-                    <flux:menu.radio value="" wire:click="clearFilter('eventStatus')">{{ __('All') }}</flux:menu.radio>
+                <flux:menu.radio.group wire:model.change.live="filterEventStatus" keep-open>
+                    <flux:menu.radio value="">{{ __('All') }}</flux:menu.radio>
                     @foreach ($eventStatuses as $value => $label)
-                        <flux:menu.radio value="{{ $value }}" wire:click="setFilter('eventStatus', '{{ $value }}')">{{ $label }}</flux:menu.radio>
+                        <flux:menu.radio value="{{ $value }}">{{ $label }}</flux:menu.radio>
                     @endforeach
                 </flux:menu.radio.group>
             </flux:menu.submenu>
@@ -145,10 +145,10 @@
 
             {{-- Recurring --}}
             <flux:menu.submenu heading="{{ __('Recurring') }}" keep-open>
-                <flux:menu.radio.group wire:model="filterRecurring" keep-open>
-                    <flux:menu.radio value="" wire:click="clearFilter('recurring')">{{ __('All') }}</flux:menu.radio>
-                    <flux:menu.radio value="recurring" wire:click="setFilter('recurring', 'recurring')">{{ __('Recurring') }}</flux:menu.radio>
-                    <flux:menu.radio value="oneTime" wire:click="setFilter('recurring', 'oneTime')">{{ __('One-time') }}</flux:menu.radio>
+                <flux:menu.radio.group wire:model.change.live="filterRecurring" keep-open>
+                    <flux:menu.radio value="">{{ __('All') }}</flux:menu.radio>
+                    <flux:menu.radio value="recurring">{{ __('Recurring') }}</flux:menu.radio>
+                    <flux:menu.radio value="oneTime">{{ __('One-time') }}</flux:menu.radio>
                 </flux:menu.radio.group>
             </flux:menu.submenu>
 

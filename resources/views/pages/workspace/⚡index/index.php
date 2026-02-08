@@ -134,10 +134,4 @@ class extends Component
     {
         $this->listRefresh++;
     }
-
-    #[On('filters-changed')]
-    public function onFiltersChanged(): void
-    {
-        $this->incrementListRefresh();
-    }
 };

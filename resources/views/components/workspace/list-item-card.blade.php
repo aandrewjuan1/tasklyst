@@ -524,8 +524,8 @@
             this.deletingInProgress = true;
 
             try {
-                // Phase 1: Optimistic update – hide immediately
-                this.hideFromList(true);
+                // Phase 1: Optimistic update – hide immediately (no refresh yet)
+                this.hideFromList(false);
 
                 // Phase 2: Call server
                 const ok = await $wire.$parent.$call(this.deleteMethod, this.itemId);
@@ -671,7 +671,7 @@
     @item-property-updated="
         if (shouldHideAfterPropertyUpdate($event.detail)) {
             dateChangeHidingCard = true;
-            hideFromList(true);
+            hideFromList(false);
         } else {
             dateChangeHidingCard = false;
             const d = $event.detail;
@@ -680,11 +680,9 @@
                 if (!isOverdue && stillOverdue) {
                     clientOverdue = true;
                     clientNotOverdue = false;
-                    $dispatch('list-refresh-requested');
                 } else if (isOverdue && !stillOverdue) {
                     clientOverdue = false;
                     clientNotOverdue = true;
-                    $dispatch('list-refresh-requested');
                 }
             }
         }
@@ -1068,10 +1066,11 @@
                     const startVal = path === 'startDatetime' ? value : this.startDatetime;
                     const endVal = path === 'endDatetime' ? value : this.endDatetime;
                     this.validateEditDateRange(startVal, endVal);
-                    if (path === 'endDatetime' && this.$parent.$parent?.isStillOverdue) {
-                        const stillOverdue = this.$parent.$parent.isStillOverdue(null, value);
-                        this.$parent.$parent.clientOverdue = stillOverdue;
-                        this.$parent.$parent.clientNotOverdue = !stillOverdue;
+                    const card = this.$parent?.$parent ?? this.$parent;
+                    if (path === 'endDatetime' && card?.isStillOverdue) {
+                        const stillOverdue = card.isStillOverdue(null, value);
+                        card.clientOverdue = stillOverdue;
+                        card.clientNotOverdue = !stillOverdue;
                     }
                 },
                 getDatePickerOriginalValue(path) {
@@ -1104,8 +1103,6 @@
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
-                    } else if (path === 'startDatetime' || path === 'endDatetime') {
-                        if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
                     }
                 },
                 async handleRecurringSelectionUpdated(e) {
@@ -1514,10 +1511,11 @@
                     const endVal = path === 'endDatetime' ? value : this.endDatetime;
                     const durationMinutes = parseInt(this.duration ?? '0', 10);
                     this.validateEditDateRange(startVal, endVal, durationMinutes);
-                    if (path === 'endDatetime' && this.$parent.$parent?.isStillOverdue) {
-                        const stillOverdue = this.$parent.$parent.isStillOverdue(null, value);
-                        this.$parent.$parent.clientOverdue = stillOverdue;
-                        this.$parent.$parent.clientNotOverdue = !stillOverdue;
+                    const card = this.$parent?.$parent ?? this.$parent;
+                    if (path === 'endDatetime' && card?.isStillOverdue) {
+                        const stillOverdue = card.isStillOverdue(null, value);
+                        card.clientOverdue = stillOverdue;
+                        card.clientNotOverdue = !stillOverdue;
                     }
                 },
                 getDatePickerOriginalValue(path) {
@@ -1551,8 +1549,6 @@
                     if (!ok) {
                         const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                         this.dispatchDatePickerRevert(e.target, path, realValue);
-                    } else if (path === 'startDatetime' || path === 'endDatetime') {
-                        if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
                     }
                 },
                 async handleRecurringSelectionUpdated(e) {

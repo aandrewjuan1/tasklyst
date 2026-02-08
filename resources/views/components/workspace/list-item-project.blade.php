@@ -111,8 +111,6 @@
             if (!ok) {
                 const realValue = path === 'startDatetime' ? this.startDatetime : this.endDatetime;
                 this.dispatchDatePickerRevert(e.target, path, realValue);
-            } else if (path === 'startDatetime' || path === 'endDatetime') {
-                if (!$parent.dateChangeHidingCard) $dispatch('list-refresh-requested');
             }
         },
     }"

@@ -293,8 +293,10 @@
             return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
         },
 
-        /** True if overdue from server/parent OR if the selected date is before today (optimistic). */
+        /** True if overdue from server/parent OR if the selected date is before today (optimistic). Only applies to end/due date picker, not start. */
         get effectiveOverdue() {
+            const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
+            if (!isEndDate) return false;
             if (this.currentValue) {
                 const parsed = this.parseIsoLocalDate(this.currentValue);
                 if (parsed && !isNaN(parsed.getTime())) {
@@ -376,7 +378,7 @@
     @keydown.escape.prevent.stop="close($refs.button)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['date-picker-dropdown']"
-    x-effect="const card = $parent?.$parent; if (card && (card.isOverdue !== undefined || card.clientOverdue !== undefined)) overdue = (card.isOverdue || card.clientOverdue) && !card.clientNotOverdue"
+    x-effect="const card = (typeof $parent !== 'undefined' && $parent)?.$parent; const isEndDate = modelPath && String(modelPath).includes('endDatetime'); if (isEndDate && card && (card.isOverdue !== undefined || card.clientOverdue !== undefined)) overdue = (card.isOverdue || card.clientOverdue) && !card.clientNotOverdue"
     class="relative inline-block"
     data-task-creation-safe
     {{ $attributes }}

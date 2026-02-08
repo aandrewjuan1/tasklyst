@@ -1161,11 +1161,9 @@ it('increments listRefresh when item type filter changes', function (): void {
     $initialRefresh = $component->get('listRefresh');
 
     $component->call('setFilter', 'itemType', 'tasks');
-    $component->call('onFiltersChanged'); // Simulates filters-changed event from frontend
     expect($component->get('listRefresh'))->toBe($initialRefresh + 1);
 
     $component->call('setFilter', 'itemType', 'events');
-    $component->call('onFiltersChanged'); // Simulates filters-changed event from frontend
     expect($component->get('listRefresh'))->toBe($initialRefresh + 2);
 });
 
