@@ -740,8 +740,8 @@ trait HandlesWorkspaceItems
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
-        if ($filterItemType !== null && $filterItemType !== 'all' && $filterItemType !== 'tasks') {
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'tasks') {
             return collect();
         }
 
@@ -782,7 +782,7 @@ trait HandlesWorkspaceItems
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
 
         $today = Carbon::today();
 
@@ -815,7 +815,7 @@ trait HandlesWorkspaceItems
         $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
             ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
 
-        if ($filterItemType !== null && $filterItemType !== 'all') {
+        if ($filterItemType !== null) {
             if ($filterItemType === 'tasks') {
                 return collect($overdueTasks->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
             }
@@ -845,8 +845,8 @@ trait HandlesWorkspaceItems
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
-        if ($filterItemType !== null && $filterItemType !== 'all' && $filterItemType !== 'projects') {
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'projects') {
             return collect();
         }
 
@@ -878,8 +878,8 @@ trait HandlesWorkspaceItems
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->filterItemType : null;
-        if ($filterItemType !== null && $filterItemType !== 'all' && $filterItemType !== 'events') {
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'events') {
             return collect();
         }
 

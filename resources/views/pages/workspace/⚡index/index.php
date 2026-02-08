@@ -23,6 +23,7 @@ use App\Services\TagService;
 use App\Services\TaskService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -126,10 +127,17 @@ class extends Component
             $this->authorize('viewAny', Tag::class);
         }
         $this->selectedDate = now()->toDateString();
+        $this->syncFilterTagIdFromTagIds();
     }
 
     public function incrementListRefresh(): void
     {
         $this->listRefresh++;
+    }
+
+    #[On('filters-changed')]
+    public function onFiltersChanged(): void
+    {
+        $this->incrementListRefresh();
     }
 };

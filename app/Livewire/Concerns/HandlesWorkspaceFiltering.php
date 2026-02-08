@@ -32,8 +32,24 @@ trait HandlesWorkspaceFiltering
     /** @var array<int>|null */
     public ?array $filterTagIds = null;
 
+    /** @var string|null UI binding for Tags radio group ('' = All, '123' = tag id) */
+    public ?string $filterTagId = null;
+
     #[Url(as: 'recurring')]
     public ?string $filterRecurring = null;
+
+    /**
+     * Sync filterTagId from filterTagIds for wire:model binding.
+     * Call from component mount when using Tags filter.
+     */
+    public function syncFilterTagIdFromTagIds(): void
+    {
+        if ($this->filterTagIds !== null && count($this->filterTagIds) === 1) {
+            $this->filterTagId = (string) $this->filterTagIds[0];
+        } else {
+            $this->filterTagId = '';
+        }
+    }
 
     /**
      * Filter key to property name mapping. Add new filters here for centralization.
@@ -96,7 +112,20 @@ trait HandlesWorkspaceFiltering
         }
 
         $this->{$property} = $value;
-        $this->incrementListRefresh();
+
+        if ($key === 'tagIds') {
+            $this->filterTagId = $value !== null && count($value) === 1 ? (string) $value[0] : null;
+        }
+
+        $this->dispatch('filters-changed');
+    }
+
+    /**
+     * Set tag filter by tag ID. Convenience method for wire:click to avoid array syntax in Blade.
+     */
+    public function setTagFilter(int $tagId): void
+    {
+        $this->setFilter('tagIds', [$tagId]);
     }
 
     /**
@@ -110,7 +139,75 @@ trait HandlesWorkspaceFiltering
             return;
         }
 
+        if ($key === 'tagIds') {
+            $this->filterTagId = null;
+        }
+
         $this->setFilter($key, null);
+    }
+
+    /**
+     * Normalize empty string to null when wire:model selects "All" (value="").
+     * Keeps URL params clean. Triggers list refresh when filters change.
+     */
+    public function updatedFilterItemType(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterItemType = null;
+        }
+        $this->dispatch('filters-changed');
+    }
+
+    public function updatedFilterTaskStatus(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterTaskStatus = null;
+        }
+        $this->dispatch('filters-changed');
+    }
+
+    public function updatedFilterTaskPriority(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterTaskPriority = null;
+        }
+        $this->dispatch('filters-changed');
+    }
+
+    public function updatedFilterTaskComplexity(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterTaskComplexity = null;
+        }
+        $this->dispatch('filters-changed');
+    }
+
+    public function updatedFilterEventStatus(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterEventStatus = null;
+        }
+        $this->dispatch('filters-changed');
+    }
+
+    public function updatedFilterRecurring(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterRecurring = null;
+        }
+        $this->dispatch('filters-changed');
+    }
+
+    public function updatedFilterTagId(?string $value): void
+    {
+        if ($value === '' || $value === null) {
+            $this->filterTagIds = null;
+            $this->filterTagId = null;
+        } else {
+            $id = (int) $value;
+            $this->filterTagIds = $id > 0 ? [$id] : null;
+        }
+        $this->dispatch('filters-changed');
     }
 
     /**
@@ -121,7 +218,16 @@ trait HandlesWorkspaceFiltering
         foreach (array_values(static::filterKeys()) as $property) {
             $this->{$property} = null;
         }
-        $this->incrementListRefresh();
+        $this->filterTagId = null;
+        $this->dispatch('filters-changed');
+    }
+
+    /**
+     * Normalize empty string to null for wire:model compatibility with "All" options.
+     */
+    protected function normalizeFilterValue(?string $value): ?string
+    {
+        return ($value === null || $value === '') ? null : $value;
     }
 
     /**
@@ -129,30 +235,31 @@ trait HandlesWorkspaceFiltering
      */
     public function hasActiveFilters(): bool
     {
-        return $this->filterItemType !== null
-            || $this->filterTaskStatus !== null
-            || $this->filterTaskPriority !== null
-            || $this->filterTaskComplexity !== null
-            || $this->filterEventStatus !== null
+        return $this->normalizeFilterValue($this->filterItemType) !== null
+            || $this->normalizeFilterValue($this->filterTaskStatus) !== null
+            || $this->normalizeFilterValue($this->filterTaskPriority) !== null
+            || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
+            || $this->normalizeFilterValue($this->filterEventStatus) !== null
             || ($this->filterTagIds !== null && $this->filterTagIds !== [])
-            || $this->filterRecurring !== null;
+            || $this->normalizeFilterValue($this->filterRecurring) !== null;
     }
 
     /**
      * Get current filter state for the frontend.
+     * Uses normalized values (null for "All") for display.
      *
      * @return array<string, mixed>
      */
     public function getFilters(): array
     {
         return [
-            'itemType' => $this->filterItemType,
-            'taskStatus' => $this->filterTaskStatus,
-            'taskPriority' => $this->filterTaskPriority,
-            'taskComplexity' => $this->filterTaskComplexity,
-            'eventStatus' => $this->filterEventStatus,
+            'itemType' => $this->normalizeFilterValue($this->filterItemType),
+            'taskStatus' => $this->normalizeFilterValue($this->filterTaskStatus),
+            'taskPriority' => $this->normalizeFilterValue($this->filterTaskPriority),
+            'taskComplexity' => $this->normalizeFilterValue($this->filterTaskComplexity),
+            'eventStatus' => $this->normalizeFilterValue($this->filterEventStatus),
             'tagIds' => $this->filterTagIds ?? [],
-            'recurring' => $this->filterRecurring,
+            'recurring' => $this->normalizeFilterValue($this->filterRecurring),
             'hasActiveFilters' => $this->hasActiveFilters(),
         ];
     }
@@ -162,12 +269,14 @@ trait HandlesWorkspaceFiltering
      */
     public function applyTaskFilters(Builder $query): void
     {
-        if ($this->filterTaskPriority !== null && TaskPriority::tryFrom($this->filterTaskPriority) !== null) {
-            $query->byPriority($this->filterTaskPriority);
+        $priority = $this->normalizeFilterValue($this->filterTaskPriority);
+        if ($priority !== null && TaskPriority::tryFrom($priority) !== null) {
+            $query->byPriority($priority);
         }
 
-        if ($this->filterTaskComplexity !== null && TaskComplexity::tryFrom($this->filterTaskComplexity) !== null) {
-            $query->byComplexity($this->filterTaskComplexity);
+        $complexity = $this->normalizeFilterValue($this->filterTaskComplexity);
+        if ($complexity !== null && TaskComplexity::tryFrom($complexity) !== null) {
+            $query->byComplexity($complexity);
         }
 
         if ($this->filterTagIds !== null && $this->filterTagIds !== []) {
@@ -176,9 +285,10 @@ trait HandlesWorkspaceFiltering
             });
         }
 
-        if ($this->filterRecurring === 'recurring') {
+        $recurring = $this->normalizeFilterValue($this->filterRecurring);
+        if ($recurring === 'recurring') {
             $query->whereHas('recurringTask');
-        } elseif ($this->filterRecurring === 'oneTime') {
+        } elseif ($recurring === 'oneTime') {
             $query->whereDoesntHave('recurringTask');
         }
     }
@@ -191,14 +301,15 @@ trait HandlesWorkspaceFiltering
      */
     public function filterTaskCollection(Collection $tasks): Collection
     {
-        if ($this->filterTaskStatus === null || TaskStatus::tryFrom($this->filterTaskStatus) === null) {
+        $taskStatus = $this->normalizeFilterValue($this->filterTaskStatus);
+        if ($taskStatus === null || TaskStatus::tryFrom($taskStatus) === null) {
             return $tasks;
         }
 
-        return $tasks->filter(function (Task $task): bool {
+        return $tasks->filter(function (Task $task) use ($taskStatus): bool {
             $effective = $task->effectiveStatusForDate ?? $task->status;
 
-            return $effective !== null && $effective->value === $this->filterTaskStatus;
+            return $effective !== null && $effective->value === $taskStatus;
         })->values();
     }
 
@@ -213,7 +324,7 @@ trait HandlesWorkspaceFiltering
      */
     public function applyEventFilters(Builder $query): void
     {
-        if ($this->filterEventStatus === null) {
+        if ($this->normalizeFilterValue($this->filterEventStatus) === null) {
             $query->notCancelled()->notCompleted();
         }
 
@@ -223,9 +334,10 @@ trait HandlesWorkspaceFiltering
             });
         }
 
-        if ($this->filterRecurring === 'recurring') {
+        $recurring = $this->normalizeFilterValue($this->filterRecurring);
+        if ($recurring === 'recurring') {
             $query->whereHas('recurringEvent');
-        } elseif ($this->filterRecurring === 'oneTime') {
+        } elseif ($recurring === 'oneTime') {
             $query->whereDoesntHave('recurringEvent');
         }
     }
@@ -238,14 +350,15 @@ trait HandlesWorkspaceFiltering
      */
     public function filterEventCollection(Collection $events): Collection
     {
-        if ($this->filterEventStatus === null || EventStatus::tryFrom($this->filterEventStatus) === null) {
+        $eventStatus = $this->normalizeFilterValue($this->filterEventStatus);
+        if ($eventStatus === null || EventStatus::tryFrom($eventStatus) === null) {
             return $events;
         }
 
-        return $events->filter(function (Event $event): bool {
+        return $events->filter(function (Event $event) use ($eventStatus): bool {
             $effective = $event->effectiveStatusForDate ?? $event->status;
 
-            return $effective !== null && $effective->value === $this->filterEventStatus;
+            return $effective !== null && $effective->value === $eventStatus;
         })->values();
     }
 
@@ -254,16 +367,19 @@ trait HandlesWorkspaceFiltering
      */
     public function applyOverdueTaskFilters(Builder $query): void
     {
-        if ($this->filterTaskStatus !== null && TaskStatus::tryFrom($this->filterTaskStatus) !== null) {
-            $query->byStatus($this->filterTaskStatus);
+        $taskStatus = $this->normalizeFilterValue($this->filterTaskStatus);
+        if ($taskStatus !== null && TaskStatus::tryFrom($taskStatus) !== null) {
+            $query->byStatus($taskStatus);
         }
 
-        if ($this->filterTaskPriority !== null && TaskPriority::tryFrom($this->filterTaskPriority) !== null) {
-            $query->byPriority($this->filterTaskPriority);
+        $priority = $this->normalizeFilterValue($this->filterTaskPriority);
+        if ($priority !== null && TaskPriority::tryFrom($priority) !== null) {
+            $query->byPriority($priority);
         }
 
-        if ($this->filterTaskComplexity !== null && TaskComplexity::tryFrom($this->filterTaskComplexity) !== null) {
-            $query->byComplexity($this->filterTaskComplexity);
+        $complexity = $this->normalizeFilterValue($this->filterTaskComplexity);
+        if ($complexity !== null && TaskComplexity::tryFrom($complexity) !== null) {
+            $query->byComplexity($complexity);
         }
 
         if ($this->filterTagIds !== null && $this->filterTagIds !== []) {
@@ -278,8 +394,9 @@ trait HandlesWorkspaceFiltering
      */
     public function applyOverdueEventFilters(Builder $query): void
     {
-        if ($this->filterEventStatus !== null && EventStatus::tryFrom($this->filterEventStatus) !== null) {
-            $query->byStatus($this->filterEventStatus);
+        $eventStatus = $this->normalizeFilterValue($this->filterEventStatus);
+        if ($eventStatus !== null && EventStatus::tryFrom($eventStatus) !== null) {
+            $query->byStatus($eventStatus);
         }
 
         if ($this->filterTagIds !== null && $this->filterTagIds !== []) {
