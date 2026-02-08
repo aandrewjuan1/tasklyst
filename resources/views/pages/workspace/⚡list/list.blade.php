@@ -1081,18 +1081,14 @@
                         this.showEmptyState = false;
                     }
                 },
-                handleListItemHidden(e) {
-                    const requestRefresh = e.detail?.requestRefresh ?? false;
+                handleListItemHidden() {
                     this.visibleItemCount--;
-                    if (requestRefresh) {
-                        $dispatch('list-refresh-requested');
-                    }
                 },
                 handleListItemShown(e) {
                     this.visibleItemCount++;
                 }
             }"
-            @list-item-hidden.window="handleListItemHidden($event)"
+            @list-item-hidden.window="handleListItemHidden()"
             @list-item-shown.window="handleListItemShown($event)"
         >
             <div

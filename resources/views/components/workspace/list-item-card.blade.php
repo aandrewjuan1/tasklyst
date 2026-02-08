@@ -208,12 +208,12 @@
         titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
         recurrenceUpdateErrorToast: @js(__('Something went wrong. Please try again.')),
         isOverdue: @js($isOverdue),
-        hideFromList(requestRefresh = false) {
+        hideFromList() {
             if (this.hideCard) {
                 return;
             }
             this.hideCard = true;
-            $dispatch('list-item-hidden', { fromOverdue: this.isOverdue, requestRefresh });
+            $dispatch('list-item-hidden', { fromOverdue: this.isOverdue });
         },
         /**
          * Determine if a task is still relevant for the current list filter date.

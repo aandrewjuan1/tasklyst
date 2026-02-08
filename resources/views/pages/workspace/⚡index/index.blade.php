@@ -1,18 +1,18 @@
-<section class="space-y-6" x-data x-on:list-refresh-requested.window="$wire.incrementListRefresh()">
-    <div class="flex items-center justify-between">
-        <div class="space-y-2">
-            <flux:heading size="lg">
-                {{ __('Workspace') }}
-            </flux:heading>
-            <flux:subheading>
-                {{ __('Your tasks, projects, and events') }}
-            </flux:subheading>
-
+<section class="space-y-6" x-data>
+    <div class="flex items-center">
+        <div class="flex-1"></div>
+        <div class="shrink-0">
             <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+        </div>
+        <div class="flex flex-1 justify-end">
+            <x-workspace.filter-bar
+                :filters="$this->getFilters()"
+                :tags="$this->tags"
+            />
         </div>
     </div>
 
-    <x-workspace.filter-bar
+    <x-workspace.active-filter-pills
         :filters="$this->getFilters()"
         :tags="$this->tags"
     />
@@ -44,26 +44,49 @@
         wire:loading.delay.block
         wire:target="{{ $listLoadingTargets }}"
         class="hidden w-full space-y-4"
+        role="status"
+        aria-busy="true"
+        aria-live="polite"
+        aria-label="{{ __('Loading workspace list...') }}"
+        x-data="{
+            skeletonItems: [0, 1, 2],
+            init() {
+                const updateCount = () => {
+                    const itemHeight = 120;
+                    const minCount = 3;
+                    const maxCount = 10;
+                    const viewportHeight = window.innerHeight;
+                    const availableHeight = viewportHeight - 320;
+                    const count = Math.min(maxCount, Math.max(minCount, Math.ceil(availableHeight / itemHeight)));
+                    this.skeletonItems = Array.from({ length: count }, (_, i) => i);
+                };
+                updateCount();
+                window.addEventListener('resize', updateCount);
+                this.$cleanup(() => window.removeEventListener('resize', updateCount));
+            },
+        }"
     >
-        @foreach (range(1, 3) as $i)
-            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/60 px-4 py-3">
-                <div class="flex items-start justify-between gap-2">
-                    <div class="flex-1 space-y-2">
-                        <flux:skeleton.line class="w-3/4" />
-                        <flux:skeleton.line class="w-1/2" />
+        <span class="sr-only">{{ __('Loading workspace list...') }}</span>
+        <template x-for="i in skeletonItems" :key="i">
+            <div>
+                <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0 flex-1 space-y-2">
+                            <flux:skeleton.line class="w-4/5" size="lg" />
+                            <flux:skeleton.line class="w-2/3" />
+                        </div>
+                        <div class="flex shrink-0 items-center gap-2">
+                            <flux:skeleton class="h-6 w-14 rounded-full" />
+                            <flux:skeleton class="size-8 shrink-0 rounded" />
+                        </div>
                     </div>
-                    <flux:skeleton class="size-8 shrink-0 rounded" />
-                </div>
-                <div class="flex flex-wrap gap-2">
-                    <flux:skeleton class="h-6 w-20 rounded-full" />
-                    <flux:skeleton class="h-6 w-24 rounded-full" />
-                    <flux:skeleton class="h-6 w-16 rounded-full" />
-                </div>
-                <div class="flex flex-wrap gap-2 pt-1">
-                    <flux:skeleton.line class="w-1/4" />
-                    <flux:skeleton.line class="w-1/3" />
-                </div>
-            </flux:skeleton.group>
-        @endforeach
+                    <div class="flex flex-wrap items-center gap-2 pt-0.5">
+                        <flux:skeleton class="h-5 w-16 rounded-full" />
+                        <flux:skeleton class="h-5 w-20 rounded-full" />
+                        <flux:skeleton class="h-5 w-14 rounded-full" />
+                    </div>
+                </flux:skeleton.group>
+            </div>
+        </template>
     </div>
 </section>
