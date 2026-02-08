@@ -10,6 +10,7 @@ use App\Models\EventInstance;
 use App\Models\RecurringEvent;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class EventService
@@ -217,6 +218,53 @@ class EventService
         }
 
         return $event->status ?? EventStatus::Scheduled;
+    }
+
+    /**
+     * Process recurring events for a given date: filter by relevant occurrences,
+     * batch-load EventInstance records, and set instanceForDate and effectiveStatusForDate on each event.
+     *
+     * @param  Collection<int, Event>  $events  Events with recurringEvent relation loaded
+     * @return Collection<int, Event>
+     */
+    public function processRecurringEventsForDate(Collection $events, CarbonInterface $date): Collection
+    {
+        $recurringEvents = $events->pluck('recurringEvent')->filter();
+        $relevantIds = $recurringEvents->isNotEmpty()
+            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate(collect(), $recurringEvents, $date)
+            : ['task_ids' => [], 'event_ids' => []];
+
+        $relevantEventIds = array_flip($relevantIds['event_ids']);
+
+        $filteredEvents = $events
+            ->filter(function (Event $event) use ($relevantEventIds): bool {
+                if ($event->recurringEvent === null) {
+                    return true;
+                }
+
+                return isset($relevantEventIds[$event->recurringEvent->id]);
+            })
+            ->values();
+
+        $recurringEventIds = $filteredEvents->pluck('recurringEvent.id')->filter()->values();
+        $instancesByRecurringId = $recurringEventIds->isNotEmpty()
+            ? EventInstance::query()
+                ->whereIn('recurring_event_id', $recurringEventIds)
+                ->whereDate('instance_date', $date)
+                ->get()
+                ->keyBy('recurring_event_id')
+            : collect();
+
+        return $filteredEvents
+            ->map(function (Event $event) use ($date, $instancesByRecurringId): Event {
+                if ($event->recurringEvent !== null) {
+                    $event->instanceForDate = $instancesByRecurringId->get($event->recurringEvent->id);
+                }
+                $event->effectiveStatusForDate = $this->getEffectiveStatusForDate($event, $date);
+
+                return $event;
+            })
+            ->values();
     }
 
     /**

@@ -488,6 +488,51 @@ it('getEffectiveStatusForDate returns base task status for non-recurring task', 
     expect($effectiveStatus)->toBe(TaskStatus::Doing);
 });
 
+it('processRecurringTasksForDate filters and enriches tasks with instanceForDate and effectiveStatusForDate', function (): void {
+    Carbon::setTestNow('2026-02-06 10:00:00');
+
+    $nonRecurring = Task::factory()->create([
+        'title' => 'Non-recurring',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => Carbon::parse('2026-02-06 09:00:00'),
+    ]);
+
+    $recurringTask = Task::factory()->create([
+        'title' => 'Recurring',
+        'start_datetime' => Carbon::parse('2026-02-01 09:00:00'),
+    ]);
+    $recurring = RecurringTask::query()->create([
+        'task_id' => $recurringTask->id,
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-01-01 00:00:00'),
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    TaskInstance::query()->create([
+        'recurring_task_id' => $recurring->id,
+        'task_id' => $recurringTask->id,
+        'instance_date' => '2026-02-06',
+        'status' => TaskStatus::Done,
+        'completed_at' => now(),
+    ]);
+
+    $tasks = collect([$nonRecurring, $recurringTask])->each(fn ($t) => $t->load('recurringTask'));
+    $result = app(TaskService::class)->processRecurringTasksForDate($tasks, Carbon::parse('2026-02-06'));
+
+    expect($result)->toHaveCount(2);
+
+    $nonRecurringResult = $result->first(fn ($t) => $t->id === $nonRecurring->id);
+    expect($nonRecurringResult->instanceForDate)->toBeNull();
+    expect($nonRecurringResult->effectiveStatusForDate)->toBe(TaskStatus::ToDo);
+
+    $recurringResult = $result->first(fn ($t) => $t->id === $recurringTask->id);
+    expect($recurringResult->instanceForDate)->not->toBeNull();
+    expect($recurringResult->instanceForDate->status)->toBe(TaskStatus::Done);
+    expect($recurringResult->effectiveStatusForDate)->toBe(TaskStatus::Done);
+});
+
 it('isTaskRelevantForDate shows recurring task even when instance is done', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 

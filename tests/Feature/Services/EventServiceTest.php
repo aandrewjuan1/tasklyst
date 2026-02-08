@@ -283,6 +283,51 @@ it('getEffectiveStatusForDate returns instance status when instance exists for d
     expect($effectiveStatus)->toBe(EventStatus::Completed);
 });
 
+it('processRecurringEventsForDate filters and enriches events with instanceForDate and effectiveStatusForDate', function (): void {
+    Carbon::setTestNow('2026-02-06 10:00:00');
+
+    $nonRecurring = Event::factory()->create([
+        'title' => 'Non-recurring',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => Carbon::parse('2026-02-06 09:00:00'),
+    ]);
+
+    $recurringEvent = Event::factory()->create([
+        'title' => 'Recurring',
+        'start_datetime' => Carbon::parse('2026-02-01 09:00:00'),
+    ]);
+    $recurring = RecurringEvent::query()->create([
+        'event_id' => $recurringEvent->id,
+        'recurrence_type' => EventRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-01-01 00:00:00'),
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    EventInstance::query()->create([
+        'recurring_event_id' => $recurring->id,
+        'event_id' => $recurringEvent->id,
+        'instance_date' => '2026-02-06',
+        'status' => EventStatus::Completed,
+        'completed_at' => now(),
+    ]);
+
+    $events = collect([$nonRecurring, $recurringEvent])->each(fn ($e) => $e->load('recurringEvent'));
+    $result = app(EventService::class)->processRecurringEventsForDate($events, Carbon::parse('2026-02-06'));
+
+    expect($result)->toHaveCount(2);
+
+    $nonRecurringResult = $result->first(fn ($e) => $e->id === $nonRecurring->id);
+    expect($nonRecurringResult->instanceForDate)->toBeNull();
+    expect($nonRecurringResult->effectiveStatusForDate)->toBe(EventStatus::Scheduled);
+
+    $recurringResult = $result->first(fn ($e) => $e->id === $recurringEvent->id);
+    expect($recurringResult->instanceForDate)->not->toBeNull();
+    expect($recurringResult->instanceForDate->status)->toBe(EventStatus::Completed);
+    expect($recurringResult->effectiveStatusForDate)->toBe(EventStatus::Completed);
+});
+
 it('isEventRelevantForDate shows recurring event even when instance is completed', function (): void {
     Carbon::setTestNow('2026-02-06 10:00:00');
 

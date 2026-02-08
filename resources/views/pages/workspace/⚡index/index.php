@@ -19,7 +19,6 @@ use App\Models\Tag;
 use App\Models\Task;
 use App\Services\EventService;
 use App\Services\ProjectService;
-use App\Services\RecurrenceExpander;
 use App\Services\TagService;
 use App\Services\TaskService;
 use Illuminate\Support\Facades\Auth;
@@ -46,8 +45,6 @@ class extends Component
     protected EventService $eventService;
 
     protected TagService $tagService;
-
-    protected RecurrenceExpander $recurrenceExpander;
 
     protected CreateEventAction $createEventAction;
 
@@ -91,7 +88,6 @@ class extends Component
         ProjectService $projectService,
         EventService $eventService,
         TagService $tagService,
-        RecurrenceExpander $recurrenceExpander,
         CreateEventAction $createEventAction,
         CreateProjectAction $createProjectAction,
         CreateTagAction $createTagAction,
@@ -108,7 +104,6 @@ class extends Component
         $this->projectService = $projectService;
         $this->eventService = $eventService;
         $this->tagService = $tagService;
-        $this->recurrenceExpander = $recurrenceExpander;
         $this->createEventAction = $createEventAction;
         $this->createProjectAction = $createProjectAction;
         $this->createTagAction = $createTagAction;

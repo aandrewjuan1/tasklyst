@@ -10,6 +10,7 @@ use App\Models\TaskException;
 use App\Models\TaskInstance;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class TaskService
@@ -224,6 +225,53 @@ class TaskService
         }
 
         return $task->status ?? TaskStatus::ToDo;
+    }
+
+    /**
+     * Process recurring tasks for a given date: filter by relevant occurrences,
+     * batch-load TaskInstance records, and set instanceForDate and effectiveStatusForDate on each task.
+     *
+     * @param  Collection<int, Task>  $tasks  Tasks with recurringTask relation loaded
+     * @return Collection<int, Task>
+     */
+    public function processRecurringTasksForDate(Collection $tasks, CarbonInterface $date): Collection
+    {
+        $recurringTasks = $tasks->pluck('recurringTask')->filter();
+        $relevantIds = $recurringTasks->isNotEmpty()
+            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate($recurringTasks, collect(), $date)
+            : ['task_ids' => [], 'event_ids' => []];
+
+        $relevantTaskIds = array_flip($relevantIds['task_ids']);
+
+        $filteredTasks = $tasks
+            ->filter(function (Task $task) use ($relevantTaskIds): bool {
+                if ($task->recurringTask === null) {
+                    return true;
+                }
+
+                return isset($relevantTaskIds[$task->recurringTask->id]);
+            })
+            ->values();
+
+        $recurringTaskIds = $filteredTasks->pluck('recurringTask.id')->filter()->values();
+        $instancesByRecurringId = $recurringTaskIds->isNotEmpty()
+            ? TaskInstance::query()
+                ->whereIn('recurring_task_id', $recurringTaskIds)
+                ->whereDate('instance_date', $date)
+                ->get()
+                ->keyBy('recurring_task_id')
+            : collect();
+
+        return $filteredTasks
+            ->map(function (Task $task) use ($date, $instancesByRecurringId): Task {
+                if ($task->recurringTask !== null) {
+                    $task->instanceForDate = $instancesByRecurringId->get($task->recurringTask->id);
+                }
+                $task->effectiveStatusForDate = $this->getEffectiveStatusForDate($task, $date);
+
+                return $task;
+            })
+            ->values();
     }
 
     /**

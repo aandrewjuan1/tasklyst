@@ -7,11 +7,9 @@ use App\DataTransferObjects\Project\CreateProjectDto;
 use App\DataTransferObjects\Tag\CreateTagDto;
 use App\DataTransferObjects\Task\CreateTaskDto;
 use App\Models\Event;
-use App\Models\EventInstance;
 use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
-use App\Models\TaskInstance;
 use App\Models\User;
 use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\ProjectPayloadValidation;
@@ -756,42 +754,7 @@ trait HandlesWorkspaceItems
 
         $tasks = $taskQuery->orderByDesc('created_at')->limit(50)->get();
 
-        $recurringTasks = $tasks->pluck('recurringTask')->filter();
-        $relevantIds = $recurringTasks->isNotEmpty()
-            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate($recurringTasks, collect(), $date)
-            : ['task_ids' => [], 'event_ids' => []];
-
-        $relevantTaskIds = array_flip($relevantIds['task_ids']);
-
-        $filteredTasks = $tasks
-            ->filter(function (Task $task) use ($relevantTaskIds): bool {
-                if ($task->recurringTask === null) {
-                    return true;
-                }
-
-                return isset($relevantTaskIds[$task->recurringTask->id]);
-            })
-            ->values();
-
-        $recurringTaskIds = $filteredTasks->pluck('recurringTask.id')->filter()->values();
-        $instancesByRecurringId = $recurringTaskIds->isNotEmpty()
-            ? TaskInstance::query()
-                ->whereIn('recurring_task_id', $recurringTaskIds)
-                ->whereDate('instance_date', $date)
-                ->get()
-                ->keyBy('recurring_task_id')
-            : collect();
-
-        $result = $filteredTasks
-            ->map(function (Task $task) use ($date, $instancesByRecurringId): Task {
-                if ($task->recurringTask !== null) {
-                    $task->instanceForDate = $instancesByRecurringId->get($task->recurringTask->id);
-                }
-                $task->effectiveStatusForDate = $this->taskService->getEffectiveStatusForDate($task, $date);
-
-                return $task;
-            })
-            ->values();
+        $result = $this->taskService->processRecurringTasksForDate($tasks, $date);
 
         if (method_exists($this, 'filterTaskCollection')) {
             $result = $this->filterTaskCollection($result);
@@ -906,42 +869,7 @@ trait HandlesWorkspaceItems
 
         $events = $eventQuery->orderByDesc('created_at')->limit(50)->get();
 
-        $recurringEvents = $events->pluck('recurringEvent')->filter();
-        $relevantIds = $recurringEvents->isNotEmpty()
-            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate(collect(), $recurringEvents, $date)
-            : ['task_ids' => [], 'event_ids' => []];
-
-        $relevantEventIds = array_flip($relevantIds['event_ids']);
-
-        $filteredEvents = $events
-            ->filter(function (Event $event) use ($relevantEventIds): bool {
-                if ($event->recurringEvent === null) {
-                    return true;
-                }
-
-                return isset($relevantEventIds[$event->recurringEvent->id]);
-            })
-            ->values();
-
-        $recurringEventIds = $filteredEvents->pluck('recurringEvent.id')->filter()->values();
-        $instancesByRecurringId = $recurringEventIds->isNotEmpty()
-            ? EventInstance::query()
-                ->whereIn('recurring_event_id', $recurringEventIds)
-                ->whereDate('instance_date', $date)
-                ->get()
-                ->keyBy('recurring_event_id')
-            : collect();
-
-        $result = $filteredEvents
-            ->map(function (Event $event) use ($date, $instancesByRecurringId): Event {
-                if ($event->recurringEvent !== null) {
-                    $event->instanceForDate = $instancesByRecurringId->get($event->recurringEvent->id);
-                }
-                $event->effectiveStatusForDate = $this->eventService->getEffectiveStatusForDate($event, $date);
-
-                return $event;
-            })
-            ->values();
+        $result = $this->eventService->processRecurringEventsForDate($events, $date);
 
         if (method_exists($this, 'filterEventCollection')) {
             $result = $this->filterEventCollection($result);
