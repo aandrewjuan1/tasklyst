@@ -44,4 +44,23 @@ class RecurringEvent extends Model
     {
         return $this->hasMany(EventException::class);
     }
+
+    /**
+     * Build recurrence payload array for workspace/frontend.
+     *
+     * @return array{enabled: bool, type: ?string, interval: int, daysOfWeek: array<int, int>}
+     */
+    public static function toPayloadArray(?self $recurring): array
+    {
+        if ($recurring === null) {
+            return ['enabled' => false, 'type' => null, 'interval' => 1, 'daysOfWeek' => []];
+        }
+
+        return [
+            'enabled' => true,
+            'type' => $recurring->recurrence_type?->value,
+            'interval' => $recurring->interval ?? 1,
+            'daysOfWeek' => $recurring->days_of_week ? (json_decode($recurring->days_of_week, true) ?? []) : [],
+        ];
+    }
 }

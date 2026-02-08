@@ -394,6 +394,35 @@ class Event extends Model
         return $this->morphToMany(Tag::class, 'taggable')->orderBy('tags.name');
     }
 
+    /**
+     * Map frontend property name (camelCase) to database column.
+     */
+    public static function propertyToColumn(string $property): string
+    {
+        return match ($property) {
+            'startDatetime' => 'start_datetime',
+            'endDatetime' => 'end_datetime',
+            'allDay' => 'all_day',
+            default => $property,
+        };
+    }
+
+    /**
+     * Get current value for a property (for update toast display).
+     */
+    public function getPropertyValueForUpdate(string $property): mixed
+    {
+        $column = self::propertyToColumn($property);
+
+        return match ($column) {
+            'status' => $this->status?->value,
+            'start_datetime' => $this->start_datetime,
+            'end_datetime' => $this->end_datetime,
+            'all_day' => $this->all_day,
+            default => $this->{$column},
+        };
+    }
+
     public function scopeForUser(Builder $query, int $userId): Builder
     {
         return $query->where(function (Builder $userQuery) use ($userId): void {
@@ -461,6 +490,22 @@ class Event extends Model
     public function scopeNotCancelled(Builder $query): Builder
     {
         return $query->where('status', '!=', EventStatus::Cancelled->value);
+    }
+
+    /**
+     * Exclude completed events.
+     */
+    public function scopeNotCompleted(Builder $query): Builder
+    {
+        return $query->where('status', '!=', EventStatus::Completed->value);
+    }
+
+    /**
+     * Filter events by status.
+     */
+    public function scopeByStatus(Builder $query, string $status): Builder
+    {
+        return $query->where('status', $status);
     }
 
     /**

@@ -432,6 +432,35 @@ class Task extends Model
             ->withTimestamps();
     }
 
+    /**
+     * Map frontend property name (camelCase) to database column.
+     */
+    public static function propertyToColumn(string $property): string
+    {
+        return match ($property) {
+            'startDatetime' => 'start_datetime',
+            'endDatetime' => 'end_datetime',
+            default => $property,
+        };
+    }
+
+    /**
+     * Get current value for a property (for update toast display).
+     */
+    public function getPropertyValueForUpdate(string $property): mixed
+    {
+        $column = self::propertyToColumn($property);
+
+        return match ($column) {
+            'status' => $this->status?->value,
+            'priority' => $this->priority?->value,
+            'complexity' => $this->complexity?->value,
+            'start_datetime' => $this->start_datetime,
+            'end_datetime' => $this->end_datetime,
+            default => $this->{$column},
+        };
+    }
+
     public function scopeForUser(Builder $query, int $userId): Builder
     {
         return $query->where(function (Builder $userQuery) use ($userId): void {
@@ -546,6 +575,22 @@ class Task extends Model
             TaskPriority::High->value,
             TaskPriority::Urgent->value,
         ]);
+    }
+
+    /**
+     * Filter tasks by priority.
+     */
+    public function scopeByPriority(Builder $query, string $priority): Builder
+    {
+        return $query->where('priority', $priority);
+    }
+
+    /**
+     * Filter tasks by status.
+     */
+    public function scopeByStatus(Builder $query, string $status): Builder
+    {
+        return $query->where('status', $status);
     }
 
     /**

@@ -41,4 +41,21 @@ class Tag extends Model
     {
         return $query->whereRaw('LOWER(name) = ?', [mb_strtolower(trim($name))]);
     }
+
+    /**
+     * Filter tag IDs to only those that exist and belong to the user.
+     * Prevents validation errors when the frontend has stale tag IDs (e.g. deleted tags).
+     *
+     * @param  array<int|string>  $tagIds
+     * @return array<int>
+     */
+    public static function validIdsForUser(int $userId, array $tagIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $tagIds))));
+        if ($ids === []) {
+            return [];
+        }
+
+        return self::query()->forUser($userId)->whereIn('id', $ids)->pluck('id')->all();
+    }
 }

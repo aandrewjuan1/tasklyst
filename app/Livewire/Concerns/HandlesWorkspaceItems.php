@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Concerns;
 
-use App\Enums\EventStatus;
 use App\Models\Event;
 use App\Models\EventInstance;
 use App\Models\Project;
@@ -12,11 +11,11 @@ use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskInstance;
 use App\Models\User;
+use App\Support\DateHelper;
 use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\ProjectPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
-use Illuminate\Support\Carbon as SupportCarbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -42,7 +41,7 @@ trait HandlesWorkspaceItems
         $this->authorize('create', Task::class);
 
         $this->taskPayload = array_replace_recursive(TaskPayloadValidation::defaults(), $payload);
-        $this->taskPayload['tagIds'] = $this->filterValidTagIdsForUser($user->id, $this->taskPayload['tagIds'] ?? []);
+        $this->taskPayload['tagIds'] = Tag::validIdsForUser($user->id, $this->taskPayload['tagIds'] ?? []);
 
         try {
             /** @var array{taskPayload: array<string, mixed>} $validated */
@@ -71,10 +70,13 @@ trait HandlesWorkspaceItems
         }
 
         $title = (string) ($validatedTask['title'] ?? '');
-        $startDatetime = $this->parseOptionalDatetime($validatedTask['startDatetime'] ?? null);
-        $endDatetime = $this->parseOptionalDatetime($validatedTask['endDatetime'] ?? null);
+        $startDatetime = DateHelper::parseOptional($validatedTask['startDatetime'] ?? null);
+        $endDatetime = DateHelper::parseOptional($validatedTask['endDatetime'] ?? null);
 
-        $tagIds = $this->resolveTagIdsFromPayload($user, $validatedTask, 'task');
+        if (($validatedTask['pendingTagNames'] ?? []) !== []) {
+            $this->authorize('create', Tag::class);
+        }
+        $tagIds = $this->tagService->resolveTagIdsFromPayload($user, $validatedTask, 'task');
 
         $recurrenceData = $validatedTask['recurrence'] ?? null;
         $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
@@ -127,7 +129,7 @@ trait HandlesWorkspaceItems
         $this->authorize('create', Event::class);
 
         $this->eventPayload = array_replace_recursive(EventPayloadValidation::defaults(), $payload);
-        $this->eventPayload['tagIds'] = $this->filterValidTagIdsForUser($user->id, $this->eventPayload['tagIds'] ?? []);
+        $this->eventPayload['tagIds'] = Tag::validIdsForUser($user->id, $this->eventPayload['tagIds'] ?? []);
 
         try {
             /** @var array{eventPayload: array<string, mixed>} $validated */
@@ -145,10 +147,13 @@ trait HandlesWorkspaceItems
         $validatedEvent = $validated['eventPayload'];
 
         $title = (string) ($validatedEvent['title'] ?? '');
-        $startDatetime = $this->parseOptionalDatetime($validatedEvent['startDatetime'] ?? null);
-        $endDatetime = $this->parseOptionalDatetime($validatedEvent['endDatetime'] ?? null);
+        $startDatetime = DateHelper::parseOptional($validatedEvent['startDatetime'] ?? null);
+        $endDatetime = DateHelper::parseOptional($validatedEvent['endDatetime'] ?? null);
 
-        $tagIds = $this->resolveTagIdsFromPayload($user, $validatedEvent, 'event');
+        if (($validatedEvent['pendingTagNames'] ?? []) !== []) {
+            $this->authorize('create', Tag::class);
+        }
+        $tagIds = $this->tagService->resolveTagIdsFromPayload($user, $validatedEvent, 'event');
 
         $recurrenceData = $validatedEvent['recurrence'] ?? null;
         $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
@@ -215,8 +220,8 @@ trait HandlesWorkspaceItems
         $validatedProject = $validated['projectPayload'];
 
         $name = (string) ($validatedProject['name'] ?? '');
-        $startDatetime = $this->parseOptionalDatetime($validatedProject['startDatetime'] ?? null);
-        $endDatetime = $this->parseOptionalDatetime($validatedProject['endDatetime'] ?? null);
+        $startDatetime = DateHelper::parseOptional($validatedProject['startDatetime'] ?? null);
+        $endDatetime = DateHelper::parseOptional($validatedProject['endDatetime'] ?? null);
 
         $projectAttributes = [
             'name' => $name,
@@ -502,7 +507,7 @@ trait HandlesWorkspaceItems
 
         if ($property === 'recurrence') {
             $task->loadMissing('recurringTask');
-            $oldRecurrence = $this->buildRecurrencePayloadFromModel($task->recurringTask);
+            $oldRecurrence = RecurringTask::toPayloadArray($task->recurringTask);
             try {
                 $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
             } catch (\Throwable $e) {
@@ -552,24 +557,12 @@ trait HandlesWorkspaceItems
             }
         }
 
-        $column = match ($property) {
-            'startDatetime' => 'start_datetime',
-            'endDatetime' => 'end_datetime',
-            default => $property,
-        };
-
-        $oldValue = match ($column) {
-            'status' => $task->status?->value,
-            'priority' => $task->priority?->value,
-            'complexity' => $task->complexity?->value,
-            'start_datetime' => $task->start_datetime,
-            'end_datetime' => $task->end_datetime,
-            default => $task->{$column},
-        };
+        $column = Task::propertyToColumn($property);
+        $oldValue = $task->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];
         if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $parsedDatetime = $this->parseOptionalDatetime($validatedValue);
+            $parsedDatetime = DateHelper::parseOptional($validatedValue);
             $attributes[$column] = $parsedDatetime;
 
             $start = $column === 'start_datetime' ? $parsedDatetime : $task->start_datetime;
@@ -785,7 +778,7 @@ trait HandlesWorkspaceItems
 
         if ($property === 'recurrence') {
             $event->loadMissing('recurringEvent');
-            $oldRecurrence = $this->buildRecurrencePayloadFromModel($event->recurringEvent);
+            $oldRecurrence = RecurringEvent::toPayloadArray($event->recurringEvent);
             try {
                 $this->eventService->updateOrCreateRecurringEvent($event, $validatedValue);
             } catch (\Throwable $e) {
@@ -835,24 +828,12 @@ trait HandlesWorkspaceItems
             }
         }
 
-        $column = match ($property) {
-            'startDatetime' => 'start_datetime',
-            'endDatetime' => 'end_datetime',
-            'allDay' => 'all_day',
-            default => $property,
-        };
-
-        $oldValue = match ($column) {
-            'status' => $event->status?->value,
-            'start_datetime' => $event->start_datetime,
-            'end_datetime' => $event->end_datetime,
-            'all_day' => $event->all_day,
-            default => $event->{$column},
-        };
+        $column = Event::propertyToColumn($property);
+        $oldValue = $event->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];
         if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $parsedDatetime = $this->parseOptionalDatetime($validatedValue);
+            $parsedDatetime = DateHelper::parseOptional($validatedValue);
             $attributes[$column] = $parsedDatetime;
 
             $start = $column === 'start_datetime' ? $parsedDatetime : $event->start_datetime;
@@ -946,7 +927,7 @@ trait HandlesWorkspaceItems
         $validatedValue = $validator->validated()['value'];
 
         if ($property === 'endDatetime' && $validatedValue !== null && $project->start_datetime !== null) {
-            $endDatetime = $this->parseOptionalDatetime($validatedValue);
+            $endDatetime = DateHelper::parseOptional($validatedValue);
             if ($endDatetime !== null && $endDatetime->lt($project->start_datetime)) {
                 $this->dispatch('toast', type: 'error', message: __('End date must be the same as or after the start date.'));
 
@@ -954,21 +935,12 @@ trait HandlesWorkspaceItems
             }
         }
 
-        $column = match ($property) {
-            'startDatetime' => 'start_datetime',
-            'endDatetime' => 'end_datetime',
-            default => $property,
-        };
-
-        $oldValue = match ($column) {
-            'start_datetime' => $project->start_datetime,
-            'end_datetime' => $project->end_datetime,
-            default => $project->{$column},
-        };
+        $column = Project::propertyToColumn($property);
+        $oldValue = $project->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];
         if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $attributes[$column] = $this->parseOptionalDatetime($validatedValue);
+            $attributes[$column] = DateHelper::parseOptional($validatedValue);
         }
 
         try {
@@ -1011,99 +983,6 @@ trait HandlesWorkspaceItems
         }
 
         return $user;
-    }
-
-    /**
-     * Filter tag IDs to only those that exist and belong to the user.
-     * Prevents validation errors when the frontend has stale tag IDs (e.g. deleted tags).
-     *
-     * @param  array<int|string>  $tagIds
-     * @return array<int>
-     */
-    private function filterValidTagIdsForUser(int $userId, array $tagIds): array
-    {
-        $ids = array_values(array_unique(array_filter(array_map('intval', $tagIds))));
-        if ($ids === []) {
-            return [];
-        }
-
-        return Tag::query()->forUser($userId)->whereIn('id', $ids)->pluck('id')->all();
-    }
-
-    /**
-     * Resolve tag IDs from validated payload (tagIds + pendingTagNames).
-     *
-     * @param  array{tagIds?: int[], pendingTagNames?: string[]}  $validated
-     * @return array<int>
-     */
-    private function resolveTagIdsFromPayload(User $user, array $validated, string $context): array
-    {
-        $tagIds = array_values(array_unique(array_map('intval', $validated['tagIds'] ?? [])));
-        $pendingTagNames = $validated['pendingTagNames'] ?? [];
-        if ($pendingTagNames !== []) {
-            $this->authorize('create', Tag::class);
-        }
-        foreach ($pendingTagNames as $name) {
-            $name = trim((string) $name);
-            if ($name === '') {
-                continue;
-            }
-            $existingTag = Tag::query()->forUser($user->id)->byName($name)->first();
-            if ($existingTag !== null) {
-                $tagIds[] = $existingTag->id;
-
-                continue;
-            }
-            try {
-                $tag = $this->tagService->createTag($user, ['name' => $name]);
-                $tagIds[] = $tag->id;
-            } catch (\Throwable $e) {
-                Log::error("Failed to create tag when creating {$context}.", [
-                    'user_id' => $user->id,
-                    'name' => $name,
-                    'exception' => $e,
-                ]);
-            }
-        }
-
-        return array_values(array_unique($tagIds));
-    }
-
-    /**
-     * Build recurrence payload array from RecurringTask or RecurringEvent model.
-     *
-     * @return array{enabled: bool, type: ?string, interval: int, daysOfWeek: array}
-     */
-    private function buildRecurrencePayloadFromModel(RecurringTask|RecurringEvent|null $recurring): array
-    {
-        return $recurring
-            ? [
-                'enabled' => true,
-                'type' => $recurring->recurrence_type?->value,
-                'interval' => $recurring->interval ?? 1,
-                'daysOfWeek' => $recurring->days_of_week ? (json_decode($recurring->days_of_week, true) ?? []) : [],
-            ]
-            : ['enabled' => false, 'type' => null, 'interval' => 1, 'daysOfWeek' => []];
-    }
-
-    private function parseOptionalDatetime(mixed $value): ?SupportCarbon
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        try {
-            $parsed = SupportCarbon::parse((string) $value);
-
-            return $parsed;
-        } catch (\Throwable $e) {
-            Log::error('Failed to parse datetime', [
-                'input' => $value,
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
-        }
     }
 
     /**
@@ -1211,7 +1090,7 @@ trait HandlesWorkspaceItems
             ->with(['tags', 'collaborations'])
             ->forUser($userId)
             ->notCancelled()
-            ->where('status', '!=', EventStatus::Completed->value)
+            ->notCompleted()
             ->overdue($today)
             ->whereDoesntHave('recurringEvent');
 
@@ -1278,7 +1157,7 @@ trait HandlesWorkspaceItems
         if (method_exists($this, 'applyEventFilters')) {
             $this->applyEventFilters($eventQuery);
         } else {
-            $eventQuery->notCancelled()->where('status', '!=', EventStatus::Completed->value);
+            $eventQuery->notCancelled()->notCompleted();
         }
 
         $events = $eventQuery->orderByDesc('created_at')->limit(50)->get();

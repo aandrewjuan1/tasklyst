@@ -108,7 +108,7 @@ trait HandlesWorkspaceFiltering
     public function applyTaskFilters(Builder $query): void
     {
         if ($this->filterTaskPriority !== null && TaskPriority::tryFrom($this->filterTaskPriority) !== null) {
-            $query->where('priority', $this->filterTaskPriority);
+            $query->byPriority($this->filterTaskPriority);
         }
     }
 
@@ -143,7 +143,7 @@ trait HandlesWorkspaceFiltering
     public function applyEventFilters(Builder $query): void
     {
         if ($this->filterEventStatus === null) {
-            $query->notCancelled()->where('status', '!=', EventStatus::Completed->value);
+            $query->notCancelled()->notCompleted();
         }
     }
 
@@ -172,11 +172,11 @@ trait HandlesWorkspaceFiltering
     public function applyOverdueTaskFilters(Builder $query): void
     {
         if ($this->filterTaskStatus !== null && TaskStatus::tryFrom($this->filterTaskStatus) !== null) {
-            $query->where('status', $this->filterTaskStatus);
+            $query->byStatus($this->filterTaskStatus);
         }
 
         if ($this->filterTaskPriority !== null && TaskPriority::tryFrom($this->filterTaskPriority) !== null) {
-            $query->where('priority', $this->filterTaskPriority);
+            $query->byPriority($this->filterTaskPriority);
         }
     }
 
@@ -186,7 +186,7 @@ trait HandlesWorkspaceFiltering
     public function applyOverdueEventFilters(Builder $query): void
     {
         if ($this->filterEventStatus !== null && EventStatus::tryFrom($this->filterEventStatus) !== null) {
-            $query->where('status', $this->filterEventStatus);
+            $query->byStatus($this->filterEventStatus);
         }
     }
 }
