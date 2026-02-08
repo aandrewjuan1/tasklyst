@@ -1,5 +1,8 @@
 <?php
 
+use App\Actions\CreateTaskAction;
+use App\Actions\DeleteTaskAction;
+use App\Actions\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesWorkspaceFiltering;
 use App\Livewire\Concerns\HandlesWorkspaceItems;
 use App\Models\Event;
@@ -7,11 +10,11 @@ use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Services\EventService;
-use Illuminate\Support\Facades\Auth;
 use App\Services\ProjectService;
 use App\Services\RecurrenceExpander;
 use App\Services\TagService;
 use App\Services\TaskService;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -38,6 +41,12 @@ class extends Component
 
     protected RecurrenceExpander $recurrenceExpander;
 
+    protected CreateTaskAction $createTaskAction;
+
+    protected UpdateTaskPropertyAction $updateTaskPropertyAction;
+
+    protected DeleteTaskAction $deleteTaskAction;
+
     /**
      * @var array<string, mixed>
      */
@@ -53,13 +62,24 @@ class extends Component
      */
     public array $projectPayload = [];
 
-    public function boot(TaskService $taskService, ProjectService $projectService, EventService $eventService, TagService $tagService, RecurrenceExpander $recurrenceExpander): void
-    {
+    public function boot(
+        TaskService $taskService,
+        ProjectService $projectService,
+        EventService $eventService,
+        TagService $tagService,
+        RecurrenceExpander $recurrenceExpander,
+        CreateTaskAction $createTaskAction,
+        UpdateTaskPropertyAction $updateTaskPropertyAction,
+        DeleteTaskAction $deleteTaskAction
+    ): void {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
         $this->eventService = $eventService;
         $this->tagService = $tagService;
         $this->recurrenceExpander = $recurrenceExpander;
+        $this->createTaskAction = $createTaskAction;
+        $this->updateTaskPropertyAction = $updateTaskPropertyAction;
+        $this->deleteTaskAction = $deleteTaskAction;
     }
 
     public function mount(): void

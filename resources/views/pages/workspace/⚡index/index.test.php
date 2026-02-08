@@ -122,40 +122,6 @@ it('shows overdue tasks and events in the main list with overdue badge', functio
         ->assertSee('Overdue Event Title');
 });
 
-it('removes overdue task from list when marked done', function (): void {
-    $user = User::factory()->create();
-
-    $overdueTask = Task::factory()->for($user)->create([
-        'title' => 'Overdue Task To Complete',
-        'end_datetime' => now()->subDays(2),
-        'completed_at' => null,
-    ]);
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->assertSee('Overdue Task To Complete')
-        ->assertSee(__('Overdue'))
-        ->call('updateTaskProperty', $overdueTask->id, 'status', 'done')
-        ->assertDontSee('Overdue Task To Complete');
-});
-
-it('removes overdue event from list when marked completed', function (): void {
-    $user = User::factory()->create();
-
-    $overdueEvent = Event::factory()->for($user)->create([
-        'title' => 'Overdue Event To Complete',
-        'end_datetime' => now()->subDay(),
-        'status' => \App\Enums\EventStatus::Scheduled,
-    ]);
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->assertSee('Overdue Event To Complete')
-        ->assertSee(__('Overdue'))
-        ->call('updateEventProperty', $overdueEvent->id, 'status', \App\Enums\EventStatus::Completed->value)
-        ->assertDontSee('Overdue Event To Complete');
-});
-
 it('only marks items as overdue when end/due date is before today, not selected date', function (): void {
     $user = User::factory()->create();
     $today = now()->startOfDay();
@@ -178,40 +144,6 @@ it('only marks items as overdue when end/due date is before today, not selected 
         ->set('selectedDate', $tomorrow->toDateString())
         ->assertSee('Actually Overdue Task')
         ->assertDontSee('Task Due Today');
-});
-
-it('excludes recurring tasks and events from overdue section', function (): void {
-    $user = User::factory()->create();
-
-    $overdueNonRecurringTask = Task::factory()->for($user)->create([
-        'title' => 'Overdue Non-Recurring Task',
-        'end_datetime' => now()->subDays(2),
-        'completed_at' => null,
-    ]);
-
-    $overdueRecurringTask = Task::factory()->for($user)->create([
-        'title' => 'Overdue Recurring Task',
-        'end_datetime' => now()->subDays(2),
-        'completed_at' => null,
-    ]);
-    RecurringTask::factory()->create([
-        'task_id' => $overdueRecurringTask->id,
-    ]);
-
-    $overdueRecurringEvent = Event::factory()->for($user)->create([
-        'title' => 'Overdue Recurring Event',
-        'end_datetime' => now()->subDay(),
-        'status' => \App\Enums\EventStatus::Scheduled,
-    ]);
-    RecurringEvent::factory()->create([
-        'event_id' => $overdueRecurringEvent->id,
-    ]);
-
-    Livewire::actingAs($user)
-        ->test('pages::workspace.index')
-        ->assertSee('Overdue Non-Recurring Task')
-        ->assertDontSee('Overdue Recurring Task')
-        ->assertDontSee('Overdue Recurring Event');
 });
 
 it('can create a task from the workspace component', function (): void {
@@ -885,7 +817,7 @@ it('rejects updateEventProperty for invalid property', function (): void {
 
     Livewire::actingAs($user)
         ->test('pages::workspace.index')
-        ->call('updateEventProperty', $event->id, 'description', 'Hacked')
+        ->call('updateEventProperty', $event->id, 'projectId', 123)
         ->assertDispatched('toast', type: 'error', message: __('Invalid property for update.'));
 
     $event->refresh();

@@ -2,11 +2,11 @@
 
 namespace App\Livewire\Concerns;
 
+use App\DataTransferObjects\Task\CreateTaskDto;
 use App\Models\Event;
 use App\Models\EventInstance;
 use App\Models\Project;
 use App\Models\RecurringEvent;
-use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskInstance;
@@ -69,34 +69,16 @@ trait HandlesWorkspaceItems
             $this->authorize('update', $project);
         }
 
-        $title = (string) ($validatedTask['title'] ?? '');
-        $startDatetime = DateHelper::parseOptional($validatedTask['startDatetime'] ?? null);
-        $endDatetime = DateHelper::parseOptional($validatedTask['endDatetime'] ?? null);
-
         if (($validatedTask['pendingTagNames'] ?? []) !== []) {
             $this->authorize('create', Tag::class);
         }
         $tagIds = $this->tagService->resolveTagIdsFromPayload($user, $validatedTask, 'task');
+        $validatedTask['tagIds'] = $tagIds;
 
-        $recurrenceData = $validatedTask['recurrence'] ?? null;
-        $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
-
-        $taskAttributes = [
-            'title' => $title,
-            'description' => $validatedTask['description'] ?? null,
-            'status' => $validatedTask['status'] ?? null,
-            'priority' => $validatedTask['priority'] ?? null,
-            'complexity' => $validatedTask['complexity'] ?? null,
-            'duration' => $validatedTask['duration'] ?? null,
-            'start_datetime' => $startDatetime,
-            'end_datetime' => $endDatetime,
-            'project_id' => $validatedTask['projectId'] ?? null,
-            'tagIds' => $tagIds,
-            'recurrence' => $recurrenceEnabled ? $recurrenceData : null,
-        ];
+        $dto = CreateTaskDto::fromValidated($validatedTask);
 
         try {
-            $task = $this->taskService->createTask($user, $taskAttributes);
+            $task = $this->createTaskAction->execute($user, $dto);
         } catch (\Throwable $e) {
             Log::error('Failed to create task from workspace.', [
                 'user_id' => $user->id,
@@ -104,7 +86,7 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', ...Task::toastPayload('create', false, $title));
+            $this->dispatch('toast', ...Task::toastPayload('create', false, $dto->title));
 
             return;
         }
@@ -398,7 +380,7 @@ trait HandlesWorkspaceItems
         $this->authorize('delete', $task);
 
         try {
-            $deleted = $this->taskService->deleteTask($task);
+            $deleted = $this->deleteTaskAction->execute($task);
         } catch (\Throwable $e) {
             Log::error('Failed to delete task from workspace.', [
                 'user_id' => $user->id,
@@ -479,121 +461,28 @@ trait HandlesWorkspaceItems
 
         $validatedValue = $validator->validated()['value'];
 
-        if ($property === 'tagIds') {
-            $oldTagIds = $task->tags()->pluck('tags.id')->all();
-            $addedIds = array_values(array_diff($validatedValue, $oldTagIds));
-            $removedIds = array_values(array_diff($oldTagIds, $validatedValue));
-            $addedTagName = count($addedIds) === 1 ? (Tag::find($addedIds[0])?->name ?? null) : null;
-            $removedTagName = count($removedIds) === 1 ? (Tag::find($removedIds[0])?->name ?? null) : null;
+        $result = $this->updateTaskPropertyAction->execute($task, $property, $validatedValue, $occurrenceDate);
 
-            try {
-                $task->tags()->sync($validatedValue);
-            } catch (\Throwable $e) {
-                Log::error('Failed to sync task tags from workspace.', [
-                    'user_id' => $user->id,
-                    'task_id' => $taskId,
-                    'exception' => $e,
-                ]);
-                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, false, $task->title));
-
-                return false;
+        if (! $result->success) {
+            if ($result->errorMessage !== null) {
+                $this->dispatch('toast', type: 'error', message: $result->errorMessage);
+            } else {
+                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, false, $task->title));
             }
-            if (! $silentToasts) {
-                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $task->title, $addedTagName, $removedTagName));
-            }
-
-            return true;
-        }
-
-        if ($property === 'recurrence') {
-            $task->loadMissing('recurringTask');
-            $oldRecurrence = RecurringTask::toPayloadArray($task->recurringTask);
-            try {
-                $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
-            } catch (\Throwable $e) {
-                Log::error('Failed to update task recurrence from workspace.', [
-                    'user_id' => $user->id,
-                    'task_id' => $taskId,
-                    'exception' => $e,
-                ]);
-                $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, false, $task->title));
-
-                return false;
-            }
-            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, true, $task->title));
-
-            return true;
-        }
-
-        if ($property === 'status') {
-            $recurringTask = $task->recurringTask ?? RecurringTask::where('task_id', $taskId)->first();
-            if ($recurringTask !== null) {
-                $task->setRelation('recurringTask', $recurringTask);
-                try {
-                    $oldStatus = $task->status?->value;
-                    $statusEnum = \App\Enums\TaskStatus::tryFrom($validatedValue) ?? $task->status;
-
-                    if ($occurrenceDate !== null && $occurrenceDate !== '') {
-                        $this->taskService->updateRecurringOccurrenceStatus($task, Carbon::parse($occurrenceDate), $statusEnum);
-                    } else {
-                        $this->taskService->updateTask($task, ['status' => $validatedValue]);
-                    }
-
-                    if (! $silentToasts) {
-                        $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $task->title));
-                    }
-
-                    return true;
-                } catch (\Throwable $e) {
-                    Log::error('Failed to update recurring task status from workspace.', [
-                        'user_id' => $user->id,
-                        'task_id' => $taskId,
-                        'exception' => $e,
-                    ]);
-                    $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate('status', $task->status?->value, $validatedValue, false, $task->title));
-
-                    return false;
-                }
-            }
-        }
-
-        $column = Task::propertyToColumn($property);
-        $oldValue = $task->getPropertyValueForUpdate($property);
-
-        $attributes = [$column => $validatedValue];
-        if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $parsedDatetime = DateHelper::parseOptional($validatedValue);
-            $attributes[$column] = $parsedDatetime;
-
-            $start = $column === 'start_datetime' ? $parsedDatetime : $task->start_datetime;
-            $end = $column === 'end_datetime' ? $parsedDatetime : $task->end_datetime;
-            $durationMinutes = (int) ($task->duration ?? 0);
-
-            $dateRangeError = TaskPayloadValidation::validateTaskDateRangeForUpdate($start, $end, $durationMinutes);
-            if ($dateRangeError !== null) {
-                $this->dispatch('toast', type: 'error', message: $dateRangeError);
-
-                return false;
-            }
-        }
-
-        try {
-            $this->taskService->updateTask($task, $attributes);
-        } catch (\Throwable $e) {
-            Log::error('Failed to update task property from workspace.', [
-                'user_id' => $user->id,
-                'task_id' => $taskId,
-                'property' => $property,
-                'exception' => $e,
-            ]);
-            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $validatedValue, false, $task->title));
 
             return false;
         }
 
         if (! $silentToasts) {
-            $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
-            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $task->title));
+            $this->dispatch('toast', ...Task::toastPayloadForPropertyUpdate(
+                $property,
+                $result->oldValue,
+                $result->newValue,
+                true,
+                $task->title,
+                $result->addedTagName,
+                $result->removedTagName
+            ));
         }
 
         return true;
