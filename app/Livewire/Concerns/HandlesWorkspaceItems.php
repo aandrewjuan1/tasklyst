@@ -2,11 +2,11 @@
 
 namespace App\Livewire\Concerns;
 
+use App\DataTransferObjects\Event\CreateEventDto;
 use App\DataTransferObjects\Task\CreateTaskDto;
 use App\Models\Event;
 use App\Models\EventInstance;
 use App\Models\Project;
-use App\Models\RecurringEvent;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskInstance;
@@ -128,31 +128,16 @@ trait HandlesWorkspaceItems
 
         $validatedEvent = $validated['eventPayload'];
 
-        $title = (string) ($validatedEvent['title'] ?? '');
-        $startDatetime = DateHelper::parseOptional($validatedEvent['startDatetime'] ?? null);
-        $endDatetime = DateHelper::parseOptional($validatedEvent['endDatetime'] ?? null);
-
         if (($validatedEvent['pendingTagNames'] ?? []) !== []) {
             $this->authorize('create', Tag::class);
         }
         $tagIds = $this->tagService->resolveTagIdsFromPayload($user, $validatedEvent, 'event');
+        $validatedEvent['tagIds'] = $tagIds;
 
-        $recurrenceData = $validatedEvent['recurrence'] ?? null;
-        $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
-
-        $eventAttributes = [
-            'title' => $title,
-            'description' => $validatedEvent['description'] ?? null,
-            'status' => $validatedEvent['status'] ?? null,
-            'start_datetime' => $startDatetime,
-            'end_datetime' => $endDatetime,
-            'all_day' => $validatedEvent['allDay'] ?? false,
-            'tagIds' => $tagIds,
-            'recurrence' => $recurrenceEnabled ? $recurrenceData : null,
-        ];
+        $dto = CreateEventDto::fromValidated($validatedEvent);
 
         try {
-            $event = $this->eventService->createEvent($user, $eventAttributes);
+            $event = $this->createEventAction->execute($user, $dto);
         } catch (\Throwable $e) {
             Log::error('Failed to create event from workspace.', [
                 'user_id' => $user->id,
@@ -160,7 +145,7 @@ trait HandlesWorkspaceItems
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', ...Event::toastPayload('create', false, $title));
+            $this->dispatch('toast', ...Event::toastPayload('create', false, $dto->title));
 
             return;
         }
@@ -558,7 +543,7 @@ trait HandlesWorkspaceItems
         $this->authorize('delete', $event);
 
         try {
-            $deleted = $this->eventService->deleteEvent($event);
+            $deleted = $this->deleteEventAction->execute($event);
         } catch (\Throwable $e) {
             Log::error('Failed to delete event from workspace.', [
                 'user_id' => $user->id,
@@ -639,120 +624,28 @@ trait HandlesWorkspaceItems
 
         $validatedValue = $validator->validated()['value'];
 
-        if ($property === 'tagIds') {
-            $oldTagIds = $event->tags()->pluck('tags.id')->all();
-            $addedIds = array_values(array_diff($validatedValue, $oldTagIds));
-            $removedIds = array_values(array_diff($oldTagIds, $validatedValue));
-            $addedTagName = count($addedIds) === 1 ? (Tag::find($addedIds[0])?->name ?? null) : null;
-            $removedTagName = count($removedIds) === 1 ? (Tag::find($removedIds[0])?->name ?? null) : null;
+        $result = $this->updateEventPropertyAction->execute($event, $property, $validatedValue, $occurrenceDate);
 
-            try {
-                $event->tags()->sync($validatedValue);
-            } catch (\Throwable $e) {
-                Log::error('Failed to sync event tags from workspace.', [
-                    'user_id' => $user->id,
-                    'event_id' => $eventId,
-                    'exception' => $e,
-                ]);
-                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, false, $event->title));
-
-                return false;
+        if (! $result->success) {
+            if ($result->errorMessage !== null) {
+                $this->dispatch('toast', type: 'error', message: $result->errorMessage);
+            } else {
+                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, false, $event->title));
             }
-            if (! $silentToasts) {
-                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('tagIds', $oldTagIds, $validatedValue, true, $event->title, $addedTagName, $removedTagName));
-            }
-
-            return true;
-        }
-
-        if ($property === 'recurrence') {
-            $event->loadMissing('recurringEvent');
-            $oldRecurrence = RecurringEvent::toPayloadArray($event->recurringEvent);
-            try {
-                $this->eventService->updateOrCreateRecurringEvent($event, $validatedValue);
-            } catch (\Throwable $e) {
-                Log::error('Failed to update event recurrence from workspace.', [
-                    'user_id' => $user->id,
-                    'event_id' => $eventId,
-                    'exception' => $e,
-                ]);
-                $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, false, $event->title));
-
-                return false;
-            }
-            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('recurrence', $oldRecurrence, $validatedValue, true, $event->title));
-
-            return true;
-        }
-
-        if ($property === 'status') {
-            $recurringEvent = $event->recurringEvent ?? RecurringEvent::where('event_id', $eventId)->first();
-            if ($recurringEvent !== null) {
-                $event->setRelation('recurringEvent', $recurringEvent);
-                try {
-                    $oldStatus = $event->status?->value;
-                    $statusEnum = \App\Enums\EventStatus::tryFrom($validatedValue) ?? $event->status;
-
-                    if ($occurrenceDate !== null && $occurrenceDate !== '') {
-                        $this->eventService->updateRecurringOccurrenceStatus($event, Carbon::parse($occurrenceDate), $statusEnum);
-                    } else {
-                        $this->eventService->updateEvent($event, ['status' => $validatedValue]);
-                    }
-
-                    if (! $silentToasts) {
-                        $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $oldStatus, $validatedValue, true, $event->title));
-                    }
-
-                    return true;
-                } catch (\Throwable $e) {
-                    Log::error('Failed to update recurring event status from workspace.', [
-                        'user_id' => $user->id,
-                        'event_id' => $eventId,
-                        'exception' => $e,
-                    ]);
-                    $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate('status', $event->status?->value, $validatedValue, false, $event->title));
-
-                    return false;
-                }
-            }
-        }
-
-        $column = Event::propertyToColumn($property);
-        $oldValue = $event->getPropertyValueForUpdate($property);
-
-        $attributes = [$column => $validatedValue];
-        if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $parsedDatetime = DateHelper::parseOptional($validatedValue);
-            $attributes[$column] = $parsedDatetime;
-
-            $start = $column === 'start_datetime' ? $parsedDatetime : $event->start_datetime;
-            $end = $column === 'end_datetime' ? $parsedDatetime : $event->end_datetime;
-
-            $dateRangeError = EventPayloadValidation::validateEventDateRangeForUpdate($start, $end);
-            if ($dateRangeError !== null) {
-                $this->dispatch('toast', type: 'error', message: $dateRangeError);
-
-                return false;
-            }
-        }
-
-        try {
-            $this->eventService->updateEvent($event, $attributes);
-        } catch (\Throwable $e) {
-            Log::error('Failed to update event property from workspace.', [
-                'user_id' => $user->id,
-                'event_id' => $eventId,
-                'property' => $property,
-                'exception' => $e,
-            ]);
-            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $validatedValue, false, $event->title));
 
             return false;
         }
 
         if (! $silentToasts) {
-            $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
-            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate($property, $oldValue, $newValue, true, $event->title));
+            $this->dispatch('toast', ...Event::toastPayloadForPropertyUpdate(
+                $property,
+                $result->oldValue,
+                $result->newValue,
+                true,
+                $event->title,
+                $result->addedTagName,
+                $result->removedTagName
+            ));
         }
 
         return true;

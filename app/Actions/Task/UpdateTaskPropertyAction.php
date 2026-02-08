@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Actions;
+namespace App\Actions\Task;
 
 use App\DataTransferObjects\Task\UpdateTaskPropertyResult;
 use App\Enums\TaskStatus;

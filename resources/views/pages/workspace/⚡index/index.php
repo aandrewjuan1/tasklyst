@@ -1,8 +1,11 @@
 <?php
 
-use App\Actions\CreateTaskAction;
-use App\Actions\DeleteTaskAction;
-use App\Actions\UpdateTaskPropertyAction;
+use App\Actions\Event\CreateEventAction;
+use App\Actions\Event\DeleteEventAction;
+use App\Actions\Event\UpdateEventPropertyAction;
+use App\Actions\Task\CreateTaskAction;
+use App\Actions\Task\DeleteTaskAction;
+use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesWorkspaceFiltering;
 use App\Livewire\Concerns\HandlesWorkspaceItems;
 use App\Models\Event;
@@ -41,11 +44,17 @@ class extends Component
 
     protected RecurrenceExpander $recurrenceExpander;
 
+    protected CreateEventAction $createEventAction;
+
     protected CreateTaskAction $createTaskAction;
 
-    protected UpdateTaskPropertyAction $updateTaskPropertyAction;
+    protected DeleteEventAction $deleteEventAction;
 
     protected DeleteTaskAction $deleteTaskAction;
+
+    protected UpdateEventPropertyAction $updateEventPropertyAction;
+
+    protected UpdateTaskPropertyAction $updateTaskPropertyAction;
 
     /**
      * @var array<string, mixed>
@@ -68,18 +77,24 @@ class extends Component
         EventService $eventService,
         TagService $tagService,
         RecurrenceExpander $recurrenceExpander,
+        CreateEventAction $createEventAction,
         CreateTaskAction $createTaskAction,
-        UpdateTaskPropertyAction $updateTaskPropertyAction,
-        DeleteTaskAction $deleteTaskAction
+        DeleteEventAction $deleteEventAction,
+        DeleteTaskAction $deleteTaskAction,
+        UpdateEventPropertyAction $updateEventPropertyAction,
+        UpdateTaskPropertyAction $updateTaskPropertyAction
     ): void {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
         $this->eventService = $eventService;
         $this->tagService = $tagService;
         $this->recurrenceExpander = $recurrenceExpander;
+        $this->createEventAction = $createEventAction;
         $this->createTaskAction = $createTaskAction;
-        $this->updateTaskPropertyAction = $updateTaskPropertyAction;
+        $this->deleteEventAction = $deleteEventAction;
         $this->deleteTaskAction = $deleteTaskAction;
+        $this->updateEventPropertyAction = $updateEventPropertyAction;
+        $this->updateTaskPropertyAction = $updateTaskPropertyAction;
     }
 
     public function mount(): void
