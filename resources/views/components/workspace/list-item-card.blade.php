@@ -1324,10 +1324,6 @@
         </div>
 
         <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
-            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
-                <flux:icon name="tag" class="size-3" />
-                {{ __('Tags') }}:
-            </span>
             <div
                 @tag-toggled.stop="toggleTag($event.detail.tagId)"
                 @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
@@ -1859,10 +1855,6 @@
         </div>
 
         <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
-            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
-                <flux:icon name="tag" class="size-3" />
-                {{ __('Tags') }}:
-            </span>
             <div
                 @tag-toggled.stop="toggleTag($event.detail.tagId)"
                 @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"

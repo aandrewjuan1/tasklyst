@@ -102,7 +102,10 @@
                     <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground">{{ $tag->name ?? $tag['name'] ?? '' }}</span>
                 @endforeach
                 @if ($selectedTagsSorted->count() === 0)
-                    <span class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">{{ __('None') }}</span>
+                    <span class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <flux:icon name="tag" class="size-3" />
+                        {{ __('Add tags') }}
+                    </span>
                 @endif
             </span>
             {{-- Alpine reactive (replaces server content when hydrated) --}}
@@ -115,8 +118,11 @@
                 </template>
                 <span
                     x-show="!formData?.item?.tagIds?.length"
-                    class="inline-flex items-center rounded-sm border border-border/60 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground"
-                >{{ __('None') }}</span>
+                    class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
+                >
+                    <flux:icon name="tag" class="size-3" />
+                    {{ __('Add tags') }}
+                </span>
             </span>
         </span>
     </button>
