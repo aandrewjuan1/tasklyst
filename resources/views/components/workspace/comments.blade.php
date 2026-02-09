@@ -35,6 +35,7 @@
     $currentUserInitials = (string) \Illuminate\Support\Str::of($currentUserName)->substr(0, 2);
 
     $commentableType = get_class($item);
+    $commentsPanelId = 'comments-panel-'.($kind ?? 'item').'-'.$item->id;
 @endphp
 
 <div
@@ -346,6 +347,8 @@
         type="button"
         class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
         @click="toggle()"
+        :aria-expanded="isOpen.toString()"
+        aria-controls="{{ $commentsPanelId }}"
     >
         <flux:icon name="chat-bubble-left-ellipsis" class="size-3" />
         <span class="inline-flex items-baseline gap-1">
@@ -368,6 +371,7 @@
     </button>
 
     <div
+        id="{{ $commentsPanelId }}"
         x-show="isOpen"
         x-cloak
         x-transition:enter="transition ease-out duration-150"
@@ -377,19 +381,23 @@
         x-transition:leave-start="opacity-100 translate-y-0"
         x-transition:leave-end="opacity-0 translate-y-0.5"
         class="mt-1.5 space-y-1.5"
+        role="region"
+        :aria-hidden="(!isOpen).toString()"
     >
         <template x-if="totalCount === 0">
             <p class="text-[11px] text-muted-foreground/80">
                 {{ __('No comments yet.') }}
+                <span class="ml-1">
+                    {{ __('Be the first to comment.') }}
+                </span>
             </p>
         </template>
 
         <template x-if="totalCount > 0">
             <div class="space-y-1.5">
-                <template x-for="(comment, index) in comments" :key="comment.id ?? index">
+                <template x-for="(comment, index) in comments.slice(0, visibleCount)" :key="comment.id ?? index">
                     <div
                         class="flex items-start gap-2 rounded-md bg-muted/60 px-2 py-1.5"
-                        x-show="visibleCount > index"
                         x-cloak
                     >
                         <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary uppercase">
@@ -406,6 +414,8 @@
                                         x-show="comment.id && !String(comment.id).startsWith('temp-')"
                                         x-cloak
                                         @click="startEditingExistingComment(comment)"
+                                        aria-label="{{ __('Edit comment') }}"
+                                        title="{{ __('Edit comment') }}"
                                     >
                                         <flux:icon name="pencil-square" class="size-3" />
                                     </button>
@@ -415,6 +425,8 @@
                                         x-show="comment.id && !String(comment.id).startsWith('temp-')"
                                         x-cloak
                                         @click="deleteExistingComment(comment)"
+                                        aria-label="{{ __('Delete comment') }}"
+                                        title="{{ __('Delete comment') }}"
                                     >
                                         <flux:icon name="trash" class="size-3" />
                                     </button>
@@ -446,6 +458,9 @@
                                         class="w-full min-w-0 rounded-md bg-muted/30 px-2 py-1 text-[11px] leading-snug outline-none ring-1 ring-transparent focus:bg-background/70 focus:ring-1 focus:ring-border dark:bg-muted/20"
                                         placeholder="{{ __('Edit comment...') }}"
                                     ></textarea>
+                                    <p class="mt-0.5 text-[10px] text-muted-foreground/80">
+                                        {{ __('Press Enter to save, Shift+Enter for a new line, or Esc to cancel. Clicking outside will also save changes.') }}
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -487,6 +502,9 @@
                     class="w-full min-w-0 rounded-md bg-muted/30 px-2 py-1 text-[11px] leading-snug outline-none ring-1 ring-transparent focus:bg-background/70 focus:ring-1 focus:ring-border dark:bg-muted/20"
                     placeholder="{{ __('Add a comment...') }}"
                 ></textarea>
+                <p class="mt-0.5 text-[10px] text-muted-foreground/80">
+                    {{ __('Press Enter to save, Shift+Enter for a new line, or Esc to cancel.') }}
+                </p>
             </div>
         </div>
     </div>
