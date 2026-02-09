@@ -841,6 +841,13 @@
                     />
                 @endif
 
+                <x-workspace.collaborators-popover
+                    :item="$item"
+                    :kind="$kind"
+                    position="top"
+                    align="end"
+                />
+
                 <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {{ $type }}
                 </span>
@@ -1334,8 +1341,6 @@
         </div>
 
         </div>
-
-        <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
     </div>
     @elseif($kind === 'task')
         <div
@@ -1889,8 +1894,6 @@
                 </span>
             </span>
         @endif
-
-        <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
 
         @if($item->completed_at)
             <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-700 dark:border-white/10">

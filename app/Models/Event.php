@@ -345,6 +345,7 @@ class Event extends Model
 
         static::deleting(function (Event $event) {
             $event->collaborations()->delete();
+            $event->collaborationInvitations()->delete();
             $event->recurringEvent?->delete();
         });
     }
@@ -382,6 +383,11 @@ class Event extends Model
     public function collaborations(): MorphMany
     {
         return $this->morphMany(Collaboration::class, 'collaboratable');
+    }
+
+    public function collaborationInvitations(): MorphMany
+    {
+        return $this->morphMany(CollaborationInvitation::class, 'collaboratable');
     }
 
     public function collaborators(): MorphToMany

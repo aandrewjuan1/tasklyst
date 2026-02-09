@@ -241,7 +241,16 @@ trait HandlesTasks
         $date = Carbon::parse($this->selectedDate);
 
         $taskQuery = Task::query()
-            ->with(['project', 'event', 'recurringTask', 'tags', 'collaborations', 'comments.user'])
+            ->with([
+                'project',
+                'event',
+                'recurringTask',
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+                'comments.user',
+            ])
             ->forUser($userId)
             ->incomplete()
             ->relevantForDate($date);

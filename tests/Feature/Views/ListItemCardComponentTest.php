@@ -1,14 +1,17 @@
 <?php
 
+use App\Enums\CollaborationPermission;
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
+use App\Models\User;
 use App\Services\EventService;
 use App\Services\TaskService;
 use Carbon\Carbon;
@@ -90,6 +93,117 @@ it('renders recurring selection for non-recurring events', function (): void {
     ]);
 
     expect($html)->toContain('aria-label="Repeat this event"');
+});
+
+it('renders collaborators popover with accepted collaborators for projects', function (): void {
+    $owner = User::factory()->create();
+    $collaborator = User::factory()->create([
+        'name' => 'Jane Collaborator',
+        'email' => 'jane@example.test',
+    ]);
+
+    $project = Project::factory()->for($owner)->create([
+        'name' => 'Shared Project',
+    ]);
+
+    $project->collaborators()->attach($collaborator->id, [
+        'permission' => CollaborationPermission::Edit,
+    ]);
+
+    $project->load('collaborators');
+
+    $html = Blade::render('<x-workspace.list-item-card kind="project" :item="$item" />', [
+        'item' => $project,
+    ]);
+
+    expect($html)
+        ->toContain('Collab')
+        ->toContain('jane@example.test')
+        ->toContain('Edit');
+});
+
+it('renders collaborators popover for tasks without collaborators', function (): void {
+    $task = Task::factory()->create([
+        'title' => 'Solo Task',
+    ]);
+
+    $html = Blade::render('<x-workspace.list-item-card kind="task" :item="$item" />', [
+        'item' => $task,
+    ]);
+
+    expect($html)
+        ->toContain('Collab')
+        ->toContain('No collaborators yet');
+});
+
+it('renders pending collaboration invitations in collaborators popover', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create([
+        'name' => 'Pending User',
+        'email' => 'pending@example.test',
+    ]);
+
+    $task = Task::factory()
+        ->for($owner)
+        ->create([
+            'title' => 'Task with pending invite',
+        ]);
+
+    CollaborationInvitation::factory()
+        ->for($task, 'collaboratable')
+        ->for($owner, 'inviter')
+        ->create([
+            'invitee_email' => $invitee->email,
+            'invitee_user_id' => $invitee->id,
+            'permission' => CollaborationPermission::Edit,
+            'status' => 'pending',
+        ]);
+
+    $task->load(['collaborators', 'collaborationInvitations.invitee']);
+
+    $html = Blade::render('<x-workspace.list-item-card kind="task" :item="$item" />', [
+        'item' => $task,
+    ]);
+
+    expect($html)
+        ->toContain('Pending invites')
+        ->toContain('pending@example.test')
+        ->toContain('Edit');
+});
+
+it('renders declined collaboration invitations in collaborators popover', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create([
+        'name' => 'Declined User',
+        'email' => 'declined@example.test',
+    ]);
+
+    $event = Event::factory()
+        ->for($owner)
+        ->create([
+            'title' => 'Event with declined invite',
+        ]);
+
+    CollaborationInvitation::factory()
+        ->for($event, 'collaboratable')
+        ->for($owner, 'inviter')
+        ->create([
+            'invitee_email' => $invitee->email,
+            'invitee_user_id' => $invitee->id,
+            'permission' => CollaborationPermission::View,
+            'status' => 'declined',
+        ]);
+
+    $event->load(['collaborators', 'collaborationInvitations.invitee']);
+
+    $html = Blade::render('<x-workspace.list-item-card kind="event" :item="$item" />', [
+        'item' => $event,
+    ]);
+
+    expect($html)
+        ->toContain('Declined / rejected')
+        ->toContain('declined@example.test')
+        ->toContain('View');
 });
 
 it('uses base task status for recurring task', function (): void {

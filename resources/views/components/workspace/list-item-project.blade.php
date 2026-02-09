@@ -146,6 +146,4 @@
         <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
         <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
     </div>
-
-    <x-workspace.collaborators-badge :count="$item->collaborators->count()" />
 </div>

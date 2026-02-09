@@ -22,6 +22,7 @@ class Project extends Model
 
         static::deleting(function (Project $project) {
             $project->collaborations()->delete();
+            $project->collaborationInvitations()->delete();
         });
     }
 
@@ -54,6 +55,11 @@ class Project extends Model
     public function collaborations(): MorphMany
     {
         return $this->morphMany(Collaboration::class, 'collaboratable');
+    }
+
+    public function collaborationInvitations(): MorphMany
+    {
+        return $this->morphMany(CollaborationInvitation::class, 'collaboratable');
     }
 
     public function collaborators(): MorphToMany

@@ -214,6 +214,8 @@ trait HandlesProjects
             ->with([
                 'tasks',
                 'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
                 'comments.user',
             ])
             ->forUser($userId)

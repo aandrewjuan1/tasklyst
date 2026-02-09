@@ -213,7 +213,14 @@ class extends Component
         $today = Carbon::today();
 
         $overdueTaskQuery = Task::query()
-            ->with(['project', 'tags', 'collaborations', 'comments.user'])
+            ->with([
+                'project',
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+                'comments.user',
+            ])
             ->forUser($userId)
             ->incomplete()
             ->overdue($today)
@@ -227,7 +234,12 @@ class extends Component
             ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
 
         $overdueEventQuery = Event::query()
-            ->with(['tags', 'collaborations'])
+            ->with([
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+            ])
             ->forUser($userId)
             ->notCancelled()
             ->notCompleted()

@@ -2,12 +2,16 @@
 
 namespace Database\Seeders;
 
+use App\Enums\CollaborationPermission;
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\Collaboration;
+use App\Models\CollaborationInvitation;
+use App\Models\Comment;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringEvent;
@@ -50,7 +54,7 @@ class FakeDataSeeder extends Seeder
         $this->createDailyTask($user, 'Read', 60, null, null, [$learningTag, $personalTag]);
         $this->createDailyTask($user, 'Workout', 120, null, null, [$healthTag, $exerciseTag]);
 
-        // Create Theis Project
+        // Create Thesis Project
         Project::create([
             'user_id' => $user->id,
             'name' => 'Thesis Project',
@@ -58,6 +62,104 @@ class FakeDataSeeder extends Seeder
             'start_datetime' => Carbon::create(2026, 1, 1)->startOfDay(),
             'end_datetime' => Carbon::create(2026, 5, 15)->endOfDay(),
         ]);
+
+        // Add random comments to the seeded tasks.
+        $tasks = Task::query()->where('user_id', $user->id)->get();
+
+        foreach ($tasks as $task) {
+            Comment::factory()
+                ->count(random_int(1, 3))
+                ->create([
+                    'commentable_id' => $task->id,
+                    'commentable_type' => Task::class,
+                    'user_id' => $user->id,
+                ]);
+        }
+
+        // Add random comments to the seeded events.
+        $events = Event::query()->where('user_id', $user->id)->get();
+
+        foreach ($events as $event) {
+            Comment::factory()
+                ->count(random_int(1, 3))
+                ->create([
+                    'commentable_id' => $event->id,
+                    'commentable_type' => Event::class,
+                    'user_id' => $user->id,
+                ]);
+        }
+
+        // Create three collaborator users: one accepted, one pending, one declined.
+        $acceptedUser = User::factory()->create([
+            'name' => 'Accepted Collaborator',
+            'email' => 'collab-accepted@example.test',
+        ]);
+
+        $pendingUser = User::factory()->create([
+            'name' => 'Pending Collaborator',
+            'email' => 'collab-pending@example.test',
+        ]);
+
+        $declinedUser = User::factory()->create([
+            'name' => 'Declined Collaborator',
+            'email' => 'collab-declined@example.test',
+        ]);
+
+        $allItems = $tasks->concat($events)->values();
+        $permissions = [CollaborationPermission::View, CollaborationPermission::Edit];
+
+        foreach ($allItems as $item) {
+            $collaboratableType = $item instanceof Task ? Task::class : Event::class;
+
+            // Accepted collaborator: collaboration + accepted invitation (random permission).
+            $acceptedPermission = fake()->randomElement($permissions);
+
+            Collaboration::create([
+                'collaboratable_type' => $collaboratableType,
+                'collaboratable_id' => $item->id,
+                'user_id' => $acceptedUser->id,
+                'permission' => $acceptedPermission,
+            ]);
+
+            CollaborationInvitation::create([
+                'collaboratable_type' => $collaboratableType,
+                'collaboratable_id' => $item->id,
+                'inviter_id' => $user->id,
+                'invitee_email' => $acceptedUser->email,
+                'invitee_user_id' => $acceptedUser->id,
+                'permission' => $acceptedPermission,
+                'status' => 'accepted',
+                'expires_at' => null,
+            ]);
+
+            // Pending collaborator: invitation only (random permission).
+            $pendingPermission = fake()->randomElement($permissions);
+
+            CollaborationInvitation::create([
+                'collaboratable_type' => $collaboratableType,
+                'collaboratable_id' => $item->id,
+                'inviter_id' => $user->id,
+                'invitee_email' => $pendingUser->email,
+                'invitee_user_id' => null,
+                'permission' => $pendingPermission,
+                'status' => 'pending',
+                'expires_at' => null,
+            ]);
+
+            // Declined collaborator: invitation marked declined (random permission).
+            $declinedPermission = fake()->randomElement($permissions);
+
+            CollaborationInvitation::create([
+                'collaboratable_type' => $collaboratableType,
+                'collaboratable_id' => $item->id,
+                'inviter_id' => $user->id,
+                'invitee_email' => $declinedUser->email,
+                'invitee_user_id' => $declinedUser->id,
+                'permission' => $declinedPermission,
+                'status' => 'declined',
+                'expires_at' => null,
+            ]);
+        }
     }
 
     /**

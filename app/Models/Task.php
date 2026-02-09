@@ -366,6 +366,7 @@ class Task extends Model
 
         static::deleting(function (Task $task) {
             $task->collaborations()->delete();
+            $task->collaborationInvitations()->delete();
             $task->recurringTask?->delete();
         });
     }
@@ -430,6 +431,11 @@ class Task extends Model
     public function collaborations(): MorphMany
     {
         return $this->morphMany(Collaboration::class, 'collaboratable');
+    }
+
+    public function collaborationInvitations(): MorphMany
+    {
+        return $this->morphMany(CollaborationInvitation::class, 'collaboratable');
     }
 
     public function collaborators(): MorphToMany
