@@ -183,6 +183,7 @@ class Task extends Model
     {
         return match ($property) {
             'title' => __('Title'),
+            'description' => __('Description'),
             'status' => __('Status'),
             'priority' => __('Priority'),
             'complexity' => __('Complexity'),
@@ -202,7 +203,7 @@ class Task extends Model
         }
 
         return match ($property) {
-            'title' => 'pencil-square',
+            'title', 'description' => 'pencil-square',
             'status' => 'check-circle',
             'priority' => 'bolt',
             'complexity' => 'squares-2x2',
@@ -225,6 +226,7 @@ class Task extends Model
             'startDatetime', 'endDatetime' => self::formatDatetime($value),
             'tagIds' => self::formatTagCount($value),
             'recurrence' => self::formatRecurrence($value),
+            'description' => is_string($value) ? '"'.trim($value).'"' : null,
             default => is_scalar($value) ? (string) $value : null,
         };
     }

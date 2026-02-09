@@ -181,6 +181,7 @@ class Event extends Model
     {
         return match ($property) {
             'title' => __('Title'),
+            'description' => __('Description'),
             'status' => __('Status'),
             'startDatetime' => __('Start'),
             'endDatetime' => __('End'),
@@ -198,7 +199,7 @@ class Event extends Model
         }
 
         return match ($property) {
-            'title' => 'pencil-square',
+            'title', 'description' => 'pencil-square',
             'status' => 'check-circle',
             'startDatetime', 'endDatetime' => 'clock',
             'tagIds' => 'tag',
@@ -217,6 +218,7 @@ class Event extends Model
             'tagIds' => self::formatTagCount($value),
             'allDay' => self::formatAllDay($value),
             'recurrence' => self::formatRecurrence($value),
+            'description' => is_string($value) ? '"'.trim($value).'"' : null,
             default => is_scalar($value) ? (string) $value : null,
         };
     }

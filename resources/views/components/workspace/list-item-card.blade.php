@@ -202,11 +202,20 @@
         savingTitle: false,
         justCanceledTitle: false,
         savedViaEnter: false,
-        updateTitleMethod: @js($updatePropertyMethod),
+        updatePropertyMethod: @js($updatePropertyMethod),
         titleProperty: @js(match($kind) { 'project' => 'name', default => 'title' }),
         titleErrorToast: @js(__('Title cannot be empty.')),
         titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
         recurrenceUpdateErrorToast: @js(__('Something went wrong. Please try again.')),
+        descriptionUpdateErrorToast: @js(__('Couldn\'t save :property. Try again.', ['property' => __('Description')])),
+        isEditingDescription: false,
+        editedDescription: @js($description ?? ''),
+        descriptionSnapshot: null,
+        savingDescription: false,
+        justCanceledDescription: false,
+        savedDescriptionViaEnter: false,
+        descriptionProperty: 'description',
+        addDescriptionLabel: @js(__('Add description')),
         isOverdue: @js($isOverdue),
         hideFromList() {
             if (this.hideCard) {
@@ -546,7 +555,7 @@
             }
         },
         startEditingTitle() {
-            if (this.deletingInProgress || !this.updateTitleMethod) return;
+            if (this.deletingInProgress || !this.updatePropertyMethod) return;
             this.titleSnapshot = this.editedTitle;
             this.isEditingTitle = true;
             this.$nextTick(() => {
@@ -569,7 +578,7 @@
             setTimeout(() => { this.justCanceledTitle = false; }, 100);
         },
         async saveTitle() {
-            if (this.deletingInProgress || !this.updateTitleMethod || !this.itemId || this.savingTitle || this.justCanceledTitle) return;
+            if (this.deletingInProgress || !this.updatePropertyMethod || !this.itemId || this.savingTitle || this.justCanceledTitle) return;
             
             const trimmedTitle = (this.editedTitle || '').trim();
             // 1) Empty titles are forbidden – show error and revert without calling backend
@@ -599,7 +608,7 @@
                 this.editedTitle = trimmedTitle;
                 
                 // Call server
-                const ok = await $wire.$parent.$call(this.updateTitleMethod, this.itemId, this.titleProperty, trimmedTitle);
+                const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, this.titleProperty, trimmedTitle, false);
                 
                 if (!ok) {
                     // Rollback on failure
@@ -631,8 +640,74 @@
                 this.saveTitle();
             }
         },
+        startEditingDescription() {
+            if (this.deletingInProgress || !this.updatePropertyMethod) return;
+            this.descriptionSnapshot = this.editedDescription;
+            this.isEditingDescription = true;
+        },
+        cancelEditingDescription() {
+            this.justCanceledDescription = true;
+            this.savedDescriptionViaEnter = false;
+            this.editedDescription = this.descriptionSnapshot ?? '';
+            this.isEditingDescription = false;
+            this.descriptionSnapshot = null;
+            setTimeout(() => { this.justCanceledDescription = false; }, 100);
+        },
+        async saveDescription() {
+            if (this.deletingInProgress || !this.updatePropertyMethod || !this.itemId || this.savingDescription || this.justCanceledDescription) return;
+
+            const trimmedDesc = (this.editedDescription ?? '').toString().trim();
+            const snapshot = this.descriptionSnapshot ?? '';
+            const originalTrimmed = (snapshot ?? '').toString().trim();
+
+            if (trimmedDesc === originalTrimmed) {
+                this.editedDescription = snapshot;
+                this.isEditingDescription = false;
+                this.descriptionSnapshot = null;
+                return;
+            }
+
+            this.savingDescription = true;
+
+            try {
+                this.editedDescription = trimmedDesc;
+
+                const valueToSave = trimmedDesc === '' ? null : trimmedDesc;
+                const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, this.descriptionProperty, valueToSave, false);
+
+                if (!ok) {
+                    this.editedDescription = snapshot;
+                    $wire.$dispatch('toast', { type: 'error', message: this.descriptionUpdateErrorToast });
+                } else {
+                    this.isEditingDescription = false;
+                    this.descriptionSnapshot = null;
+                }
+            } catch (error) {
+                this.editedDescription = snapshot;
+                $wire.$dispatch('toast', { type: 'error', message: error.message || this.descriptionUpdateErrorToast });
+            } finally {
+                this.savingDescription = false;
+                if (this.savedDescriptionViaEnter) {
+                    setTimeout(() => { this.savedDescriptionViaEnter = false; }, 100);
+                }
+            }
+        },
+        handleDescriptionKeydown(e) {
+            if (e.key === 'Escape') {
+                this.cancelEditingDescription();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.savedDescriptionViaEnter = true;
+                this.saveDescription();
+            }
+        },
+        handleDescriptionBlur() {
+            if (!this.savedDescriptionViaEnter && !this.justCanceledDescription) {
+                this.saveDescription();
+            }
+        },
         async updateRecurrence(value) {
-            if (!this.updateTitleMethod || !this.itemId) {
+            if (!this.updatePropertyMethod || !this.itemId) {
                 return;
             }
 
@@ -641,7 +716,7 @@
             this.recurrence = value;
 
             try {
-                const ok = await $wire.$parent.$call(this.updateTitleMethod, this.itemId, 'recurrence', value);
+                const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, 'recurrence', value, false);
                 if (!ok) {
                     this.recurrence = snapshot;
                     $dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
@@ -700,7 +775,7 @@
             <p 
                 x-show="!isEditingTitle"
                 @click="startEditingTitle()"
-                class="truncate text-lg font-semibold leading-tight cursor-pointer hover:opacity-80 transition-opacity"
+                class="truncate text-lg font-semibold leading-tight cursor-text hover:opacity-80 transition-opacity"
                 x-text="editedTitle"
             >
                 {{ $title }}
@@ -714,15 +789,43 @@
                 @keydown.escape="cancelEditingTitle()"
                 @blur="handleBlur()"
                 wire:ignore
-                class="w-full min-w-0 text-lg font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 ring-1 ring-border/40 shadow-sm transition focus:bg-background/70 focus:ring-2 focus:ring-ring/30 dark:bg-muted/10"
+                class="w-full min-w-0 text-lg font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
                 type="text"
             />
 
-            @if($description)
-                <p class="mt-0.5 line-clamp-2 text-xs text-foreground/70">
-                    {{ $description }}
-                </p>
-            @endif
+            <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
+                <div x-show="!isEditingDescription">
+                    <p
+                        x-show="editedDescription"
+                        @click="startEditingDescription()"
+                        class="line-clamp-2 text-xs text-foreground/70 cursor-text hover:opacity-80 transition-opacity"
+                        x-text="editedDescription"
+                        @if(trim((string) ($description ?? '')) === '') style="display: none" @endif
+                    >{{ $description ?? '' }}</p>
+                    <button
+                        x-show="!editedDescription"
+                        type="button"
+                        @click="startEditingDescription()"
+                        class="text-xs text-muted-foreground hover:text-foreground/70 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                        @if(trim((string) ($description ?? '')) !== '') style="display: none" @endif
+                    >
+                        <flux:icon name="plus" class="size-3" />
+                            <span x-text="addDescriptionLabel">{{ __('Add description') }}</span>
+                    </button>
+                </div>
+                <textarea
+                    x-show="isEditingDescription"
+                    x-cloak
+                    x-ref="descriptionInput"
+                    x-model="editedDescription"
+                    x-on:keydown="handleDescriptionKeydown($event)"
+                    x-on:blur="handleDescriptionBlur()"
+                    wire:ignore
+                    rows="2"
+                    class="w-full min-w-0 text-xs rounded-md bg-muted/20 px-2 py-1 -mx-1 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10 resize-none"
+                    placeholder="{{ __('Add a description...') }}"
+                ></textarea>
+            </div>
         </div>
 
         @if($type)
