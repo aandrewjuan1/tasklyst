@@ -501,6 +501,7 @@
                     <div
                         class="flex items-center justify-between gap-4"
                         x-show="type === 'datetime-local'"
+                        x-cloak
                     >
                         <span class="font-medium text-zinc-500 dark:text-zinc-400">
                             Time

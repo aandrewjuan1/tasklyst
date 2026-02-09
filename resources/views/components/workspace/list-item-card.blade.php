@@ -181,6 +181,7 @@
     ]) }}
     wire:ignore
     x-data="{
+        alpineReady: false,
         deletingInProgress: false,
         dateChangeHidingCard: false,
         clientOverdue: false,
@@ -732,6 +733,7 @@
             }
         },
     }"
+    x-init="alpineReady = true"
     x-show="!hideCard"
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="opacity-100 scale-100"
@@ -794,25 +796,42 @@
             />
 
             <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
-                <div x-show="!isEditingDescription">
+                {{-- Server-rendered first paint --}}
+                <div x-show="!alpineReady">
+                    @if(trim((string) ($description ?? '')) !== '')
+                        <p
+                            class="line-clamp-2 text-xs text-foreground/70 cursor-text hover:opacity-80 transition-opacity"
+                        >{{ $description ?? '' }}</p>
+                    @else
+                        <button
+                            type="button"
+                            class="text-xs text-muted-foreground hover:text-foreground/70 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                        >
+                            <flux:icon name="plus" class="size-3" />
+                            <span>{{ __('Add description') }}</span>
+                        </button>
+                    @endif
+                </div>
+
+                {{-- Alpine reactive (replaces server content when hydrated) --}}
+                <div x-show="alpineReady && !isEditingDescription" x-cloak>
                     <p
                         x-show="editedDescription"
                         @click="startEditingDescription()"
                         class="line-clamp-2 text-xs text-foreground/70 cursor-text hover:opacity-80 transition-opacity"
                         x-text="editedDescription"
-                        @if(trim((string) ($description ?? '')) === '') style="display: none" @endif
-                    >{{ $description ?? '' }}</p>
+                    ></p>
                     <button
                         x-show="!editedDescription"
                         type="button"
                         @click="startEditingDescription()"
                         class="text-xs text-muted-foreground hover:text-foreground/70 transition-colors inline-flex items-center gap-1 cursor-pointer"
-                        @if(trim((string) ($description ?? '')) !== '') style="display: none" @endif
                     >
                         <flux:icon name="plus" class="size-3" />
-                            <span x-text="addDescriptionLabel">{{ __('Add description') }}</span>
+                        <span x-text="addDescriptionLabel"></span>
                     </button>
                 </div>
+
                 <textarea
                     x-show="isEditingDescription"
                     x-cloak
@@ -855,6 +874,7 @@
                 @if(in_array($kind, ['task', 'event'], true))
                     <span
                         x-show="(isOverdue || clientOverdue) && !clientNotOverdue"
+                        x-cloak
                         @if(!$isOverdue) style="display: none" @endif
                         class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400"
                     >

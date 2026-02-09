@@ -166,9 +166,9 @@ it('renders pending collaboration invitations in collaborators popover', functio
     ]);
 
     expect($html)
-        ->toContain('Pending invites')
         ->toContain('pending@example.test')
-        ->toContain('Edit');
+        ->toContain('Pending')
+        ->toContain('Can edit');
 });
 
 it('renders declined collaboration invitations in collaborators popover', function (): void {
@@ -201,9 +201,9 @@ it('renders declined collaboration invitations in collaborators popover', functi
     ]);
 
     expect($html)
-        ->toContain('Declined / rejected')
         ->toContain('declined@example.test')
-        ->toContain('View');
+        ->toContain('Declined')
+        ->toContain('Can view');
 });
 
 it('uses base task status for recurring task', function (): void {

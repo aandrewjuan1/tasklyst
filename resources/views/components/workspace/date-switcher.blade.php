@@ -10,6 +10,7 @@
 
 <div
     x-data="{
+        alpineReady: false,
         displayDate: @js($date->toDateString()),
         today: @js($today),
         locale: @js($locale),
@@ -51,6 +52,7 @@
             return d.toLocaleDateString(this.locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
         }
     }"
+    x-init="alpineReady = true"
     class="mt-4 inline-flex items-center gap-0 rounded-xl border border-border/60 bg-muted/30 px-1 py-1 shadow-sm ring-1 ring-border/20 dark:bg-muted/20"
 >
     <flux:button
@@ -65,7 +67,24 @@
     />
 
     <div class="flex min-w-0 items-center gap-2 px-3 py-1">
+        {{-- Server-rendered first paint --}}
         <button
+            x-show="!alpineReady"
+            type="button"
+            @if($date->toDateString() === $today) disabled @endif
+            @if($date->toDateString() === $today) aria-current="date" @endif
+            aria-label="{{ __('Go to today') }}"
+            wire:loading.attr="disabled"
+            wire:target="selectedDate"
+            class="rounded-md px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide transition-colors disabled:cursor-default disabled:opacity-60 {{ $date->toDateString() === $today ? 'bg-muted/60 text-muted-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground' }}"
+        >
+            {{ __('Today') }}
+        </button>
+
+        {{-- Alpine reactive (replaces server content when hydrated) --}}
+        <button
+            x-show="alpineReady"
+            x-cloak
             type="button"
             :disabled="displayDate === today"
             :aria-current="displayDate === today ? 'date' : false"
@@ -80,8 +99,14 @@
         >
             {{ __('Today') }}
         </button>
+
         <span class="h-4 w-px shrink-0 bg-border/60" aria-hidden="true"></span>
-        <span class="min-w-0 truncate text-sm font-semibold tabular-nums text-foreground" x-text="formatDate(displayDate)">{{ $date->translatedFormat('D, M j, Y') }}</span>
+
+        {{-- Server-rendered date --}}
+        <span x-show="!alpineReady" class="min-w-0 truncate text-sm font-semibold tabular-nums text-foreground">{{ $date->translatedFormat('D, M j, Y') }}</span>
+
+        {{-- Alpine reactive date --}}
+        <span x-show="alpineReady" x-cloak class="min-w-0 truncate text-sm font-semibold tabular-nums text-foreground" x-text="formatDate(displayDate)"></span>
     </div>
 
     <flux:button

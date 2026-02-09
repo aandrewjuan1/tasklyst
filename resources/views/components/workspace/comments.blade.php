@@ -39,8 +39,10 @@
 @endphp
 
 <div
+    wire:ignore
     class="mt-1.5 border-t border-border/50 pt-1.5 text-[11px]"
     x-data="{
+        alpineReady: false,
         isOpen: false,
         comments: @js($commentsForJs),
         totalCount: {{ $totalComments }},
@@ -342,8 +344,36 @@
             }
         },
     }"
+    x-init="alpineReady = true"
 >
+    {{-- Server-rendered first paint --}}
     <button
+        x-show="!alpineReady"
+        type="button"
+        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
+        aria-controls="{{ $commentsPanelId }}"
+    >
+        <flux:icon name="chat-bubble-left-ellipsis" class="size-3" />
+        <span class="inline-flex items-baseline gap-1">
+            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                {{ __('Comments') }}
+            </span>
+            <span class="text-[11px]">
+                ({{ $totalComments }})
+            </span>
+        </span>
+        <span class="inline-flex items-center justify-center transition-transform duration-150">
+            <flux:icon
+                name="chevron-down"
+                class="size-3"
+            />
+        </span>
+    </button>
+
+    {{-- Alpine reactive (replaces server content when hydrated) --}}
+    <button
+        x-show="alpineReady"
+        x-cloak
         type="button"
         class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
         @click="toggle()"
@@ -356,7 +386,7 @@
                 {{ __('Comments') }}
             </span>
             <span class="text-[11px]">
-                (<span x-text="totalCount">{{ $totalComments }}</span>)
+                (<span x-text="totalCount"></span>)
             </span>
         </span>
         <span
@@ -446,7 +476,7 @@
                                     }
                                 "
                             >
-                                <div x-show="editingCommentId !== comment.id">
+                                <div x-show="editingCommentId !== comment.id" x-cloak>
                                     <p class="whitespace-pre-line break-words text-[11px] text-foreground/90" x-text="comment.content"></p>
                                 </div>
                                 <div x-show="editingCommentId === comment.id" x-cloak>

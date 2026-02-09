@@ -5,6 +5,7 @@ use App\Enums\TaskRecurrenceType;
 use App\Enums\EventRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\Collaboration;
+use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringEvent;
@@ -1416,4 +1417,114 @@ it('clearAllFilters resets all filter properties', function (): void {
 
     expect($component->get('filterTaskComplexity'))->toBeNull();
     expect($component->get('filterTagIds'))->toBeNull();
+});
+
+it('rejects collaboration invite when inviting self', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('inviteCollaborator', [
+            'collaboratableType' => 'task',
+            'collaboratableId' => $task->id,
+            'email' => $user->email,
+            'permission' => 'edit',
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('You cannot invite yourself.'));
+
+    expect(\App\Models\CollaborationInvitation::query()->count())->toBe(0);
+});
+
+it('rejects collaboration invite when email does not belong to a user', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create();
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->call('inviteCollaborator', [
+            'collaboratableType' => 'task',
+            'collaboratableId' => $task->id,
+            'email' => 'missing@example.test',
+            'permission' => 'edit',
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('No user was found with that email address.'));
+
+    expect(\App\Models\CollaborationInvitation::query()->count())->toBe(0);
+});
+
+it('rejects collaboration invite when user is already a collaborator', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->for($owner)->create();
+
+    Collaboration::create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'user_id' => $invitee->id,
+        'permission' => CollaborationPermission::View,
+    ]);
+
+    Livewire::actingAs($owner)
+        ->test('pages::workspace.index')
+        ->call('inviteCollaborator', [
+            'collaboratableType' => 'task',
+            'collaboratableId' => $task->id,
+            'email' => $invitee->email,
+            'permission' => 'edit',
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('This user is already a collaborator on this item.'));
+
+    expect(\App\Models\CollaborationInvitation::query()->count())->toBe(0);
+});
+
+it('rejects collaboration invite when a pending invitation already exists for that email', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->for($owner)->create();
+
+    CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'permission' => CollaborationPermission::Edit,
+        'status' => 'pending',
+    ]);
+
+    Livewire::actingAs($owner)
+        ->test('pages::workspace.index')
+        ->call('inviteCollaborator', [
+            'collaboratableType' => 'task',
+            'collaboratableId' => $task->id,
+            'email' => $invitee->email,
+            'permission' => 'edit',
+        ])
+        ->assertDispatched('toast', type: 'error', message: __('An invitation has already been sent to this email for this item.'));
+
+    expect(\App\Models\CollaborationInvitation::query()->count())->toBe(1);
+});
+
+it('creates collaboration invitation successfully when all conditions are met', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->for($owner)->create();
+
+    Livewire::actingAs($owner)
+        ->test('pages::workspace.index')
+        ->call('inviteCollaborator', [
+            'collaboratableType' => 'task',
+            'collaboratableId' => $task->id,
+            'email' => $invitee->email,
+            'permission' => 'edit',
+        ])
+        ->assertDispatched('toast', type: 'success', message: __('Invitation sent.'));
+
+    $this->assertDatabaseHas('collaboration_invitations', [
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'status' => 'pending',
+    ]);
 });

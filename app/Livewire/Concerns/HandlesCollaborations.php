@@ -9,6 +9,7 @@ use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\User;
 use App\Support\Validation\CollaborationPayloadValidation;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -67,6 +68,43 @@ trait HandlesCollaborations
         $this->authorize('update', $collaboratable);
 
         $dto = CreateCollaborationInvitationDto::fromValidated($validated, $user->id);
+
+        $invitee = User::query()
+            ->where('email', $dto->inviteeEmail)
+            ->first();
+
+        if ($invitee === null) {
+            $this->dispatch('toast', type: 'error', message: __('No user was found with that email address.'));
+
+            return false;
+        }
+
+        $collaboratableType = $dto->collaboratableMorphClass();
+
+        $alreadyCollaborator = Collaboration::query()
+            ->where('collaboratable_type', $collaboratableType)
+            ->where('collaboratable_id', $dto->collaboratableId)
+            ->where('user_id', $invitee->id)
+            ->exists();
+
+        if ($alreadyCollaborator) {
+            $this->dispatch('toast', type: 'error', message: __('This user is already a collaborator on this item.'));
+
+            return false;
+        }
+
+        $alreadyInvited = CollaborationInvitation::query()
+            ->where('collaboratable_type', $collaboratableType)
+            ->where('collaboratable_id', $dto->collaboratableId)
+            ->where('invitee_email', $dto->inviteeEmail)
+            ->where('status', 'pending')
+            ->exists();
+
+        if ($alreadyInvited) {
+            $this->dispatch('toast', type: 'error', message: __('An invitation has already been sent to this email for this item.'));
+
+            return false;
+        }
 
         try {
             $this->createCollaborationInvitationAction->execute($dto);
@@ -137,6 +175,63 @@ trait HandlesCollaborations
 
         $this->dispatch('collaborator-removed');
         $this->dispatch('toast', type: 'success', message: __('Collaborator removed.'));
+
+        return true;
+    }
+
+    /**
+     * Delete a collaboration invitation by ID.
+     *
+     * Mirrors removeCollaborator so optimistic UIs can rollback on failure.
+     */
+    #[Async]
+    #[Renderless]
+    public function deleteCollaborationInvitation(int $invitationId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to remove invitations.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $invitation = CollaborationInvitation::query()
+            ->with('collaboratable')
+            ->find($invitationId);
+
+        if ($invitation === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found.'));
+
+            return false;
+        }
+
+        $collaboratable = $invitation->collaboratable;
+        if ($collaboratable === null) {
+            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $collaboratable);
+
+        try {
+            $deleted = (bool) $invitation->delete();
+        } catch (\Throwable $e) {
+            Log::error('Failed to delete collaboration invitation from workspace.', [
+                'user_id' => $user->id,
+                'invitation_id' => $invitationId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not remove invitation. Please try again.'));
+
+            return false;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Could not remove invitation. Please try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('toast', type: 'success', message: __('Invitation removed.'));
 
         return true;
     }

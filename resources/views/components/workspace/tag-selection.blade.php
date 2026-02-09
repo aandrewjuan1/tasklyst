@@ -118,6 +118,7 @@
                 </template>
                 <span
                     x-show="!formData?.item?.tagIds?.length"
+                    x-cloak
                     class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
                 >
                     <flux:icon name="tag" class="size-3" />
@@ -187,7 +188,7 @@
                         </flux:tooltip>
                     </label>
                 </template>
-                <div x-show="!tags || tags.length === 0" class="px-3 py-2 text-sm text-muted-foreground">
+                <div x-show="!tags || tags.length === 0" x-cloak class="px-3 py-2 text-sm text-muted-foreground">
                     {{ __('No tags available') }}
                 </div>
             </div>

@@ -10,17 +10,37 @@
 
     $collaboratorCount = $item->collaborators->count();
 
+    $collaborationsByUserId = ($item->collaborations ?? collect())
+        ->keyBy('user_id');
+
+    $permissionLabelMap = static function (?string $label): string {
+        $normalized = strtolower((string) $label);
+
+        return match ($normalized) {
+            'view' => __('Can view'),
+            'edit' => __('Can edit'),
+            default => $label ? ucfirst($normalized) : __('Can view'),
+        };
+    };
+
     $acceptedCollaborators = $item->collaborators
-        ->map(function ($user) {
+        ->map(function ($user) use ($permissionLabelMap, $collaborationsByUserId) {
             $permissionEnum = $user->pivot?->permission
                 ? \App\Enums\CollaborationPermission::tryFrom($user->pivot->permission)
                 : null;
+
+            $permissionLabel = $permissionEnum?->label() ?? 'View';
+
+            /** @var \App\Models\Collaboration|null $collaboration */
+            $collaboration = $collaborationsByUserId->get($user->id);
 
             return [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
-                'permission' => $permissionEnum?->label() ?? 'View',
+                'permission_value' => $permissionEnum?->value ?? \App\Enums\CollaborationPermission::View->value,
+                'permission' => $permissionLabelMap($permissionLabel),
+                'collaboration_id' => $collaboration?->id,
             ];
         })
         ->values()
@@ -30,14 +50,16 @@
 
     $pendingInvites = $invitations
         ->where('status', 'pending')
-        ->map(function (\App\Models\CollaborationInvitation $invitation) {
+        ->map(function (\App\Models\CollaborationInvitation $invitation) use ($permissionLabelMap) {
             $permissionEnum = $invitation->permission;
+
+            $permissionLabel = $permissionEnum?->label() ?? 'View';
 
             return [
                 'id' => $invitation->id,
                 'name' => $invitation->invitee?->name,
                 'email' => $invitation->invitee_email,
-                'permission' => $permissionEnum?->label() ?? 'View',
+                'permission' => $permissionLabelMap($permissionLabel),
                 'status' => 'pending',
             ];
         })
@@ -46,21 +68,35 @@
 
     $declinedInvites = $invitations
         ->whereIn('status', ['declined', 'rejected'])
-        ->map(function (\App\Models\CollaborationInvitation $invitation) {
+        ->map(function (\App\Models\CollaborationInvitation $invitation) use ($permissionLabelMap) {
             $permissionEnum = $invitation->permission;
+
+            $permissionLabel = $permissionEnum?->label() ?? 'View';
 
             return [
                 'id' => $invitation->id,
                 'name' => $invitation->invitee?->name,
                 'email' => $invitation->invitee_email,
-                'permission' => $permissionEnum?->label() ?? 'View',
+                'permission' => $permissionLabelMap($permissionLabel),
                 'status' => $invitation->status,
             ];
         })
         ->values()
         ->all();
+    $acceptedCollection = collect($acceptedCollaborators)
+        ->map(fn (array $person) => [
+            ...$person,
+            'status' => 'accepted',
+        ]);
 
-    $collaboratorCount = count($acceptedCollaborators) + count($pendingInvites) + count($declinedInvites);
+    $pendingCollection = collect($pendingInvites);
+    $declinedCollection = collect($declinedInvites);
+
+    $allCollaborators = $acceptedCollection
+        ->merge($pendingCollection)
+        ->merge($declinedCollection)
+        ->values()
+        ->all();
 
     $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out';
 
@@ -73,15 +109,20 @@
 @endphp
 
 <div
+    wire:ignore
     x-data="{
         open: false,
         placementVertical: @js($position),
         placementHorizontal: @js($align),
         panelHeightEst: 320,
-        panelWidthEst: 280,
-        collaborators: @js($acceptedCollaborators),
-        pendingInvites: @js($pendingInvites),
-        declinedInvites: @js($declinedInvites),
+        panelWidthEst: 300,
+        people: @js($allCollaborators),
+        removingKeys: new Set(),
+        updatingPermissionKeys: new Set(),
+        removeErrorToast: @js(__('Could not remove collaborator. Please try again.')),
+        permissionViewLabel: @js(__('Can view')),
+        permissionEditLabel: @js(__('Can edit')),
+        permissionUpdateErrorToast: @js(__('Could not update collaborator permission. Please try again.')),
 
         toggle() {
             if (this.open) {
@@ -143,9 +184,149 @@
         },
 
         get totalCount() {
-            return (this.collaborators?.length || 0)
-                + (this.pendingInvites?.length || 0)
-                + (this.declinedInvites?.length || 0);
+            return this.people?.length || 0;
+        },
+
+        get acceptedCount() {
+            const people = this.people || [];
+
+            return people.filter((person) => (person.status ?? 'accepted') === 'accepted').length;
+        },
+
+        async removePerson(person) {
+            if (!person) {
+                return;
+            }
+
+            const status = person.status ?? 'accepted';
+            const key = `${status}-${person.id ?? person.email}`;
+
+            if (this.removingKeys?.has(key)) {
+                return;
+            }
+
+            // Determine backend method + identifier based on status
+            let method = null;
+            let id = null;
+
+            if (status === 'accepted') {
+                method = 'removeCollaborator';
+                id = person.collaboration_id ?? null;
+            } else {
+                method = 'deleteCollaborationInvitation';
+                id = person.id ?? null;
+            }
+
+            if (!method || id === null) {
+                return;
+            }
+
+            const peopleBackup = [...this.people];
+
+            try {
+                this.removingKeys = this.removingKeys || new Set();
+                this.removingKeys.add(key);
+
+                // Optimistic removal from local list
+                this.people = this.people.filter((p) => p !== person);
+
+                const numericId = Number(id);
+                if (!Number.isFinite(numericId)) {
+                    this.people = peopleBackup;
+                    return;
+                }
+
+                const ok = await $wire.$parent.$call(method, numericId);
+                if (!ok) {
+                    this.people = peopleBackup;
+                    $wire.$dispatch('toast', { type: 'error', message: this.removeErrorToast });
+                }
+            } catch (error) {
+                this.people = peopleBackup;
+                $wire.$dispatch('toast', { type: 'error', message: error.message || this.removeErrorToast });
+            } finally {
+                this.removingKeys?.delete(key);
+            }
+        },
+
+        togglePersonPermission(person) {
+            if (!person) {
+                return;
+            }
+
+            const status = person.status ?? 'accepted';
+            if (status !== 'accepted') {
+                return;
+            }
+
+            const current = String(person.permission_value ?? 'view').toLowerCase();
+            const next = current === 'edit' ? 'view' : 'edit';
+
+            this.changePersonPermission(person, next);
+        },
+
+        async changePersonPermission(person, permission) {
+            if (!person) {
+                return;
+            }
+
+            const status = person.status ?? 'accepted';
+            if (status !== 'accepted') {
+                return;
+            }
+
+            const allowed = ['view', 'edit'];
+            const normalized = String(permission).toLowerCase();
+            if (!allowed.includes(normalized)) {
+                return;
+            }
+
+            const collaborationId = person.collaboration_id ?? null;
+            if (collaborationId === null) {
+                return;
+            }
+
+            const key = `perm-${collaborationId}`;
+            if (this.updatingPermissionKeys?.has(key)) {
+                return;
+            }
+
+            const previousValue = person.permission_value ?? 'view';
+            const previousLabel = person.permission;
+
+            const label = normalized === 'edit'
+                ? this.permissionEditLabel
+                : this.permissionViewLabel;
+
+            // Optimistic UI update
+            person.permission_value = normalized;
+            person.permission = label;
+
+            this.updatingPermissionKeys = this.updatingPermissionKeys || new Set();
+            this.updatingPermissionKeys.add(key);
+
+            try {
+                const numericId = Number(collaborationId);
+                if (!Number.isFinite(numericId)) {
+                    person.permission_value = previousValue;
+                    person.permission = previousLabel;
+
+                    return;
+                }
+
+                const ok = await $wire.$parent.$call('updateCollaboratorPermission', numericId, normalized);
+                if (!ok) {
+                    person.permission_value = previousValue;
+                    person.permission = previousLabel;
+                    $wire.$dispatch('toast', { type: 'error', message: this.permissionUpdateErrorToast });
+                }
+            } catch (error) {
+                person.permission_value = previousValue;
+                person.permission = previousLabel;
+                $wire.$dispatch('toast', { type: 'error', message: error.message || this.permissionUpdateErrorToast });
+            } finally {
+                this.updatingPermissionKeys?.delete(key);
+            }
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
@@ -176,7 +357,7 @@
                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                     {{ __('Collab') }}:
                 </span>
-                <span class="text-xs">
+                <span class="text-xs" x-text="acceptedCount">
                     {{ $collaboratorCount }}
                 </span>
             </span>
@@ -197,132 +378,110 @@
         @click.stop
         :id="$id('collaborators-popover')"
         :class="panelPlacementClasses"
-        class="absolute z-50 flex min-w-64 max-w-xs flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
+        class="absolute z-50 w-fit min-w-[220px] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
         data-task-creation-safe
     >
         <div class="flex flex-col gap-2 p-3">
-            <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center justify-center border-b border-border/50 pb-2">
                 <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {{ __('Collaborators') }}
                 </h3>
-                <span class="text-[11px] text-muted-foreground">
-                    <span x-text="totalCount"></span>
-                    <span>
-                        {{ __('total') }}
-                    </span>
-                </span>
             </div>
-            <div class="space-y-3 max-h-64 overflow-auto">
-                <!-- Accepted collaborators -->
-                <div>
-                    <div class="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <span>{{ __('Current (accepted)') }}</span>
-                        <span x-text="collaborators.length"></span>
-                    </div>
+            <div class="max-h-64 overflow-y-auto">
+                <template x-if="people.length > 0">
+                    <ul class="space-y-1.5">
+                        <template
+                            x-for="person in people"
+                            :key="person.id + '-' + (person.status ?? 'accepted')"
+                        >
+                            <li class="group flex items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5 transition-colors hover:bg-muted/80">
+                                <div class="min-w-0 flex-1">
+                                    <p
+                                        class="truncate text-[11px] font-medium text-foreground/90"
+                                        x-text="person.email"
+                                        :title="person.email"
+                                    ></p>
+                                </div>
 
-                    <template x-if="collaborators.length > 0">
-                        <ul class="space-y-1">
-                            <template x-for="person in collaborators" :key="person.id">
-                                <li class="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
-                                    <div class="flex-1 min-w-0">
-                                        <p class="truncate text-xs font-medium text-foreground" x-text="person.name || person.email"></p>
-                                        <p class="truncate text-[11px] text-muted-foreground opacity-80" x-text="person.email"></p>
-                                    </div>
-                                    <span class="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
-                                        <span x-text="person.permission"></span>
-                                    </span>
-                                </li>
-                            </template>
-                        </ul>
-                    </template>
+                                <div class="flex shrink-0 items-center gap-1.5">
+                                    <!-- Accepted collaborators: show permission dropdown -->
+                                    <template x-if="(person.status ?? 'accepted') === 'accepted'">
+                                        <flux:dropdown position="bottom" align="end">
+                                            <flux:button
+                                                size="sm"
+                                                variant="ghost"
+                                                icon:trailing="chevron-down"
+                                                class="!h-auto !rounded-full !px-2 !py-0.5 !text-[10px] !font-semibold !uppercase !tracking-wide"
+                                                @click.stop
+                                            >
+                                                <span x-text="person.permission"></span>
+                                            </flux:button>
 
-                    <p
-                        class="text-[11px] text-muted-foreground/80"
-                        x-show="collaborators.length === 0"
-                        x-cloak
-                    >
-                        {{ __('No accepted collaborators yet.') }}
-                    </p>
-                </div>
+                                            <flux:menu class="!min-w-36 !text-[11px]">
+                                                <flux:menu.radio.group>
+                                                    <flux:menu.radio
+                                                        @click="changePersonPermission(person, 'view')"
+                                                        x-bind:checked="(person.permission_value ?? 'view') === 'view'"
+                                                    >
+                                                        {{ __('Can view') }}
+                                                    </flux:menu.radio>
+                                                    <flux:menu.radio
+                                                        @click="changePersonPermission(person, 'edit')"
+                                                        x-bind:checked="(person.permission_value ?? 'view') === 'edit'"
+                                                    >
+                                                        {{ __('Can edit') }}
+                                                    </flux:menu.radio>
+                                                </flux:menu.radio.group>
+                                            </flux:menu>
+                                        </flux:dropdown>
+                                    </template>
 
-                <div class="h-px bg-border/60"></div>
+                                    <!-- Invitations (pending / declined / rejected): show status only -->
+                                    <template x-if="person.status && (person.status ?? 'accepted') !== 'accepted'">
+                                        <span
+                                            class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                            :class="{
+                                                'bg-amber-500/10 text-amber-600 dark:text-amber-500': person.status === 'pending',
+                                                'bg-red-500/10 text-red-600 dark:text-red-500': ['declined', 'rejected'].includes(person.status),
+                                            }"
+                                            role="status"
+                                        >
+                                            <span
+                                                x-text="person.status === 'pending'
+                                                    ? '{{ __('Pending') }}'
+                                                    : (['declined', 'rejected'].includes(person.status)
+                                                        ? '{{ __('Declined') }}'
+                                                        : person.status)"
+                                            ></span>
+                                        </span>
+                                    </template>
 
-                <!-- Pending invitations -->
-                <div>
-                    <div class="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <span>{{ __('Pending invites') }}</span>
-                        <span x-text="pendingInvites.length"></span>
-                    </div>
-
-                    <template x-if="pendingInvites.length > 0">
-                        <ul class="space-y-1">
-                            <template x-for="invite in pendingInvites" :key="invite.id">
-                                <li class="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
-                                    <div class="flex-1 min-w-0">
-                                        <p class="truncate text-xs font-medium text-foreground" x-text="invite.name || invite.email"></p>
-                                        <p class="truncate text-[11px] text-muted-foreground opacity-80" x-text="invite.email"></p>
-                                    </div>
-                                    <span class="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-600">
-                                        <span x-text="invite.permission"></span>
-                                    </span>
-                                </li>
-                            </template>
-                        </ul>
-                    </template>
-
-                    <p
-                        class="text-[11px] text-muted-foreground/80"
-                        x-show="pendingInvites.length === 0"
-                        x-cloak
-                    >
-                        {{ __('No pending invites.') }}
-                    </p>
-                </div>
-
-                <div class="h-px bg-border/60"></div>
-
-                <!-- Declined / rejected invitations -->
-                <div>
-                    <div class="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <span>{{ __('Declined / rejected') }}</span>
-                        <span x-text="declinedInvites.length"></span>
-                    </div>
-
-                    <template x-if="declinedInvites.length > 0">
-                        <ul class="space-y-1">
-                            <template x-for="invite in declinedInvites" :key="invite.id">
-                                <li class="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-muted/60">
-                                    <div class="flex-1 min-w-0">
-                                        <p class="truncate text-xs font-medium text-foreground" x-text="invite.name || invite.email"></p>
-                                        <p class="truncate text-[11px] text-muted-foreground opacity-80" x-text="invite.email"></p>
-                                    </div>
-                                    <span class="shrink-0 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-600">
-                                        <span x-text="invite.permission"></span>
-                                    </span>
-                                </li>
-                            </template>
-                        </ul>
-                    </template>
-
-                    <p
-                        class="text-[11px] text-muted-foreground/80"
-                        x-show="declinedInvites.length === 0"
-                        x-cloak
-                    >
-                        {{ __('No declined invites.') }}
-                    </p>
-                </div>
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
+                                        @click.stop="removePerson(person)"
+                                        :aria-label="(person.status ?? 'accepted') === 'accepted'
+                                            ? '{{ __('Remove collaborator') }}'
+                                            : '{{ __('Remove invitation') }}'"
+                                    >
+                                        <flux:icon name="x-mark" class="size-3.5" />
+                                    </button>
+                                </div>
+                            </li>
+                        </template>
+                    </ul>
+                </template>
             </div>
 
             <div
-                class="mt-2 flex flex-col items-center justify-center rounded-md border border-dashed border-border/70 px-3 py-3 text-center"
+                class="flex flex-col items-center justify-center rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-4 text-center"
                 x-show="totalCount === 0"
                 x-cloak
             >
-                <p class="mb-1 text-xs font-medium text-muted-foreground">
+                <p class="text-xs font-medium text-muted-foreground">
                     {{ __('No collaborators yet') }}
                 </p>
-                <p class="text-[11px] text-muted-foreground/80">
+                <p class="mt-1 text-[11px] text-muted-foreground/70">
                     {{ __('Use this menu later to invite collaborators.') }}
                 </p>
             </div>
