@@ -2,15 +2,22 @@
 
 namespace App\Livewire\Concerns;
 
+use App\DataTransferObjects\Collaboration\CreateCollaborationDto;
+use App\DataTransferObjects\Comment\CreateCommentDto;
+use App\DataTransferObjects\Comment\UpdateCommentDto;
 use App\DataTransferObjects\Event\CreateEventDto;
 use App\DataTransferObjects\Project\CreateProjectDto;
 use App\DataTransferObjects\Tag\CreateTagDto;
 use App\DataTransferObjects\Task\CreateTaskDto;
+use App\Models\Collaboration;
+use App\Models\Comment;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
+use App\Support\Validation\CollaborationPayloadValidation;
+use App\Support\Validation\CommentPayloadValidation;
 use App\Support\Validation\EventPayloadValidation;
 use App\Support\Validation\ProjectPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
@@ -708,6 +715,297 @@ trait HandlesWorkspaceItems
     }
 
     /**
+     * Add a comment to a task.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    #[Async]
+    #[Renderless]
+    public function addComment(array $payload): void
+    {
+        $user = $this->requireAuth(__('You must be logged in to add comments.'));
+        if ($user === null) {
+            return;
+        }
+
+        $payload = array_replace_recursive(CommentPayloadValidation::createDefaults(), $payload);
+
+        $validator = Validator::make(['commentPayload' => $payload], CommentPayloadValidation::createRules());
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid comment.'));
+
+            return;
+        }
+
+        $task = Task::query()->forUser($user->id)->find((int) $payload['taskId']);
+        if ($task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return;
+        }
+
+        $this->authorize('update', $task);
+
+        $dto = CreateCommentDto::fromValidated($validator->validated()['commentPayload']);
+
+        try {
+            $comment = $this->createCommentAction->execute($user, $task, $dto);
+        } catch (\Throwable $e) {
+            Log::error('Failed to add comment from workspace.', [
+                'user_id' => $user->id,
+                'task_id' => $task->id,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not add comment. Please try again.'));
+
+            return;
+        }
+
+        $this->dispatch('comment-added', commentId: $comment->id, taskId: $task->id);
+        $this->dispatch('toast', type: 'success', message: __('Comment added.'));
+        $this->dispatch('$refresh');
+    }
+
+    /**
+     * Update a comment.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    #[Async]
+    #[Renderless]
+    public function updateComment(int $commentId, array $payload): void
+    {
+        $user = $this->requireAuth(__('You must be logged in to update comments.'));
+        if ($user === null) {
+            return;
+        }
+
+        $comment = Comment::query()->with('task')->find($commentId);
+        if ($comment === null) {
+            $this->dispatch('toast', type: 'error', message: __('Comment not found.'));
+
+            return;
+        }
+
+        $task = Task::query()->forUser($user->id)->find($comment->task_id);
+        if ($task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return;
+        }
+
+        $this->authorize('update', $comment);
+
+        $payload = array_replace_recursive(CommentPayloadValidation::updateDefaults(), $payload);
+
+        $validator = Validator::make(['commentPayload' => $payload], CommentPayloadValidation::updateRules());
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid comment.'));
+
+            return;
+        }
+
+        $dto = UpdateCommentDto::fromValidated($validator->validated()['commentPayload']);
+
+        try {
+            $this->updateCommentAction->execute($comment, $dto);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update comment from workspace.', [
+                'user_id' => $user->id,
+                'comment_id' => $commentId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not update comment. Please try again.'));
+
+            return;
+        }
+
+        $this->dispatch('comment-updated', commentId: $comment->id, taskId: $comment->task_id);
+        $this->dispatch('toast', type: 'success', message: __('Comment updated.'));
+        $this->dispatch('$refresh');
+    }
+
+    /**
+     * Delete a comment.
+     */
+    #[Async]
+    #[Renderless]
+    public function deleteComment(int $commentId): void
+    {
+        $user = $this->requireAuth(__('You must be logged in to delete comments.'));
+        if ($user === null) {
+            return;
+        }
+
+        $comment = Comment::query()->with('task')->find($commentId);
+        if ($comment === null) {
+            $this->dispatch('toast', type: 'error', message: __('Comment not found.'));
+
+            return;
+        }
+
+        $this->authorize('delete', $comment);
+
+        try {
+            $deleted = $this->deleteCommentAction->execute($comment);
+        } catch (\Throwable $e) {
+            Log::error('Failed to delete comment from workspace.', [
+                'user_id' => $user->id,
+                'comment_id' => $commentId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not delete comment. Please try again.'));
+
+            return;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Could not delete comment. Please try again.'));
+
+            return;
+        }
+
+        $this->dispatch('comment-deleted', commentId: $commentId, taskId: $comment->task_id);
+        $this->dispatch('toast', type: 'success', message: __('Comment deleted.'));
+        $this->dispatch('$refresh');
+    }
+
+    /**
+     * Invite a collaborator to a task, project, or event.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    #[Async]
+    #[Renderless]
+    public function inviteCollaborator(array $payload): void
+    {
+        $user = $this->requireAuth(__('You must be logged in to invite collaborators.'));
+        if ($user === null) {
+            return;
+        }
+
+        $payload = array_replace_recursive(CollaborationPayloadValidation::createDefaults(), $payload);
+
+        $validator = Validator::make(['collaborationPayload' => $payload], CollaborationPayloadValidation::createRules());
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid invite details.'));
+
+            return;
+        }
+
+        $validated = $validator->validated()['collaborationPayload'];
+
+        $invitee = User::query()->where('email', $validated['email'])->first();
+        if ($invitee === null) {
+            $this->dispatch('toast', type: 'error', message: __('User not found.'));
+
+            return;
+        }
+
+        if ($invitee->id === $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('You cannot invite yourself.'));
+
+            return;
+        }
+
+        $collaboratable = match ($validated['collaboratableType']) {
+            'task' => Task::query()->forUser($user->id)->find((int) $validated['collaboratableId']),
+            'project' => Project::query()->forUser($user->id)->find((int) $validated['collaboratableId']),
+            'event' => Event::query()->forUser($user->id)->find((int) $validated['collaboratableId']),
+            default => null,
+        };
+
+        if ($collaboratable === null) {
+            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
+
+            return;
+        }
+
+        $this->authorize('update', $collaboratable);
+
+        $exists = $collaboratable->collaborations()
+            ->where('user_id', $invitee->id)
+            ->exists();
+
+        if ($exists) {
+            $this->dispatch('toast', type: 'error', message: __('This user is already a collaborator.'));
+
+            return;
+        }
+
+        $validated['userId'] = $invitee->id;
+        $dto = CreateCollaborationDto::fromValidated($validated);
+
+        try {
+            $this->createCollaborationAction->execute($dto);
+        } catch (\Throwable $e) {
+            Log::error('Failed to invite collaborator from workspace.', [
+                'user_id' => $user->id,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not invite collaborator. Please try again.'));
+
+            return;
+        }
+
+        $this->dispatch('collaborator-invited');
+        $this->dispatch('toast', type: 'success', message: __('Collaborator invited.'));
+        $this->dispatch('$refresh');
+    }
+
+    /**
+     * Remove a collaborator from a task, project, or event.
+     */
+    #[Async]
+    #[Renderless]
+    public function removeCollaborator(int $collaborationId): void
+    {
+        $user = $this->requireAuth(__('You must be logged in to remove collaborators.'));
+        if ($user === null) {
+            return;
+        }
+
+        $collaboration = Collaboration::query()->with('collaboratable')->find($collaborationId);
+        if ($collaboration === null) {
+            $this->dispatch('toast', type: 'error', message: __('Collaboration not found.'));
+
+            return;
+        }
+
+        $collaboratable = $collaboration->collaboratable;
+        if ($collaboratable === null) {
+            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
+
+            return;
+        }
+
+        $this->authorize('update', $collaboratable);
+
+        try {
+            $deleted = $this->deleteCollaborationAction->execute($collaboration);
+        } catch (\Throwable $e) {
+            Log::error('Failed to remove collaborator from workspace.', [
+                'user_id' => $user->id,
+                'collaboration_id' => $collaborationId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not remove collaborator. Please try again.'));
+
+            return;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Could not remove collaborator. Please try again.'));
+
+            return;
+        }
+
+        $this->dispatch('collaborator-removed');
+        $this->dispatch('toast', type: 'success', message: __('Collaborator removed.'));
+        $this->dispatch('$refresh');
+    }
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     protected function rules(): array
@@ -748,7 +1046,7 @@ trait HandlesWorkspaceItems
         $date = Carbon::parse($this->selectedDate);
 
         $taskQuery = Task::query()
-            ->with(['project', 'event', 'recurringTask', 'tags', 'collaborations'])
+            ->with(['project', 'event', 'recurringTask', 'tags', 'collaborations', 'comments.user'])
             ->forUser($userId)
             ->incomplete()
             ->relevantForDate($date);
@@ -787,7 +1085,7 @@ trait HandlesWorkspaceItems
         $today = Carbon::today();
 
         $overdueTaskQuery = Task::query()
-            ->with(['project', 'tags', 'collaborations'])
+            ->with(['project', 'tags', 'collaborations', 'comments.user'])
             ->forUser($userId)
             ->incomplete()
             ->overdue($today)

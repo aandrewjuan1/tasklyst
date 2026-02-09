@@ -1,5 +1,10 @@
 <?php
 
+use App\Actions\Comment\CreateCommentAction;
+use App\Actions\Comment\DeleteCommentAction;
+use App\Actions\Comment\UpdateCommentAction;
+use App\Actions\Collaboration\CreateCollaborationAction;
+use App\Actions\Collaboration\DeleteCollaborationAction;
 use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\DeleteEventAction;
 use App\Actions\Event\UpdateEventPropertyAction;
@@ -69,6 +74,16 @@ class extends Component
 
     protected UpdateTaskPropertyAction $updateTaskPropertyAction;
 
+    protected CreateCommentAction $createCommentAction;
+
+    protected UpdateCommentAction $updateCommentAction;
+
+    protected DeleteCommentAction $deleteCommentAction;
+
+    protected CreateCollaborationAction $createCollaborationAction;
+
+    protected DeleteCollaborationAction $deleteCollaborationAction;
+
     /**
      * @var array<string, mixed>
      */
@@ -99,7 +114,12 @@ class extends Component
         DeleteTaskAction $deleteTaskAction,
         UpdateEventPropertyAction $updateEventPropertyAction,
         UpdateProjectPropertyAction $updateProjectPropertyAction,
-        UpdateTaskPropertyAction $updateTaskPropertyAction
+        UpdateTaskPropertyAction $updateTaskPropertyAction,
+        CreateCommentAction $createCommentAction,
+        UpdateCommentAction $updateCommentAction,
+        DeleteCommentAction $deleteCommentAction,
+        CreateCollaborationAction $createCollaborationAction,
+        DeleteCollaborationAction $deleteCollaborationAction
     ): void {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
@@ -116,6 +136,11 @@ class extends Component
         $this->updateEventPropertyAction = $updateEventPropertyAction;
         $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;
+        $this->createCommentAction = $createCommentAction;
+        $this->updateCommentAction = $updateCommentAction;
+        $this->deleteCommentAction = $deleteCommentAction;
+        $this->createCollaborationAction = $createCollaborationAction;
+        $this->deleteCollaborationAction = $deleteCollaborationAction;
     }
 
     public function mount(): void

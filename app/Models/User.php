@@ -62,4 +62,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(Collaboration::class);
     }
+
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class);
+    }
 }
