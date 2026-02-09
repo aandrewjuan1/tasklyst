@@ -34,7 +34,7 @@ final class CollaborationPayloadValidation
                 Rule::in(['task', 'project', 'event']),
             ],
             'collaborationPayload.collaboratableId' => ['required', 'integer'],
-            'collaborationPayload.email' => ['required', 'email', 'exists:users,email'],
+            'collaborationPayload.email' => ['required', 'email'],
             'collaborationPayload.permission' => [
                 'required',
                 'string',

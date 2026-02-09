@@ -2,12 +2,13 @@
 
 namespace App\Livewire\Concerns;
 
-use App\DataTransferObjects\Collaboration\CreateCollaborationDto;
+use App\DataTransferObjects\Collaboration\CreateCollaborationInvitationDto;
+use App\Enums\CollaborationPermission;
 use App\Models\Collaboration;
+use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
-use App\Models\User;
 use App\Support\Validation\CollaborationPayloadValidation;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
@@ -44,14 +45,7 @@ trait HandlesCollaborations
 
         $validated = $validator->validated()['collaborationPayload'];
 
-        $invitee = User::query()->where('email', $validated['email'])->first();
-        if ($invitee === null) {
-            $this->dispatch('toast', type: 'error', message: __('User not found.'));
-
-            return false;
-        }
-
-        if ($invitee->id === $user->id) {
+        if (strcasecmp($validated['email'], $user->email) === 0) {
             $this->dispatch('toast', type: 'error', message: __('You cannot invite yourself.'));
 
             return false;
@@ -72,33 +66,22 @@ trait HandlesCollaborations
 
         $this->authorize('update', $collaboratable);
 
-        $exists = $collaboratable->collaborations()
-            ->where('user_id', $invitee->id)
-            ->exists();
-
-        if ($exists) {
-            $this->dispatch('toast', type: 'error', message: __('This user is already a collaborator.'));
-
-            return false;
-        }
-
-        $validated['userId'] = $invitee->id;
-        $dto = CreateCollaborationDto::fromValidated($validated);
+        $dto = CreateCollaborationInvitationDto::fromValidated($validated, $user->id);
 
         try {
-            $this->createCollaborationAction->execute($dto);
+            $this->createCollaborationInvitationAction->execute($dto);
         } catch (\Throwable $e) {
-            Log::error('Failed to invite collaborator from workspace.', [
+            Log::error('Failed to create collaboration invitation from workspace.', [
                 'user_id' => $user->id,
                 'exception' => $e,
             ]);
-            $this->dispatch('toast', type: 'error', message: __('Could not invite collaborator. Please try again.'));
+            $this->dispatch('toast', type: 'error', message: __('Could not send invitation. Please try again.'));
 
             return false;
         }
 
-        $this->dispatch('collaborator-invited');
-        $this->dispatch('toast', type: 'success', message: __('Collaborator invited.'));
+        $this->dispatch('collaboration-invitation-created');
+        $this->dispatch('toast', type: 'success', message: __('Invitation sent.'));
 
         return true;
     }
@@ -154,6 +137,124 @@ trait HandlesCollaborations
 
         $this->dispatch('collaborator-removed');
         $this->dispatch('toast', type: 'success', message: __('Collaborator removed.'));
+
+        return true;
+    }
+
+    #[Async]
+    #[Renderless]
+    public function acceptCollaborationInvitation(string $token): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to accept invitations.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $invitation = CollaborationInvitation::query()->with('collaboratable')->where('token', $token)->first();
+        if ($invitation === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found or already handled.'));
+
+            return false;
+        }
+
+        if ($invitation->collaboratable === null) {
+            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
+
+            return false;
+        }
+
+        $result = $this->acceptCollaborationInvitationAction->execute($invitation, $user);
+        if ($result === null && $invitation->status !== 'accepted') {
+            $this->dispatch('toast', type: 'error', message: __('Could not accept invitation. Please try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('collaboration-invitation-accepted');
+        $this->dispatch('toast', type: 'success', message: __('Invitation accepted.'));
+
+        return true;
+    }
+
+    #[Async]
+    #[Renderless]
+    public function declineCollaborationInvitation(string $token): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to decline invitations.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $invitation = CollaborationInvitation::query()->where('token', $token)->first();
+        if ($invitation === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found or already handled.'));
+
+            return false;
+        }
+
+        $ok = $this->declineCollaborationInvitationAction->execute($invitation, $user);
+        if (! $ok) {
+            $this->dispatch('toast', type: 'error', message: __('Could not decline invitation. Please try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('collaboration-invitation-declined');
+        $this->dispatch('toast', type: 'success', message: __('Invitation declined.'));
+
+        return true;
+    }
+
+    /**
+     * Update the permission of an existing collaborator (view ↔ edit).
+     */
+    #[Async]
+    #[Renderless]
+    public function updateCollaboratorPermission(int $collaborationId, string $permission): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to update collaborator permissions.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $collaboration = Collaboration::query()->with('collaboratable')->find($collaborationId);
+        if ($collaboration === null) {
+            $this->dispatch('toast', type: 'error', message: __('Collaboration not found.'));
+
+            return false;
+        }
+
+        $collaboratable = $collaboration->collaboratable;
+        if ($collaboratable === null) {
+            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $collaboratable);
+
+        $enum = CollaborationPermission::tryFrom($permission);
+        if ($enum === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid permission.'));
+
+            return false;
+        }
+
+        try {
+            $this->updateCollaborationPermissionAction->execute($collaboration, $enum);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update collaboration permission from workspace.', [
+                'user_id' => $user->id,
+                'collaboration_id' => $collaborationId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not update collaborator permission. Please try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('collaborator-permission-updated');
+        $this->dispatch('toast', type: 'success', message: __('Collaborator permission updated.'));
 
         return true;
     }

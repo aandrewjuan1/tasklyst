@@ -1,15 +1,19 @@
 <?php
 
-use App\Actions\Collaboration\CreateCollaborationAction;
+use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
+use App\Actions\Collaboration\CreateCollaborationInvitationAction;
+use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Actions\Collaboration\DeleteCollaborationAction;
+use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
-use App\DataTransferObjects\Collaboration\CreateCollaborationDto;
+use App\DataTransferObjects\Collaboration\CreateCollaborationInvitationDto;
 use App\DataTransferObjects\Comment\CreateCommentDto;
 use App\DataTransferObjects\Comment\UpdateCommentDto;
 use App\Enums\CollaborationPermission;
 use App\Models\Collaboration;
+use App\Models\CollaborationInvitation;
 use App\Models\Comment;
 use App\Models\Event;
 use App\Models\Project;
@@ -119,22 +123,25 @@ it('deletes a comment', function (): void {
         ->and(Comment::find($comment->id))->toBeNull();
 });
 
-it('creates a collaboration on a task', function (): void {
+it('creates a collaboration invitation on a task', function (): void {
     $invitee = User::factory()->create();
 
-    $dto = new CreateCollaborationDto(
+    $dto = new CreateCollaborationInvitationDto(
         collaboratableType: 'task',
         collaboratableId: $this->task->id,
-        userId: $invitee->id,
+        inviterId: $this->user->id,
+        inviteeEmail: $invitee->email,
         permission: CollaborationPermission::Edit,
     );
 
-    $collaboration = app(CreateCollaborationAction::class)->execute($dto);
+    $invitation = app(CreateCollaborationInvitationAction::class)->execute($dto);
 
-    expect($collaboration)->toBeInstanceOf(Collaboration::class)
-        ->and($collaboration->user_id)->toBe($invitee->id)
-        ->and($collaboration->collaboratable_id)->toBe($this->task->id)
-        ->and($this->task->collaborations)->toHaveCount(1);
+    expect($invitation)->toBeInstanceOf(CollaborationInvitation::class)
+        ->and($invitation->collaboratable_id)->toBe($this->task->id)
+        ->and($invitation->collaboratable_type)->toBe(Task::class)
+        ->and($invitation->inviter_id)->toBe($this->user->id)
+        ->and($invitation->invitee_email)->toBe($invitee->email)
+        ->and($invitation->status)->toBe('pending');
 });
 
 it('deletes a collaboration', function (): void {
@@ -150,4 +157,60 @@ it('deletes a collaboration', function (): void {
 
     expect($deleted)->toBeTrue()
         ->and(Collaboration::find($collaboration->id))->toBeNull();
+});
+
+it('accepts a collaboration invitation for the correct user', function (): void {
+    $invitee = User::factory()->create();
+
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $this->task->id,
+        'inviter_id' => $this->user->id,
+        'invitee_email' => $invitee->email,
+        'permission' => CollaborationPermission::Edit,
+        'status' => 'pending',
+    ]);
+
+    $collaboration = app(AcceptCollaborationInvitationAction::class)->execute($invitation, $invitee);
+
+    expect($invitation->refresh()->status)->toBe('accepted')
+        ->and($invitation->invitee_user_id)->toBe($invitee->id)
+        ->and($collaboration)->toBeInstanceOf(Collaboration::class)
+        ->and($collaboration->user_id)->toBe($invitee->id)
+        ->and($collaboration->collaboratable_id)->toBe($this->task->id);
+});
+
+it('declines a collaboration invitation for the correct user', function (): void {
+    $invitee = User::factory()->create();
+
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $this->task->id,
+        'inviter_id' => $this->user->id,
+        'invitee_email' => $invitee->email,
+        'permission' => CollaborationPermission::View,
+        'status' => 'pending',
+    ]);
+
+    $ok = app(DeclineCollaborationInvitationAction::class)->execute($invitation, $invitee);
+
+    expect($ok)->toBeTrue()
+        ->and($invitation->refresh()->status)->toBe('declined')
+        ->and($invitation->invitee_user_id)->toBe($invitee->id);
+});
+
+it('updates a collaboration permission', function (): void {
+    $invitee = User::factory()->create();
+
+    $collaboration = Collaboration::create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $this->task->id,
+        'user_id' => $invitee->id,
+        'permission' => CollaborationPermission::View,
+    ]);
+
+    $updated = app(UpdateCollaborationPermissionAction::class)->execute($collaboration, CollaborationPermission::Edit);
+
+    expect($updated->permission)->toBe(CollaborationPermission::Edit)
+        ->and($collaboration->fresh()->permission)->toBe(CollaborationPermission::Edit);
 });

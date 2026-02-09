@@ -3,8 +3,12 @@
 use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
+use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
 use App\Actions\Collaboration\CreateCollaborationAction;
+use App\Actions\Collaboration\CreateCollaborationInvitationAction;
+use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Actions\Collaboration\DeleteCollaborationAction;
+use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\DeleteEventAction;
 use App\Actions\Event\UpdateEventPropertyAction;
@@ -96,6 +100,14 @@ class extends Component
 
     protected CreateCollaborationAction $createCollaborationAction;
 
+    protected CreateCollaborationInvitationAction $createCollaborationInvitationAction;
+
+    protected AcceptCollaborationInvitationAction $acceptCollaborationInvitationAction;
+
+    protected DeclineCollaborationInvitationAction $declineCollaborationInvitationAction;
+
+    protected UpdateCollaborationPermissionAction $updateCollaborationPermissionAction;
+
     protected DeleteCollaborationAction $deleteCollaborationAction;
 
     /**
@@ -133,6 +145,10 @@ class extends Component
         UpdateCommentAction $updateCommentAction,
         DeleteCommentAction $deleteCommentAction,
         CreateCollaborationAction $createCollaborationAction,
+        CreateCollaborationInvitationAction $createCollaborationInvitationAction,
+        AcceptCollaborationInvitationAction $acceptCollaborationInvitationAction,
+        DeclineCollaborationInvitationAction $declineCollaborationInvitationAction,
+        UpdateCollaborationPermissionAction $updateCollaborationPermissionAction,
         DeleteCollaborationAction $deleteCollaborationAction
     ): void {
         $this->taskService = $taskService;
@@ -154,6 +170,10 @@ class extends Component
         $this->updateCommentAction = $updateCommentAction;
         $this->deleteCommentAction = $deleteCommentAction;
         $this->createCollaborationAction = $createCollaborationAction;
+        $this->createCollaborationInvitationAction = $createCollaborationInvitationAction;
+        $this->acceptCollaborationInvitationAction = $acceptCollaborationInvitationAction;
+        $this->declineCollaborationInvitationAction = $declineCollaborationInvitationAction;
+        $this->updateCollaborationPermissionAction = $updateCollaborationPermissionAction;
         $this->deleteCollaborationAction = $deleteCollaborationAction;
     }
 
