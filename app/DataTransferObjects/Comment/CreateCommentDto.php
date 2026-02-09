@@ -5,7 +5,8 @@ namespace App\DataTransferObjects\Comment;
 final readonly class CreateCommentDto
 {
     public function __construct(
-        public int $taskId,
+        public string $commentableType,
+        public int $commentableId,
         public string $content,
     ) {}
 
@@ -17,14 +18,15 @@ final readonly class CreateCommentDto
     public static function fromValidated(array $validated): self
     {
         return new self(
-            taskId: (int) $validated['taskId'],
+            commentableType: (string) $validated['commentableType'],
+            commentableId: (int) $validated['commentableId'],
             content: trim((string) $validated['content']),
         );
     }
 
     /**
      * Convert to array format expected by CommentService::createComment.
-     * task_id and user_id are set by the service from the resolved Task and User.
+     * commentable_id, commentable_type, and user_id are set by the service from the resolved model and User.
      *
      * @return array<string, mixed>
      */

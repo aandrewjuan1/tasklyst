@@ -20,12 +20,14 @@ class CommentPolicy
      */
     public function view(User $user, Comment $comment): bool
     {
-        return $user->can('view', $comment->task);
+        $commentable = $comment->commentable;
+
+        return $user->can('view', $commentable);
     }
 
     /**
      * Determine whether the user can create models.
-     * Use TaskPolicy::update for authorization when creating a comment on a task.
+     * Authorization is checked on the commentable model (Task, Event, or Project).
      */
     public function create(User $user): bool
     {
@@ -37,7 +39,9 @@ class CommentPolicy
      */
     public function update(User $user, Comment $comment): bool
     {
-        return $comment->user_id === $user->id || $user->can('update', $comment->task);
+        $commentable = $comment->commentable;
+
+        return $comment->user_id === $user->id || $user->can('update', $commentable);
     }
 
     /**
@@ -45,7 +49,9 @@ class CommentPolicy
      */
     public function delete(User $user, Comment $comment): bool
     {
-        return $comment->user_id === $user->id || $user->can('update', $comment->task);
+        $commentable = $comment->commentable;
+
+        return $comment->user_id === $user->id || $user->can('update', $commentable);
     }
 
     /**
@@ -53,7 +59,9 @@ class CommentPolicy
      */
     public function restore(User $user, Comment $comment): bool
     {
-        return $user->can('update', $comment->task);
+        $commentable = $comment->commentable;
+
+        return $user->can('update', $commentable);
     }
 
     /**
@@ -61,6 +69,8 @@ class CommentPolicy
      */
     public function forceDelete(User $user, Comment $comment): bool
     {
-        return $user->can('update', $comment->task);
+        $commentable = $comment->commentable;
+
+        return $user->can('update', $commentable);
     }
 }

@@ -16,18 +16,27 @@ use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
-use App\Livewire\Concerns\HandlesWorkspaceFiltering;
-use App\Livewire\Concerns\HandlesWorkspaceItems;
+use App\Livewire\Concerns\HandlesCollaborations;
+use App\Livewire\Concerns\HandlesComments;
+use App\Livewire\Concerns\HandlesEvents;
+use App\Livewire\Concerns\HandlesFiltering;
+use App\Livewire\Concerns\HandlesProjects;
+use App\Livewire\Concerns\HandlesTags;
+use App\Livewire\Concerns\HandlesTasks;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\User;
 use App\Services\EventService;
 use App\Services\ProjectService;
 use App\Services\TagService;
 use App\Services\TaskService;
-use Illuminate\Support\Facades\Auth;
+use Carbon\Carbon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -37,8 +46,13 @@ new
 class extends Component
 {
     use AuthorizesRequests;
-    use HandlesWorkspaceFiltering;
-    use HandlesWorkspaceItems;
+    use HandlesCollaborations;
+    use HandlesComments;
+    use HandlesEvents;
+    use HandlesFiltering;
+    use HandlesProjects;
+    use HandlesTags;
+    use HandlesTasks;
 
     public string $selectedDate;
 
@@ -158,5 +172,82 @@ class extends Component
     public function incrementListRefresh(): void
     {
         $this->listRefresh++;
+    }
+
+    /**
+     * Get overdue tasks and events for the authenticated user.
+     * Overdue = end/due date is before today (not the selected view date).
+     * Returns a unified collection of entries with 'kind' and 'item' for rendering.
+     */
+    #[Computed]
+    public function overdue(): Collection
+    {
+        $userId = Auth::id();
+
+        if ($userId === null) {
+            return collect();
+        }
+
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+
+        $today = Carbon::today();
+
+        $overdueTaskQuery = Task::query()
+            ->with(['project', 'tags', 'collaborations', 'comments.user'])
+            ->forUser($userId)
+            ->incomplete()
+            ->overdue($today)
+            ->whereDoesntHave('recurringTask');
+
+        if (method_exists($this, 'applyOverdueTaskFilters')) {
+            $this->applyOverdueTaskFilters($overdueTaskQuery);
+        }
+
+        $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
+            ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
+
+        $overdueEventQuery = Event::query()
+            ->with(['tags', 'collaborations'])
+            ->forUser($userId)
+            ->notCancelled()
+            ->notCompleted()
+            ->overdue($today)
+            ->whereDoesntHave('recurringEvent');
+
+        if (method_exists($this, 'applyOverdueEventFilters')) {
+            $this->applyOverdueEventFilters($overdueEventQuery);
+        }
+
+        $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
+            ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
+
+        if ($filterItemType !== null) {
+            if ($filterItemType === 'tasks') {
+                return collect($overdueTasks->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
+            }
+            if ($filterItemType === 'events') {
+                return collect($overdueEvents->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
+            }
+            if ($filterItemType === 'projects') {
+                return collect();
+            }
+        }
+
+        return collect($overdueTasks->all())
+            ->merge($overdueEvents->all())
+            ->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)
+            ->values();
+    }
+
+    protected function requireAuth(string $message): ?User
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            $this->dispatch('toast', type: 'error', message: $message);
+
+            return null;
+        }
+
+        return $user;
     }
 };

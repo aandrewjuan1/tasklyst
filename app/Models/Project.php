@@ -63,6 +63,11 @@ class Project extends Model
             ->withTimestamps();
     }
 
+    public function comments(): MorphMany
+    {
+        return $this->morphMany(Comment::class, 'commentable')->orderBy('is_pinned', 'desc')->orderBy('created_at');
+    }
+
     /**
      * Map frontend property name (camelCase) to database column.
      */

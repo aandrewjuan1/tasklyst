@@ -2,6 +2,10 @@
 
 namespace App\Support\Validation;
 
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Task;
+
 final class CommentPayloadValidation
 {
     /**
@@ -10,7 +14,8 @@ final class CommentPayloadValidation
     public static function createDefaults(): array
     {
         return [
-            'taskId' => null,
+            'commentableType' => null,
+            'commentableId' => null,
             'content' => '',
         ];
     }
@@ -23,7 +28,8 @@ final class CommentPayloadValidation
     public static function createRules(): array
     {
         return [
-            'commentPayload.taskId' => ['required', 'integer', 'exists:tasks,id'],
+            'commentPayload.commentableType' => ['required', 'string', 'in:'.implode(',', [Task::class, Event::class, Project::class])],
+            'commentPayload.commentableId' => ['required', 'integer'],
             'commentPayload.content' => ['required', 'string', 'max:65535', 'regex:/\S/'],
         ];
     }

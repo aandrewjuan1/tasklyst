@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Url;
 
-trait HandlesWorkspaceFiltering
+trait HandlesFiltering
 {
     #[Url(as: 'status')]
     public ?string $filterTaskStatus = null;

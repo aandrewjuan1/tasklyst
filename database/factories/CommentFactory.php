@@ -19,7 +19,8 @@ class CommentFactory extends Factory
     public function definition(): array
     {
         return [
-            'task_id' => Task::factory(),
+            'commentable_id' => Task::factory(),
+            'commentable_type' => Task::class,
             'user_id' => User::factory(),
             'content' => $this->faker->sentence(),
             'is_edited' => false,
