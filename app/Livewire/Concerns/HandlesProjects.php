@@ -214,6 +214,7 @@ trait HandlesProjects
             ->with([
                 'tasks',
                 'collaborations',
+                'comments.user',
             ])
             ->forUser($userId)
             ->notArchived()

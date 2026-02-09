@@ -1905,7 +1905,8 @@
                 </span>
             </span>
         @endif
-
     </div>
     @endif
+
+    <x-workspace.comments :item="$item" :kind="$kind" />
 </div>

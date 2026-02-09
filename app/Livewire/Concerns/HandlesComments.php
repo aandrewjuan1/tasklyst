@@ -19,15 +19,20 @@ trait HandlesComments
     /**
      * Add a comment to a task, event, or project.
      *
+     * This mirrors the optimistic flows used for tasks / events / projects:
+     * - return a non-null integer ID on success
+     * - return null on any validation / authorization / persistence failure so the
+     *   frontend can rollback its optimistic state.
+     *
      * @param  array<string, mixed>  $payload
      */
     #[Async]
     #[Renderless]
-    public function addComment(array $payload): void
+    public function addComment(array $payload): ?int
     {
         $user = $this->requireAuth(__('You must be logged in to add comments.'));
         if ($user === null) {
-            return;
+            return null;
         }
 
         $payload = array_replace_recursive(CommentPayloadValidation::createDefaults(), $payload);
@@ -36,7 +41,7 @@ trait HandlesComments
         if ($validator->fails()) {
             $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid comment.'));
 
-            return;
+            return null;
         }
 
         $validated = $validator->validated()['commentPayload'];
@@ -53,7 +58,7 @@ trait HandlesComments
         if ($commentable === null) {
             $this->dispatch('toast', type: 'error', message: __('Item not found.'));
 
-            return;
+            return null;
         }
 
         $this->authorize('update', $commentable);
@@ -71,40 +76,44 @@ trait HandlesComments
             ]);
             $this->dispatch('toast', type: 'error', message: __('Could not add comment. Please try again.'));
 
-            return;
+            return null;
         }
 
         $this->dispatch('comment-added', commentId: $comment->id, commentableType: $commentableType, commentableId: $commentableId);
         $this->dispatch('toast', type: 'success', message: __('Comment added.'));
-        $this->dispatch('$refresh');
+
+        return (int) $comment->id;
     }
 
     /**
      * Update a comment.
      *
+     * Mirrors other optimistic flows (e.g. updateTaskProperty / updateEventProperty) by
+     * returning a boolean status instead of relying on exceptions only.
+     *
      * @param  array<string, mixed>  $payload
      */
     #[Async]
     #[Renderless]
-    public function updateComment(int $commentId, array $payload): void
+    public function updateComment(int $commentId, array $payload): bool
     {
         $user = $this->requireAuth(__('You must be logged in to update comments.'));
         if ($user === null) {
-            return;
+            return false;
         }
 
         $comment = Comment::query()->with('commentable')->find($commentId);
         if ($comment === null) {
             $this->dispatch('toast', type: 'error', message: __('Comment not found.'));
 
-            return;
+            return false;
         }
 
         $commentable = $comment->commentable;
         if ($commentable === null) {
             $this->dispatch('toast', type: 'error', message: __('Item not found.'));
 
-            return;
+            return false;
         }
 
         $this->authorize('update', $comment);
@@ -115,7 +124,7 @@ trait HandlesComments
         if ($validator->fails()) {
             $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid comment.'));
 
-            return;
+            return false;
         }
 
         $dto = UpdateCommentDto::fromValidated($validator->validated()['commentPayload']);
@@ -130,12 +139,13 @@ trait HandlesComments
             ]);
             $this->dispatch('toast', type: 'error', message: __('Could not update comment. Please try again.'));
 
-            return;
+            return false;
         }
 
         $this->dispatch('comment-updated', commentId: $comment->id, commentableType: $comment->commentable_type, commentableId: $comment->commentable_id);
         $this->dispatch('toast', type: 'success', message: __('Comment updated.'));
-        $this->dispatch('$refresh');
+
+        return true;
     }
 
     /**
@@ -143,18 +153,18 @@ trait HandlesComments
      */
     #[Async]
     #[Renderless]
-    public function deleteComment(int $commentId): void
+    public function deleteComment(int $commentId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to delete comments.'));
         if ($user === null) {
-            return;
+            return false;
         }
 
         $comment = Comment::query()->with('commentable')->find($commentId);
         if ($comment === null) {
             $this->dispatch('toast', type: 'error', message: __('Comment not found.'));
 
-            return;
+            return false;
         }
 
         $this->authorize('delete', $comment);
@@ -169,17 +179,18 @@ trait HandlesComments
             ]);
             $this->dispatch('toast', type: 'error', message: __('Could not delete comment. Please try again.'));
 
-            return;
+            return false;
         }
 
         if (! $deleted) {
             $this->dispatch('toast', type: 'error', message: __('Could not delete comment. Please try again.'));
 
-            return;
+            return false;
         }
 
         $this->dispatch('comment-deleted', commentId: $commentId, commentableType: $comment->commentable_type, commentableId: $comment->commentable_id);
         $this->dispatch('toast', type: 'success', message: __('Comment deleted.'));
-        $this->dispatch('$refresh');
+
+        return true;
     }
 }

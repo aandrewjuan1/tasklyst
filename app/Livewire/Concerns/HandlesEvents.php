@@ -229,7 +229,7 @@ trait HandlesEvents
         $date = Carbon::parse($this->selectedDate);
 
         $eventQuery = Event::query()
-            ->with(['recurringEvent', 'tags', 'collaborations'])
+            ->with(['recurringEvent', 'tags', 'collaborations', 'comments.user'])
             ->forUser($userId)
             ->activeForDate($date);
 
