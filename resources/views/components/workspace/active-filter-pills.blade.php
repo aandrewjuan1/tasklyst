@@ -45,6 +45,14 @@
         'tagIds' => __('Tags'),
         'recurring' => __('Recurring'),
     ];
+
+    $tagIds = $filters['tagIds'] ?? [];
+    $tagDisplay = (is_array($tagIds) && $tagIds !== [])
+        ? $tags->whereIn('id', $tagIds)->pluck('name')->implode(', ')
+        : '';
+    $hasOtherActiveFilters = ($filters['taskStatus'] ?? null) || ($filters['taskPriority'] ?? null)
+        || ($filters['taskComplexity'] ?? null) || ($filters['eventStatus'] ?? null)
+        || (is_array($tagIds) && $tagIds !== []) || ($filters['recurring'] ?? null);
 @endphp
 
 <div
@@ -60,6 +68,31 @@
             eventStatus: @js($filters['eventStatus'] ?? null),
             tagIds: @js($filters['tagIds'] ?? []),
             recurring: @js($filters['recurring'] ?? null),
+        },
+        userManuallySetItemType: false,
+        syncItemTypeOptimistic() {
+            const hasEvent = this.displayFilters.eventStatus != null && this.displayFilters.eventStatus !== '';
+            const hasTask = (this.displayFilters.taskStatus != null && this.displayFilters.taskStatus !== '') ||
+                (this.displayFilters.taskPriority != null && this.displayFilters.taskPriority !== '') ||
+                (this.displayFilters.taskComplexity != null && this.displayFilters.taskComplexity !== '');
+            const prev = this.displayFilters.itemType ?? null;
+            let newVal = null;
+            if (hasEvent && hasTask) {
+                if (this.userManuallySetItemType) return;
+                newVal = null;
+            } else if (hasEvent) {
+                newVal = 'events';
+            } else if (hasTask) {
+                newVal = 'tasks';
+            } else {
+                return;
+            }
+            this.userManuallySetItemType = false;
+            this.displayFilters.itemType = newVal;
+            if (prev !== newVal) {
+                const msg = newVal === null ? '{{ __("Showing all (filtered by events and tasks)") }}' : (newVal === 'events' ? '{{ __("Showing events only (filtered by event status)") }}' : '{{ __("Showing tasks only (filtered by task status)") }}');
+                $wire.$dispatch('toast', { type: 'info', message: msg });
+            }
         },
         init() {
             const syncFromWire = () => {
@@ -78,9 +111,14 @@
             this.$watch('$wire.filterEventStatus', () => { this.displayFilters.eventStatus = $wire.filterEventStatus ?? null; });
             this.$watch('$wire.filterTagIds', () => { this.displayFilters.tagIds = $wire.filterTagIds ?? []; });
             this.$watch('$wire.filterRecurring', () => { this.displayFilters.recurring = $wire.filterRecurring ?? null; });
+            const typeSpecificKeys = ['taskStatus', 'taskPriority', 'taskComplexity', 'eventStatus'];
             const handler = (e) => {
                 const { key, value } = e.detail || {};
+                if (key === 'itemType') {
+                    this.userManuallySetItemType = true;
+                }
                 if (key === 'clearAll') {
+                    this.userManuallySetItemType = false;
                     this.displayFilters.itemType = null;
                     this.displayFilters.taskStatus = null;
                     this.displayFilters.taskPriority = null;
@@ -92,6 +130,9 @@
                     this.displayFilters.tagIds = Array.isArray(value) ? value : (value ? [value] : []);
                 } else if (key) {
                     this.displayFilters[key] = value ?? null;
+                }
+                if (typeSpecificKeys.includes(key)) {
+                    this.syncItemTypeOptimistic();
                 }
             };
             window.addEventListener('filter-optimistic', handler);
@@ -109,6 +150,11 @@
         },
         hasActiveFilters() {
             return this.displayFilters.itemType || this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
+                this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
+                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring;
+        },
+        hasOtherActiveFilters() {
+            return this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
                 (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring;
         },
@@ -165,32 +211,212 @@
         </flux:menu>
     </flux:dropdown>
 
-    {{-- Other filter pills (rendered from Alpine state for optimistic updates) --}}
-    <template x-for="(key, index) in ['taskStatus','taskPriority','taskComplexity','eventStatus','tagIds','recurring']" :key="key">
-        <template x-if="showValue(key)">
-            <span
-                class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+    {{-- Task status pill - clickable dropdown with X to clear --}}
+    <span
+        x-show="showValue('taskStatus')"
+        style="{{ ($filters['taskStatus'] ?? null) ? '' : 'display:none' }}"
+        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+    >
+        <flux:dropdown position="bottom" align="start">
+            <flux:button
+                variant="ghost"
+                size="xs"
+                icon:trailing="chevron-down"
+                class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
             >
-                <span x-text="pillLabels[key] + ': ' + showValue(key)"></span>
-                <button
-                    type="button"
-                    class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/20 dark:hover:bg-primary/30"
-                    :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels[key])"
-                    @click="clearFilter(key)"
-                >
-                    <flux:icon name="x-mark" class="size-3" />
-                </button>
-            </span>
-        </template>
-    </template>
+                <span x-text="pillLabels.taskStatus + ': ' + showValue('taskStatus')">{{ $pillLabels['taskStatus'] }}: {{ ($filters['taskStatus'] ?? null) ? ($taskStatuses[$filters['taskStatus']] ?? '') : '' }}</span>
+            </flux:button>
+                <flux:menu class="min-w-[8rem]">
+                    <flux:menu.radio.group wire:model.change.live="filterTaskStatus">
+                        @foreach ($taskStatuses as $value => $label)
+                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.taskStatus = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskStatus', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
+                        @endforeach
+                    </flux:menu.radio.group>
+                </flux:menu>
+            </flux:dropdown>
+            <button
+                type="button"
+                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskStatus)"
+                @click.stop="clearFilter('taskStatus')"
+            >
+                <flux:icon name="x-mark" class="size-3" />
+            </button>
+    </span>
 
-    <template x-if="hasActiveFilters()">
+    {{-- Task priority pill - clickable dropdown with X to clear --}}
+    <span
+        x-show="showValue('taskPriority')"
+        style="{{ ($filters['taskPriority'] ?? null) ? '' : 'display:none' }}"
+        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+    >
+        <flux:dropdown position="bottom" align="start">
+            <flux:button
+                variant="ghost"
+                size="xs"
+                icon:trailing="chevron-down"
+                class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+            >
+                <span x-text="pillLabels.taskPriority + ': ' + showValue('taskPriority')">{{ $pillLabels['taskPriority'] }}: {{ ($filters['taskPriority'] ?? null) ? ($taskPriorities[$filters['taskPriority']] ?? '') : '' }}</span>
+            </flux:button>
+                <flux:menu class="min-w-[8rem]">
+                    <flux:menu.radio.group wire:model.change.live="filterTaskPriority">
+                        @foreach ($taskPriorities as $value => $label)
+                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.taskPriority = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskPriority', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
+                        @endforeach
+                    </flux:menu.radio.group>
+            </flux:menu>
+        </flux:dropdown>
         <button
             type="button"
-            @click="clearAllOptimistic()"
-            class="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskPriority)"
+                @click.stop="clearFilter('taskPriority')"
+            >
+                <flux:icon name="x-mark" class="size-3" />
+            </button>
+    </span>
+
+    {{-- Task complexity pill - clickable dropdown with X to clear --}}
+    <span
+        x-show="showValue('taskComplexity')"
+        style="{{ ($filters['taskComplexity'] ?? null) ? '' : 'display:none' }}"
+        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+    >
+            <flux:dropdown position="bottom" align="start">
+                <flux:button
+                    variant="ghost"
+                    size="xs"
+                    icon:trailing="chevron-down"
+                    class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+                >
+                    <span x-text="pillLabels.taskComplexity + ': ' + showValue('taskComplexity')">{{ $pillLabels['taskComplexity'] }}: {{ ($filters['taskComplexity'] ?? null) ? ($taskComplexities[$filters['taskComplexity']] ?? '') : '' }}</span>
+                </flux:button>
+                <flux:menu class="min-w-[8rem]">
+                    <flux:menu.radio.group wire:model.change.live="filterTaskComplexity">
+                        @foreach ($taskComplexities as $value => $label)
+                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.taskComplexity = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskComplexity', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
+                        @endforeach
+                    </flux:menu.radio.group>
+                </flux:menu>
+            </flux:dropdown>
+            <button
+                type="button"
+                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskComplexity)"
+                @click.stop="clearFilter('taskComplexity')"
+            >
+                <flux:icon name="x-mark" class="size-3" />
+            </button>
+    </span>
+
+    {{-- Event status pill - clickable dropdown with X to clear --}}
+    <span
+        x-show="showValue('eventStatus')"
+        style="{{ ($filters['eventStatus'] ?? null) ? '' : 'display:none' }}"
+        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+    >
+            <flux:dropdown position="bottom" align="start">
+                <flux:button
+                    variant="ghost"
+                    size="xs"
+                    icon:trailing="chevron-down"
+                    class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+                >
+                    <span x-text="pillLabels.eventStatus + ': ' + showValue('eventStatus')">{{ $pillLabels['eventStatus'] }}: {{ ($filters['eventStatus'] ?? null) ? ($eventStatuses[$filters['eventStatus']] ?? '') : '' }}</span>
+                </flux:button>
+                <flux:menu class="min-w-[8rem]">
+                    <flux:menu.radio.group wire:model.change.live="filterEventStatus">
+                        @foreach ($eventStatuses as $value => $label)
+                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.eventStatus = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'eventStatus', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
+                        @endforeach
+                    </flux:menu.radio.group>
+                </flux:menu>
+            </flux:dropdown>
+            <button
+                type="button"
+                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.eventStatus)"
+                @click.stop="clearFilter('eventStatus')"
+            >
+                <flux:icon name="x-mark" class="size-3" />
+            </button>
+    </span>
+
+    {{-- Tags pill - clickable dropdown with X to clear --}}
+    @if ($tags->isNotEmpty())
+        <span
+            x-show="showValue('tagIds')"
+            style="{{ $tagDisplay ? '' : 'display:none' }}"
+            class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
         >
-            {{ __('Clear all') }}
-        </button>
-    </template>
+                <flux:dropdown position="bottom" align="start">
+                    <flux:button
+                        variant="ghost"
+                        size="xs"
+                        icon:trailing="chevron-down"
+                        class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+                    >
+                        <span x-text="pillLabels.tagIds + ': ' + showValue('tagIds')">{{ $pillLabels['tagIds'] }}: {{ $tagDisplay }}</span>
+                    </flux:button>
+                    <flux:menu class="min-w-[8rem]">
+                        <flux:menu.radio.group wire:model="filterTagId">
+                            @foreach ($tags as $tag)
+                                <flux:menu.radio value="{{ $tag->id }}" wire:click="setTagFilter({{ $tag->id }})" @click="displayFilters.tagIds = [{{ $tag->id }}]; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: [{{ $tag->id }}] } }))">{{ $tag->name }}</flux:menu.radio>
+                            @endforeach
+                        </flux:menu.radio.group>
+                    </flux:menu>
+                </flux:dropdown>
+                <button
+                    type="button"
+                    class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+                    :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.tagIds)"
+                    @click.stop="clearFilter('tagIds')"
+            >
+                <flux:icon name="x-mark" class="size-3" />
+            </button>
+        </span>
+    @endif
+
+    {{-- Recurring pill - clickable dropdown with X to clear --}}
+    <span
+        x-show="showValue('recurring')"
+        style="{{ ($filters['recurring'] ?? null) ? '' : 'display:none' }}"
+        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+    >
+            <flux:dropdown position="bottom" align="start">
+                <flux:button
+                    variant="ghost"
+                    size="xs"
+                    icon:trailing="chevron-down"
+                    class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+                >
+                    <span x-text="pillLabels.recurring + ': ' + showValue('recurring')">{{ $pillLabels['recurring'] }}: {{ ($filters['recurring'] ?? null) ? ($recurringLabels[$filters['recurring']] ?? '') : '' }}</span>
+                </flux:button>
+                <flux:menu class="min-w-[8rem]">
+                    <flux:menu.radio.group wire:model.change.live="filterRecurring">
+                        <flux:menu.radio value="recurring" @click="displayFilters.recurring = 'recurring'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: 'recurring' } }))">{{ __('Recurring') }}</flux:menu.radio>
+                        <flux:menu.radio value="oneTime" @click="displayFilters.recurring = 'oneTime'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: 'oneTime' } }))">{{ __('One-time') }}</flux:menu.radio>
+                    </flux:menu.radio.group>
+                </flux:menu>
+            </flux:dropdown>
+            <button
+                type="button"
+                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.recurring)"
+                @click.stop="clearFilter('recurring')"
+            >
+                <flux:icon name="x-mark" class="size-3" />
+            </button>
+    </span>
+
+    <button
+        x-show="hasOtherActiveFilters()"
+        style="{{ $hasOtherActiveFilters ? '' : 'display:none' }}"
+        type="button"
+        @click="clearAllOptimistic()"
+        class="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+    >
+        {{ __('Clear all') }}
+    </button>
 </div>

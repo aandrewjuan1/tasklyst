@@ -38,6 +38,23 @@ trait HandlesWorkspaceFiltering
     #[Url(as: 'recurring')]
     public ?string $filterRecurring = null;
 
+    /** @var bool Whether user manually set item type; skip auto-sync override when both event and task filters are set */
+    protected bool $userManuallySetItemType = false;
+
+    /**
+     * Map of item type to filter keys that are specific to that type.
+     * Used for auto-syncing item type when type-specific filters change.
+     *
+     * @return array<string, array<string>>
+     */
+    protected static function typeSpecificFilters(): array
+    {
+        return [
+            'events' => ['eventStatus'],
+            'tasks' => ['taskStatus', 'taskPriority', 'taskComplexity'],
+        ];
+    }
+
     /**
      * Sync filterTagId from filterTagIds for wire:model binding.
      * Call from component mount when using Tags filter.
@@ -70,6 +87,38 @@ trait HandlesWorkspaceFiltering
     }
 
     /**
+     * Sync item type based on type-specific filters.
+     * - Only event filter → events
+     * - Only task filter → tasks
+     * - Both event and task filters → all (unless user manually overrode)
+     * - No type-specific filters → leave item type unchanged
+     */
+    protected function syncItemTypeFromTypeSpecificFilters(): void
+    {
+        $hasEventFilter = $this->normalizeFilterValue($this->filterEventStatus) !== null;
+        $hasTaskFilter = $this->normalizeFilterValue($this->filterTaskStatus) !== null
+            || $this->normalizeFilterValue($this->filterTaskPriority) !== null
+            || $this->normalizeFilterValue($this->filterTaskComplexity) !== null;
+
+        if ($hasEventFilter && $hasTaskFilter) {
+            if ($this->userManuallySetItemType) {
+                return;
+            }
+            $newItemType = null;
+        } elseif ($hasEventFilter) {
+            $newItemType = 'events';
+        } elseif ($hasTaskFilter) {
+            $newItemType = 'tasks';
+        } else {
+            return;
+        }
+
+        $this->userManuallySetItemType = false;
+
+        $this->filterItemType = $newItemType;
+    }
+
+    /**
      * Set a filter value. Triggers a re-render when filters change.
      */
     public function setFilter(string $key, mixed $value): void
@@ -83,6 +132,7 @@ trait HandlesWorkspaceFiltering
         $property = $keys[$key];
 
         if ($key === 'itemType') {
+            $this->userManuallySetItemType = true;
             $allowed = ['all', 'tasks', 'events', 'projects'];
             if ($value === null || $value === '' || $value === 'all') {
                 $value = null;
@@ -115,6 +165,14 @@ trait HandlesWorkspaceFiltering
 
         if ($key === 'tagIds') {
             $this->filterTagId = $value !== null && count($value) === 1 ? (string) $value[0] : null;
+        }
+
+        $typeSpecificKeys = array_merge(
+            static::typeSpecificFilters()['events'] ?? [],
+            static::typeSpecificFilters()['tasks'] ?? []
+        );
+        if (in_array($key, $typeSpecificKeys, true)) {
+            $this->syncItemTypeFromTypeSpecificFilters();
         }
 
         $this->incrementListRefresh();
@@ -152,6 +210,7 @@ trait HandlesWorkspaceFiltering
      */
     public function updatedFilterItemType(?string $value): void
     {
+        $this->userManuallySetItemType = true;
         if ($value === '') {
             $this->filterItemType = null;
         }
@@ -163,6 +222,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterTaskStatus = null;
         }
+        $this->syncItemTypeFromTypeSpecificFilters();
         $this->incrementListRefresh();
     }
 
@@ -171,6 +231,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterTaskPriority = null;
         }
+        $this->syncItemTypeFromTypeSpecificFilters();
         $this->incrementListRefresh();
     }
 
@@ -179,6 +240,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterTaskComplexity = null;
         }
+        $this->syncItemTypeFromTypeSpecificFilters();
         $this->incrementListRefresh();
     }
 
@@ -187,6 +249,7 @@ trait HandlesWorkspaceFiltering
         if ($value === '') {
             $this->filterEventStatus = null;
         }
+        $this->syncItemTypeFromTypeSpecificFilters();
         $this->incrementListRefresh();
     }
 
@@ -215,6 +278,7 @@ trait HandlesWorkspaceFiltering
      */
     public function clearAllFilters(): void
     {
+        $this->userManuallySetItemType = false;
         foreach (array_values(static::filterKeys()) as $property) {
             $this->{$property} = null;
         }

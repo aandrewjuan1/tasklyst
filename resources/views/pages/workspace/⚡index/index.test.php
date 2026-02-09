@@ -1138,6 +1138,117 @@ it('shows all item types when clearFilter itemType is called', function (): void
     expect($component->get('projects'))->toHaveCount(1);
 });
 
+it('auto-syncs item type to events when event status filter is set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'eventStatus', 'scheduled')
+        ->assertSet('filterItemType', 'events');
+});
+
+it('auto-syncs item type to tasks when task status filter is set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'taskStatus', 'doing')
+        ->assertSet('filterItemType', 'tasks');
+});
+
+it('auto-syncs item type to tasks when task priority filter is set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'taskPriority', 'high')
+        ->assertSet('filterItemType', 'tasks');
+});
+
+it('auto-syncs item type to tasks when task complexity filter is set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'taskComplexity', 'simple')
+        ->assertSet('filterItemType', 'tasks');
+});
+
+it('auto-syncs item type to all when both event and task filters are set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'eventStatus', 'scheduled')
+        ->assertSet('filterItemType', 'events')
+        ->call('setFilter', 'taskStatus', 'doing')
+        ->assertSet('filterItemType', null);
+});
+
+it('leaves item type unchanged when only tags filter is set', function (): void {
+    $user = User::factory()->create();
+    $tag = \App\Models\Tag::factory()->for($user)->create(['name' => 'Work']);
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'itemType', 'projects')
+        ->assertSet('filterItemType', 'projects')
+        ->call('setFilter', 'tagIds', [$tag->id])
+        ->assertSet('filterItemType', 'projects');
+});
+
+it('leaves item type unchanged when only recurring filter is set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'itemType', 'events')
+        ->assertSet('filterItemType', 'events')
+        ->call('setFilter', 'recurring', 'recurring')
+        ->assertSet('filterItemType', 'events');
+});
+
+it('leaves item type unchanged when last event filter is cleared', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'eventStatus', 'scheduled')
+        ->assertSet('filterItemType', 'events')
+        ->call('clearFilter', 'eventStatus')
+        ->assertSet('filterItemType', 'events');
+});
+
+it('respects manual item type override when both event and task filters are set', function (): void {
+    $user = User::factory()->create();
+    $date = Carbon::create(2026, 1, 27);
+
+    $component = Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $date->toDateString())
+        ->call('setFilter', 'eventStatus', 'scheduled')
+        ->call('setFilter', 'taskStatus', 'doing')
+        ->assertSet('filterItemType', null)
+        ->call('setFilter', 'itemType', 'tasks')
+        ->assertSet('filterItemType', 'tasks');
+});
+
 it('renders skeleton loading placeholders for filter and date changes', function (): void {
     $user = User::factory()->create();
 

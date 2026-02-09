@@ -53,25 +53,12 @@
             size="sm"
             icon="funnel"
             icon:trailing="chevron-down"
-            x-bind:class="hasActiveFilters ? 'ring-2 ring-primary' : ''"
         >
-            {{ __('Filter') }}
+            {{ __('Add filters') }}
         </flux:button>
         <flux:menu keep-open class="min-w-[12rem] max-h-[min(70vh,32rem)] overflow-y-auto">
-            {{-- Show --}}
-            <flux:menu.submenu heading="{{ __('Show') }}" keep-open>
-                <flux:menu.radio.group wire:model.change.live="filterItemType" keep-open>
-                    <flux:menu.radio value="" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: null } }))">{{ __('All') }}</flux:menu.radio>
-                    <flux:menu.radio value="tasks" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: 'tasks' } }))">{{ __('Tasks') }}</flux:menu.radio>
-                    <flux:menu.radio value="events" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: 'events' } }))">{{ __('Events') }}</flux:menu.radio>
-                    <flux:menu.radio value="projects" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: 'projects' } }))">{{ __('Projects') }}</flux:menu.radio>
-                </flux:menu.radio.group>
-            </flux:menu.submenu>
-
-            <flux:menu.separator />
-
             {{-- Task status --}}
-            <flux:menu.submenu heading="{{ __('Task status') }}" keep-open>
+            <flux:menu.submenu heading="{{ __('Task status') }}" icon="check-circle" keep-open>
                 <flux:menu.radio.group wire:model.change.live="filterTaskStatus" keep-open>
                     <flux:menu.radio value="" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskStatus', value: null } }))">{{ __('All') }}</flux:menu.radio>
                     @foreach ($taskStatuses as $value => $label)
@@ -81,7 +68,7 @@
             </flux:menu.submenu>
 
             {{-- Task priority --}}
-            <flux:menu.submenu heading="{{ __('Task priority') }}" keep-open>
+            <flux:menu.submenu heading="{{ __('Task priority') }}" icon="bolt" keep-open>
                 <flux:menu.radio.group wire:model.change.live="filterTaskPriority" keep-open>
                     <flux:menu.radio value="" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskPriority', value: null } }))">{{ __('All') }}</flux:menu.radio>
                     @foreach ($taskPriorities as $value => $label)
@@ -91,7 +78,7 @@
             </flux:menu.submenu>
 
             {{-- Task complexity --}}
-            <flux:menu.submenu heading="{{ __('Task complexity') }}" keep-open>
+            <flux:menu.submenu heading="{{ __('Task complexity') }}" icon="squares-2x2" keep-open>
                 <flux:menu.radio.group wire:model.change.live="filterTaskComplexity" keep-open>
                     <flux:menu.radio value="" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskComplexity', value: null } }))">{{ __('All') }}</flux:menu.radio>
                     @foreach ($taskComplexities as $value => $label)
@@ -103,7 +90,7 @@
             <flux:menu.separator />
 
             {{-- Event status --}}
-            <flux:menu.submenu heading="{{ __('Event status') }}" keep-open>
+            <flux:menu.submenu heading="{{ __('Event status') }}" icon="check-circle" keep-open>
                 <flux:menu.radio.group wire:model.change.live="filterEventStatus" keep-open>
                     <flux:menu.radio value="" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'eventStatus', value: null } }))">{{ __('All') }}</flux:menu.radio>
                     @foreach ($eventStatuses as $value => $label)
@@ -116,7 +103,7 @@
                 <flux:menu.separator />
 
                 {{-- Tags --}}
-                <flux:menu.submenu heading="{{ __('Tags') }}" keep-open>
+                <flux:menu.submenu heading="{{ __('Tags') }}" icon="tag" keep-open>
                     <flux:menu.radio.group wire:model="filterTagId" keep-open>
                         <flux:menu.radio value="" wire:click="clearFilter('tagIds')" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: [] } }))">{{ __('All') }}</flux:menu.radio>
                         @foreach ($tags as $tag)
@@ -129,7 +116,7 @@
             <flux:menu.separator />
 
             {{-- Recurring --}}
-            <flux:menu.submenu heading="{{ __('Recurring') }}" keep-open>
+            <flux:menu.submenu heading="{{ __('Recurring') }}" icon="arrow-path" keep-open>
                 <flux:menu.radio.group wire:model.change.live="filterRecurring" keep-open>
                     <flux:menu.radio value="" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: null } }))">{{ __('All') }}</flux:menu.radio>
                     <flux:menu.radio value="recurring" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: 'recurring' } }))">{{ __('Recurring') }}</flux:menu.radio>
