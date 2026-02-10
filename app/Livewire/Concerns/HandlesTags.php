@@ -5,6 +5,7 @@ namespace App\Livewire\Concerns;
 use App\DataTransferObjects\Tag\CreateTagDto;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Validation\TagPayloadValidation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -31,19 +32,8 @@ trait HandlesTags
 
         $this->authorize('create', Tag::class);
 
-        $name = trim($name);
-
-        $validator = Validator::make(
-            ['name' => $name],
-            [
-                'name' => ['required', 'string', 'max:255', 'regex:/\S/'],
-            ],
-            [
-                'name.required' => __('Tag name is required.'),
-                'name.max' => __('Tag name cannot exceed 255 characters.'),
-                'name.regex' => __('Tag name cannot be empty.'),
-            ]
-        );
+        $payload = array_replace_recursive(TagPayloadValidation::defaults(), ['name' => trim($name)]);
+        $validator = Validator::make($payload, TagPayloadValidation::rules(), TagPayloadValidation::messages());
 
         if ($validator->fails()) {
             Log::error('Tag validation failed', [
