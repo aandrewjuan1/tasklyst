@@ -14,7 +14,12 @@ class CollaborationInvitationPolicy
     {
         $collaboratable = $invitation->collaboratable;
 
-        return $collaboratable !== null && $user->can('update', $collaboratable);
+        if ($collaboratable === null) {
+            return false;
+        }
+
+        // Only the owner of the underlying item can cancel collaboration invitations.
+        return (int) $collaboratable->user_id === (int) $user->id;
     }
 
     /**

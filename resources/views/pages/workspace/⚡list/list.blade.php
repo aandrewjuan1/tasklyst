@@ -179,7 +179,7 @@
             const snapshot = { ...tag };
             const tagsBackup = this.tags ? [...this.tags] : [];
             const tagIdsBackup = [...this.formData.item.tagIds];
-            const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
+            const tagIndex = this.tags?.findIndex(t => String(t.id) === String(tag.id)) ?? -1;
 
             try {
                 // Track pending deletion
@@ -188,12 +188,14 @@
 
                 // Optimistic update - remove immediately
                 if (this.tags && tagIndex !== -1) {
-                    this.tags = this.tags.filter(t => t.id !== tag.id);
+                    this.tags = this.tags.filter(t => String(t.id) !== String(tag.id));
                 }
 
                 // Remove from selection if selected
-                const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
-                if (selectedIndex !== undefined && selectedIndex !== -1) {
+                const selectedIndex = Array.isArray(this.formData.item.tagIds)
+                    ? this.formData.item.tagIds.findIndex(id => String(id) === String(tag.id))
+                    : -1;
+                if (selectedIndex !== -1) {
                     this.formData.item.tagIds.splice(selectedIndex, 1);
                 }
 
@@ -216,7 +218,11 @@
                 }
 
                 // Restore selection if it was selected
-                if (tagIdsBackup.includes(tag.id) && !this.formData.item.tagIds.includes(tag.id)) {
+                const wasSelected = tagIdsBackup.some(id => String(id) === String(tag.id));
+                const isCurrentlySelected = Array.isArray(this.formData.item.tagIds)
+                    ? this.formData.item.tagIds.some(id => String(id) === String(tag.id))
+                    : false;
+                if (wasSelected && !isCurrentlySelected) {
                     this.formData.item.tagIds.push(tag.id);
                 }
 
@@ -828,10 +834,6 @@
                         </div>
 
                         <div class="w-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]" x-show="creationKind !== 'project'" x-cloak>
-                            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
-                                <flux:icon name="tag" class="size-3" />
-                                {{ __('Tags') }}:
-                            </span>
                             <x-workspace.tag-selection position="bottom" align="end" />
                         </div>
                     </div>
@@ -975,10 +977,6 @@
             </span>
         </div>
         <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-1.5 mt-1 text-[10px]" x-show="creationKind !== 'project'" x-cloak>
-            <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
-                <flux:icon name="tag" class="size-3" />
-                {{ __('Tags') }}:
-            </span>
             <template x-for="tag in getSelectedTags()" :key="tag.id">
                 <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground" x-text="tag.name"></span>
             </template>

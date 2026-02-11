@@ -137,6 +137,7 @@
         panelHeightEst: 320,
         panelWidthEst: 300,
         canManageCollaborations: @js($canManageCollaborations),
+        currentUserId: @js($currentUser?->id),
         people: @js($allCollaborators),
         removingKeys: new Set(),
         updatingPermissionKeys: new Set(),
@@ -246,12 +247,15 @@
                 return;
             }
 
-            // Determine backend method + identifier based on status
+            // Determine backend method + identifier based on status and whether this is the current user
             let method = null;
             let id = null;
 
             if (status === 'accepted') {
-                method = 'removeCollaborator';
+                const isSelf = this.currentUserId != null
+                    && Number(person.id ?? NaN) === Number(this.currentUserId);
+
+                method = isSelf ? 'leaveCollaboration' : 'removeCollaborator';
                 id = person.collaboration_id ?? null;
             } else {
                 method = 'deleteCollaborationInvitation';
@@ -271,6 +275,11 @@
                 // Optimistic removal from local list
                 this.people = this.people.filter((p) => p !== person);
 
+                // For self-leave, optimistically hide the card immediately
+                if (method === 'leaveCollaboration') {
+                    this.$dispatch('collaboration-self-left');
+                }
+
                 const numericId = Number(id);
                 if (!Number.isFinite(numericId)) {
                     this.rollbackRemovePerson(peopleBackup);
@@ -281,10 +290,18 @@
                 if (!ok) {
                     this.rollbackRemovePerson(peopleBackup);
                     $wire.$dispatch('toast', { type: 'error', message: this.removeErrorToast });
+
+                    if (method === 'leaveCollaboration') {
+                        this.$dispatch('item-update-rollback');
+                    }
                 }
             } catch (error) {
                 this.rollbackRemovePerson(peopleBackup);
                 $wire.$dispatch('toast', { type: 'error', message: error.message || this.removeErrorToast });
+
+                if (method === 'leaveCollaboration') {
+                    this.$dispatch('item-update-rollback');
+                }
             } finally {
                 this.removingKeys?.delete(key);
             }
@@ -563,6 +580,7 @@
                                             type="button"
                                             class="shrink-0 inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-0.5 text-[11px] font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
                                             :class="(person.permission_value ?? 'view') === 'edit' ? 'bg-emerald-500/10 text-emerald-600 shadow-sm dark:text-emerald-400' : 'bg-muted text-muted-foreground'"
+                                            :disabled="updatingPermissionKeys?.has(`perm-${person.collaboration_id ?? ''}`)"
                                             @click.stop="togglePersonPermission(person)"
                                         >
                                             <span class="uppercase" x-text="person.permission"></span>
@@ -593,11 +611,26 @@
                                         </span>
                                     </template>
 
+                                    <!-- Current user can always remove themselves from an accepted collaboration -->
+                                    <flux:tooltip content="{{ __('Remove yourself from this item') }}">
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center justify-center rounded-full border border-black/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
+                                            x-show="(person.status ?? 'accepted') === 'accepted' && currentUserId != null && Number(person.id ?? NaN) === Number(currentUserId)"
+                                            x-cloak
+                                            :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
+                                            @click.stop="removePerson(person)"
+                                        >
+                                            {{ __('Remove') }}
+                                        </button>
+                                    </flux:tooltip>
+
                                     <button
                                         type="button"
                                         class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
                                         x-show="canManageCollaborations && (person.status ?? 'accepted') !== 'sending'"
                                         x-cloak
+                                        :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
                                         @click.stop="removePerson(person)"
                                         :aria-label="(person.status ?? 'accepted') === 'accepted'
                                             ? '{{ __('Remove collaborator') }}'
@@ -614,7 +647,7 @@
 
             <div
                 class="flex flex-col items-center justify-center rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-4 text-center"
-                x-show="totalCount === 0"
+                x-show="acceptedCount === 0"
                 x-cloak
             >
                 <p class="text-xs font-medium text-muted-foreground">
@@ -653,7 +686,7 @@
                         placeholder="{{ __('colleague@example.com') }}"
                         class="w-full text-[11px]! py-1.5!"
                     />
-                    <div class="flex flex-row items-center justify-center gap-2">
+                    <div class="flex flex-row items-center justify-center gap-2 mx-2">
                         <button
                             type="button"
                             class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2 py-0.5 text-[11px] font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"

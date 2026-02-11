@@ -4,7 +4,6 @@ use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
 use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
-use App\Actions\Collaboration\CreateCollaborationAction;
 use App\Actions\Collaboration\CreateCollaborationInvitationAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Actions\Collaboration\DeleteCollaborationAction;
@@ -98,8 +97,6 @@ class extends Component
 
     protected DeleteCommentAction $deleteCommentAction;
 
-    protected CreateCollaborationAction $createCollaborationAction;
-
     protected CreateCollaborationInvitationAction $createCollaborationInvitationAction;
 
     protected AcceptCollaborationInvitationAction $acceptCollaborationInvitationAction;
@@ -144,7 +141,6 @@ class extends Component
         CreateCommentAction $createCommentAction,
         UpdateCommentAction $updateCommentAction,
         DeleteCommentAction $deleteCommentAction,
-        CreateCollaborationAction $createCollaborationAction,
         CreateCollaborationInvitationAction $createCollaborationInvitationAction,
         AcceptCollaborationInvitationAction $acceptCollaborationInvitationAction,
         DeclineCollaborationInvitationAction $declineCollaborationInvitationAction,
@@ -169,7 +165,6 @@ class extends Component
         $this->createCommentAction = $createCommentAction;
         $this->updateCommentAction = $updateCommentAction;
         $this->deleteCommentAction = $deleteCommentAction;
-        $this->createCollaborationAction = $createCollaborationAction;
         $this->createCollaborationInvitationAction = $createCollaborationInvitationAction;
         $this->acceptCollaborationInvitationAction = $acceptCollaborationInvitationAction;
         $this->declineCollaborationInvitationAction = $declineCollaborationInvitationAction;

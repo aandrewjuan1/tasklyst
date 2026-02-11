@@ -782,6 +782,7 @@
             $dispatch('list-item-shown', { fromOverdue: isOverdue });
         }
     "
+    @collaboration-self-left="hideFromList()"
     :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
 >
     <div class="flex items-start justify-between gap-2">
@@ -1058,14 +1059,14 @@
                     const isTempTag = String(tag.id).startsWith('temp-');
                     const snapshot = { ...tag };
                     const tagsBackup = this.tags ? [...this.tags] : [];
-                    const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
+                    const tagIndex = this.tags?.findIndex(t => String(t.id) === String(tag.id)) ?? -1;
                     try {
                         this.deletingTagIds = this.deletingTagIds || new Set();
                         this.deletingTagIds.add(tag.id);
                         
                         // Optimistically remove from available tags list
                         if (this.tags && tagIndex !== -1) {
-                            this.tags = this.tags.filter(t => t.id !== tag.id);
+                            this.tags = this.tags.filter(t => String(t.id) !== String(tag.id));
                         }
                         
                         // Delete tag globally (not just from this item)

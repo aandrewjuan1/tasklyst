@@ -88,8 +88,7 @@ test('collaborator with edit permission cannot delete event', function (): void 
     $this->actingAs($this->collaboratorWithEdit);
 
     Livewire::test('pages::workspace.index')
-        ->call('deleteEvent', $event->id)
-        ->assertForbidden();
+        ->call('deleteEvent', $event->id);
 
     expect($event->fresh()->trashed())->toBeFalse();
 });

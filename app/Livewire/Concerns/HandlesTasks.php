@@ -194,7 +194,7 @@ trait HandlesTasks
 
         $this->authorize('update', $task);
 
-        // Only the owner can change date/recurrence fields, even if collaborators can edit other properties.
+        // Only the owner can change date/recurrence/tag fields, even if collaborators can edit other properties.
         $isOwner = (int) $task->user_id === (int) $user->id;
         if (! $isOwner && in_array($property, ['startDatetime', 'endDatetime'], true)) {
             $this->dispatch('toast', type: 'error', message: __('Only the owner can change dates for this task.'));
@@ -204,6 +204,12 @@ trait HandlesTasks
 
         if (! $isOwner && $property === 'recurrence') {
             $this->dispatch('toast', type: 'error', message: __('Only the owner can change repeat for this task.'));
+
+            return false;
+        }
+
+        if (! $isOwner && $property === 'tagIds') {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can change tags for this task.'));
 
             return false;
         }

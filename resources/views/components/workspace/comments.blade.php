@@ -424,7 +424,7 @@
         <template x-if="totalCount === 0">
             <p class="text-[11px] text-muted-foreground/80">
                 {{ __('No comments yet.') }}
-                <span class="ml-1">
+                <span class="ml-1" x-show="!readonly" x-cloak>
                     {{ __('Be the first to comment.') }}
                 </span>
             </p>

@@ -194,13 +194,15 @@
             const snapshot = { ...tag };
             const tagsBackup = this.tags ? [...this.tags] : [];
             const tagIdsBackup = [...this.tagIds];
-            const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
+            const tagIndex = this.tags?.findIndex(t => String(t.id) === String(tag.id)) ?? -1;
             try {
                 this.deletingTagIds = this.deletingTagIds || new Set();
                 this.deletingTagIds.add(tag.id);
-                if (this.tags && tagIndex !== -1) this.tags = this.tags.filter(t => t.id !== tag.id);
-                const selectedIndex = this.tagIds?.indexOf(tag.id);
-                if (selectedIndex !== undefined && selectedIndex !== -1) this.tagIds.splice(selectedIndex, 1);
+                if (this.tags && tagIndex !== -1) this.tags = this.tags.filter(t => String(t.id) !== String(tag.id));
+                const selectedIndex = Array.isArray(this.tagIds)
+                    ? this.tagIds.findIndex(id => String(id) === String(tag.id))
+                    : -1;
+                if (selectedIndex !== -1) this.tagIds.splice(selectedIndex, 1);
                 if (!isTempTag) {
                     await $wire.$parent.$call('deleteTag', tag.id, true);
                 }
@@ -217,7 +219,11 @@
                     this.tags.splice(tagIndex, 0, snapshot);
                     this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
-                if (tagIdsBackup.includes(tag.id) && !this.tagIds.includes(tag.id)) {
+                const wasSelected = tagIdsBackup.some(id => String(id) === String(tag.id));
+                const isCurrentlySelected = Array.isArray(this.tagIds)
+                    ? this.tagIds.some(id => String(id) === String(tag.id))
+                    : false;
+                if (wasSelected && !isCurrentlySelected) {
                     this.tagIds.push(tag.id);
                 }
                 $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });

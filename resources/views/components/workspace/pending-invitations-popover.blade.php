@@ -212,7 +212,7 @@
                                         size="xs"
                                         variant="primary"
                                         class="shrink-0"
-                                        ::disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
+                                        x-bind:disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
                                         @click="accept(inv)"
                                     >
                                         {{ __('Accept') }}
@@ -221,7 +221,7 @@
                                         size="xs"
                                         variant="ghost"
                                         class="shrink-0 text-muted-foreground hover:text-foreground"
-                                        ::disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
+                                        x-bind:disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
                                         @click="decline(inv)"
                                     >
                                         {{ __('Decline') }}

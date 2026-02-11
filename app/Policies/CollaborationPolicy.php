@@ -14,7 +14,12 @@ class CollaborationPolicy
     {
         $collaboratable = $collaboration->collaboratable;
 
-        return $collaboratable !== null && $user->can('update', $collaboratable);
+        if ($collaboratable === null) {
+            return false;
+        }
+
+        // Only the owner of the underlying item can manage collaborations.
+        return (int) $collaboratable->user_id === (int) $user->id;
     }
 
     /**
@@ -24,6 +29,19 @@ class CollaborationPolicy
     {
         $collaboratable = $collaboration->collaboratable;
 
-        return $collaboratable !== null && $user->can('update', $collaboratable);
+        if ($collaboratable === null) {
+            return false;
+        }
+
+        // Only the owner of the underlying item can remove collaborators.
+        return (int) $collaboratable->user_id === (int) $user->id;
+    }
+
+    /**
+     * Determine whether the user can remove their own collaboration (leave the item).
+     */
+    public function leave(User $user, Collaboration $collaboration): bool
+    {
+        return (int) $collaboration->user_id === (int) $user->id;
     }
 }

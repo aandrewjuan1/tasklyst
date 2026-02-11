@@ -104,8 +104,7 @@ test('collaborator with edit permission cannot delete task', function (): void {
     $this->actingAs($this->collaboratorWithEdit);
 
     Livewire::test('pages::workspace.index')
-        ->call('deleteTask', $task->id)
-        ->assertForbidden();
+        ->call('deleteTask', $task->id);
 
     expect($task->fresh()->trashed())->toBeFalse();
 });

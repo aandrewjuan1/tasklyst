@@ -90,6 +90,8 @@
     $currentUserIsOwner = $currentUserId && (int) $item->user_id === (int) $currentUserId;
     $canEdit = auth()->user()?->can('update', $item) ?? false;
     $canEditRecurrence = $currentUserIsOwner && $canEdit;
+    $canEditDates = $currentUserIsOwner && $canEdit;
+    $canEditTags = $currentUserIsOwner && $canEdit;
 @endphp
 
 <div
@@ -177,13 +179,19 @@
             const snapshot = { ...tag };
             const tagsBackup = this.tags ? [...this.tags] : [];
             const tagIdsBackup = [...this.formData.item.tagIds];
-            const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
+            const tagIndex = this.tags?.findIndex(t => String(t.id) === String(tag.id)) ?? -1;
             try {
                 this.deletingTagIds = this.deletingTagIds || new Set();
                 this.deletingTagIds.add(tag.id);
-                if (this.tags && tagIndex !== -1) this.tags = this.tags.filter(t => t.id !== tag.id);
-                const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
-                if (selectedIndex !== undefined && selectedIndex !== -1) this.formData.item.tagIds.splice(selectedIndex, 1);
+                if (this.tags && tagIndex !== -1) {
+                    this.tags = this.tags.filter(t => String(t.id) !== String(tag.id));
+                }
+                const selectedIndex = Array.isArray(this.formData.item.tagIds)
+                    ? this.formData.item.tagIds.findIndex(id => String(id) === String(tag.id))
+                    : -1;
+                if (selectedIndex !== -1) {
+                    this.formData.item.tagIds.splice(selectedIndex, 1);
+                }
                 if (!isTempTag) {
                     await $wire.$parent.$call('deleteTag', tag.id, true);
                 }
@@ -201,7 +209,11 @@
                     this.tags.splice(tagIndex, 0, snapshot);
                     this.tags.sort((a, b) => a.name.localeCompare(b.name));
                 }
-                if (tagIdsBackup.includes(tag.id) && !this.formData.item.tagIds.includes(tag.id)) {
+                const wasSelected = tagIdsBackup.some(id => String(id) === String(tag.id));
+                const isCurrentlySelected = Array.isArray(this.formData.item.tagIds)
+                    ? this.formData.item.tagIds.some(id => String(id) === String(tag.id))
+                    : false;
+                if (wasSelected && !isCurrentlySelected) {
                     this.formData.item.tagIds.push(tag.id);
                 }
                 $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
@@ -235,13 +247,13 @@
         onTagDeleted(event) {
             const { id } = event.detail || {};
             if (this.tags) {
-                const tagIndex = this.tags.findIndex(tag => tag.id === id);
+                const tagIndex = this.tags.findIndex(tag => String(tag.id) === String(id));
                 if (tagIndex !== -1) {
                     this.tags.splice(tagIndex, 1);
                 }
             }
             if (this.formData?.item?.tagIds) {
-                const selectedIndex = this.formData.item.tagIds.indexOf(id);
+                const selectedIndex = this.formData.item.tagIds.findIndex(tagId => String(tagId) === String(id));
                 if (selectedIndex !== -1) {
                     this.formData.item.tagIds.splice(selectedIndex, 1);
                     const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
@@ -594,6 +606,7 @@
         position="top"
         align="end"
         :initial-value="$startDatetimeInitial"
+        :readonly="!$canEditDates"
         data-task-creation-safe
     />
 
@@ -605,6 +618,7 @@
         position="top"
         align="end"
         :initial-value="$endDatetimeInitial"
+        :readonly="!$canEditDates"
         data-task-creation-safe
     />
 
@@ -623,7 +637,7 @@
             @tag-create-request="createTagOptimistic($event.detail.tagName)"
             @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
         >
-            <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" />
+            <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
         </div>
     </div>
 </div>
