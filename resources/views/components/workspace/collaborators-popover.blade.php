@@ -524,9 +524,6 @@
             <flux:icon name="users" class="size-3" />
 
             <span class="inline-flex items-baseline gap-1">
-                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    {{ __('Collab') }}:
-                </span>
                 <span class="text-xs" x-text="acceptedCount">
                     {{ $collaboratorCount }}
                 </span>
@@ -625,19 +622,21 @@
                                         </button>
                                     </flux:tooltip>
 
-                                    <button
-                                        type="button"
-                                        class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
-                                        x-show="canManageCollaborations && (person.status ?? 'accepted') !== 'sending'"
-                                        x-cloak
-                                        :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
-                                        @click.stop="removePerson(person)"
-                                        :aria-label="(person.status ?? 'accepted') === 'accepted'
-                                            ? '{{ __('Remove collaborator') }}'
-                                            : '{{ __('Remove invitation') }}'"
-                                    >
-                                        <flux:icon name="x-mark" class="size-3.5" />
-                                    </button>
+                                    <flux:tooltip content="{{ __('Remove collaborator or invitation') }}">
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
+                                            x-show="canManageCollaborations && (person.status ?? 'accepted') !== 'sending'"
+                                            x-cloak
+                                            :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
+                                            @click.stop="removePerson(person)"
+                                            :aria-label="(person.status ?? 'accepted') === 'accepted'
+                                                ? '{{ __('Remove collaborator') }}'
+                                                : '{{ __('Remove invitation') }}'"
+                                        >
+                                            <flux:icon name="x-mark" class="size-3.5" />
+                                        </button>
+                                    </flux:tooltip>
                                 </div>
                             </li>
                         </template>
@@ -705,6 +704,7 @@
                             size="xs"
                             icon="paper-airplane"
                             class="shrink-0"
+                            x-bind:disabled="savingInvite || !(newEmail || '').trim()"
                             @click="saveInvite()"
                         >
                             {{ __('Invite') }}

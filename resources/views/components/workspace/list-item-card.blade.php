@@ -890,9 +890,32 @@
                             class="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
                         >
                             <flux:icon name="user" class="size-3 shrink-0" />
-                            <span class="truncate max-w-24">{{ $owner->name }}</span>
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Owner') }}:
+                                </span>
+                                <span class="truncate max-w-24">{{ $owner->name }}</span>
+                            </span>
                         </span>
                     </flux:tooltip>
+                @endif
+
+                @if(! $currentUserIsOwner)
+                    @if($canEdit)
+                        <span
+                            class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400"
+                        >
+                            <flux:icon name="pencil-square" class="size-3 shrink-0" />
+                            <span>{{ __('Can edit') }}</span>
+                        </span>
+                    @else
+                        <span
+                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                        >
+                            <flux:icon name="eye" class="size-3 shrink-0" />
+                            <span>{{ __('View only') }}</span>
+                        </span>
+                    @endif
                 @endif
 
                 <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

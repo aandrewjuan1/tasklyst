@@ -428,6 +428,11 @@ class Task extends Model
         return $this->morphMany(Comment::class, 'commentable')->orderBy('is_pinned', 'desc')->orderBy('created_at');
     }
 
+    public function activityLogs(): MorphMany
+    {
+        return $this->morphMany(ActivityLog::class, 'loggable')->orderByDesc('created_at');
+    }
+
     public function collaborations(): MorphMany
     {
         return $this->morphMany(Collaboration::class, 'collaboratable');

@@ -74,6 +74,11 @@ class Project extends Model
         return $this->morphMany(Comment::class, 'commentable')->orderBy('is_pinned', 'desc')->orderBy('created_at');
     }
 
+    public function activityLogs(): MorphMany
+    {
+        return $this->morphMany(ActivityLog::class, 'loggable')->orderByDesc('created_at');
+    }
+
     /**
      * Map frontend property name (camelCase) to database column.
      */
