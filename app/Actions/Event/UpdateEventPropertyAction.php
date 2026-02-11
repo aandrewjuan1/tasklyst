@@ -41,20 +41,67 @@ class UpdateEventPropertyAction
 
     private function updateTagIds(Event $event, mixed $validatedValue): UpdateEventPropertyResult
     {
+        Log::info('[TAG-SYNC] Starting event tag update', [
+            'event_id' => $event->id,
+            'event_title' => $event->title,
+            'validated_value' => $validatedValue,
+            'validated_value_type' => gettype($validatedValue),
+            'validated_value_is_array' => is_array($validatedValue),
+        ]);
+
         $oldTagIds = $event->tags()->pluck('tags.id')->all();
+
+        Log::info('[TAG-SYNC] Retrieved current event tags', [
+            'event_id' => $event->id,
+            'old_tag_ids' => $oldTagIds,
+            'old_tag_ids_count' => count($oldTagIds),
+        ]);
+
         $addedIds = array_values(array_diff($validatedValue, $oldTagIds));
         $removedIds = array_values(array_diff($oldTagIds, $validatedValue));
+
+        Log::info('[TAG-SYNC] Calculated tag changes', [
+            'event_id' => $event->id,
+            'added_ids' => $addedIds,
+            'removed_ids' => $removedIds,
+            'added_count' => count($addedIds),
+            'removed_count' => count($removedIds),
+        ]);
+
         $addedTagName = count($addedIds) === 1 ? (Tag::find($addedIds[0])?->name ?? null) : null;
         $removedTagName = count($removedIds) === 1 ? (Tag::find($removedIds[0])?->name ?? null) : null;
 
+        if ($addedTagName || $removedTagName) {
+            Log::info('[TAG-SYNC] Tag names for toast', [
+                'event_id' => $event->id,
+                'added_tag_name' => $addedTagName,
+                'removed_tag_name' => $removedTagName,
+            ]);
+        }
+
         try {
+            Log::info('[TAG-SYNC] About to sync tags', [
+                'event_id' => $event->id,
+                'sync_ids' => $validatedValue,
+            ]);
+
             $event->tags()->sync($validatedValue);
+
+            Log::info('[TAG-SYNC] Successfully synced event tags', [
+                'event_id' => $event->id,
+                'old_tag_ids' => $oldTagIds,
+                'new_tag_ids' => $validatedValue,
+            ]);
 
             return UpdateEventPropertyResult::success($oldTagIds, $validatedValue, $addedTagName, $removedTagName);
         } catch (\Throwable $e) {
-            Log::error('Failed to sync event tags from workspace.', [
+            Log::error('[TAG-SYNC] Failed to sync event tags from workspace', [
                 'event_id' => $event->id,
-                'exception' => $e,
+                'old_tag_ids' => $oldTagIds,
+                'new_tag_ids' => $validatedValue,
+                'exception' => $e->getMessage(),
+                'exception_class' => get_class($e),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return UpdateEventPropertyResult::failure($oldTagIds, $validatedValue);

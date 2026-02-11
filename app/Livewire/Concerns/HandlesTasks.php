@@ -109,6 +109,12 @@ trait HandlesTasks
             return false;
         }
 
+        if ((int) $task->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can delete this task.'));
+
+            return false;
+        }
+
         $this->authorize('delete', $task);
 
         try {
@@ -145,14 +151,42 @@ trait HandlesTasks
     #[Renderless]
     public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
     {
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Livewire received updateTaskProperty call', [
+                'task_id' => $taskId,
+                'property' => $property,
+                'value' => $value,
+                'value_type' => gettype($value),
+                'value_is_array' => is_array($value),
+                'value_count' => is_array($value) ? count($value) : null,
+                'silent_toasts' => $silentToasts,
+                'user_id' => Auth::id(),
+            ]);
+        }
+
         $user = $this->requireAuth(__('You must be logged in to update tasks.'));
         if ($user === null) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Task update failed - no authenticated user', [
+                    'task_id' => $taskId,
+                    'property' => $property,
+                ]);
+            }
+
             return false;
         }
 
         $task = Task::query()->forUser($user->id)->with('recurringTask')->find($taskId);
 
         if ($task === null) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Task update failed - task not found', [
+                    'task_id' => $taskId,
+                    'property' => $property,
+                    'user_id' => $user->id,
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: __('Task not found.'));
 
             return false;
@@ -160,7 +194,28 @@ trait HandlesTasks
 
         $this->authorize('update', $task);
 
+        // Only the owner can change date/recurrence fields, even if collaborators can edit other properties.
+        $isOwner = (int) $task->user_id === (int) $user->id;
+        if (! $isOwner && in_array($property, ['startDatetime', 'endDatetime'], true)) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can change dates for this task.'));
+
+            return false;
+        }
+
+        if (! $isOwner && $property === 'recurrence') {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can change repeat for this task.'));
+
+            return false;
+        }
+
         if (! in_array($property, TaskPayloadValidation::allowedUpdateProperties(), true)) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Task update failed - invalid property', [
+                    'task_id' => $taskId,
+                    'property' => $property,
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
 
             return false;
@@ -168,6 +223,13 @@ trait HandlesTasks
 
         $rules = TaskPayloadValidation::rulesForProperty($property);
         if ($rules === []) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Task update failed - no rules for property', [
+                    'task_id' => $taskId,
+                    'property' => $property,
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
 
             return false;
@@ -184,8 +246,24 @@ trait HandlesTasks
             $value = $trimmedValue;
         }
 
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] About to validate tagIds', [
+                'task_id' => $taskId,
+                'value' => $value,
+                'rules' => $rules,
+            ]);
+        }
+
         $validator = Validator::make(['value' => $value], $rules);
         if ($validator->fails()) {
+            if ($property === 'tagIds') {
+                Log::error('[TAG-SYNC] Task tagIds validation failed', [
+                    'task_id' => $taskId,
+                    'value' => $value,
+                    'errors' => $validator->errors()->all(),
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
 
             return false;
@@ -193,9 +271,35 @@ trait HandlesTasks
 
         $validatedValue = $validator->validated()['value'];
 
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Validation passed, calling action', [
+                'task_id' => $taskId,
+                'validated_value' => $validatedValue,
+            ]);
+        }
+
         $result = $this->updateTaskPropertyAction->execute($task, $property, $validatedValue, $occurrenceDate);
 
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Action execution completed', [
+                'task_id' => $taskId,
+                'success' => $result->success,
+                'old_value' => $result->oldValue,
+                'new_value' => $result->newValue,
+                'error_message' => $result->errorMessage,
+            ]);
+        }
+
         if (! $result->success) {
+            if ($property === 'tagIds') {
+                Log::error('[TAG-SYNC] Task tag update failed', [
+                    'task_id' => $taskId,
+                    'old_value' => $result->oldValue,
+                    'new_value' => $result->newValue,
+                    'error_message' => $result->errorMessage,
+                ]);
+            }
+
             if ($result->errorMessage !== null) {
                 $this->dispatch('toast', type: 'error', message: $result->errorMessage);
             } else {
@@ -203,6 +307,13 @@ trait HandlesTasks
             }
 
             return false;
+        }
+
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Task tag update succeeded, dispatching toast', [
+                'task_id' => $taskId,
+                'silent_toasts' => $silentToasts,
+            ]);
         }
 
         if (! $silentToasts) {

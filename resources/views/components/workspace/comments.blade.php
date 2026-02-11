@@ -17,8 +17,10 @@
         default => null,
     };
 
+    $currentUserId = \Illuminate\Support\Facades\Auth::id();
+
     $commentsForJs = $comments
-        ->map(function (\App\Models\Comment $comment): array {
+        ->map(function (\App\Models\Comment $comment) use ($currentUserId): array {
             $userName = $comment->user?->name ?? $comment->user?->email ?? __('Unknown user');
 
             return [
@@ -27,6 +29,7 @@
                 'initials' => (string) \Illuminate\Support\Str::of($userName)->substr(0, 2),
                 'content' => $comment->content,
                 'createdDiff' => optional($comment->created_at)->diffForHumans(),
+                'canManage' => $currentUserId && (int) $comment->user_id === (int) $currentUserId,
             ];
         })
         ->values();
@@ -134,6 +137,7 @@
                 initials: this.currentUserInitials,
                 content: trimmed,
                 createdDiff: this.currentUserRelativeNow,
+                canManage: true,
             };
 
             this.comments = [...this.comments, optimisticComment];
@@ -192,7 +196,7 @@
             }
         },
         startEditingExistingComment(comment) {
-            if (this.savingCommentEdit) {
+            if (this.readonly || this.savingCommentEdit || !comment?.canManage) {
                 return;
             }
             this.commentEditSnapshot = comment.content ?? '';
@@ -290,7 +294,7 @@
             }
         },
         async deleteExistingComment(comment) {
-            if (this.readonly) return;
+            if (this.readonly || !comment?.canManage) return;
             const id = comment?.id ?? null;
             if (id === null || String(id).startsWith('temp-')) {
                 return;
@@ -444,7 +448,7 @@
                                     <button
                                         type="button"
                                         class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground hover:text-foreground/80 hover:bg-muted/80"
-                                        x-show="!readonly && comment.id && !String(comment.id).startsWith('temp-')"
+                                        x-show="!readonly && comment.canManage && comment.id && !String(comment.id).startsWith('temp-')"
                                         x-cloak
                                         @click="startEditingExistingComment(comment)"
                                         aria-label="{{ __('Edit comment') }}"
@@ -455,7 +459,7 @@
                                     <button
                                         type="button"
                                         class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-red-500/80 hover:text-red-600 hover:bg-red-500/5"
-                                        x-show="!readonly && comment.id && !String(comment.id).startsWith('temp-')"
+                                        x-show="!readonly && comment.canManage && comment.id && !String(comment.id).startsWith('temp-')"
                                         x-cloak
                                         @click="deleteExistingComment(comment)"
                                         aria-label="{{ __('Delete comment') }}"

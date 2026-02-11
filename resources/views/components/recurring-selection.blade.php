@@ -7,6 +7,7 @@
     'compactWhenDisabled' => false,
     'kind' => null,
     'readonly' => false,
+    'hideWhenDisabled' => false,
 ])
 
 @php
@@ -40,6 +41,7 @@
 
     $isInitiallyEnabled = (bool) ($initialRecurrence['enabled'] ?? false);
     $shouldRenderCompact = (bool) $compactWhenDisabled && ! $isInitiallyEnabled;
+    $shouldHideWhenDisabled = (bool) $hideWhenDisabled && (bool) $readonly && ! $isInitiallyEnabled;
 
     $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out';
     $triggerInitialStateClass = $shouldRenderCompact
@@ -61,6 +63,7 @@
     };
 @endphp
 
+@if(! $shouldHideWhenDisabled)
 <div
     x-data="{
         readonly: @js($readonly),
@@ -429,3 +432,4 @@
         </div>
     </div>
 </div>
+@endif

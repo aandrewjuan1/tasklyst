@@ -50,6 +50,10 @@
     $currentUserIsOwner = auth()->id() && $owner && (int) auth()->id() === (int) $owner->id;
     $showOwnerBadge = $hasCollaborators && ! $currentUserIsOwner && $owner;
     $canEdit = auth()->user()?->can('update', $item) ?? false;
+    $canEditTags = $currentUserIsOwner && $canEdit;
+    $canEditDates = $currentUserIsOwner && $canEdit;
+    $canEditRecurrence = $currentUserIsOwner && $canEdit;
+    $canDelete = $currentUserIsOwner && $canEdit;
 
     if ($kind === 'task') {
         $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -198,6 +202,7 @@
         listFilterDate: @js($listFilterDate),
         filters: @js($filters ?? []),
         canEdit: @js($canEdit),
+        canDelete: @js($canDelete),
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
@@ -535,7 +540,7 @@
             return false;
         },
         async deleteItem() {
-            if (!this.canEdit || this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
+            if (!this.canDelete || this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
 
             const wasOverdue = this.isOverdue;
             this.deletingInProgress = true;
@@ -863,8 +868,9 @@
                         model="recurrence"
                         :initial-value="$headerRecurrenceInitial"
                         :kind="$kind"
-                        :readonly="!$canEdit"
+                        :readonly="!$canEditRecurrence"
                         compactWhenDisabled
+                        hideWhenDisabled
                         position="top"
                         align="end"
                     />
@@ -904,7 +910,7 @@
                     </span>
                 @endif
 
-                @if($canEdit && $deleteMethod)
+                @if($canDelete && $deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
@@ -927,7 +933,7 @@
 
     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
     @if($kind === 'project')
-        <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEdit" />
+        <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEditDates" />
 
         <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500 dark:border-white/10">
             <flux:icon name="list-bullet" class="size-3" />
@@ -1353,7 +1359,7 @@
             position="top"
             align="end"
             :initial-value="$eventStartDatetimeInitial"
-            :readonly="!$canEdit"
+            :readonly="!$canEditDates"
             data-task-creation-safe
         />
 
@@ -1366,7 +1372,7 @@
             align="end"
             :initial-value="$eventEndDatetimeInitial"
             :overdue="$isOverdue"
-            :readonly="!$canEdit"
+            :readonly="!$canEditDates"
             data-task-creation-safe
         />
 
@@ -1375,15 +1381,17 @@
             <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
         </div>
 
-        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
-            <div
-                @tag-toggled.stop="toggleTag($event.detail.tagId)"
-                @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
-                @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
-            >
-                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEdit" />
+        @if($currentUserIsOwner || $item->tags->isNotEmpty())
+            <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+                <div
+                    @tag-toggled.stop="toggleTag($event.detail.tagId)"
+                    @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
+                    @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
+                >
+                    <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+                </div>
             </div>
-        </div>
+        @endif
 
         </div>
     </div>
@@ -1896,7 +1904,7 @@
             position="top"
             align="end"
             :initial-value="$startDatetimeInitial"
-            :readonly="!$canEdit"
+            :readonly="!$canEditDates"
             data-task-creation-safe
         />
 
@@ -1909,7 +1917,7 @@
             align="end"
             :initial-value="$endDatetimeInitial"
             :overdue="$isOverdue"
-            :readonly="!$canEdit"
+            :readonly="!$canEditDates"
             data-task-creation-safe
         />
 
@@ -1918,15 +1926,17 @@
             <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
         </div>
 
-        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
-            <div
-                @tag-toggled.stop="toggleTag($event.detail.tagId)"
-                @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
-                @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
-            >
-                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEdit" />
+        @if($currentUserIsOwner || $item->tags->isNotEmpty())
+            <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+                <div
+                    @tag-toggled.stop="toggleTag($event.detail.tagId)"
+                    @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
+                    @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
+                >
+                    <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+                </div>
             </div>
-        </div>
+        @endif
 
         </div>
 

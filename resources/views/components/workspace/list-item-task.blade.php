@@ -85,6 +85,11 @@
             'daysOfWeek' => is_array($daysOfWeek) ? $daysOfWeek : [],
         ];
     }
+
+    $currentUserId = auth()->id();
+    $currentUserIsOwner = $currentUserId && (int) $item->user_id === (int) $currentUserId;
+    $canEdit = auth()->user()?->can('update', $item) ?? false;
+    $canEditRecurrence = $currentUserIsOwner && $canEdit;
 @endphp
 
 <div
@@ -575,6 +580,8 @@
         model="recurrence"
         :initial-value="$recurrenceInitial"
         kind="task"
+        :readonly="!$canEditRecurrence"
+        hideWhenDisabled
         position="top"
         align="end"
     />

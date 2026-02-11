@@ -88,6 +88,12 @@ trait HandlesProjects
             return false;
         }
 
+        if ((int) $project->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can delete this project.'));
+
+            return false;
+        }
+
         $this->authorize('delete', $project);
 
         try {
@@ -138,6 +144,14 @@ trait HandlesProjects
         }
 
         $this->authorize('update', $project);
+
+        // Only the owner can change date fields, even if collaborators can edit other properties.
+        $isOwner = (int) $project->user_id === (int) $user->id;
+        if (! $isOwner && in_array($property, ['startDatetime', 'endDatetime'], true)) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can change dates for this project.'));
+
+            return false;
+        }
 
         if (! in_array($property, ProjectPayloadValidation::allowedUpdateProperties(), true)) {
             $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));

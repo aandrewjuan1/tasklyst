@@ -97,6 +97,12 @@ trait HandlesEvents
             return false;
         }
 
+        if ((int) $event->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can delete this event.'));
+
+            return false;
+        }
+
         $this->authorize('delete', $event);
 
         try {
@@ -133,14 +139,42 @@ trait HandlesEvents
     #[Renderless]
     public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
     {
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Livewire received updateEventProperty call', [
+                'event_id' => $eventId,
+                'property' => $property,
+                'value' => $value,
+                'value_type' => gettype($value),
+                'value_is_array' => is_array($value),
+                'value_count' => is_array($value) ? count($value) : null,
+                'silent_toasts' => $silentToasts,
+                'user_id' => Auth::id(),
+            ]);
+        }
+
         $user = $this->requireAuth(__('You must be logged in to update events.'));
         if ($user === null) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Event update failed - no authenticated user', [
+                    'event_id' => $eventId,
+                    'property' => $property,
+                ]);
+            }
+
             return false;
         }
 
         $event = Event::query()->forUser($user->id)->with('recurringEvent')->find($eventId);
 
         if ($event === null) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Event update failed - event not found', [
+                    'event_id' => $eventId,
+                    'property' => $property,
+                    'user_id' => $user->id,
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: __('Event not found.'));
 
             return false;
@@ -148,7 +182,28 @@ trait HandlesEvents
 
         $this->authorize('update', $event);
 
+        // Only the owner can change date/recurrence fields, even if collaborators can edit other properties.
+        $isOwner = (int) $event->user_id === (int) $user->id;
+        if (! $isOwner && in_array($property, ['startDatetime', 'endDatetime'], true)) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can change dates for this event.'));
+
+            return false;
+        }
+
+        if (! $isOwner && $property === 'recurrence') {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can change repeat for this event.'));
+
+            return false;
+        }
+
         if (! in_array($property, EventPayloadValidation::allowedUpdateProperties(), true)) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Event update failed - invalid property', [
+                    'event_id' => $eventId,
+                    'property' => $property,
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
 
             return false;
@@ -156,6 +211,13 @@ trait HandlesEvents
 
         $rules = EventPayloadValidation::rulesForProperty($property);
         if ($rules === []) {
+            if ($property === 'tagIds') {
+                Log::warning('[TAG-SYNC] Event update failed - no rules for property', [
+                    'event_id' => $eventId,
+                    'property' => $property,
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: __('Invalid property for update.'));
 
             return false;
@@ -172,8 +234,24 @@ trait HandlesEvents
             $value = $trimmedValue;
         }
 
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] About to validate tagIds', [
+                'event_id' => $eventId,
+                'value' => $value,
+                'rules' => $rules,
+            ]);
+        }
+
         $validator = Validator::make(['value' => $value], $rules);
         if ($validator->fails()) {
+            if ($property === 'tagIds') {
+                Log::error('[TAG-SYNC] Event tagIds validation failed', [
+                    'event_id' => $eventId,
+                    'value' => $value,
+                    'errors' => $validator->errors()->all(),
+                ]);
+            }
+
             $this->dispatch('toast', type: 'error', message: $validator->errors()->first('value') ?: __('Invalid value.'));
 
             return false;
@@ -181,9 +259,35 @@ trait HandlesEvents
 
         $validatedValue = $validator->validated()['value'];
 
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Validation passed, calling action', [
+                'event_id' => $eventId,
+                'validated_value' => $validatedValue,
+            ]);
+        }
+
         $result = $this->updateEventPropertyAction->execute($event, $property, $validatedValue, $occurrenceDate);
 
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Action execution completed', [
+                'event_id' => $eventId,
+                'success' => $result->success,
+                'old_value' => $result->oldValue,
+                'new_value' => $result->newValue,
+                'error_message' => $result->errorMessage,
+            ]);
+        }
+
         if (! $result->success) {
+            if ($property === 'tagIds') {
+                Log::error('[TAG-SYNC] Event tag update failed', [
+                    'event_id' => $eventId,
+                    'old_value' => $result->oldValue,
+                    'new_value' => $result->newValue,
+                    'error_message' => $result->errorMessage,
+                ]);
+            }
+
             if ($result->errorMessage !== null) {
                 $this->dispatch('toast', type: 'error', message: $result->errorMessage);
             } else {
@@ -191,6 +295,13 @@ trait HandlesEvents
             }
 
             return false;
+        }
+
+        if ($property === 'tagIds') {
+            Log::info('[TAG-SYNC] Event tag update succeeded, dispatching toast', [
+                'event_id' => $eventId,
+                'silent_toasts' => $silentToasts,
+            ]);
         }
 
         if (! $silentToasts) {
