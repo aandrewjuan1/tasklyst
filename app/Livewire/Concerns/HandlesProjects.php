@@ -212,6 +212,7 @@ trait HandlesProjects
 
         return Project::query()
             ->with([
+                'user',
                 'tasks',
                 'collaborations',
                 'collaborators',

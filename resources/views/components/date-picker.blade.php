@@ -7,6 +7,7 @@
     'align' => 'end',
     'initialValue' => null,
     'overdue' => false,
+    'readonly' => false,
 ])
 
 @php
@@ -26,6 +27,7 @@
 
 <div
     x-data="{
+        readonly: @js($readonly),
         overdue: @js($overdue),
         type: @js($type),
         modelPath: @js($model),
@@ -327,6 +329,7 @@
         },
 
         toggle() {
+            if (this.readonly) return;
             if (this.open) return this.close(this.$refs.button);
             this.$refs.button.focus();
             const rect = this.$refs.button.getBoundingClientRect();
@@ -390,10 +393,12 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
-        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out {{ $overdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground' }}"
+        :aria-readonly="readonly"
+        class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out {{ $overdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground' }}"
         x-bind:class="[
             effectiveOverdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground',
-            { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open }
+            { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
+            readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer'
         ]"
         data-task-creation-safe
     >
@@ -406,7 +411,7 @@
             </span>
             <span class="text-xs uppercase {{ $overdue ? 'font-semibold text-red-700 dark:text-red-400' : '' }}" x-bind:class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
         </span>
-        <flux:icon name="chevron-down" class="size-3" />
+        <flux:icon name="chevron-down" class="size-3" x-show="!readonly" />
     </button>
 
     <div

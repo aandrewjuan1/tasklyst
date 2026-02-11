@@ -2,6 +2,7 @@
     'position' => 'top',
     'align' => 'end',
     'selectedTags' => [],
+    'readonly' => false,
 ])
 
 @php
@@ -22,11 +23,13 @@
 <div
     x-data="{
         open: false,
+        readonly: @js($readonly),
         placementVertical: @js($position),
         placementHorizontal: @js($align),
         panelHeightEst: {{ $panelHeightEst }},
         panelWidthEst: {{ $panelWidthEst }},
         toggle() {
+            if (this.readonly) return;
             if (this.open) {
                 return this.close(this.$refs.trigger);
             }
@@ -91,40 +94,23 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('tag-selection-dropdown')"
-        class="cursor-pointer inline-flex flex-wrap items-center gap-1.5 transition-[box-shadow,transform] duration-150 ease-out"
-        :class="{ 'shadow-md scale-[1.02]': open }"
+        :aria-readonly="readonly"
+        class="inline-flex flex-wrap items-center gap-1.5 transition-[box-shadow,transform] duration-150 ease-out"
+        :class="[{ 'shadow-md scale-[1.02]': open }, readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer']"
         data-task-creation-safe
     >
-        <span x-data="{ alpineReady: false }" x-init="alpineReady = true" class="contents">
-            {{-- Server-rendered first paint --}}
-            <span x-show="!alpineReady" class="inline-flex flex-wrap items-center gap-1.5">
-                @foreach ($selectedTagsSorted as $tag)
-                    <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground">{{ $tag->name ?? $tag['name'] ?? '' }}</span>
-                @endforeach
-                @if ($selectedTagsSorted->count() === 0)
-                    <span class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                        <flux:icon name="tag" class="size-3" />
-                        {{ __('Add tags') }}
-                    </span>
-                @endif
-            </span>
-            {{-- Alpine reactive (replaces server content when hydrated) --}}
-            <span x-show="alpineReady" class="inline-flex flex-wrap items-center gap-1.5" x-cloak>
-                <template x-for="tag in (tags || []).filter(t => (formData?.item?.tagIds || []).some(id => String(id) === String(t.id))).sort((a, b) => (a.name || '').localeCompare(b.name || ''))" :key="tag.id">
-                    <span
-                        class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
-                        x-text="tag.name"
-                    ></span>
-                </template>
-                <span
-                    x-show="!formData?.item?.tagIds?.length"
-                    x-cloak
-                    class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
-                >
+        <span class="inline-flex flex-wrap items-center gap-1.5">
+            @foreach ($selectedTagsSorted as $tag)
+                <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground">
+                    {{ $tag->name ?? $tag['name'] ?? '' }}
+                </span>
+            @endforeach
+            @if ($selectedTagsSorted->count() === 0)
+                <span class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
                     <flux:icon name="tag" class="size-3" />
                     {{ __('Add tags') }}
                 </span>
-            </span>
+            @endif
         </span>
     </button>
 

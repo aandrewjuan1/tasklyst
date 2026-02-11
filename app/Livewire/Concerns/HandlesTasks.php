@@ -244,6 +244,7 @@ trait HandlesTasks
             ->with([
                 'project',
                 'event',
+                'user',
                 'recurringTask',
                 'tags',
                 'collaborations',

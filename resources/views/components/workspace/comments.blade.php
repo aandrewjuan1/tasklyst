@@ -1,6 +1,7 @@
 @props([
     'item',
     'kind' => null,
+    'readonly' => false,
 ])
 
 @php
@@ -42,6 +43,7 @@
     wire:ignore
     class="mt-1.5 border-t border-border/50 pt-1.5 text-[11px]"
     x-data="{
+        readonly: @js($readonly),
         alpineReady: false,
         isOpen: false,
         comments: @js($commentsForJs),
@@ -79,7 +81,7 @@
             this.visibleCount = Math.min(this.visibleCount + 3, this.totalCount);
         },
         startAddingComment() {
-            if (this.savingComment) {
+            if (this.readonly || this.savingComment) {
                 return;
             }
             this.isOpen = true;
@@ -288,6 +290,7 @@
             }
         },
         async deleteExistingComment(comment) {
+            if (this.readonly) return;
             const id = comment?.id ?? null;
             if (id === null || String(id).startsWith('temp-')) {
                 return;
@@ -441,7 +444,7 @@
                                     <button
                                         type="button"
                                         class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground hover:text-foreground/80 hover:bg-muted/80"
-                                        x-show="comment.id && !String(comment.id).startsWith('temp-')"
+                                        x-show="!readonly && comment.id && !String(comment.id).startsWith('temp-')"
                                         x-cloak
                                         @click="startEditingExistingComment(comment)"
                                         aria-label="{{ __('Edit comment') }}"
@@ -452,7 +455,7 @@
                                     <button
                                         type="button"
                                         class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-red-500/80 hover:text-red-600 hover:bg-red-500/5"
-                                        x-show="comment.id && !String(comment.id).startsWith('temp-')"
+                                        x-show="!readonly && comment.id && !String(comment.id).startsWith('temp-')"
                                         x-cloak
                                         @click="deleteExistingComment(comment)"
                                         aria-label="{{ __('Delete comment') }}"
@@ -510,7 +513,7 @@
             </div>
         </template>
 
-        <div class="space-y-1 pt-0.5">
+        <div class="space-y-1 pt-0.5" x-show="!readonly">
             <button
                 type="button"
                 class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground/80"

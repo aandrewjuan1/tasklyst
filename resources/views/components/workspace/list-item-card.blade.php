@@ -45,6 +45,12 @@
         default => null,
     };
 
+    $owner = $item->user ?? null;
+    $hasCollaborators = ($item->collaborators ?? collect())->count() > 0;
+    $currentUserIsOwner = auth()->id() && $owner && (int) auth()->id() === (int) $owner->id;
+    $showOwnerBadge = $hasCollaborators && ! $currentUserIsOwner && $owner;
+    $canEdit = auth()->user()?->can('update', $item) ?? false;
+
     if ($kind === 'task') {
         $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
         $statusOptions = [
@@ -191,6 +197,7 @@
         kind: @js($kind),
         listFilterDate: @js($listFilterDate),
         filters: @js($filters ?? []),
+        canEdit: @js($canEdit),
         deleteMethod: @js($deleteMethod),
         itemId: @js($item->id),
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
@@ -528,7 +535,7 @@
             return false;
         },
         async deleteItem() {
-            if (this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
+            if (!this.canEdit || this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
 
             const wasOverdue = this.isOverdue;
             this.deletingInProgress = true;
@@ -556,7 +563,7 @@
             }
         },
         startEditingTitle() {
-            if (this.deletingInProgress || !this.updatePropertyMethod) return;
+            if (!this.canEdit || this.deletingInProgress || !this.updatePropertyMethod) return;
             this.titleSnapshot = this.editedTitle;
             this.isEditingTitle = true;
             this.$nextTick(() => {
@@ -642,7 +649,7 @@
             }
         },
         startEditingDescription() {
-            if (this.deletingInProgress || !this.updatePropertyMethod) return;
+            if (!this.canEdit || this.deletingInProgress || !this.updatePropertyMethod) return;
             this.descriptionSnapshot = this.editedDescription;
             this.isEditingDescription = true;
         },
@@ -776,8 +783,9 @@
         <div class="min-w-0">
             <p 
                 x-show="!isEditingTitle"
-                @click="startEditingTitle()"
-                class="truncate text-lg font-semibold leading-tight cursor-text hover:opacity-80 transition-opacity"
+                @click="canEdit && startEditingTitle()"
+                class="truncate text-lg font-semibold leading-tight transition-opacity"
+                :class="canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default'"
                 x-text="editedTitle"
             >
                 {{ $title }}
@@ -817,12 +825,13 @@
                 <div x-show="alpineReady && !isEditingDescription" x-cloak>
                     <p
                         x-show="editedDescription"
-                        @click="startEditingDescription()"
-                        class="line-clamp-2 text-xs text-foreground/70 cursor-text hover:opacity-80 transition-opacity"
+                        @click="canEdit && startEditingDescription()"
+                        class="line-clamp-2 text-xs text-foreground/70 transition-opacity"
+                        :class="canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default'"
                         x-text="editedDescription"
                     ></p>
                     <button
-                        x-show="!editedDescription"
+                        x-show="canEdit && !editedDescription"
                         type="button"
                         @click="startEditingDescription()"
                         class="text-xs text-muted-foreground hover:text-foreground/70 transition-colors inline-flex items-center gap-1 cursor-pointer"
@@ -854,6 +863,7 @@
                         model="recurrence"
                         :initial-value="$headerRecurrenceInitial"
                         :kind="$kind"
+                        :readonly="!$canEdit"
                         compactWhenDisabled
                         position="top"
                         align="end"
@@ -866,6 +876,17 @@
                     position="top"
                     align="end"
                 />
+
+                @if($showOwnerBadge)
+                    <flux:tooltip content="{{ __('Owner') }}: {{ $owner->name }}">
+                        <span
+                            class="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                        >
+                            <flux:icon name="user" class="size-3 shrink-0" />
+                            <span class="truncate max-w-24">{{ $owner->name }}</span>
+                        </span>
+                    </flux:tooltip>
+                @endif
 
                 <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {{ $type }}
@@ -883,7 +904,7 @@
                     </span>
                 @endif
 
-                @if($deleteMethod)
+                @if($canEdit && $deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
@@ -906,7 +927,7 @@
 
     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
     @if($kind === 'project')
-        <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" />
+        <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEdit" />
 
         <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500 dark:border-white/10">
             <flux:icon name="list-bullet" class="size-3" />
@@ -924,6 +945,7 @@
         <div
             wire:ignore
             x-data="{
+                canEdit: @js($canEdit),
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
                 listFilterDate: @js($listFilterDate),
@@ -1130,6 +1152,7 @@
                     return options.find(o => o.value === value);
                 },
                 async updateProperty(property, value, silentSuccessToast = false) {
+                    if (!this.canEdit) return false;
                     if (property === 'tagIds') {
                         $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         try {
@@ -1267,7 +1290,7 @@
             @tag-deleted.window="onTagDeleted($event)"
         >
         @if($item->status)
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="end" :readonly="!$canEdit">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -1282,7 +1305,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $eventStatusInitialOption ? $eventStatusInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
                     </button>
                 </x-slot:trigger>
 
@@ -1304,12 +1327,8 @@
         <button
             type="button"
             class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $eventAllDayInitialClass }}"
-            :class="allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
-            @click="
-                const next = !allDay;
-                allDay = next;
-                updateProperty('allDay', next);
-            "
+            :class="[allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground', !canEdit && 'cursor-default pointer-events-none']"
+            @click="if (canEdit) { const next = !allDay; allDay = next; updateProperty('allDay', next); }"
         >
             <flux:icon name="sun" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -1330,6 +1349,7 @@
             position="top"
             align="end"
             :initial-value="$eventStartDatetimeInitial"
+            :readonly="!$canEdit"
             data-task-creation-safe
         />
 
@@ -1342,6 +1362,7 @@
             align="end"
             :initial-value="$eventEndDatetimeInitial"
             :overdue="$isOverdue"
+            :readonly="!$canEdit"
             data-task-creation-safe
         />
 
@@ -1356,7 +1377,7 @@
                 @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
                 @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
             >
-                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" />
+                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEdit" />
             </div>
         </div>
 
@@ -1366,6 +1387,7 @@
         <div
             wire:ignore
             x-data="{
+                canEdit: @js($canEdit),
                 itemId: @js($item->id),
                 updatePropertyMethod: @js($updatePropertyMethod),
                 listFilterDate: @js($listFilterDate),
@@ -1573,6 +1595,7 @@
                     return s;
                 },
                 async updateProperty(property, value, silentSuccessToast = false) {
+                    if (!this.canEdit) return false;
                     if (property === 'tagIds') {
                         $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
                         try {
@@ -1712,7 +1735,7 @@
             @tag-deleted.window="onTagDeleted($event)"
         >
         @if($item->status)
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="end" :readonly="!$canEdit">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -1727,7 +1750,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
                     </button>
                 </x-slot:trigger>
 
@@ -1747,7 +1770,7 @@
         @endif
 
         @if($item->priority)
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="end" :readonly="!$canEdit">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -1762,7 +1785,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
                     </button>
                 </x-slot:trigger>
 
@@ -1782,7 +1805,7 @@
         @endif
 
         @if($item->complexity)
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="end" :readonly="!$canEdit">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -1797,7 +1820,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
                     </button>
                 </x-slot:trigger>
 
@@ -1817,7 +1840,7 @@
         @endif
 
         @if(! is_null($item->duration))
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="end" :readonly="!$canEdit">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -1832,7 +1855,7 @@
                             </span>
                             <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
                     </button>
                 </x-slot:trigger>
 
@@ -1859,6 +1882,7 @@
             position="top"
             align="end"
             :initial-value="$startDatetimeInitial"
+            :readonly="!$canEdit"
             data-task-creation-safe
         />
 
@@ -1871,6 +1895,7 @@
             align="end"
             :initial-value="$endDatetimeInitial"
             :overdue="$isOverdue"
+            :readonly="!$canEdit"
             data-task-creation-safe
         />
 
@@ -1885,7 +1910,7 @@
                 @tag-create-request.stop="createTagOptimistic($event.detail.tagName)"
                 @tag-delete-request.stop="deleteTagOptimistic($event.detail.tag)"
             >
-                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" />
+                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEdit" />
             </div>
         </div>
 
@@ -1931,5 +1956,5 @@
     </div>
     @endif
 
-    <x-workspace.comments :item="$item" :kind="$kind" />
+    <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
 </div>

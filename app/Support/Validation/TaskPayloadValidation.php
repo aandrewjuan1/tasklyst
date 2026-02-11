@@ -108,12 +108,10 @@ final class TaskPayloadValidation
      */
     public static function rulesForProperty(string $property): array
     {
-        $tagExistsRule = Rule::exists('tags', 'id')->where(function ($query): void {
-            $userId = Auth::id();
-            if ($userId !== null) {
-                $query->where('user_id', $userId);
-            }
-        });
+        // For inline updates, allow tags that exist even if they belong to a different user.
+        // This is required for collaboration scenarios where the item may already have tags
+        // created by the owner, and edit-collaborators should be able to update tagIds.
+        $tagExistsRule = Rule::exists('tags', 'id');
 
         $rules = match ($property) {
             'title' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],

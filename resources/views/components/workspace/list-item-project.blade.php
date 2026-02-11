@@ -1,6 +1,7 @@
 @props([
     'item',
     'updatePropertyMethod',
+    'readonly' => false,
 ])
 
 @php
@@ -128,6 +129,7 @@
         position="top"
         align="end"
         :initial-value="$projectStartDatetimeInitial"
+        :readonly="$readonly"
         data-task-creation-safe
     />
 
@@ -139,6 +141,7 @@
         position="top"
         align="end"
         :initial-value="$projectEndDatetimeInitial"
+        :readonly="$readonly"
         data-task-creation-safe
     />
 

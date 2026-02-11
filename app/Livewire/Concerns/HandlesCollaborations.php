@@ -11,45 +11,97 @@ use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Validation\CollaborationPayloadValidation;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Async;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Renderless;
 
 trait HandlesCollaborations
 {
     /**
+     * Pending collaboration invitations for the current user (invitee).
+     * Used by the pending-invitations popover for accept/decline UI.
+     *
+     * @return \Illuminate\Support\Collection<int, array{token: string, id: int, item_title: string, item_type: string, inviter_name: string, permission: string}>
+     */
+    #[Computed]
+    public function pendingInvitationsForUser(): Collection
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return collect();
+        }
+
+        $invitations = CollaborationInvitation::query()
+            ->pendingForUser($user)
+            ->with(['collaboratable', 'inviter'])
+            ->get();
+
+        return $invitations->map(function (CollaborationInvitation $invitation): array {
+            $collaboratable = $invitation->collaboratable;
+            $itemTitle = $collaboratable !== null
+                ? ($collaboratable->title ?? $collaboratable->name ?? (string) $collaboratable->id)
+                : (string) $invitation->id;
+            $itemType = match ($invitation->collaboratable_type) {
+                Task::class => 'task',
+                Event::class => 'event',
+                Project::class => 'project',
+                default => 'item',
+            };
+            $inviterName = $invitation->inviter?->name ?? $invitation->inviter?->email ?? __('Someone');
+
+            return [
+                'token' => $invitation->token,
+                'id' => $invitation->id,
+                'item_title' => $itemTitle,
+                'item_type' => $itemType,
+                'inviter_name' => $inviterName,
+                'permission' => $invitation->permission?->label() ?? __('Can view'),
+            ];
+        })->values();
+    }
+
+    /**
      * Invite a collaborator to a task, project, or event.
      *
-     * Mirrors other workspace handlers by returning a boolean status so
-     * optimistic UIs can respond consistently to success / failure.
+     * Returns a structured array so optimistic UIs can show inline errors
+     * without toasts. Success toast is dispatched by this method.
      *
      * @param  array<string, mixed>  $payload
+     * @return array{success: bool, message?: string}
      */
     #[Async]
     #[Renderless]
-    public function inviteCollaborator(array $payload): bool
+    public function inviteCollaborator(array $payload): array
     {
         $user = $this->requireAuth(__('You must be logged in to invite collaborators.'));
         if ($user === null) {
-            return false;
+            return ['success' => false, 'message' => __('You must be logged in to invite collaborators.')];
         }
 
         $payload = array_replace_recursive(CollaborationPayloadValidation::createDefaults(), $payload);
 
-        $validator = Validator::make(['collaborationPayload' => $payload], CollaborationPayloadValidation::createRules());
+        $validator = Validator::make(
+            ['collaborationPayload' => $payload],
+            CollaborationPayloadValidation::createRules(),
+            [
+                'collaborationPayload.email.required' => __('Please enter an email address.'),
+                'collaborationPayload.email.email' => __('Please enter a valid email address.'),
+            ]
+        );
         if ($validator->fails()) {
-            $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid invite details.'));
+            $message = $validator->errors()->first() ?: __('Invalid invite details.');
 
-            return false;
+            return ['success' => false, 'message' => $message];
         }
 
         $validated = $validator->validated()['collaborationPayload'];
 
         if (strcasecmp($validated['email'], $user->email) === 0) {
-            $this->dispatch('toast', type: 'error', message: __('You cannot invite yourself.'));
-
-            return false;
+            return ['success' => false, 'message' => __('You cannot invite yourself.')];
         }
 
         $collaboratable = match ($validated['collaboratableType']) {
@@ -60,9 +112,7 @@ trait HandlesCollaborations
         };
 
         if ($collaboratable === null) {
-            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
-
-            return false;
+            return ['success' => false, 'message' => __('Item not found.')];
         }
 
         $this->authorize('update', $collaboratable);
@@ -74,9 +124,7 @@ trait HandlesCollaborations
             ->first();
 
         if ($invitee === null) {
-            $this->dispatch('toast', type: 'error', message: __('No user was found with that email address.'));
-
-            return false;
+            return ['success' => false, 'message' => __('No user was found with that email address.')];
         }
 
         $collaboratableType = $dto->collaboratableMorphClass();
@@ -88,9 +136,7 @@ trait HandlesCollaborations
             ->exists();
 
         if ($alreadyCollaborator) {
-            $this->dispatch('toast', type: 'error', message: __('This user is already a collaborator on this item.'));
-
-            return false;
+            return ['success' => false, 'message' => __('This user is already a collaborator on this item.')];
         }
 
         $alreadyInvited = CollaborationInvitation::query()
@@ -101,27 +147,24 @@ trait HandlesCollaborations
             ->exists();
 
         if ($alreadyInvited) {
-            $this->dispatch('toast', type: 'error', message: __('An invitation has already been sent to this email for this item.'));
-
-            return false;
+            return ['success' => false, 'message' => __('An invitation has already been sent to this email for this item.')];
         }
 
         try {
-            $this->createCollaborationInvitationAction->execute($dto);
+            $invitation = $this->createCollaborationInvitationAction->execute($dto);
         } catch (\Throwable $e) {
             Log::error('Failed to create collaboration invitation from workspace.', [
                 'user_id' => $user->id,
                 'exception' => $e,
             ]);
-            $this->dispatch('toast', type: 'error', message: __('Could not send invitation. Please try again.'));
 
-            return false;
+            return ['success' => false, 'message' => __('Could not send invitation. Please try again.')];
         }
 
         $this->dispatch('collaboration-invitation-created');
         $this->dispatch('toast', type: 'success', message: __('Invitation sent.'));
 
-        return true;
+        return ['success' => true, 'invitationId' => $invitation->id];
     }
 
     /**
@@ -152,7 +195,7 @@ trait HandlesCollaborations
             return false;
         }
 
-        $this->authorize('update', $collaboratable);
+        $this->authorize('delete', $collaboration);
 
         try {
             $deleted = $this->deleteCollaborationAction->execute($collaboration);
@@ -210,7 +253,7 @@ trait HandlesCollaborations
             return false;
         }
 
-        $this->authorize('update', $collaboratable);
+        $this->authorize('delete', $invitation);
 
         try {
             $deleted = (bool) $invitation->delete();
@@ -236,8 +279,6 @@ trait HandlesCollaborations
         return true;
     }
 
-    #[Async]
-    #[Renderless]
     public function acceptCollaborationInvitation(string $token): bool
     {
         $user = $this->requireAuth(__('You must be logged in to accept invitations.'));
@@ -258,6 +299,8 @@ trait HandlesCollaborations
             return false;
         }
 
+        $this->authorize('accept', $invitation);
+
         $result = $this->acceptCollaborationInvitationAction->execute($invitation, $user);
         if ($result === null && $invitation->status !== 'accepted') {
             $this->dispatch('toast', type: 'error', message: __('Could not accept invitation. Please try again.'));
@@ -267,6 +310,7 @@ trait HandlesCollaborations
 
         $this->dispatch('collaboration-invitation-accepted');
         $this->dispatch('toast', type: 'success', message: __('Invitation accepted.'));
+        $this->incrementListRefresh();
 
         return true;
     }
@@ -286,6 +330,8 @@ trait HandlesCollaborations
 
             return false;
         }
+
+        $this->authorize('decline', $invitation);
 
         $ok = $this->declineCollaborationInvitationAction->execute($invitation, $user);
         if (! $ok) {
@@ -326,7 +372,7 @@ trait HandlesCollaborations
             return false;
         }
 
-        $this->authorize('update', $collaboratable);
+        $this->authorize('update', $collaboration);
 
         $enum = CollaborationPermission::tryFrom($permission);
         if ($enum === null) {

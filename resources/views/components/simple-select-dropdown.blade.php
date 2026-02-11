@@ -1,6 +1,7 @@
 @props([
     'position' => 'top',
     'align' => 'end',
+    'readonly' => false,
 ])
 
 @php
@@ -11,11 +12,13 @@
 <div
     x-data="{
         open: false,
+        readonly: @js($readonly),
         placementVertical: @js($position),
         placementHorizontal: @js($align),
         panelHeightEst: {{ $panelHeightEst }},
         panelWidthEst: {{ $panelWidthEst }},
         toggle() {
+            if (this.readonly) return;
             if (this.open) {
                 return this.close(this.$refs.button);
             }
@@ -83,7 +86,8 @@
         aria-haspopup="true"
         :aria-expanded="open"
         :aria-controls="$id('simple-select-dropdown')"
-        :class="{ 'pointer-events-none': open }"
+        :aria-readonly="readonly"
+        :class="{ 'pointer-events-none': open, 'cursor-default pointer-events-none opacity-90': readonly }"
         class="cursor-pointer [&>*]:cursor-pointer"
     >
         {{ $trigger }}

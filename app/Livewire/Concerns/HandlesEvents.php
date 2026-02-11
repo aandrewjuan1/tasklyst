@@ -230,6 +230,7 @@ trait HandlesEvents
 
         $eventQuery = Event::query()
             ->with([
+                'user',
                 'recurringEvent',
                 'tags',
                 'collaborations',

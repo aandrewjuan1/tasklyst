@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CollaborationPermission;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -46,6 +47,24 @@ class CollaborationInvitation extends Model
     public function invitee(): BelongsTo
     {
         return $this->belongsTo(User::class, 'invitee_user_id');
+    }
+
+    /**
+     * Scope to pending, non-expired invitations for the given user (by email or user id).
+     */
+    public function scopePendingForUser(Builder $query, User $user): Builder
+    {
+        return $query
+            ->where('status', 'pending')
+            ->where(function (Builder $q) use ($user): void {
+                $q->where('invitee_email', $user->email)
+                    ->orWhere('invitee_user_id', $user->id);
+            })
+            ->where(function (Builder $q): void {
+                $q->whereNull('expires_at')
+                    ->orWhere('expires_at', '>', now());
+            })
+            ->orderBy('created_at');
     }
 
     protected static function boot(): void

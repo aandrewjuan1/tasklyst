@@ -6,6 +6,7 @@
     'initialValue' => null,
     'compactWhenDisabled' => false,
     'kind' => null,
+    'readonly' => false,
 ])
 
 @php
@@ -62,6 +63,7 @@
 
 <div
     x-data="{
+        readonly: @js($readonly),
         modelPath: @js($model),
         notSetLabel: @js($notSetLabel),
         compactWhenDisabled: @js((bool) $compactWhenDisabled),
@@ -121,6 +123,7 @@
         },
 
         toggle() {
+            if (this.readonly) return;
             if (this.open) return this.close(this.$refs.button);
             this.$refs.button.focus();
 
@@ -265,6 +268,7 @@
         @if($compactWhenDisabled)
             aria-label="{{ $repeatTooltip }}"
         @endif
+        :aria-readonly="readonly"
         class="{{ $triggerInitialClass }}"
         x-effect="
             const base = @js($triggerBaseClass);
@@ -274,7 +278,11 @@
                     ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
                     : 'border-border/60 bg-muted text-muted-foreground');
             const openState = open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-            $el.className = base + ' ' + state + openState;
+            if (readonly) {
+                $el.className = base.replace('cursor-pointer', 'cursor-default') + ' pointer-events-none opacity-90 ' + state;
+            } else {
+                $el.className = base + ' ' + state + openState;
+            }
         "
         data-task-creation-safe
     >
@@ -305,7 +313,7 @@
         <flux:icon
             name="chevron-down"
             class="size-3"
-            x-show="enabled"
+            x-show="enabled && !readonly"
             style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
         />
     </button>

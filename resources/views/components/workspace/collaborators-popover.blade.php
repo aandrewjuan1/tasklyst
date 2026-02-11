@@ -8,6 +8,11 @@
 @php
     $kind = strtolower((string) $kind);
 
+    // Only the owner can manage collaborations
+    $currentUser = auth()->user();
+    $isOwner = $currentUser && $item->user_id && (int) $currentUser->id === (int) $item->user_id;
+    $readonly = !$isOwner;
+
     $collaboratorCount = $item->collaborators->count();
 
     $collaborationsByUserId = ($item->collaborations ?? collect())
@@ -93,8 +98,10 @@
     $declinedCollection = collect($declinedInvites);
 
     $allCollaborators = $acceptedCollection
-        ->merge($pendingCollection)
-        ->merge($declinedCollection)
+        ->when(!$readonly, fn ($collection) => $collection
+            ->merge($pendingCollection)
+            ->merge($declinedCollection)
+        )
         ->values()
         ->all();
 
@@ -106,6 +113,19 @@
         'project' => __('Project collaborators'),
         default => __('Collaborators'),
     };
+
+    $collaboratableType = match ($kind) {
+        'task' => 'task',
+        'event' => 'event',
+        'project' => 'project',
+        default => null,
+    };
+
+    // Only owner can manage collaborations
+    $canManageCollaborations = $isOwner;
+    
+    // Check if user can edit the item (for message display)
+    $canEditItem = $currentUser?->can('update', $item) ?? false;
 @endphp
 
 <div
@@ -116,6 +136,7 @@
         placementHorizontal: @js($align),
         panelHeightEst: 320,
         panelWidthEst: 300,
+        canManageCollaborations: @js($canManageCollaborations),
         people: @js($allCollaborators),
         removingKeys: new Set(),
         updatingPermissionKeys: new Set(),
@@ -123,6 +144,21 @@
         permissionViewLabel: @js(__('Can view')),
         permissionEditLabel: @js(__('Can edit')),
         permissionUpdateErrorToast: @js(__('Could not update collaborator permission. Please try again.')),
+
+        collabType: @js($collaboratableType),
+        collabId: @js($item->id),
+        peopleBackup: [],
+        inviteSnapshot: { email: '', permission: @js(\App\Enums\CollaborationPermission::Edit->value) },
+        newEmail: '',
+        newPermission: @js(\App\Enums\CollaborationPermission::Edit->value),
+        invitePermissionIsEdit: true,
+        isInviting: false,
+        savingInvite: false,
+        inviteInlineError: '',
+        justCanceledInvite: false,
+        savedInviteViaEnter: false,
+        inviteValidationToast: @js(__('Please enter a valid email address.')),
+        inviteErrorToast: @js(__('Could not send invitation. Please try again.')),
 
         toggle() {
             if (this.open) {
@@ -134,7 +170,8 @@
             const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
             const vw = window.innerWidth;
-            const contentLeft = 320;
+            const contentLeft = vw < 480 ? 24 : 320;
+            const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
 
             const spaceBelow = vh - rect.bottom;
             const spaceAbove = rect.top;
@@ -145,8 +182,8 @@
                 this.placementVertical = 'top';
             }
 
-            const endFits = rect.right <= vw && rect.right - this.panelWidthEst >= contentLeft;
-            const startFits = rect.left >= contentLeft && rect.left + this.panelWidthEst <= vw;
+            const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
+            const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
 
             if (rect.left < contentLeft) {
                 this.placementHorizontal = 'start';
@@ -193,6 +230,10 @@
             return people.filter((person) => (person.status ?? 'accepted') === 'accepted').length;
         },
 
+        rollbackRemovePerson(peopleBackup) {
+            this.people = [...(peopleBackup ?? [])];
+        },
+
         async removePerson(person) {
             if (!person) {
                 return;
@@ -232,17 +273,17 @@
 
                 const numericId = Number(id);
                 if (!Number.isFinite(numericId)) {
-                    this.people = peopleBackup;
+                    this.rollbackRemovePerson(peopleBackup);
                     return;
                 }
 
                 const ok = await $wire.$parent.$call(method, numericId);
                 if (!ok) {
-                    this.people = peopleBackup;
+                    this.rollbackRemovePerson(peopleBackup);
                     $wire.$dispatch('toast', { type: 'error', message: this.removeErrorToast });
                 }
             } catch (error) {
-                this.people = peopleBackup;
+                this.rollbackRemovePerson(peopleBackup);
                 $wire.$dispatch('toast', { type: 'error', message: error.message || this.removeErrorToast });
             } finally {
                 this.removingKeys?.delete(key);
@@ -291,8 +332,12 @@
                 return;
             }
 
-            const previousValue = person.permission_value ?? 'view';
-            const previousLabel = person.permission;
+            const index = this.people.findIndex((p) => p === person);
+            if (index === -1) {
+                return;
+            }
+
+            const snapshot = { ...person };
 
             const label = normalized === 'edit'
                 ? this.permissionEditLabel
@@ -308,24 +353,132 @@
             try {
                 const numericId = Number(collaborationId);
                 if (!Number.isFinite(numericId)) {
-                    person.permission_value = previousValue;
-                    person.permission = previousLabel;
+                    this.people[index] = snapshot;
 
                     return;
                 }
 
                 const ok = await $wire.$parent.$call('updateCollaboratorPermission', numericId, normalized);
                 if (!ok) {
-                    person.permission_value = previousValue;
-                    person.permission = previousLabel;
+                    this.people[index] = snapshot;
                     $wire.$dispatch('toast', { type: 'error', message: this.permissionUpdateErrorToast });
                 }
             } catch (error) {
-                person.permission_value = previousValue;
-                person.permission = previousLabel;
+                this.people[index] = snapshot;
                 $wire.$dispatch('toast', { type: 'error', message: error.message || this.permissionUpdateErrorToast });
             } finally {
                 this.updatingPermissionKeys?.delete(key);
+            }
+        },
+
+        startInviting() {
+            if (this.savingInvite) return;
+            this.open = true;
+            this.inviteSnapshot = { email: this.newEmail, permission: this.newPermission };
+            this.invitePermissionIsEdit = (this.newPermission === 'edit');
+            this.isInviting = true;
+            this.inviteInlineError = '';
+            this.$nextTick(() => {
+                const input = this.$refs.inviteEmailInput;
+                if (input) {
+                    input.focus();
+                    const length = input.value.length;
+                    input.setSelectionRange(length, length);
+                }
+            });
+        },
+
+        cancelInviting() {
+            this.justCanceledInvite = true;
+            this.savedInviteViaEnter = false;
+            this.newEmail = this.inviteSnapshot?.email || '';
+            this.newPermission = this.inviteSnapshot?.permission || @js(\App\Enums\CollaborationPermission::Edit->value);
+            this.invitePermissionIsEdit = (this.newPermission === 'edit');
+            this.isInviting = false;
+            this.inviteSnapshot = { email: '', permission: @js(\App\Enums\CollaborationPermission::Edit->value) };
+            setTimeout(() => { this.justCanceledInvite = false; }, 100);
+        },
+
+        rollbackInviteOptimisticState() {
+            this.people = [...(this.peopleBackup ?? [])];
+        },
+
+        async saveInvite() {
+            if (this.savingInvite || this.justCanceledInvite) return;
+
+            const trimmed = (this.newEmail || '').trim();
+            if (!trimmed || !trimmed.includes('@')) {
+                this.inviteInlineError = this.inviteValidationToast;
+                return;
+            }
+
+            if (!this.collabType || this.collabId == null) {
+                this.inviteInlineError = this.inviteErrorToast;
+                return;
+            }
+
+            this.peopleBackup = [...this.people];
+            const permission = this.newPermission ?? @js(\App\Enums\CollaborationPermission::Edit->value);
+            this.inviteSnapshot = { email: trimmed, permission };
+
+            const permissionLabel = permission === 'edit' ? this.permissionEditLabel : this.permissionViewLabel;
+            const optimisticRow = {
+                id: 'temp-' + Date.now(),
+                email: trimmed,
+                name: null,
+                permission_value: permission,
+                permission: permissionLabel,
+                status: 'sending',
+            };
+
+            this.people = [...this.people, optimisticRow];
+            this.newEmail = '';
+            this.newPermission = @js(\App\Enums\CollaborationPermission::Edit->value);
+            this.invitePermissionIsEdit = true;
+            this.isInviting = false;
+            this.inviteInlineError = '';
+            this.savingInvite = true;
+
+            try {
+                const payload = {
+                    collaboratableType: this.collabType,
+                    collaboratableId: this.collabId,
+                    email: trimmed,
+                    permission: this.inviteSnapshot.permission,
+                };
+                const result = await $wire.$parent.$call('inviteCollaborator', payload);
+
+                if (result?.success === true) {
+                    const idx = this.people.findIndex((p) => String(p.id) === String(optimisticRow.id));
+                    if (idx !== -1) {
+                        this.people[idx].status = 'pending';
+                        if (result?.invitationId != null) {
+                            this.people[idx].id = result.invitationId;
+                        }
+                    }
+                } else {
+                    this.rollbackInviteOptimisticState();
+                    this.inviteInlineError = result?.message || this.inviteErrorToast;
+                }
+            } catch (error) {
+                this.rollbackInviteOptimisticState();
+                this.inviteInlineError = error?.message || this.inviteErrorToast;
+            } finally {
+                this.savingInvite = false;
+                if (this.savedInviteViaEnter) {
+                    setTimeout(() => { this.savedInviteViaEnter = false; }, 100);
+                }
+            }
+        },
+
+        handleInviteKeydown(e) {
+            if (e.key === 'Escape') {
+                e.stopPropagation();
+                this.cancelInviting();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.savedInviteViaEnter = true;
+                this.saveInvite();
             }
         },
     }"
@@ -378,7 +531,7 @@
         @click.stop=""
         :id="$id('collaborators-popover')"
         :class="panelPlacementClasses"
-        class="absolute z-50 w-fit min-w-[220px] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
+        class="absolute z-50 w-fit min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
         data-task-creation-safe
     >
         <div class="flex flex-col gap-2 p-3">
@@ -392,7 +545,7 @@
                     <ul class="space-y-1.5">
                         <template
                             x-for="person in people"
-                            :key="person.id + '-' + (person.status ?? 'accepted')"
+                            :key="(person.collaboration_id ?? person.id) + '-' + (person.status ?? 'accepted')"
                         >
                             <li class="group flex items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5 transition-colors hover:bg-muted/80">
                                 <div class="min-w-0 flex-1">
@@ -404,54 +557,38 @@
                                 </div>
 
                                 <div class="flex shrink-0 items-center gap-1.5">
-                                    <!-- Accepted collaborators: show permission dropdown -->
-                                    <template x-if="(person.status ?? 'accepted') === 'accepted'">
-                                        <flux:dropdown position="bottom" align="end">
-                                            <flux:button
-                                                size="sm"
-                                                variant="ghost"
-                                                icon:trailing="chevron-down"
-                                                class="!h-auto !rounded-full !px-2 !py-0.5 !text-[10px] !font-semibold !uppercase !tracking-wide"
-                                                @click.stop=""
-                                            >
-                                                <span x-text="person.permission"></span>
-                                            </flux:button>
-
-                                            <flux:menu class="!min-w-36 !text-[11px]">
-                                                <flux:menu.radio.group>
-                                                    <flux:menu.radio
-                                                        @click="changePersonPermission(person, 'view')"
-                                                        x-bind:checked="(person.permission_value ?? 'view') === 'view'"
-                                                    >
-                                                        {{ __('Can view') }}
-                                                    </flux:menu.radio>
-                                                    <flux:menu.radio
-                                                        @click="changePersonPermission(person, 'edit')"
-                                                        x-bind:checked="(person.permission_value ?? 'view') === 'edit'"
-                                                    >
-                                                        {{ __('Can edit') }}
-                                                    </flux:menu.radio>
-                                                </flux:menu.radio.group>
-                                            </flux:menu>
-                                        </flux:dropdown>
+                                    <!-- Accepted collaborators: show permission toggle only if user can update collaboration -->
+                                    <template x-if="(person.status ?? 'accepted') === 'accepted' && canManageCollaborations">
+                                        <button
+                                            type="button"
+                                            class="shrink-0 inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-0.5 text-[11px] font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                                            :class="(person.permission_value ?? 'view') === 'edit' ? 'bg-emerald-500/10 text-emerald-600 shadow-sm dark:text-emerald-400' : 'bg-muted text-muted-foreground'"
+                                            @click.stop="togglePersonPermission(person)"
+                                        >
+                                            <span class="uppercase" x-text="person.permission"></span>
+                                        </button>
                                     </template>
 
-                                    <!-- Invitations (pending / declined / rejected): show status only -->
+                                    <!-- Invitations (pending / sending / declined / rejected): show status only -->
                                     <template x-if="person.status && (person.status ?? 'accepted') !== 'accepted'">
                                         <span
-                                            class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                            class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide inline-flex items-center gap-1"
                                             :class="{
                                                 'bg-amber-500/10 text-amber-600 dark:text-amber-500': person.status === 'pending',
+                                                'bg-muted text-muted-foreground': person.status === 'sending',
                                                 'bg-red-500/10 text-red-600 dark:text-red-500': ['declined', 'rejected'].includes(person.status),
                                             }"
                                             role="status"
                                         >
+                                            <flux:icon x-show="person.status === 'sending'" class="size-3 animate-spin" name="arrow-path" x-cloak />
                                             <span
-                                                x-text="person.status === 'pending'
-                                                    ? '{{ __('Pending') }}'
-                                                    : (['declined', 'rejected'].includes(person.status)
-                                                        ? '{{ __('Declined') }}'
-                                                        : person.status)"
+                                                x-text="person.status === 'sending'
+                                                    ? '{{ __('Sending…') }}'
+                                                    : (person.status === 'pending'
+                                                        ? '{{ __('Pending') }}'
+                                                        : (['declined', 'rejected'].includes(person.status)
+                                                            ? '{{ __('Declined') }}'
+                                                            : person.status))"
                                             ></span>
                                         </span>
                                     </template>
@@ -459,6 +596,8 @@
                                     <button
                                         type="button"
                                         class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
+                                        x-show="canManageCollaborations && (person.status ?? 'accepted') !== 'sending'"
+                                        x-cloak
                                         @click.stop="removePerson(person)"
                                         :aria-label="(person.status ?? 'accepted') === 'accepted'
                                             ? '{{ __('Remove collaborator') }}'
@@ -482,8 +621,72 @@
                     {{ __('No collaborators yet') }}
                 </p>
                 <p class="mt-1 text-[11px] text-muted-foreground/70">
-                    {{ __('Use this menu later to invite collaborators.') }}
+                    {{ __('Invite someone by email below.') }}
                 </p>
+            </div>
+
+            <div class="flex flex-col gap-1.5 border-t border-border/50 pt-2">
+                @if($isOwner)
+                <div class="flex w-full items-center gap-1.5" x-show="inviteInlineError" x-cloak>
+                    <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
+                    <p class="text-[11px] font-medium text-red-600 dark:text-red-400" x-text="inviteInlineError"></p>
+                </div>
+
+                <button
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground/80 disabled:pointer-events-none disabled:opacity-50"
+                    x-show="!isInviting"
+                    x-cloak
+                    :disabled="savingInvite"
+                    @click="startInviting()"
+                >
+                    <flux:icon name="plus" class="size-3" />
+                    <span>{{ __('Invite collaborator') }}</span>
+                </button>
+
+                <div x-show="isInviting" x-cloak class="flex flex-col gap-2">
+                    <flux:input
+                        type="email"
+                        x-ref="inviteEmailInput"
+                        x-model="newEmail"
+                        @keydown="handleInviteKeydown($event)"
+                        placeholder="{{ __('colleague@example.com') }}"
+                        class="w-full text-[11px]! py-1.5!"
+                    />
+                    <div class="flex flex-row items-center justify-center gap-2">
+                        <button
+                            type="button"
+                            class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2 py-0.5 text-[11px] font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                            :class="invitePermissionIsEdit ? 'bg-emerald-500/10 text-emerald-600 shadow-sm dark:text-emerald-400' : 'bg-muted text-muted-foreground'"
+                            @click="invitePermissionIsEdit = !invitePermissionIsEdit; newPermission = invitePermissionIsEdit ? 'edit' : 'view';"
+                        >
+                            <flux:icon name="pencil-square" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Permission') }}:
+                                </span>
+                                <span class="uppercase" x-text="invitePermissionIsEdit ? permissionEditLabel : permissionViewLabel"></span>
+                            </span>
+                        </button>
+                        <flux:button
+                            size="xs"
+                            icon="paper-airplane"
+                            class="shrink-0"
+                            @click="saveInvite()"
+                        >
+                            {{ __('Invite') }}
+                        </flux:button>
+                    </div>
+                </div>
+                @else
+                <p class="text-[11px] text-muted-foreground text-center py-1">
+                    @if($canEditItem)
+                        {{ __('You can edit this item, but only the owner can manage collaborators.') }}
+                    @else
+                        {{ __('You can view this item only.') }}
+                    @endif
+                </p>
+                @endif
             </div>
         </div>
     </div>
