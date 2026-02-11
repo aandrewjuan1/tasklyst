@@ -50,6 +50,7 @@
         aria-label="{{ __('Loading workspace list...') }}"
         x-data="{
             skeletonItems: [0, 1, 2],
+            _resizeCleanup: null,
             init() {
                 const updateCount = () => {
                     const itemHeight = 120;
@@ -62,7 +63,10 @@
                 };
                 updateCount();
                 window.addEventListener('resize', updateCount);
-                this.$cleanup(() => window.removeEventListener('resize', updateCount));
+                this._resizeCleanup = () => window.removeEventListener('resize', updateCount);
+            },
+            destroy() {
+                this._resizeCleanup?.();
             },
         }"
     >

@@ -70,6 +70,7 @@
             recurring: @js($filters['recurring'] ?? null),
         },
         userManuallySetItemType: false,
+        _filterOptimisticCleanup: null,
         syncItemTypeOptimistic() {
             const hasEvent = this.displayFilters.eventStatus != null && this.displayFilters.eventStatus !== '';
             const hasTask = (this.displayFilters.taskStatus != null && this.displayFilters.taskStatus !== '') ||
@@ -136,7 +137,10 @@
                 }
             };
             window.addEventListener('filter-optimistic', handler);
-            this.$cleanup(() => window.removeEventListener('filter-optimistic', handler));
+            this._filterOptimisticCleanup = () => window.removeEventListener('filter-optimistic', handler);
+        },
+        destroy() {
+            this._filterOptimisticCleanup?.();
         },
         showValue(key) {
             const val = this.displayFilters[key];

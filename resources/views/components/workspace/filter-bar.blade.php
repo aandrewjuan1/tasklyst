@@ -21,6 +21,7 @@
 <div
     x-data="{
         hasActiveFilters: @js($hasActiveFilters),
+        _filterOptimisticCleanup: null,
         init() {
             const handler = (e) => {
                 if (e?.detail?.key === 'clearAll') {
@@ -41,7 +42,10 @@
             this.$watch('$wire.filterEventStatus', handler);
             this.$watch('$wire.filterTagIds', handler);
             this.$watch('$wire.filterRecurring', handler);
-            this.$cleanup(() => window.removeEventListener('filter-optimistic', handler));
+            this._filterOptimisticCleanup = () => window.removeEventListener('filter-optimistic', handler);
+        },
+        destroy() {
+            this._filterOptimisticCleanup?.();
         },
     }"
     class="flex flex-wrap items-center gap-2"

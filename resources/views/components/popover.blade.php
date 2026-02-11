@@ -52,12 +52,12 @@
     >
         @if ($lazy)
             <template x-if="open">
-                <div @click.stop>
+                <div @click.stop="">
                     {{ $slot }}
                 </div>
             </template>
         @else
-            <div @click.stop>
+            <div @click.stop="">
                 {{ $slot }}
             </div>
         @endif

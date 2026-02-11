@@ -322,7 +322,7 @@
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
-        @click.stop
+        @click.stop=""
         :id="$id('recurring-selection-dropdown')"
         :class="panelPlacementClasses"
         class="absolute z-50 flex min-w-80 flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"

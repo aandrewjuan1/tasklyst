@@ -375,7 +375,7 @@
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
-        @click.stop
+        @click.stop=""
         :id="$id('collaborators-popover')"
         :class="panelPlacementClasses"
         class="absolute z-50 w-fit min-w-[220px] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
@@ -412,7 +412,7 @@
                                                 variant="ghost"
                                                 icon:trailing="chevron-down"
                                                 class="!h-auto !rounded-full !px-2 !py-0.5 !text-[10px] !font-semibold !uppercase !tracking-wide"
-                                                @click.stop
+                                                @click.stop=""
                                             >
                                                 <span x-text="person.permission"></span>
                                             </flux:button>
