@@ -862,75 +862,11 @@
             </div>
         </div>
 
-        @if($type)
-            <div class="flex items-center gap-2">
-                @if(in_array($kind, ['task', 'event'], true))
-                    <x-recurring-selection
-                        model="recurrence"
-                        :initial-value="$headerRecurrenceInitial"
-                        :kind="$kind"
-                        :readonly="!$canEditRecurrence"
-                        compactWhenDisabled
-                        hideWhenDisabled
-                        position="top"
-                        align="end"
-                    />
-                @endif
-
-                <x-workspace.collaborators-popover
-                    :item="$item"
-                    :kind="$kind"
-                    position="top"
-                    align="end"
-                />
-
-                @if($showOwnerBadge)
-                    <flux:tooltip content="{{ __('Owner') }}: {{ $owner->name }}">
-                        <span
-                            class="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-                        >
-                            <flux:icon name="user" class="size-3 shrink-0" />
-                            <span class="inline-flex items-baseline gap-1">
-                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                    {{ __('Owner') }}:
-                                </span>
-                                <span class="truncate max-w-24">{{ $owner->name }}</span>
-                            </span>
-                        </span>
-                    </flux:tooltip>
-                @endif
-
-                @if(! $currentUserIsOwner)
-                    @if($canEdit)
-                        <span
-                            class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400"
-                        >
-                            <flux:icon name="pencil-square" class="size-3 shrink-0" />
-                            <span>{{ __('Can edit') }}</span>
-                        </span>
-                    @else
-                        <span
-                            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                            <flux:icon name="eye" class="size-3 shrink-0" />
-                            <span>{{ __('View only') }}</span>
-                        </span>
-                    @endif
-                @endif
-
-                <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {{ $type }}
-                </span>
-
-                @if(in_array($kind, ['task', 'event'], true))
-                    <span
-                        x-show="(isOverdue || clientOverdue) && !clientNotOverdue"
-                        x-cloak
-                        @if(!$isOverdue) style="display: none" @endif
-                        class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400"
-                    >
-                        <flux:icon name="exclamation-triangle" class="size-3 shrink-0" />
-                        {{ __('Overdue') }}
+        @if($type || ($canDelete && $deleteMethod))
+            <div class="ml-2 flex items-center gap-1.5 shrink-0">
+                @if($type)
+                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {{ $type }}
                     </span>
                 @endif
 
@@ -954,6 +890,76 @@
             </div>
         @endif
     </div>
+
+    @if($type)
+        <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            @if(in_array($kind, ['task', 'event'], true))
+                <x-recurring-selection
+                    model="recurrence"
+                    :initial-value="$headerRecurrenceInitial"
+                    :kind="$kind"
+                    :readonly="!$canEditRecurrence"
+                    compactWhenDisabled
+                    hideWhenDisabled
+                    position="top"
+                    align="end"
+                />
+            @endif
+
+            <x-workspace.collaborators-popover
+                :item="$item"
+                :kind="$kind"
+                position="top"
+                align="end"
+            />
+
+            @if($showOwnerBadge)
+                <flux:tooltip content="{{ __('Owner') }}: {{ $owner->name }}">
+                    <span
+                        class="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                    >
+                        <flux:icon name="user" class="size-3 shrink-0" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Owner') }}:
+                            </span>
+                            <span class="truncate max-w-24">{{ $owner->name }}</span>
+                        </span>
+                    </span>
+                </flux:tooltip>
+            @endif
+
+            @if(! $currentUserIsOwner)
+                @if($canEdit)
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400"
+                    >
+                        <flux:icon name="pencil-square" class="size-3 shrink-0" />
+                        <span>{{ __('Can edit') }}</span>
+                    </span>
+                @else
+                    <span
+                        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                        <flux:icon name="eye" class="size-3 shrink-0" />
+                        <span>{{ __('View only') }}</span>
+                    </span>
+                @endif
+            @endif
+
+            @if(in_array($kind, ['task', 'event'], true))
+                <span
+                    x-show="(isOverdue || clientOverdue) && !clientNotOverdue"
+                    x-cloak
+                    @if(!$isOverdue) style="display: none" @endif
+                    class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400"
+                >
+                    <flux:icon name="exclamation-triangle" class="size-3 shrink-0" />
+                    {{ __('Overdue') }}
+                </span>
+            @endif
+        </div>
+    @endif
 
     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
     @if($kind === 'project')

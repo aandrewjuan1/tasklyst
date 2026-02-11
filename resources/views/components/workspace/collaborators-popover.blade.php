@@ -168,10 +168,21 @@
 
             this.$refs.button && this.$refs.button.focus();
 
-            const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
             const vw = window.innerWidth;
-            const contentLeft = vw < 480 ? 24 : 320;
+
+            // On very small viewports, use a viewport-fixed mobile sheet instead of anchoring to the trigger
+            if (vw <= 480) {
+                this.placementVertical = 'bottom';
+                this.placementHorizontal = 'center';
+                this.open = true;
+                this.$dispatch('dropdown-opened');
+
+                return;
+            }
+
+            const rect = this.$refs.button.getBoundingClientRect();
+            const contentLeft = vw < 768 ? 16 : 320;
             const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
 
             const spaceBelow = vh - rect.bottom;
@@ -214,11 +225,18 @@
         get panelPlacementClasses() {
             const v = this.placementVertical;
             const h = this.placementHorizontal;
-            if (v === 'top' && h === 'end') return 'bottom-full right-0 mb-1';
-            if (v === 'top' && h === 'start') return 'bottom-full left-0 mb-1';
-            if (v === 'bottom' && h === 'end') return 'top-full right-0 mt-1';
-            if (v === 'bottom' && h === 'start') return 'top-full left-0 mt-1';
-            return 'bottom-full right-0 mb-1';
+            const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
+
+            // Mobile: viewport-fixed bottom sheet constrained to the viewport
+            if (vw <= 480) {
+                return 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
+            }
+
+            if (v === 'top' && h === 'end') return 'absolute bottom-full right-0 mb-1';
+            if (v === 'top' && h === 'start') return 'absolute bottom-full left-0 mb-1';
+            if (v === 'bottom' && h === 'end') return 'absolute top-full right-0 mt-1';
+            if (v === 'bottom' && h === 'start') return 'absolute top-full left-0 mt-1';
+            return 'absolute bottom-full right-0 mb-1';
         },
 
         get totalCount() {
@@ -545,7 +563,7 @@
         @click.stop=""
         :id="$id('collaborators-popover')"
         :class="panelPlacementClasses"
-        class="absolute z-50 w-fit min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
+        class="z-50 w-fit min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
         data-task-creation-safe
     >
         <div class="flex flex-col gap-2 p-3">

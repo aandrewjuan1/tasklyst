@@ -1,24 +1,28 @@
 <section class="space-y-6" x-data>
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div class="min-w-0 flex-1 shrink-0 basis-0 sm:basis-auto"></div>
-        <div class="shrink-0">
-            <x-workspace.date-switcher :selected-date="$this->selectedDate" />
-        </div>
-        <div class="flex min-w-0 flex-1 flex-wrap justify-end items-center gap-2 sm:min-w-0">
+    {{-- Centered date switcher on its own row --}}
+    <div class="flex w-full justify-center">
+        <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+    </div>
+
+    {{-- Filters / pending invitations / show-type dropdown row --}}
+    <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex flex-wrap items-center gap-2">
             @auth
                 <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
             @endauth
+            <x-workspace.active-filter-pills
+                :filters="$this->getFilters()"
+                :tags="$this->tags"
+            />
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
             <x-workspace.filter-bar
                 :filters="$this->getFilters()"
                 :tags="$this->tags"
             />
         </div>
     </div>
-
-    <x-workspace.active-filter-pills
-        :filters="$this->getFilters()"
-        :tags="$this->tags"
-    />
 
     @php
         $listLoadingTargets = 'selectedDate,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,acceptCollaborationInvitation';
