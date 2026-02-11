@@ -18,16 +18,96 @@
             return strtolower((string) ($tag->name ?? ''));
         })
         ->values();
+
+    $initialSelectedTags = $selectedTagsSorted
+        ->map(function (mixed $tag): array {
+            $id = is_array($tag) ? ($tag['id'] ?? null) : ($tag->id ?? null);
+            $name = is_array($tag) ? ($tag['name'] ?? '') : ($tag->name ?? '');
+
+            return [
+                'id' => $id,
+                'name' => (string) $name,
+            ];
+        })
+        ->filter(fn (array $tag): bool => ! is_null($tag['id']) && trim($tag['name']) !== '')
+        ->values();
 @endphp
 
 <div
     x-data="{
+        alpineReady: false,
         open: false,
         readonly: @js($readonly),
+        initialSelectedTags: @js($initialSelectedTags),
         placementVertical: @js($position),
         placementHorizontal: @js($align),
         panelHeightEst: {{ $panelHeightEst }},
         panelWidthEst: {{ $panelWidthEst }},
+        mergedTags() {
+            const available = Array.isArray(this.tags) ? [...this.tags] : [];
+            const selectedFallback = Array.isArray(this.initialSelectedTags) ? [...this.initialSelectedTags] : [];
+
+            const merged = [...available, ...selectedFallback]
+                .filter(t => t && t.id != null && String(t.name || '').trim() !== '');
+
+            const byId = new Map();
+            for (const tag of merged) {
+                const key = String(tag.id);
+                if (!byId.has(key)) {
+                    byId.set(key, { id: tag.id, name: String(tag.name || '').trim() });
+                }
+            }
+
+            return Array.from(byId.values())
+                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        },
+        isTagSelected(tagId) {
+            const tagIds = this.formData?.item?.tagIds;
+            if (Array.isArray(tagIds)) {
+                const tagIdStr = String(tagId);
+                return tagIds.some(id => String(id) === tagIdStr);
+            }
+
+            const fallback = Array.isArray(this.initialSelectedTags) ? this.initialSelectedTags : [];
+            const tagIdStr = String(tagId);
+            return fallback.some(t => String(t?.id) === tagIdStr);
+        },
+        selectedTagPills() {
+            const fallback = Array.isArray(this.initialSelectedTags) ? [...this.initialSelectedTags] : [];
+
+            const tagIds = this.formData?.item?.tagIds;
+            const tags = Array.isArray(this.tags) ? this.tags : null;
+
+            if (!Array.isArray(tagIds) || !tags) {
+                return fallback
+                    .filter(t => t && t.id != null && String(t.name || '').trim() !== '')
+                    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+            }
+
+            const tagMap = new Map(tags.map(t => [String(t?.id), t]));
+            const fallbackMap = new Map(fallback.map(t => [String(t?.id), t]));
+
+            const results = [];
+            const seen = new Set();
+
+            for (const id of tagIds) {
+                const key = String(id);
+                if (seen.has(key)) continue;
+                seen.add(key);
+
+                const tag = tagMap.get(key) || fallbackMap.get(key);
+                if (!tag) continue;
+
+                const name = String(tag?.name || '').trim();
+                if (!name) continue;
+
+                results.push({ id: tag.id, name });
+            }
+
+            results.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+            return results;
+        },
         toggle() {
             if (this.readonly) return;
             if (this.open) {
@@ -80,6 +160,7 @@
             return 'bottom-full right-0 mb-1';
         },
     }"
+    x-init="alpineReady = true"
     @keydown.escape.prevent.stop="close($refs.trigger)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
     x-id="['tag-selection-dropdown']"
@@ -100,17 +181,38 @@
         data-task-creation-safe
     >
         <span class="inline-flex flex-wrap items-center gap-1.5">
-            @foreach ($selectedTagsSorted as $tag)
-                <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground">
-                    {{ $tag->name ?? $tag['name'] ?? '' }}
-                </span>
-            @endforeach
-            @if ($selectedTagsSorted->count() === 0)
-                <span class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            {{-- Server-rendered tags for first paint --}}
+            @if($selectedTagsSorted->isNotEmpty())
+                @foreach($selectedTagsSorted as $tag)
+                    <span 
+                        class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
+                        x-show="!alpineReady"
+                    >{{ is_array($tag) ? $tag['name'] : $tag->name }}</span>
+                @endforeach
+            @else
+                <span class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground" x-show="!alpineReady">
                     <flux:icon name="tag" class="size-3" />
                     {{ __('Add tags') }}
                 </span>
             @endif
+
+            {{-- Alpine-rendered tags after hydration --}}
+            <template x-for="tag in selectedTagPills()" :key="String(tag.id)">
+                <span 
+                    class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground" 
+                    x-text="tag.name"
+                    x-show="alpineReady"
+                    x-cloak
+                ></span>
+            </template>
+            <span 
+                x-show="alpineReady && selectedTagPills().length === 0" 
+                x-cloak 
+                class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
+            >
+                <flux:icon name="tag" class="size-3" />
+                {{ __('Add tags') }}
+            </span>
         </span>
     </button>
 
@@ -152,7 +254,7 @@
             </div>
 
             <div class="max-h-40 overflow-y-auto">
-                <template x-for="tag in tags || []" :key="tag.id">
+                <template x-for="tag in mergedTags()" :key="String(tag.id)">
                     <label
                         class="group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         @click="$dispatch('tag-toggled', { tagId: tag.id }); $event.preventDefault()"
@@ -174,7 +276,7 @@
                         </flux:tooltip>
                     </label>
                 </template>
-                <div x-show="!tags || tags.length === 0" x-cloak class="px-3 py-2 text-sm text-muted-foreground">
+                <div x-show="mergedTags().length === 0" x-cloak class="px-3 py-2 text-sm text-muted-foreground">
                     {{ __('No tags available') }}
                 </div>
             </div>

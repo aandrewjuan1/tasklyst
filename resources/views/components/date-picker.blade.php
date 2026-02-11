@@ -411,7 +411,9 @@
             </span>
             <span class="text-xs uppercase {{ $overdue ? 'font-semibold text-red-700 dark:text-red-400' : '' }}" x-bind:class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
         </span>
-        <flux:icon name="chevron-down" class="size-3" x-show="!readonly" />
+        @if(!$readonly)
+            <flux:icon name="chevron-down" class="size-3" />
+        @endif
     </button>
 
     <div

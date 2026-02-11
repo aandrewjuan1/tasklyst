@@ -808,9 +808,9 @@
                 <div x-show="!alpineReady">
                     @if(trim((string) ($description ?? '')) !== '')
                         <p
-                            class="line-clamp-2 text-xs text-foreground/70 cursor-text hover:opacity-80 transition-opacity"
+                            class="line-clamp-2 text-xs text-foreground/70 {{ $canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default' }} transition-opacity"
                         >{{ $description ?? '' }}</p>
-                    @else
+                    @elseif($canEdit)
                         <button
                             type="button"
                             class="text-xs text-muted-foreground hover:text-foreground/70 transition-colors inline-flex items-center gap-1 cursor-pointer"
@@ -966,6 +966,7 @@
                     tagAlreadyExists: @js(__('Tag already exists.')),
                     tagError: @js(__('Something went wrong. Please try again.')),
                     tagRemovedFromItem: @js(__('Tag ":tag" removed from :type ":item".')),
+                    tagDeleted: @js(__('Tag ":tag" deleted.')),
                 },
                 itemTitle: @js($item->title ?? ''),
                 itemTypeLabel: @js($kind === 'task' ? __('Task') : __('Event')),
@@ -1051,37 +1052,37 @@
                     const isTempTag = String(tag.id).startsWith('temp-');
                     const snapshot = { ...tag };
                     const tagsBackup = this.tags ? [...this.tags] : [];
-                    const tagIdsBackup = [...this.formData.item.tagIds];
                     const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
                     try {
                         this.deletingTagIds = this.deletingTagIds || new Set();
                         this.deletingTagIds.add(tag.id);
+                        
+                        // Optimistically remove from available tags list
                         if (this.tags && tagIndex !== -1) {
                             this.tags = this.tags.filter(t => t.id !== tag.id);
                         }
-                        const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
-                        if (selectedIndex !== undefined && selectedIndex !== -1) {
-                            this.formData.item.tagIds.splice(selectedIndex, 1);
-                        }
+                        
+                        // Delete tag globally (not just from this item)
                         if (!isTempTag) {
                             await $wire.$parent.$call('deleteTag', tag.id, true);
-                        }
-                        const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
-                        await this.updateProperty('tagIds', realTagIds, true);
-                        if (!isTempTag && tag.name && this.itemTitle) {
-                            const msg = this.tagMessages.tagRemovedFromItem
-                                .replace(':tag', tag.name)
-                                .replace(':type', this.itemTypeLabel)
-                                .replace(':item', this.itemTitle);
-                            $wire.$dispatch('toast', { type: 'success', message: msg });
+                            // Show success message
+                            if (tag.name) {
+                                const msg = this.tagMessages.tagDeleted.replace(':tag', tag.name);
+                                $wire.$dispatch('toast', { type: 'success', message: msg });
+                            }
+                            // The onTagDeleted handler will remove it from formData.item.tagIds
+                        } else {
+                            // For temp tags, just remove from local state
+                            const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
+                            if (selectedIndex !== undefined && selectedIndex !== -1) {
+                                this.formData.item.tagIds.splice(selectedIndex, 1);
+                            }
                         }
                     } catch (err) {
+                        // Rollback on error
                         if (tagIndex !== -1 && this.tags) {
                             this.tags.splice(tagIndex, 0, snapshot);
                             this.tags.sort((a, b) => a.name.localeCompare(b.name));
-                        }
-                        if (tagIdsBackup.includes(tag.id) && !this.formData.item.tagIds.includes(tag.id)) {
-                            this.formData.item.tagIds.push(tag.id);
                         }
                         $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
                     } finally {
@@ -1117,18 +1118,19 @@
                 },
                 onTagDeleted(event) {
                     const { id } = event.detail || {};
+                    // Remove from available tags list
                     if (this.tags) {
                         const tagIndex = this.tags.findIndex(tag => tag.id === id);
                         if (tagIndex !== -1) {
                             this.tags.splice(tagIndex, 1);
                         }
                     }
+                    // Remove from this item's selected tags (local state only)
+                    // The backend has already removed it from the database
                     if (this.formData?.item?.tagIds) {
                         const selectedIndex = this.formData.item.tagIds.indexOf(id);
                         if (selectedIndex !== -1) {
                             this.formData.item.tagIds.splice(selectedIndex, 1);
-                            const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
-                            this.updateProperty('tagIds', realTagIds);
                         }
                     }
                 },
@@ -1305,7 +1307,9 @@
                             </span>
                             <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $eventStatusInitialOption ? $eventStatusInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
+                        @if($canEdit)
+                            <flux:icon name="chevron-down" class="size-3" />
+                        @endif
                     </button>
                 </x-slot:trigger>
 
@@ -1471,33 +1475,33 @@
                     const isTempTag = String(tag.id).startsWith('temp-');
                     const snapshot = { ...tag };
                     const tagsBackup = this.tags ? [...this.tags] : [];
-                    const tagIdsBackup = [...this.formData.item.tagIds];
                     const tagIndex = this.tags?.findIndex(t => t.id === tag.id) ?? -1;
                     try {
                         this.deletingTagIds = this.deletingTagIds || new Set();
                         this.deletingTagIds.add(tag.id);
+                        
+                        // Optimistically remove from available tags list
                         if (this.tags && tagIndex !== -1) this.tags = this.tags.filter(t => t.id !== tag.id);
-                        const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
-                        if (selectedIndex !== undefined && selectedIndex !== -1) this.formData.item.tagIds.splice(selectedIndex, 1);
+                        
+                        // Delete tag globally (not just from this item)
                         if (!isTempTag) {
                             await $wire.$parent.$call('deleteTag', tag.id, true);
-                        }
-                        const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
-                        await this.updateProperty('tagIds', realTagIds, true);
-                        if (!isTempTag && tag.name && this.itemTitle) {
-                            const msg = this.tagMessages.tagRemovedFromItem
-                                .replace(':tag', tag.name)
-                                .replace(':type', this.itemTypeLabel)
-                                .replace(':item', this.itemTitle);
-                            $wire.$dispatch('toast', { type: 'success', message: msg });
+                            // Show success message
+                            if (tag.name) {
+                                const msg = this.tagMessages.tagDeleted.replace(':tag', tag.name);
+                                $wire.$dispatch('toast', { type: 'success', message: msg });
+                            }
+                            // The onTagDeleted handler will remove it from formData.item.tagIds
+                        } else {
+                            // For temp tags, just remove from local state
+                            const selectedIndex = this.formData.item.tagIds?.indexOf(tag.id);
+                            if (selectedIndex !== undefined && selectedIndex !== -1) this.formData.item.tagIds.splice(selectedIndex, 1);
                         }
                     } catch (err) {
+                        // Rollback on error
                         if (tagIndex !== -1 && this.tags) {
                             this.tags.splice(tagIndex, 0, snapshot);
                             this.tags.sort((a, b) => a.name.localeCompare(b.name));
-                        }
-                        if (tagIdsBackup.includes(tag.id) && !this.formData.item.tagIds.includes(tag.id)) {
-                            this.formData.item.tagIds.push(tag.id);
                         }
                         $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
                     } finally {
@@ -1530,18 +1534,19 @@
                 },
                 onTagDeleted(event) {
                     const { id } = event.detail || {};
+                    // Remove from available tags list
                     if (this.tags) {
                         const tagIndex = this.tags.findIndex(tag => tag.id === id);
                         if (tagIndex !== -1) {
                             this.tags.splice(tagIndex, 1);
                         }
                     }
+                    // Remove from this item's selected tags (local state only)
+                    // The backend has already removed it from the database
                     if (this.formData?.item?.tagIds) {
                         const selectedIndex = this.formData.item.tagIds.indexOf(id);
                         if (selectedIndex !== -1) {
                             this.formData.item.tagIds.splice(selectedIndex, 1);
-                            const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
-                            this.updateProperty('tagIds', realTagIds);
                         }
                     }
                 },
@@ -1550,6 +1555,7 @@
                     tagAlreadyExists: @js(__('Tag already exists.')),
                     tagError: @js(__('Something went wrong. Please try again.')),
                     tagRemovedFromItem: @js(__('Tag ":tag" removed from :type ":item".')),
+                    tagDeleted: @js(__('Tag ":tag" deleted.')),
                 },
                 itemTitle: @js($item->title ?? ''),
                 itemTypeLabel: @js($kind === 'task' ? __('Task') : __('Event')),
@@ -1750,7 +1756,9 @@
                             </span>
                             <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
+                        @if($canEdit)
+                            <flux:icon name="chevron-down" class="size-3" />
+                        @endif
                     </button>
                 </x-slot:trigger>
 
@@ -1785,7 +1793,9 @@
                             </span>
                             <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
+                        @if($canEdit)
+                            <flux:icon name="chevron-down" class="size-3" />
+                        @endif
                     </button>
                 </x-slot:trigger>
 
@@ -1820,7 +1830,9 @@
                             </span>
                             <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
+                        @if($canEdit)
+                            <flux:icon name="chevron-down" class="size-3" />
+                        @endif
                     </button>
                 </x-slot:trigger>
 
@@ -1855,7 +1867,9 @@
                             </span>
                             <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" x-show="canEdit" />
+                        @if($canEdit)
+                            <flux:icon name="chevron-down" class="size-3" />
+                        @endif
                     </button>
                 </x-slot:trigger>
 

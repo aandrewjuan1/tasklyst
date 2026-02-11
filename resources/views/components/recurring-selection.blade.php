@@ -310,12 +310,14 @@
             <span class="text-xs" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
         </span>
 
-        <flux:icon
-            name="chevron-down"
-            class="size-3"
-            x-show="enabled && !readonly"
-            style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
-        />
+        @if(!$readonly)
+            <flux:icon
+                name="chevron-down"
+                class="size-3"
+                x-show="enabled"
+                style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
+            />
+        @endif
     </button>
     </flux:tooltip>
 
