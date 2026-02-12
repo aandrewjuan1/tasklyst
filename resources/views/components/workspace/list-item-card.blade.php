@@ -916,6 +916,8 @@
                                 {{ __('Activity Logs') }}
                             </flux:menu.item>
 
+                            <flux:separator />
+
                             <flux:menu.item
                                 variant="danger"
                                 icon="trash"
