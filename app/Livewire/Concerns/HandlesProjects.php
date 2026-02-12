@@ -231,8 +231,9 @@ trait HandlesProjects
                 'collaborations',
                 'collaborators',
                 'collaborationInvitations.invitee',
-                'comments.user',
             ])
+            ->withRecentComments(5)
+            ->withCount('comments')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notArchived()

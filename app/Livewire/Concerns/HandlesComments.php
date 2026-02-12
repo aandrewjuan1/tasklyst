@@ -17,6 +17,11 @@ use Livewire\Attributes\Renderless;
 trait HandlesComments
 {
     /**
+     * Page size for "load more" comments.
+     */
+    private const COMMENTS_PAGE_SIZE = 10;
+
+    /**
      * Add a comment to a task, event, or project.
      *
      * This mirrors the optimistic flows used for tasks / events / projects:
@@ -83,6 +88,70 @@ trait HandlesComments
         $this->dispatch('toast', type: 'success', message: __('Comment added.'));
 
         return (int) $comment->id;
+    }
+
+    /**
+     * Load the next page of comments for a task, project, or event.
+     * Used by the comments panel "Load more" button.
+     *
+     * @return array{comments: array<int, array{id: int, userName: string, initials: string, content: string, createdDiff: string, canManage: bool}>, hasMore: bool}
+     */
+    #[Renderless]
+    public function loadMoreComments(string $commentableType, int $commentableId, int $offset): array
+    {
+        $user = $this->requireAuth(__('You must be logged in to view comments.'));
+        if ($user === null) {
+            return ['comments' => [], 'hasMore' => false];
+        }
+
+        $commentable = match ($commentableType) {
+            Task::class => Task::query()->forUser($user->id)->find($commentableId),
+            Event::class => Event::query()->forUser($user->id)->find($commentableId),
+            Project::class => Project::query()->forUser($user->id)->find($commentableId),
+            default => null,
+        };
+
+        if ($commentable === null) {
+            $this->dispatch('toast', type: 'error', message: __('Item not found.'));
+
+            return ['comments' => [], 'hasMore' => false];
+        }
+
+        $this->authorize('update', $commentable);
+
+        $limit = self::COMMENTS_PAGE_SIZE;
+        $comments = Comment::query()
+            ->forItem($commentable)
+            ->with('user')
+            ->orderBy('is_pinned', 'desc')
+            ->orderByDesc('created_at')
+            ->offset($offset)
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $comments->count() > $limit;
+        if ($hasMore) {
+            $comments = $comments->take($limit);
+        }
+
+        $currentUserId = $user->id;
+        $commentEntries = $comments->map(function (Comment $comment) use ($currentUserId): array {
+            $userName = $comment->user?->name ?? $comment->user?->email ?? __('Unknown user');
+
+            return [
+                'id' => $comment->id,
+                'userName' => $userName,
+                'initials' => (string) \Illuminate\Support\Str::of($userName)->substr(0, 2),
+                'content' => $comment->content,
+                'createdDiff' => $comment->created_at?->diffForHumans() ?? '',
+                'canManage' => $currentUserId && (int) $comment->user_id === (int) $currentUserId,
+            ];
+        })->values()->all();
+
+        return [
+            'comments' => $commentEntries,
+            'hasMore' => $hasMore,
+        ];
     }
 
     /**

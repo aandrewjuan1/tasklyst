@@ -7,7 +7,7 @@
 @php
     /** @var \Illuminate\Support\Collection<int, \App\Models\Comment> $comments */
     $comments = $item->comments ?? collect();
-    $totalComments = $comments->count();
+    $totalComments = (int) ($item->comments_count ?? $comments->count());
     $initialVisibleCount = min(3, $totalComments);
 
     $kindLabel = match ($kind) {
@@ -77,11 +77,28 @@
         commentUpdateErrorToast: @js(__('Could not update comment. Please try again.')),
         deletingCommentIds: new Set(),
         deleteCommentErrorToast: @js(__('Could not delete comment. Please try again.')),
+        loadingMoreComments: false,
         toggle() {
             this.isOpen = !this.isOpen;
         },
-        loadMore() {
-            this.visibleCount = Math.min(this.visibleCount + 3, this.totalCount);
+        async loadMore() {
+            if (this.visibleCount < this.comments.length) {
+                this.visibleCount = Math.min(this.visibleCount + 3, this.comments.length);
+                return;
+            }
+            if (this.comments.length >= this.totalCount || this.loadingMoreComments) {
+                return;
+            }
+            this.loadingMoreComments = true;
+            try {
+                const response = await $wire.$parent.$call('loadMoreComments', this.commentableType, this.commentableId, this.comments.length);
+                if (response?.comments?.length) {
+                    this.comments = [...this.comments, ...response.comments];
+                    this.visibleCount = this.comments.length;
+                }
+            } finally {
+                this.loadingMoreComments = false;
+            }
         },
         startAddingComment() {
             if (this.readonly || this.savingComment) {
@@ -140,9 +157,9 @@
                 canManage: true,
             };
 
-            this.comments = [...this.comments, optimisticComment];
+            this.comments = [optimisticComment, ...this.comments];
             this.totalCount = this.totalCount + 1;
-            this.visibleCount = Math.max(this.visibleCount, this.comments.length);
+            this.visibleCount = this.visibleCount + 1;
             this.newCommentContent = '';
             this.isAddingComment = false;
 
@@ -421,6 +438,34 @@
         role="region"
         :aria-hidden="(!isOpen).toString()"
     >
+        <div class="space-y-1 pb-1.5" x-show="!readonly">
+            <button
+                type="button"
+                class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground/80"
+                x-show="!isAddingComment"
+                x-cloak
+                @click="startAddingComment()"
+            >
+                <flux:icon name="plus" class="size-3" />
+                <span>{{ __('Add comment') }}</span>
+            </button>
+
+            <div x-show="isAddingComment" x-cloak>
+                <textarea
+                    x-ref="commentInput"
+                    x-model="newCommentContent"
+                    x-on:keydown="handleCommentKeydown($event)"
+                    x-on:blur="handleCommentBlur()"
+                    rows="2"
+                    class="w-full min-w-0 rounded-md bg-muted/30 px-2 py-1 text-[11px] leading-snug outline-none ring-1 ring-transparent focus:bg-background/70 focus:ring-1 focus:ring-border dark:bg-muted/20"
+                    placeholder="{{ __('Add a comment...') }}"
+                ></textarea>
+                <p class="mt-0.5 text-[10px] text-muted-foreground/80">
+                    {{ __('Press Enter to save, Shift+Enter for a new line, or Esc to cancel.') }}
+                </p>
+            </div>
+        </div>
+
         <template x-if="totalCount === 0">
             <p class="text-[11px] text-muted-foreground/80">
                 {{ __('No comments yet.') }}
@@ -506,44 +551,18 @@
 
                 <button
                     type="button"
-                    class="mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-primary hover:text-primary/80"
+                    class="mt-0.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-primary hover:text-primary/80 disabled:opacity-70"
+                    :class="{ 'animate-pulse': loadingMoreComments }"
                     x-show="visibleCount < totalCount"
                     x-cloak
+                    :disabled="loadingMoreComments"
                     @click="loadMore()"
                 >
                     <flux:icon name="chevron-down" class="size-3" />
-                    <span>{{ __('Load more comments') }}</span>
+                    <span x-text="loadingMoreComments ? '{{ __('Loading...') }}' : '{{ __('Load more comments') }}'"></span>
                 </button>
             </div>
         </template>
-
-        <div class="space-y-1 pt-0.5" x-show="!readonly">
-            <button
-                type="button"
-                class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:text-foreground/80"
-                x-show="!isAddingComment"
-                x-cloak
-                @click="startAddingComment()"
-            >
-                <flux:icon name="plus" class="size-3" />
-                <span>{{ __('Add comment') }}</span>
-            </button>
-
-            <div x-show="isAddingComment" x-cloak>
-                <textarea
-                    x-ref="commentInput"
-                    x-model="newCommentContent"
-                    x-on:keydown="handleCommentKeydown($event)"
-                    x-on:blur="handleCommentBlur()"
-                    rows="2"
-                    class="w-full min-w-0 rounded-md bg-muted/30 px-2 py-1 text-[11px] leading-snug outline-none ring-1 ring-transparent focus:bg-background/70 focus:ring-1 focus:ring-border dark:bg-muted/20"
-                    placeholder="{{ __('Add a comment...') }}"
-                ></textarea>
-                <p class="mt-0.5 text-[10px] text-muted-foreground/80">
-                    {{ __('Press Enter to save, Shift+Enter for a new line, or Esc to cancel.') }}
-                </p>
-            </div>
-        </div>
     </div>
 </div>
 

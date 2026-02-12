@@ -404,7 +404,12 @@ class Event extends Model
 
     public function comments(): MorphMany
     {
-        return $this->morphMany(Comment::class, 'commentable')->orderBy('is_pinned', 'desc')->orderBy('created_at');
+        return $this->morphMany(Comment::class, 'commentable')->orderBy('is_pinned', 'desc')->orderByDesc('created_at');
+    }
+
+    public function scopeWithRecentComments(Builder $query, int $limit = 5): Builder
+    {
+        return $query->with(['comments' => fn ($q) => $q->with('user')->orderBy('is_pinned', 'desc')->orderByDesc('created_at')->limit($limit)]);
     }
 
     public function activityLogs(): MorphMany

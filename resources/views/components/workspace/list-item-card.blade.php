@@ -567,6 +567,10 @@
                 this.deletingInProgress = false;
             }
         },
+        showLogs() {
+            // TODO: Implement activity logs popover
+            console.log('Show logs for item:', this.itemId);
+        },
         startEditingTitle() {
             if (!this.canEdit || this.deletingInProgress || !this.updatePropertyMethod) return;
             this.titleSnapshot = this.editedTitle;
@@ -862,7 +866,7 @@
             </div>
         </div>
 
-        @if($type || ($canDelete && $deleteMethod))
+        @if($type || ($currentUserIsOwner && $deleteMethod))
             <div class="ml-2 flex items-center gap-1.5 shrink-0">
                 @if($type)
                     <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -870,12 +874,19 @@
                     </span>
                 @endif
 
-                @if($canDelete && $deleteMethod)
+                @if($currentUserIsOwner && $deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
                         <flux:menu>
                             <flux:menu.separator />
+
+                            <flux:menu.item
+                                icon="clock"
+                                @click.throttle.250ms="showLogs()"
+                            >
+                                {{ __('Activity Logs') }}
+                            </flux:menu.item>
 
                             <flux:menu.item
                                 variant="danger"
