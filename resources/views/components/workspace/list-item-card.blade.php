@@ -978,7 +978,7 @@
                     {{ __('Tasks') }}:
                 </span>
                 <span>
-                    {{ $item->tasks->count() }}
+                    {{ $item->tasks_count }}
                 </span>
             </span>
         </span>

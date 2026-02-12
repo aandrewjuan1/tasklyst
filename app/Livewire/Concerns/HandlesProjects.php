@@ -227,12 +227,12 @@ trait HandlesProjects
         return Project::query()
             ->with([
                 'user',
-                'tasks',
                 'collaborations',
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
             ->withRecentComments(5)
+            ->withCount('tasks')
             ->withCount('comments')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
