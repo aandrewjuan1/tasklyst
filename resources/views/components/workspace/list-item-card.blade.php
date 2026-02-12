@@ -895,15 +895,23 @@
                     />
                 </div>
 
+                <div class="hidden md:block relative">
+                    <x-workspace.activity-logs-popover
+                        :item="$item"
+                        :kind="$kind"
+                        position="top"
+                        align="end"
+                    />
+                </div>
+
                 @if($currentUserIsOwner && $deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
                         <flux:menu>
-                            <flux:menu.separator />
-
                             <flux:menu.item
                                 icon="clock"
+                                @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
                             >
                                 {{ __('Activity Logs') }}
                             </flux:menu.item>

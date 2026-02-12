@@ -218,6 +218,7 @@ class extends Component
                 'collaborationInvitations.invitee',
                 'comments.user',
             ])
+            ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->incomplete()
@@ -238,6 +239,7 @@ class extends Component
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
+            ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notCancelled()

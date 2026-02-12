@@ -234,6 +234,7 @@ trait HandlesProjects
             ->withRecentComments(5)
             ->withCount('tasks')
             ->withCount('comments')
+            ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notArchived()

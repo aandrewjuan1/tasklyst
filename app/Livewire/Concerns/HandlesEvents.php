@@ -356,6 +356,7 @@ trait HandlesEvents
             ])
             ->withRecentComments(5)
             ->withCount('comments')
+            ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->activeForDate($date);

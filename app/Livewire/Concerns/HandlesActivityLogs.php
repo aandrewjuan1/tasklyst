@@ -59,17 +59,21 @@ trait HandlesActivityLogs
         }
 
         $logEntries = $logs->map(function (ActivityLog $log): array {
-            $actorName = $log->user?->name ?? $log->user?->email ?? __('Unknown user');
+            $actorEmail = $log->user?->email;
+            $actorDisplay = $actorEmail ?? __('Unknown user');
 
             return [
                 'id' => $log->id,
                 'action' => $log->action->value,
                 'actionLabel' => $log->action->label(),
+                'message' => $log->message(),
                 'payload' => $log->payload ?? [],
                 'createdAt' => $log->created_at?->toIso8601String() ?? '',
+                'createdDisplay' => $log->created_at?->translatedFormat('M j, Y g:i A') ?? '',
                 'user' => [
                     'id' => $log->user_id ?? 0,
-                    'name' => $actorName,
+                    'email' => $actorEmail,
+                    'display' => $actorDisplay,
                 ],
             ];
         })->values()->all();
