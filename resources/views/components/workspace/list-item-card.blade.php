@@ -567,10 +567,6 @@
                 this.deletingInProgress = false;
             }
         },
-        showLogs() {
-            // TODO: Implement activity logs popover
-            console.log('Show logs for item:', this.itemId);
-        },
         startEditingTitle() {
             if (!this.canEdit || this.deletingInProgress || !this.updatePropertyMethod) return;
             this.titleSnapshot = this.editedTitle;
@@ -883,7 +879,6 @@
 
                             <flux:menu.item
                                 icon="clock"
-                                @click.throttle.250ms="showLogs()"
                             >
                                 {{ __('Activity Logs') }}
                             </flux:menu.item>
