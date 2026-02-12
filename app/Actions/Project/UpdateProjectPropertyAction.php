@@ -3,7 +3,9 @@
 namespace App\Actions\Project;
 
 use App\DataTransferObjects\Project\UpdateProjectPropertyResult;
+use App\Enums\ActivityLogAction;
 use App\Models\Project;
+use App\Services\ActivityLogRecorder;
 use App\Services\ProjectService;
 use App\Support\DateHelper;
 use Illuminate\Support\Facades\Log;
@@ -11,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 class UpdateProjectPropertyAction
 {
     public function __construct(
+        private ActivityLogRecorder $activityLogRecorder,
         private ProjectService $projectService
     ) {}
 
@@ -48,6 +51,13 @@ class UpdateProjectPropertyAction
         }
 
         $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+
+        $this->activityLogRecorder->record(
+            $project,
+            auth()->user(),
+            ActivityLogAction::FieldUpdated,
+            ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
+        );
 
         return UpdateProjectPropertyResult::success($oldValue, $newValue);
     }

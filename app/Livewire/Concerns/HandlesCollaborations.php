@@ -209,7 +209,7 @@ trait HandlesCollaborations
         $this->authorize('delete', $collaboration);
 
         try {
-            $deleted = $this->deleteCollaborationAction->execute($collaboration);
+            $deleted = $this->deleteCollaborationAction->execute($collaboration, $user);
         } catch (\Throwable $e) {
             Log::error('Failed to remove collaborator from workspace.', [
                 'user_id' => $user->id,
@@ -264,7 +264,7 @@ trait HandlesCollaborations
         $this->authorize('leave', $collaboration);
 
         try {
-            $deleted = $this->deleteCollaborationAction->execute($collaboration);
+            $deleted = $this->deleteCollaborationAction->execute($collaboration, $user);
         } catch (\Throwable $e) {
             Log::error('Failed to leave collaboration from workspace.', [
                 'user_id' => $user->id,

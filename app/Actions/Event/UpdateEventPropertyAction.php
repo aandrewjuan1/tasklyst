@@ -3,10 +3,12 @@
 namespace App\Actions\Event;
 
 use App\DataTransferObjects\Event\UpdateEventPropertyResult;
+use App\Enums\ActivityLogAction;
 use App\Enums\EventStatus;
 use App\Models\Event;
 use App\Models\RecurringEvent;
 use App\Models\Tag;
+use App\Services\ActivityLogRecorder;
 use App\Services\EventService;
 use App\Support\DateHelper;
 use App\Support\Validation\EventPayloadValidation;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\Log;
 class UpdateEventPropertyAction
 {
     public function __construct(
+        private ActivityLogRecorder $activityLogRecorder,
         private EventService $eventService
     ) {}
 
@@ -93,6 +96,13 @@ class UpdateEventPropertyAction
                 'new_tag_ids' => $validatedValue,
             ]);
 
+            $this->activityLogRecorder->record(
+                $event,
+                auth()->user(),
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'tagIds', 'from' => $oldTagIds, 'to' => $validatedValue]
+            );
+
             return UpdateEventPropertyResult::success($oldTagIds, $validatedValue, $addedTagName, $removedTagName);
         } catch (\Throwable $e) {
             Log::error('[TAG-SYNC] Failed to sync event tags from workspace', [
@@ -115,6 +125,13 @@ class UpdateEventPropertyAction
 
         try {
             $this->eventService->updateOrCreateRecurringEvent($event, $validatedValue);
+
+            $this->activityLogRecorder->record(
+                $event,
+                auth()->user(),
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'recurrence', 'from' => $oldRecurrence, 'to' => $validatedValue]
+            );
 
             return UpdateEventPropertyResult::success($oldRecurrence, $validatedValue);
         } catch (\Throwable $e) {
@@ -144,6 +161,13 @@ class UpdateEventPropertyAction
             } else {
                 $this->eventService->updateEvent($event, ['status' => $validatedValue]);
             }
+
+            $this->activityLogRecorder->record(
+                $event,
+                auth()->user(),
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'status', 'from' => $oldStatus, 'to' => $validatedValue]
+            );
 
             return UpdateEventPropertyResult::success($oldStatus, $validatedValue);
         } catch (\Throwable $e) {
@@ -188,6 +212,13 @@ class UpdateEventPropertyAction
         }
 
         $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+
+        $this->activityLogRecorder->record(
+            $event,
+            auth()->user(),
+            ActivityLogAction::FieldUpdated,
+            ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
+        );
 
         return UpdateEventPropertyResult::success($oldValue, $newValue);
     }

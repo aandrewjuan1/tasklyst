@@ -19,6 +19,7 @@ use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
+use App\Livewire\Concerns\HandlesActivityLogs;
 use App\Livewire\Concerns\HandlesCollaborations;
 use App\Livewire\Concerns\HandlesComments;
 use App\Livewire\Concerns\HandlesEvents;
@@ -49,6 +50,7 @@ new
 class extends Component
 {
     use AuthorizesRequests;
+    use HandlesActivityLogs;
     use HandlesCollaborations;
     use HandlesComments;
     use HandlesEvents;
@@ -216,6 +218,7 @@ class extends Component
                 'collaborationInvitations.invitee',
                 'comments.user',
             ])
+            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->incomplete()
             ->overdue($today)
@@ -235,6 +238,7 @@ class extends Component
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
+            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notCancelled()
             ->notCompleted()

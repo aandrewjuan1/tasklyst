@@ -3,6 +3,7 @@
 namespace App\Actions\Event;
 
 use App\Models\Event;
+use App\Models\User;
 use App\Services\EventService;
 
 class DeleteEventAction
@@ -11,8 +12,8 @@ class DeleteEventAction
         private EventService $eventService
     ) {}
 
-    public function execute(Event $event): bool
+    public function execute(Event $event, ?User $actor = null): bool
     {
-        return $this->eventService->deleteEvent($event);
+        return $this->eventService->deleteEvent($event, $actor);
     }
 }

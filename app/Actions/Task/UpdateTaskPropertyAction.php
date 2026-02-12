@@ -3,10 +3,12 @@
 namespace App\Actions\Task;
 
 use App\DataTransferObjects\Task\UpdateTaskPropertyResult;
+use App\Enums\ActivityLogAction;
 use App\Enums\TaskStatus;
 use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Services\ActivityLogRecorder;
 use App\Services\TaskService;
 use App\Support\DateHelper;
 use App\Support\Validation\TaskPayloadValidation;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\Log;
 class UpdateTaskPropertyAction
 {
     public function __construct(
+        private ActivityLogRecorder $activityLogRecorder,
         private TaskService $taskService
     ) {}
 
@@ -93,6 +96,13 @@ class UpdateTaskPropertyAction
                 'new_tag_ids' => $validatedValue,
             ]);
 
+            $this->activityLogRecorder->record(
+                $task,
+                auth()->user(),
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'tagIds', 'from' => $oldTagIds, 'to' => $validatedValue]
+            );
+
             return UpdateTaskPropertyResult::success($oldTagIds, $validatedValue, $addedTagName, $removedTagName);
         } catch (\Throwable $e) {
             Log::error('[TAG-SYNC] Failed to sync task tags from workspace', [
@@ -115,6 +125,13 @@ class UpdateTaskPropertyAction
 
         try {
             $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
+
+            $this->activityLogRecorder->record(
+                $task,
+                auth()->user(),
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'recurrence', 'from' => $oldRecurrence, 'to' => $validatedValue]
+            );
 
             return UpdateTaskPropertyResult::success($oldRecurrence, $validatedValue);
         } catch (\Throwable $e) {
@@ -144,6 +161,13 @@ class UpdateTaskPropertyAction
             } else {
                 $this->taskService->updateTask($task, ['status' => $validatedValue]);
             }
+
+            $this->activityLogRecorder->record(
+                $task,
+                auth()->user(),
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'status', 'from' => $oldStatus, 'to' => $validatedValue]
+            );
 
             return UpdateTaskPropertyResult::success($oldStatus, $validatedValue);
         } catch (\Throwable $e) {
@@ -189,6 +213,13 @@ class UpdateTaskPropertyAction
         }
 
         $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
+
+        $this->activityLogRecorder->record(
+            $task,
+            auth()->user(),
+            ActivityLogAction::FieldUpdated,
+            ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
+        );
 
         return UpdateTaskPropertyResult::success($oldValue, $newValue);
     }

@@ -433,6 +433,11 @@ class Task extends Model
         return $this->morphMany(ActivityLog::class, 'loggable')->orderByDesc('created_at');
     }
 
+    public function scopeWithRecentActivityLogs(Builder $query, int $limit = 5): Builder
+    {
+        return $query->with(['activityLogs' => fn ($q) => $q->with('user')->latest()->limit($limit)]);
+    }
+
     public function collaborations(): MorphMany
     {
         return $this->morphMany(Collaboration::class, 'collaboratable');

@@ -2,11 +2,17 @@
 
 namespace App\Actions\Collaboration;
 
+use App\Enums\ActivityLogAction;
 use App\Models\CollaborationInvitation;
 use App\Models\User;
+use App\Services\ActivityLogRecorder;
 
 class DeclineCollaborationInvitationAction
 {
+    public function __construct(
+        private ActivityLogRecorder $activityLogRecorder
+    ) {}
+
     public function execute(CollaborationInvitation $invitation, User $user): bool
     {
         if ($invitation->status !== 'pending') {
@@ -23,6 +29,20 @@ class DeclineCollaborationInvitationAction
         $invitation->status = 'declined';
         $invitation->invitee_user_id = $invitation->invitee_user_id ?? $user->id;
 
-        return (bool) $invitation->save();
+        if (! $invitation->save()) {
+            return false;
+        }
+
+        $invitation->load('collaboratable');
+        if ($invitation->collaboratable !== null) {
+            $this->activityLogRecorder->record(
+                $invitation->collaboratable,
+                $user,
+                ActivityLogAction::CollaboratorInvitationDeclined,
+                ['invitee_email' => $invitation->invitee_email]
+            );
+        }
+
+        return true;
     }
 }

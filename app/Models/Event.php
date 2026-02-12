@@ -412,6 +412,11 @@ class Event extends Model
         return $this->morphMany(ActivityLog::class, 'loggable')->orderByDesc('created_at');
     }
 
+    public function scopeWithRecentActivityLogs(Builder $query, int $limit = 5): Builder
+    {
+        return $query->with(['activityLogs' => fn ($q) => $q->with('user')->latest()->limit($limit)]);
+    }
+
     /**
      * Map frontend property name (camelCase) to database column.
      */

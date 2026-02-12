@@ -3,6 +3,7 @@
 namespace App\Actions\Project;
 
 use App\Models\Project;
+use App\Models\User;
 use App\Services\ProjectService;
 
 class DeleteProjectAction
@@ -11,8 +12,8 @@ class DeleteProjectAction
         private ProjectService $projectService
     ) {}
 
-    public function execute(Project $project): bool
+    public function execute(Project $project, ?User $actor = null): bool
     {
-        return $this->projectService->deleteProject($project);
+        return $this->projectService->deleteProject($project, $actor);
     }
 }

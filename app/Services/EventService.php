@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ActivityLogAction;
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
 use App\Models\Event;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 class EventService
 {
     public function __construct(
+        private ActivityLogRecorder $activityLogRecorder,
         private RecurrenceExpander $recurrenceExpander
     ) {}
 
@@ -43,6 +45,10 @@ class EventService
             if ($recurrenceData !== null && ($recurrenceData['enabled'] ?? false)) {
                 $this->createRecurringEvent($event, $recurrenceData);
             }
+
+            $this->activityLogRecorder->record($event, $user, ActivityLogAction::ItemCreated, [
+                'title' => $event->title,
+            ]);
 
             return $event;
         });
@@ -145,9 +151,13 @@ class EventService
         });
     }
 
-    public function deleteEvent(Event $event): bool
+    public function deleteEvent(Event $event, ?User $actor = null): bool
     {
-        return DB::transaction(function () use ($event): bool {
+        return DB::transaction(function () use ($event, $actor): bool {
+            $this->activityLogRecorder->record($event, $actor, ActivityLogAction::ItemDeleted, [
+                'title' => $event->title,
+            ]);
+
             return (bool) $event->delete();
         });
     }

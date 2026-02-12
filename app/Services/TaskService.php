@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ActivityLogAction;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\RecurringTask;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 class TaskService
 {
     public function __construct(
+        private ActivityLogRecorder $activityLogRecorder,
         private RecurrenceExpander $recurrenceExpander
     ) {}
 
@@ -43,6 +45,10 @@ class TaskService
             if ($recurrenceData !== null && ($recurrenceData['enabled'] ?? false)) {
                 $this->createRecurringTask($task, $recurrenceData);
             }
+
+            $this->activityLogRecorder->record($task, $user, ActivityLogAction::ItemCreated, [
+                'title' => $task->title,
+            ]);
 
             return $task;
         });
@@ -154,9 +160,13 @@ class TaskService
         });
     }
 
-    public function deleteTask(Task $task): bool
+    public function deleteTask(Task $task, ?User $actor = null): bool
     {
-        return DB::transaction(function () use ($task): bool {
+        return DB::transaction(function () use ($task, $actor): bool {
+            $this->activityLogRecorder->record($task, $actor, ActivityLogAction::ItemDeleted, [
+                'title' => $task->title,
+            ]);
+
             return (bool) $task->delete();
         });
     }

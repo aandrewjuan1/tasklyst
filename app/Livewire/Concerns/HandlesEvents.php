@@ -106,7 +106,7 @@ trait HandlesEvents
         $this->authorize('delete', $event);
 
         try {
-            $deleted = $this->deleteEventAction->execute($event);
+            $deleted = $this->deleteEventAction->execute($event, $user);
         } catch (\Throwable $e) {
             Log::error('Failed to delete event from workspace.', [
                 'user_id' => $user->id,
@@ -164,7 +164,7 @@ trait HandlesEvents
             return false;
         }
 
-        $event = Event::query()->forUser($user->id)->with('recurringEvent')->find($eventId);
+        $event = Event::query()->forUser($user->id)->with('recurringEvent')->withRecentActivityLogs(5)->find($eventId);
 
         if ($event === null) {
             if ($property === 'tagIds') {
@@ -355,6 +355,7 @@ trait HandlesEvents
                 'collaborationInvitations.invitee',
                 'comments.user',
             ])
+            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->activeForDate($date);
 

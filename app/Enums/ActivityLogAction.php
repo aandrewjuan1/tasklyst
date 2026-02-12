@@ -5,7 +5,6 @@ namespace App\Enums;
 enum ActivityLogAction: string
 {
     case ItemCreated = 'item_created';
-    case ItemUpdated = 'item_updated';
     case ItemDeleted = 'item_deleted';
 
     case FieldUpdated = 'field_updated';
@@ -22,7 +21,6 @@ enum ActivityLogAction: string
     {
         return match ($this) {
             self::ItemCreated => 'Item created',
-            self::ItemUpdated => 'Item updated',
             self::ItemDeleted => 'Item deleted',
 
             self::FieldUpdated => 'Field updated',

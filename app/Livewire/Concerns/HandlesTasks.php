@@ -118,7 +118,7 @@ trait HandlesTasks
         $this->authorize('delete', $task);
 
         try {
-            $deleted = $this->deleteTaskAction->execute($task);
+            $deleted = $this->deleteTaskAction->execute($task, $user);
         } catch (\Throwable $e) {
             Log::error('Failed to delete task from workspace.', [
                 'user_id' => $user->id,
@@ -176,7 +176,7 @@ trait HandlesTasks
             return false;
         }
 
-        $task = Task::query()->forUser($user->id)->with('recurringTask')->find($taskId);
+        $task = Task::query()->forUser($user->id)->with('recurringTask')->withRecentActivityLogs(5)->find($taskId);
 
         if ($task === null) {
             if ($property === 'tagIds') {
@@ -369,6 +369,7 @@ trait HandlesTasks
                 'collaborationInvitations.invitee',
                 'comments.user',
             ])
+            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->incomplete()
             ->relevantForDate($date);

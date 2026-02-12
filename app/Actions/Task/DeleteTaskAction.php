@@ -3,6 +3,7 @@
 namespace App\Actions\Task;
 
 use App\Models\Task;
+use App\Models\User;
 use App\Services\TaskService;
 
 class DeleteTaskAction
@@ -11,8 +12,8 @@ class DeleteTaskAction
         private TaskService $taskService
     ) {}
 
-    public function execute(Task $task): bool
+    public function execute(Task $task, ?User $actor = null): bool
     {
-        return $this->taskService->deleteTask($task);
+        return $this->taskService->deleteTask($task, $actor);
     }
 }

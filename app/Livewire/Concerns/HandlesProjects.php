@@ -97,7 +97,7 @@ trait HandlesProjects
         $this->authorize('delete', $project);
 
         try {
-            $deleted = $this->deleteProjectAction->execute($project);
+            $deleted = $this->deleteProjectAction->execute($project, $user);
         } catch (\Throwable $e) {
             Log::error('Failed to delete project from workspace.', [
                 'user_id' => $user->id,
@@ -233,6 +233,7 @@ trait HandlesProjects
                 'collaborationInvitations.invitee',
                 'comments.user',
             ])
+            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notArchived()
             ->activeForDate($date)
