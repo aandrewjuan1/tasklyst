@@ -870,6 +870,31 @@
                     </span>
                 @endif
 
+                {{-- On large screens, keep recurring + collaborators inline with the title row --}}
+                @if(in_array($kind, ['task', 'event'], true))
+                    <div class="hidden md:block">
+                        <x-recurring-selection
+                            model="recurrence"
+                            :initial-value="$headerRecurrenceInitial"
+                            :kind="$kind"
+                            :readonly="!$canEditRecurrence"
+                            compactWhenDisabled
+                            hideWhenDisabled
+                            position="top"
+                            align="end"
+                        />
+                    </div>
+                @endif
+
+                <div class="hidden md:block">
+                    <x-workspace.collaborators-popover
+                        :item="$item"
+                        :kind="$kind"
+                        position="top"
+                        align="end"
+                    />
+                </div>
+
                 @if($currentUserIsOwner && $deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
@@ -899,25 +924,30 @@
 
     @if($type)
         <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+            {{-- On small / medium screens, keep recurring + collaborators in the secondary row --}}
             @if(in_array($kind, ['task', 'event'], true))
-                <x-recurring-selection
-                    model="recurrence"
-                    :initial-value="$headerRecurrenceInitial"
+                <div class="md:hidden">
+                    <x-recurring-selection
+                        model="recurrence"
+                        :initial-value="$headerRecurrenceInitial"
+                        :kind="$kind"
+                        :readonly="!$canEditRecurrence"
+                        compactWhenDisabled
+                        hideWhenDisabled
+                        position="top"
+                        align="end"
+                    />
+                </div>
+            @endif
+
+            <div class="md:hidden">
+                <x-workspace.collaborators-popover
+                    :item="$item"
                     :kind="$kind"
-                    :readonly="!$canEditRecurrence"
-                    compactWhenDisabled
-                    hideWhenDisabled
                     position="top"
                     align="end"
                 />
-            @endif
-
-            <x-workspace.collaborators-popover
-                :item="$item"
-                :kind="$kind"
-                position="top"
-                align="end"
-            />
+            </div>
 
             @if($showOwnerBadge)
                 <flux:tooltip content="{{ __('Owner') }}: {{ $owner->name }}">
