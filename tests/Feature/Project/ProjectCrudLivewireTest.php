@@ -71,7 +71,7 @@ test('collaborator with edit permission cannot delete project', function (): voi
 
     Livewire::test('pages::workspace.index')
         ->call('deleteProject', $project->id)
-        ->assertForbidden();
+        ->assertDispatched('toast', type: 'error', message: __('Only the owner can delete this project.'));
 
     expect($project->fresh()->trashed())->toBeFalse();
 });
