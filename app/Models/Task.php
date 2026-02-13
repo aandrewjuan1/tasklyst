@@ -64,14 +64,14 @@ class Task extends Model
             'delete' => $success
                 ? [
                     'type' => $type,
-                    'message' => $hasTitle ? __('Deleted :title.', ['title' => $quotedTitle]) : __('Deleted the task.'),
+                    'message' => $hasTitle ? __('Moved :title to trash.', ['title' => $quotedTitle]) : __('Moved the task to trash.'),
                     'icon' => 'trash',
                 ]
                 : [
                     'type' => $type,
                     'message' => $hasTitle
-                        ? __('Couldn’t delete :title. Try again.', ['title' => $quotedTitle])
-                        : __('Couldn’t delete the task. Try again.'),
+                        ? __('Couldn’t move :title to trash. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t move the task to trash. Try again.'),
                     'icon' => 'exclamation-triangle',
                 ],
             default => [

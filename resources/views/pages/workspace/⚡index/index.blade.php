@@ -17,6 +17,7 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+            <x-workspace.trash-popover />
             <x-workspace.filter-bar
                 :filters="$this->getFilters()"
                 :tags="$this->tags"

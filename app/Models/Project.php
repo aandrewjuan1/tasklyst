@@ -285,14 +285,14 @@ class Project extends Model
             'delete' => $success
                 ? [
                     'type' => $type,
-                    'message' => $hasName ? __('Deleted :name.', ['name' => $quotedName]) : __('Deleted the project.'),
+                    'message' => $hasName ? __('Moved :name to trash.', ['name' => $quotedName]) : __('Moved the project to trash.'),
                     'icon' => 'trash',
                 ]
                 : [
                     'type' => $type,
                     'message' => $hasName
-                        ? __('Couldn\'t delete :name. Try again.', ['name' => $quotedName])
-                        : __('Couldn\'t delete the project. Try again.'),
+                        ? __('Couldn\'t move :name to trash. Try again.', ['name' => $quotedName])
+                        : __('Couldn\'t move the project to trash. Try again.'),
                     'icon' => 'exclamation-triangle',
                 ],
             default => [

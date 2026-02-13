@@ -33,6 +33,7 @@ use App\Livewire\Concerns\HandlesFiltering;
 use App\Livewire\Concerns\HandlesProjects;
 use App\Livewire\Concerns\HandlesTags;
 use App\Livewire\Concerns\HandlesTasks;
+use App\Livewire\Concerns\HandlesTrash;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Tag;
@@ -64,6 +65,7 @@ class extends Component
     use HandlesProjects;
     use HandlesTags;
     use HandlesTasks;
+    use HandlesTrash;
 
     public string $selectedDate;
 

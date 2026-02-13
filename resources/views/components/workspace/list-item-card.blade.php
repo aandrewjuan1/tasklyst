@@ -208,7 +208,7 @@
         isRecurringTask: @js($kind === 'task' && (bool) $item->recurringTask),
         hasRecurringEvent: @js($kind === 'event' && (bool) $item->recurringEvent),
         recurrence: @js($headerRecurrenceInitial),
-        deleteErrorToast: @js(__('Something went wrong. Please try again.')),
+        deleteErrorToast: @js(__('Couldn’t move to trash. Please try again.')),
         isEditingTitle: false,
         editedTitle: @js($title),
         titleSnapshot: null,
@@ -909,22 +909,26 @@
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
                         <flux:menu>
-                            <flux:menu.item
-                                icon="clock"
-                                @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
-                            >
-                                {{ __('Activity Logs') }}
-                            </flux:menu.item>
+                            <flux:tooltip :content="__('Activity Logs')">
+                                <flux:menu.item
+                                    icon="clock"
+                                    @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
+                                >
+                                    {{ __('Activity Logs') }}
+                                </flux:menu.item>
+                            </flux:tooltip>
 
                             <flux:separator />
 
-                            <flux:menu.item
-                                variant="danger"
-                                icon="trash"
-                                @click.throttle.250ms="deleteItem()"
-                            >
-                                Delete
-                            </flux:menu.item>
+                            <flux:tooltip :content="__('Move to trash')">
+                                <flux:menu.item
+                                    variant="danger"
+                                    icon="trash"
+                                    @click.throttle.250ms="deleteItem()"
+                                >
+                                    {{ __('Move to trash') }}
+                                </flux:menu.item>
+                            </flux:tooltip>
                         </flux:menu>
                     </flux:dropdown>
                 @endif

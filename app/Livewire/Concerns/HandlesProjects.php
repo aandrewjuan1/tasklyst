@@ -121,12 +121,8 @@ trait HandlesProjects
         return true;
     }
 
-    /**
-     * Restore a soft-deleted project for the authenticated user.
-     */
-    #[Async]
-    #[Renderless]
-    public function restoreProject(int $projectId): bool
+    /** REMOVED restoreProject - use HandlesTrash::restoreTrashItem */
+    private function _removedRestoreProjectStub(int $projectId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to restore projects.'));
         if ($user === null) {
@@ -175,11 +171,9 @@ trait HandlesProjects
     }
 
     /**
-     * Permanently delete a project for the authenticated user.
+     * @internal Force-delete moved to HandlesTrash.
      */
-    #[Async]
-    #[Renderless]
-    public function forceDeleteProject(int $projectId): bool
+    private function _removedForceDeleteProject(int $projectId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to permanently delete projects.'));
         if ($user === null) {

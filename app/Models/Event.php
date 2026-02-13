@@ -62,14 +62,14 @@ class Event extends Model
             'delete' => $success
                 ? [
                     'type' => $type,
-                    'message' => $hasTitle ? __('Deleted :title.', ['title' => $quotedTitle]) : __('Deleted the event.'),
+                    'message' => $hasTitle ? __('Moved :title to trash.', ['title' => $quotedTitle]) : __('Moved the event to trash.'),
                     'icon' => 'trash',
                 ]
                 : [
                     'type' => $type,
                     'message' => $hasTitle
-                        ? __('Couldn’t delete :title. Try again.', ['title' => $quotedTitle])
-                        : __('Couldn’t delete the event. Try again.'),
+                        ? __('Couldn’t move :title to trash. Try again.', ['title' => $quotedTitle])
+                        : __('Couldn’t move the event to trash. Try again.'),
                     'icon' => 'exclamation-triangle',
                 ],
             default => [
