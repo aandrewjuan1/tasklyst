@@ -79,3 +79,27 @@ test('delete project soft deletes and boot removes related records', function ()
     expect($collab->fresh())->toBeNull();
     expect($invitation->fresh())->toBeNull();
 });
+
+test('restore project clears deleted_at and records activity', function (): void {
+    $project = Project::factory()->for($this->user)->create();
+    $project->delete();
+    expect($project->trashed())->toBeTrue();
+
+    $result = $this->service->restoreProject($project, $this->user);
+
+    expect($result)->toBeTrue();
+    expect(Project::find($project->id))->not->toBeNull()
+        ->and($project->fresh()->trashed())->toBeFalse();
+});
+
+test('force delete project removes record permanently', function (): void {
+    $project = Project::factory()->for($this->user)->create();
+    $projectId = $project->id;
+    $project->delete();
+    expect(Project::withTrashed()->find($projectId))->not->toBeNull();
+
+    $result = $this->service->forceDeleteProject($project->fresh(), $this->user);
+
+    expect($result)->toBeTrue();
+    expect(Project::withTrashed()->find($projectId))->toBeNull();
+});

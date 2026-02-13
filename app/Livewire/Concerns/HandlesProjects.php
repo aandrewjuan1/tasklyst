@@ -122,6 +122,112 @@ trait HandlesProjects
     }
 
     /**
+     * Restore a soft-deleted project for the authenticated user.
+     */
+    #[Async]
+    #[Renderless]
+    public function restoreProject(int $projectId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to restore projects.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $project = Project::query()->onlyTrashed()->forUser($user->id)->find($projectId);
+
+        if ($project === null) {
+            $this->dispatch('toast', type: 'error', message: __('Project not found.'));
+
+            return false;
+        }
+
+        if ((int) $project->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can restore this project.'));
+
+            return false;
+        }
+
+        $this->authorize('restore', $project);
+
+        try {
+            $restored = $this->restoreProjectAction->execute($project, $user);
+        } catch (\Throwable $e) {
+            Log::error('Failed to restore project.', [
+                'user_id' => $user->id,
+                'project_id' => $projectId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t restore the project. Try again.'));
+
+            return false;
+        }
+
+        if (! $restored) {
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t restore the project. Try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('toast', type: 'success', message: __('Restored the project.'));
+
+        return true;
+    }
+
+    /**
+     * Permanently delete a project for the authenticated user.
+     */
+    #[Async]
+    #[Renderless]
+    public function forceDeleteProject(int $projectId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to permanently delete projects.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $project = Project::query()->withTrashed()->forUser($user->id)->find($projectId);
+
+        if ($project === null) {
+            $this->dispatch('toast', type: 'error', message: __('Project not found.'));
+
+            return false;
+        }
+
+        if ((int) $project->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can permanently delete this project.'));
+
+            return false;
+        }
+
+        $this->authorize('forceDelete', $project);
+
+        try {
+            $deleted = $this->forceDeleteProjectAction->execute($project, $user);
+        } catch (\Throwable $e) {
+            Log::error('Failed to permanently delete project.', [
+                'user_id' => $user->id,
+                'project_id' => $projectId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t permanently delete the project. Try again.'));
+
+            return false;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t permanently delete the project. Try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('toast', type: 'success', message: __('Permanently deleted the project.'));
+
+        return true;
+    }
+
+    /**
      * Update a single project property for the authenticated user (inline editing).
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).

@@ -153,6 +153,30 @@ test('delete task soft deletes and boot removes related records', function (): v
     expect($invitation->fresh())->toBeNull();
 });
 
+test('restore task clears deleted_at and records activity', function (): void {
+    $task = Task::factory()->for($this->user)->create();
+    $task->delete();
+    expect($task->trashed())->toBeTrue();
+
+    $result = $this->service->restoreTask($task, $this->user);
+
+    expect($result)->toBeTrue();
+    expect(Task::find($task->id))->not->toBeNull()
+        ->and($task->fresh()->trashed())->toBeFalse();
+});
+
+test('force delete task removes record permanently', function (): void {
+    $task = Task::factory()->for($this->user)->create();
+    $taskId = $task->id;
+    $task->delete();
+    expect(Task::withTrashed()->find($taskId))->not->toBeNull();
+
+    $result = $this->service->forceDeleteTask($task->fresh(), $this->user);
+
+    expect($result)->toBeTrue();
+    expect(Task::withTrashed()->find($taskId))->toBeNull();
+});
+
 test('update or create recurring task creates when enabled with type', function (): void {
     $task = Task::factory()->for($this->user)->create();
 

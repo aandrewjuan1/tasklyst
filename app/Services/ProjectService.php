@@ -57,4 +57,26 @@ class ProjectService
             return (bool) $project->delete();
         });
     }
+
+    public function restoreProject(Project $project, ?User $actor = null): bool
+    {
+        return DB::transaction(function () use ($project, $actor): bool {
+            $this->activityLogRecorder->record($project, $actor, ActivityLogAction::ItemRestored, [
+                'name' => $project->name,
+            ]);
+
+            return (bool) $project->restore();
+        });
+    }
+
+    public function forceDeleteProject(Project $project, ?User $actor = null): bool
+    {
+        return DB::transaction(function () use ($project, $actor): bool {
+            $this->activityLogRecorder->record($project, $actor, ActivityLogAction::ItemDeleted, [
+                'name' => $project->name,
+            ]);
+
+            return (bool) $project->forceDelete();
+        });
+    }
 }

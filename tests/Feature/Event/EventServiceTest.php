@@ -118,6 +118,30 @@ test('delete event soft deletes and boot removes related records', function (): 
     expect($invitation->fresh())->toBeNull();
 });
 
+test('restore event clears deleted_at and records activity', function (): void {
+    $event = Event::factory()->for($this->user)->create();
+    $event->delete();
+    expect($event->trashed())->toBeTrue();
+
+    $result = $this->service->restoreEvent($event, $this->user);
+
+    expect($result)->toBeTrue();
+    expect(Event::find($event->id))->not->toBeNull()
+        ->and($event->fresh()->trashed())->toBeFalse();
+});
+
+test('force delete event removes record permanently', function (): void {
+    $event = Event::factory()->for($this->user)->create();
+    $eventId = $event->id;
+    $event->delete();
+    expect(Event::withTrashed()->find($eventId))->not->toBeNull();
+
+    $result = $this->service->forceDeleteEvent($event->fresh(), $this->user);
+
+    expect($result)->toBeTrue();
+    expect(Event::withTrashed()->find($eventId))->toBeNull();
+});
+
 test('update or create recurring event creates when enabled with type', function (): void {
     $event = Event::factory()->for($this->user)->create();
 

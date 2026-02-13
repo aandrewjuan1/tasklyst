@@ -162,6 +162,28 @@ class EventService
         });
     }
 
+    public function restoreEvent(Event $event, ?User $actor = null): bool
+    {
+        return DB::transaction(function () use ($event, $actor): bool {
+            $this->activityLogRecorder->record($event, $actor, ActivityLogAction::ItemRestored, [
+                'title' => $event->title,
+            ]);
+
+            return (bool) $event->restore();
+        });
+    }
+
+    public function forceDeleteEvent(Event $event, ?User $actor = null): bool
+    {
+        return DB::transaction(function () use ($event, $actor): bool {
+            $this->activityLogRecorder->record($event, $actor, ActivityLogAction::ItemDeleted, [
+                'title' => $event->title,
+            ]);
+
+            return (bool) $event->forceDelete();
+        });
+    }
+
     /**
      * Create or update an EventInstance for the given recurring event occurrence date with any status.
      * Does not modify the parent Event.

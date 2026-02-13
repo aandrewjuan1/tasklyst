@@ -10,14 +10,20 @@ use App\Actions\Collaboration\DeleteCollaborationAction;
 use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\DeleteEventAction;
+use App\Actions\Event\ForceDeleteEventAction;
+use App\Actions\Event\RestoreEventAction;
 use App\Actions\Event\UpdateEventPropertyAction;
 use App\Actions\Project\CreateProjectAction;
+use App\Actions\Project\DeleteProjectAction;
+use App\Actions\Project\ForceDeleteProjectAction;
+use App\Actions\Project\RestoreProjectAction;
+use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
-use App\Actions\Project\DeleteProjectAction;
-use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
+use App\Actions\Task\ForceDeleteTaskAction;
+use App\Actions\Task\RestoreTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesActivityLogs;
 use App\Livewire\Concerns\HandlesCollaborations;
@@ -87,6 +93,18 @@ class extends Component
 
     protected DeleteTaskAction $deleteTaskAction;
 
+    protected ForceDeleteEventAction $forceDeleteEventAction;
+
+    protected ForceDeleteProjectAction $forceDeleteProjectAction;
+
+    protected ForceDeleteTaskAction $forceDeleteTaskAction;
+
+    protected RestoreEventAction $restoreEventAction;
+
+    protected RestoreProjectAction $restoreProjectAction;
+
+    protected RestoreTaskAction $restoreTaskAction;
+
     protected UpdateEventPropertyAction $updateEventPropertyAction;
 
     protected UpdateProjectPropertyAction $updateProjectPropertyAction;
@@ -137,6 +155,12 @@ class extends Component
         DeleteProjectAction $deleteProjectAction,
         DeleteTagAction $deleteTagAction,
         DeleteTaskAction $deleteTaskAction,
+        ForceDeleteEventAction $forceDeleteEventAction,
+        ForceDeleteProjectAction $forceDeleteProjectAction,
+        ForceDeleteTaskAction $forceDeleteTaskAction,
+        RestoreEventAction $restoreEventAction,
+        RestoreProjectAction $restoreProjectAction,
+        RestoreTaskAction $restoreTaskAction,
         UpdateEventPropertyAction $updateEventPropertyAction,
         UpdateProjectPropertyAction $updateProjectPropertyAction,
         UpdateTaskPropertyAction $updateTaskPropertyAction,
@@ -161,6 +185,12 @@ class extends Component
         $this->deleteProjectAction = $deleteProjectAction;
         $this->deleteTagAction = $deleteTagAction;
         $this->deleteTaskAction = $deleteTaskAction;
+        $this->forceDeleteEventAction = $forceDeleteEventAction;
+        $this->forceDeleteProjectAction = $forceDeleteProjectAction;
+        $this->forceDeleteTaskAction = $forceDeleteTaskAction;
+        $this->restoreEventAction = $restoreEventAction;
+        $this->restoreProjectAction = $restoreProjectAction;
+        $this->restoreTaskAction = $restoreTaskAction;
         $this->updateEventPropertyAction = $updateEventPropertyAction;
         $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;

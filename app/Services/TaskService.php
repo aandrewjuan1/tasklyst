@@ -171,6 +171,28 @@ class TaskService
         });
     }
 
+    public function restoreTask(Task $task, ?User $actor = null): bool
+    {
+        return DB::transaction(function () use ($task, $actor): bool {
+            $this->activityLogRecorder->record($task, $actor, ActivityLogAction::ItemRestored, [
+                'title' => $task->title,
+            ]);
+
+            return (bool) $task->restore();
+        });
+    }
+
+    public function forceDeleteTask(Task $task, ?User $actor = null): bool
+    {
+        return DB::transaction(function () use ($task, $actor): bool {
+            $this->activityLogRecorder->record($task, $actor, ActivityLogAction::ItemDeleted, [
+                'title' => $task->title,
+            ]);
+
+            return (bool) $task->forceDelete();
+        });
+    }
+
     /**
      * Create or update a TaskInstance for the given recurring task occurrence date with any status.
      * Does not modify the parent Task.

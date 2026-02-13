@@ -131,6 +131,112 @@ trait HandlesEvents
     }
 
     /**
+     * Restore a soft-deleted event for the authenticated user.
+     */
+    #[Async]
+    #[Renderless]
+    public function restoreEvent(int $eventId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to restore events.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $event = Event::query()->onlyTrashed()->forUser($user->id)->find($eventId);
+
+        if ($event === null) {
+            $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+            return false;
+        }
+
+        if ((int) $event->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can restore this event.'));
+
+            return false;
+        }
+
+        $this->authorize('restore', $event);
+
+        try {
+            $restored = $this->restoreEventAction->execute($event, $user);
+        } catch (\Throwable $e) {
+            Log::error('Failed to restore event.', [
+                'user_id' => $user->id,
+                'event_id' => $eventId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t restore the event. Try again.'));
+
+            return false;
+        }
+
+        if (! $restored) {
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t restore the event. Try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('toast', type: 'success', message: __('Restored the event.'));
+
+        return true;
+    }
+
+    /**
+     * Permanently delete an event for the authenticated user.
+     */
+    #[Async]
+    #[Renderless]
+    public function forceDeleteEvent(int $eventId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to permanently delete events.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $event = Event::query()->withTrashed()->forUser($user->id)->find($eventId);
+
+        if ($event === null) {
+            $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+            return false;
+        }
+
+        if ((int) $event->user_id !== (int) $user->id) {
+            $this->dispatch('toast', type: 'error', message: __('Only the owner can permanently delete this event.'));
+
+            return false;
+        }
+
+        $this->authorize('forceDelete', $event);
+
+        try {
+            $deleted = $this->forceDeleteEventAction->execute($event, $user);
+        } catch (\Throwable $e) {
+            Log::error('Failed to permanently delete event.', [
+                'user_id' => $user->id,
+                'event_id' => $eventId,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t permanently delete the event. Try again.'));
+
+            return false;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t permanently delete the event. Try again.'));
+
+            return false;
+        }
+
+        $this->dispatch('toast', type: 'success', message: __('Permanently deleted the event.'));
+
+        return true;
+    }
+
+    /**
      * Update a single event property for the authenticated user (inline editing).
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
