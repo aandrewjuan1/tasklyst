@@ -217,4 +217,21 @@ See [focus-mode-pomodoro-backend.md](focus-mode-pomodoro-backend.md) for full ba
 
 ---
 
+## 9. Frontend implementation phases
+
+The frontend should be implemented in **six phases** so each slice is testable and dependencies flow in order. Backend is already in place; each phase builds on the previous.
+
+| Phase | Doc sections | Deliverables | Checklist refs |
+|-------|----------------|---------------|----------------|
+| **1** | §1 | Focus entry on task card (e.g. “Pomodoro” in ellipsis dropdown). Duration: task `duration` (minutes) or default (e.g. 25 min from settings); optional hint when using default. On click: call parent `startFocusSession(taskId, payload)`. Index: call `getActiveFocusSession()` on load and after start/complete/abandon; store in Livewire property. Pass active session (e.g. `activeFocusSession` or `focusedSessionTaskId`) from Index → List → each card so the UI knows which card is focused. Single active focus: backend already abandons previous when starting new; frontend only reflects the one active session from parent. | 1, 2, 3, 4 |
+| **2** | §2 | Focused card styling when this card is the active focus session (distinct border/background; optional shadow/scale). Overlay: when any card is focused, show full-page (or list-covering) overlay that dims the rest of the page, `pointer-events: none` on overlay, focused card above with `pointer-events: auto`. Optional later: focus trap. View-only: when this card is focused, disable all inline edits and data-changing dropdowns; only focus controls are interactive. Minimal “Focus mode” bar with Stop placeholder is enough for this phase. | 5, 6, 7 |
+| **3** | §3 | Timer: in focused card (Alpine), compute remaining seconds from `started_at` + `duration_seconds` minus elapsed (and later minus `paused_seconds`); update every second; stop at 0. Progress bar: e.g. elapsed % (0% → 100%), synced with same remaining time; freeze when paused (Phase 4). Countdown display: MM:SS (or “2:00:00” / “90 min” for ≥ 1 h). Auto-play: timer starts as soon as focus starts; no extra “Play” click. | 8, 9, 10, 11 |
+| **4** | §4 | Pause: button sets paused state, freezes countdown and bar, records pause start; total `paused_seconds` accumulated client-side. Resume: button clears paused, adds (now − pauseStart) to total paused. Stop: button calls `abandonFocusSession(sessionId)`; parent clears active session and removes overlay. Exit: Escape key and/or “Exit focus” button, same as Stop. When abandoning: send `paused_seconds` (extend backend abandon or use complete with `completed: false` if supported). | 12, 13, 14 |
+| **5** | §5 | When remaining hits 0: stop ticker, show “Session complete” state (message + full bar). No auto-exit. “End focus” button: call `completeFocusSession(sessionId, { ended_at, completed: true, paused_seconds })`; parent clears session and overlay. Optional: “Mark task as Done” / “Mark as Doing” — send `mark_task_status` in payload. Optional: completion sound (can defer to Phase 6). | 15 |
+| **6** | §6, §5.2, §6.5 | Resume after refresh: when `activeFocusSession` is present on load, matching card renders focus UI and restores remaining time from `started_at` + `duration_seconds` (and `paused_seconds` when available). Card removed (§6.4): when list updates and focused task is gone, clear focus state and overlay. Very long duration (§6.3): readable countdown format. Tab hidden (§6.1, optional): pause when `document.visibilityState === 'hidden'`, resume on visible; add to `paused_seconds`. A11y (§6.5): keyboard access to all focus buttons; Escape exits; live region for “Session complete” and timer; `prefers-reduced-motion` for progress animation. Sound on complete (§5.2, optional): play when user clicks “End focus” after 0 if settings allow. | 16, 17 + edge cases |
+
+**Optional later (Phase 7 or polish):** “Start break” after session complete (§5.3); focus trap (tab confined to focused card).
+
+---
+
 *Required behaviours for focus mode (Pomodoro). Implement front-end and backend together using [focus-mode-pomodoro-backend.md](focus-mode-pomodoro-backend.md) for schema, models, actions, and traits.*
