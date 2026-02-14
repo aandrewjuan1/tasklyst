@@ -21,4 +21,11 @@ new class extends Component
      * @var array<string, mixed>
      */
     public array $filters = [];
+
+    /**
+     * Current in-progress focus session from parent (Index). Used for overlay and which card is focused.
+     *
+     * @var array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, payload?: array}|null
+     */
+    public ?array $activeFocusSession = null;
 };

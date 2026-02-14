@@ -5,6 +5,8 @@
     'filters' => [],
     'availableTags' => [],
     'isOverdue' => false,
+    'activeFocusSession' => null,
+    'defaultWorkDurationMinutes' => 25,
 ])
 
 @php
@@ -54,6 +56,10 @@
     $canEditDates = $currentUserIsOwner && $canEdit;
     $canEditRecurrence = $currentUserIsOwner && $canEdit;
     $canDelete = $currentUserIsOwner && $canEdit;
+
+    $pomodoroDefaultHint = $kind === 'task'
+        ? __('Using :minutes min (default). Set duration on the task to customize.', ['minutes' => $defaultWorkDurationMinutes ?? 25])
+        : '';
 
     if ($kind === 'task') {
         $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -187,7 +193,7 @@
 
 <div
     {{ $attributes->merge([
-        'class' => 'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur',
+        'class' => 'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-200 ease-out',
     ]) }}
     wire:ignore
     x-data="{
@@ -221,6 +227,9 @@
         titleUpdateErrorToast: @js(__('Something went wrong updating the title.')),
         recurrenceUpdateErrorToast: @js(__('Something went wrong. Please try again.')),
         descriptionUpdateErrorToast: @js(__('Couldn\'t save :property. Try again.', ['property' => __('Description')])),
+        focusStartErrorToast: @js(__('Could not start focus mode. Please try again.')),
+        focusStopErrorToast: @js(__('Could not stop focus mode. Please try again.')),
+        pomodoroDefaultHint: @js($pomodoroDefaultHint),
         isEditingDescription: false,
         editedDescription: @js($description ?? ''),
         descriptionSnapshot: null,
@@ -230,6 +239,92 @@
         descriptionProperty: 'description',
         addDescriptionLabel: @js(__('Add description')),
         isOverdue: @js($isOverdue),
+        activeFocusSession: @js($activeFocusSession ?? null),
+        pendingStartPromise: null,
+        focusStopRequestedBeforeStartResolved: false,
+        defaultWorkDurationMinutes: @js($defaultWorkDurationMinutes ?? 25),
+        taskDurationMinutes: @js($kind === 'task' ? $item->duration : null),
+        get isFocused() {
+            return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
+        },
+        dispatchFocusSessionUpdated(session) {
+            const detail = { session: session ?? null };
+            window.dispatchEvent(new CustomEvent('focus-session-updated', { detail, bubbles: true, composed: true }));
+        },
+        async startPomodoro() {
+            if (this.kind !== 'task' || !this.canEdit || this.isFocused) return;
+            const minutes = this.taskDurationMinutes != null && this.taskDurationMinutes > 0
+                ? Number(this.taskDurationMinutes) : this.defaultWorkDurationMinutes;
+            const durationSeconds = Math.max(60, Math.min(7200, minutes * 60));
+            const startedAt = new Date().toISOString();
+            const payload = {
+                type: 'work',
+                duration_seconds: durationSeconds,
+                started_at: startedAt,
+                payload: { used_task_duration: !!(this.taskDurationMinutes != null && this.taskDurationMinutes > 0) },
+            };
+            const optimisticSession = {
+                id: 'temp-' + Date.now(),
+                task_id: this.itemId,
+                started_at: startedAt,
+                duration_seconds: durationSeconds,
+                type: 'work',
+                sequence_number: 1,
+            };
+            const promise = $wire.$parent.$call('startFocusSession', this.itemId, payload);
+            this.pendingStartPromise = promise;
+            try {
+                this.activeFocusSession = optimisticSession;
+                this.dispatchFocusSessionUpdated(optimisticSession);
+                const result = await promise;
+                this.pendingStartPromise = null;
+                if (this.focusStopRequestedBeforeStartResolved) {
+                    this.focusStopRequestedBeforeStartResolved = false;
+                    if (result && !result.error && result.id) {
+                        try {
+                            await $wire.$parent.$call('abandonFocusSession', result.id);
+                        } catch (_) {
+                            $wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
+                        }
+                    }
+                    return;
+                }
+                if (result && result.error) {
+                    this.activeFocusSession = null;
+                    this.dispatchFocusSessionUpdated(null);
+                    $wire.$dispatch('toast', { type: 'error', message: (typeof result.error === 'string' ? result.error : null) || this.focusStartErrorToast });
+                    return;
+                }
+                this.activeFocusSession = result || this.activeFocusSession;
+                this.dispatchFocusSessionUpdated(this.activeFocusSession);
+            } catch (error) {
+                this.pendingStartPromise = null;
+                this.focusStopRequestedBeforeStartResolved = false;
+                this.activeFocusSession = null;
+                this.dispatchFocusSessionUpdated(null);
+                $wire.$dispatch('toast', { type: 'error', message: error.message || this.focusStartErrorToast });
+            }
+        },
+        async stopFocus() {
+            if (!this.activeFocusSession || !this.activeFocusSession.id) return;
+            const sessionSnapshot = { ...this.activeFocusSession };
+            const isTempId = String(sessionSnapshot.id).startsWith('temp-');
+            if (isTempId) {
+                this.focusStopRequestedBeforeStartResolved = true;
+                this.activeFocusSession = null;
+                this.dispatchFocusSessionUpdated(null);
+                return;
+            }
+            try {
+                this.activeFocusSession = null;
+                this.dispatchFocusSessionUpdated(null);
+                await $wire.$parent.$call('abandonFocusSession', sessionSnapshot.id);
+            } catch (error) {
+                this.activeFocusSession = sessionSnapshot;
+                this.dispatchFocusSessionUpdated(sessionSnapshot);
+                $wire.$dispatch('toast', { type: 'error', message: error.message || this.focusStopErrorToast });
+            }
+        },
         hideFromList() {
             if (this.hideCard) {
                 return;
@@ -783,8 +878,41 @@
         }
     "
     @collaboration-self-left="hideFromList()"
-    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress }"
+    @focus-session-updated.window="activeFocusSession = ($event.detail?.session ?? $event.detail?.[0] ?? null)"
+    :class="{
+        'relative z-50': dropdownOpenCount > 0 || isFocused,
+        'pointer-events-none opacity-60': deletingInProgress,
+        'pointer-events-auto': isFocused,
+        'ring-2 ring-primary/60 border-primary/50 bg-primary/5 dark:bg-primary/10 shadow-md': isFocused,
+        'pointer-events-none select-none opacity-60': activeFocusSession && !isFocused,
+    }"
 >
+    {{-- Focus mode bar (Phase 2): only interactive area when card is focused --}}
+    <div
+        x-show="isFocused"
+        x-cloak
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 -translate-y-0.5"
+        x-transition:enter-end="opacity-100 translate-y-0"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 translate-y-0"
+        x-transition:leave-end="opacity-0 -translate-y-0.5"
+        class="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 dark:bg-primary/20"
+        @keydown.escape.prevent="stopFocus()"
+    >
+        <span class="text-sm font-medium text-primary">{{ __('Focus mode') }}</span>
+        <flux:button
+            variant="ghost"
+            size="sm"
+            icon="x-mark"
+            class="shrink-0"
+            @click="stopFocus()"
+        >
+            {{ __('Stop') }}
+        </flux:button>
+    </div>
+
+    <div :class="{ 'pointer-events-none': isFocused }">
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
             <p 
@@ -909,6 +1037,24 @@
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
                         <flux:menu>
+                            @if($kind === 'task' && $canEdit)
+                                <flux:tooltip :content="__('Start Pomodoro focus')">
+                                    <flux:menu.item
+                                        icon="bolt"
+                                        class="cursor-pointer"
+                                        x-show="!isFocused"
+                                        @click.stop.prevent="startPomodoro()"
+                                    >
+                                        <span class="block">{{ __('Pomodoro') }}</span>
+                                        <span
+                                            x-show="!(taskDurationMinutes != null && taskDurationMinutes > 0)"
+                                            x-cloak
+                                            class="mt-0.5 block text-xs text-muted-foreground"
+                                            x-text="pomodoroDefaultHint"
+                                        ></span>
+                                    </flux:menu.item>
+                                </flux:tooltip>
+                            @endif
                             <flux:tooltip :content="__('Activity Logs')">
                                 <flux:menu.item
                                     icon="clock"
@@ -2063,4 +2209,5 @@
     @endif
 
     <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
+    </div>
 </div>
