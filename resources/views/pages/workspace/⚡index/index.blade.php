@@ -1,11 +1,16 @@
-<section class="space-y-6" x-data>
-    {{-- Centered date switcher on its own row --}}
-    <div class="flex w-full justify-center">
+<section
+    class="space-y-6"
+    x-data="{ get focusModeActive() { return !!Alpine.store('focusSession')?.session } }"
+    x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession) })"
+    @focus-session-updated.window="Alpine.store('focusSession', { session: $event.detail?.session ?? $event.detail?.[0] ?? null })"
+>
+    {{-- Centered date switcher on its own row (dim/disable when focus mode) --}}
+    <div class="flex w-full justify-center transition-opacity duration-200 ease-out" :class="{ 'pointer-events-none select-none opacity-60': focusModeActive }">
         <x-workspace.date-switcher :selected-date="$this->selectedDate" />
     </div>
 
-    {{-- Filters / pending invitations / show-type dropdown row --}}
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    {{-- Filters / pending invitations / add filter / trash (dim/disable when focus mode) --}}
+    <div class="flex flex-wrap items-center justify-between gap-2 transition-opacity duration-200 ease-out" :class="{ 'pointer-events-none select-none opacity-60': focusModeActive }">
         <div class="flex flex-wrap items-center gap-2">
             @auth
                 <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
@@ -44,6 +49,7 @@
             :overdue="$this->overdue"
             :tags="$this->tags"
             :filters="$this->getFilters()"
+            :active-focus-session="$this->activeFocusSession"
         />
     </div>
 

@@ -1,6 +1,8 @@
 <div
     class="space-y-4"
+    x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($activeFocusSession ?? null) })"
     x-data="{
+        get focusModeActive() { return !!Alpine.store('focusSession')?.session },
         showItemCreation: false,
         creationKind: 'task',
         showItemLoading: false,
@@ -648,7 +650,7 @@
     @php
         $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
     @endphp
-    <div class="relative z-10">
+    <div class="relative z-10 transition-opacity duration-200 ease-out" :class="{ 'pointer-events-none select-none opacity-60': focusModeActive }">
         <flux:dropdown position="right" align="start">
             <flux:button icon:trailing="plus-circle" data-item-creation-safe>
                 {{ __('Add') }}
@@ -1119,6 +1121,9 @@
                     </flux:text>
                 @endif
             </div>
+            @php
+                $defaultWorkDurationMinutes = config('pomodoro.defaults.work_duration_minutes', 25);
+            @endphp
             <div x-show="visibleItemCount > 0" class="space-y-4">
                 <div class="space-y-3">
                     @foreach ($items as $entry)
@@ -1129,6 +1134,8 @@
                             :filters="$filters"
                             :available-tags="$tags"
                             :is-overdue="$entry['isOverdue']"
+                            :active-focus-session="$activeFocusSession ?? null"
+                            :default-work-duration-minutes="$defaultWorkDurationMinutes"
                             wire:key="{{ $entry['kind'] }}-{{ $entry['item']->id }}"
                         />
                     @endforeach

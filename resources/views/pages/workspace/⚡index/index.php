@@ -69,13 +69,24 @@ class extends Component
     use HandlesFiltering;
     use HandlesProjects;
     use HandlesTags;
-    use HandlesFocusSessions;
+    use HandlesFocusSessions {
+        startFocusSession as traitStartFocusSession;
+        completeFocusSession as traitCompleteFocusSession;
+        abandonFocusSession as traitAbandonFocusSession;
+    }
     use HandlesTasks;
     use HandlesTrash;
 
     public string $selectedDate;
 
     public int $listRefresh = 0;
+
+    /**
+     * Current in-progress focus session for UI (resume/overlay). Synced on mount and after start/complete/abandon.
+     *
+     * @var array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, payload?: array}|null
+     */
+    public ?array $activeFocusSession = null;
 
     protected TaskService $taskService;
 
@@ -238,6 +249,54 @@ class extends Component
         }
         $this->selectedDate = now()->toDateString();
         $this->syncFilterTagIdFromTagIds();
+        $this->activeFocusSession = $this->getActiveFocusSession();
+    }
+
+    /**
+     * Start a focus session and sync activeFocusSession for the frontend.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int, sequence_number: int}|array{error: string}
+     */
+    public function startFocusSession(int $taskId, array $payload): array
+    {
+        $result = $this->traitStartFocusSession($taskId, $payload);
+        if (! isset($result['error'])) {
+            $this->activeFocusSession = $result;
+            $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Complete a focus session and clear activeFocusSession.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function completeFocusSession(int $sessionId, array $payload): bool
+    {
+        $ok = $this->traitCompleteFocusSession($sessionId, $payload);
+        if ($ok) {
+            $this->activeFocusSession = null;
+            // Do not dispatch: client will do optimistic update on "End focus"; server dispatch can race and re-dim.
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Abandon a focus session and clear activeFocusSession.
+     */
+    public function abandonFocusSession(int $sessionId): bool
+    {
+        $ok = $this->traitAbandonFocusSession($sessionId);
+        if ($ok) {
+            $this->activeFocusSession = null;
+            // Do not dispatch: client already did optimistic update; server dispatch can race and re-dim the UI.
+        }
+
+        return $ok;
     }
 
     public function incrementListRefresh(): void
