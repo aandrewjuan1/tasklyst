@@ -1,6 +1,8 @@
 # Focus Mode (Pomodoro) – Required Behaviours
 
-This document describes the in-depth required behaviours for **focus mode** with **Pomodoro-type** sessions on list-item cards. It serves as the spec before implementing backend support.
+This document describes the in-depth required behaviours for **focus mode** with **Pomodoro-type** sessions on list-item cards. It defines what the UI and backend must do together. The companion document [focus-mode-pomodoro-backend.md](focus-mode-pomodoro-backend.md) lists the backend layers (schema, models, actions, traits) that implement these behaviours.
+
+**Terms used in both docs:** *Focus session* = one stored record (work block or break). *Work block* = one countdown from full duration to 0 (a Pomodoro). *Default duration* = used when the task has no `duration` (from user settings or app default, e.g. 25 min).
 
 ---
 
@@ -14,11 +16,11 @@ This document describes the in-depth required behaviours for **focus mode** with
 
 ### 1.2 Duration Source
 
-- **Task has `duration` (minutes):** Use that value as the work-interval length for this focus session (e.g. 15, 30, 60, 120, 240, 480).
+- **Task has `duration` (minutes):** Use that value as the work-interval length for this focus session (e.g. 15, 30, 60, 120, 240, 480). Backend stores this as “used task duration” when persisting the session.
 - **Task has no `duration` (null/empty):** Either:
-  - **Option A:** Use a fixed default (e.g. **25 minutes**) and show a small hint: “Using 25 min (default). Set duration on the task to customize.”
+  - **Option A (recommended):** Use a **default duration** (e.g. **25 minutes** from user Pomodoro settings or app config) and show a hint: “Using 25 min (default). Set duration on the task to customize.” Backend stores “used default duration” when persisting.
   - **Option B:** Disable Pomodoro for that card and show: “Set a duration on this task to use focus mode.”
-- **Recommendation:** Option A so every task can use focus; backend can later distinguish “used default” vs “used task duration.”
+- **Recommendation:** Option A so every task can use focus. Backend distinguishes “used default” vs “used task duration” in the stored session payload.
 
 ### 1.3 Single Active Focus
 
@@ -26,7 +28,7 @@ This document describes the in-depth required behaviours for **focus mode** with
 - If the user starts focus on another card while one is already focused:
   - Either **switch** focus to the new card (stop the previous session and start the new one), or
   - Show something like “End the current focus session first” and do not start the second.
-- **Implementation note:** Parent (list/page) or a shared store must know “which card (if any) is focused” so starting focus elsewhere can be handled consistently.
+- **Implementation note:** Parent (list/page) or a shared store must know “which card (if any) is focused” so starting focus elsewhere can be handled consistently. Backend supports this via a single in-progress focus session per user (`getActiveFocusSession`).
 
 ---
 
@@ -99,7 +101,7 @@ This document describes the in-depth required behaviours for **focus mode** with
 ### 4.3 Stop
 
 - **Action:** End the focus session immediately (timer stops, focus mode exits).
-- **Semantics:** “Stop” = abandon current block (no “completed block” recorded if you add backend later).
+- **Semantics:** “Stop” = **abandon** the current work block. Backend records the session as abandoned (completed = false, ended_at set); it is not counted as a completed Pomodoro.
 - **After stop:** Card returns to normal (no focus styling), overlay/dimming removed, card editable again. No “session complete” celebration.
 
 ### 4.4 Exit Focus (Without “Stop”)
@@ -127,13 +129,14 @@ This document describes the in-depth required behaviours for **focus mode** with
 ### 5.2 Visual/Audio Feedback
 
 - **Visual:** Clear “Session complete” state: e.g. message (“Session complete”, “Good work”, etc.), and/or progress bar full, and/or brief highlight.
-- **Sound (optional):** Optional completion sound; if implemented, should be toggleable (e.g. user preference or mute button) and respect `prefers-reduced-motion` / accessibility where relevant.
+- **Sound (optional):** Completion sound when the work block reaches 0; must be toggleable via user settings (e.g. Pomodoro settings: sound on/off, volume). Respect `prefers-reduced-motion` / accessibility where relevant. Backend stores `sound_enabled` and `sound_volume` in user Pomodoro settings.
 
 ### 5.3 Actions After Completion
 
-- **Always available:** **“End focus”** (or “Done”) to leave focus mode and return the card to normal. No further timer.
-- **Optional (this iteration):** A **“Mark task as Done”** or **“Mark as Doing”** button that (when backend exists) updates task status. For now you can design the button and wire it later.
-- **Optional (later):** “Start break” (short break timer); after break, “Start next block” or “End focus.” For the in-depth list, the **required** part is: at least **“End focus”** and a clear “session complete” state.
+- **Always available:** **“End focus”** (or “Done”) to leave focus mode and return the card to normal. Backend completes the focus session (completed = true) when the user ends focus after reaching 0.
+- **Optional:** **“Mark task as Done”** or **“Mark as Doing”** — backend can update task status when completing a work session (see backend doc: CompleteFocusSessionAction).
+- **Optional:** **“Start break”** — short or long break timer; after break, “Start next block” or “End focus.” Backend supports break session types and user settings (short/long break duration, long break after N pomodoros).
+- **Required minimum:** At least **“End focus”** and a clear “session complete” state.
 
 ### 5.4 No Auto-Exit
 
@@ -152,8 +155,8 @@ This document describes the in-depth required behaviours for **focus mode** with
 
 ### 6.2 Page Refresh or Navigation
 
-- **Acceptable for this iteration:** If the user refreshes or navigates away, focus mode and timer state are lost (no persistence). Optional message: “Focus session was not saved.”
-- **Later:** Backend could persist “session in progress” and restore on return.
+- **Without backend:** If the user refreshes or navigates away, focus mode and timer state are lost. Optional message: “Focus session was not saved.”
+- **With full backend:** Backend persists the in-progress focus session (one per user). On load, the app can call `getActiveFocusSession` and restore focus mode + timer (resume from remaining time). Optional message when abandoning: “Focus session was not saved.”
 
 ### 6.3 Very Long Duration
 
@@ -162,7 +165,7 @@ This document describes the in-depth required behaviours for **focus mode** with
 
 ### 6.4 Card Removed While in Focus
 
-- **If the card is deleted or moved** (e.g. by another tab or user): When the list updates and the card is gone, exit focus mode and remove overlay/dimming. No need to “save” the session if the item no longer exists.
+- **If the card is deleted or moved** (e.g. by another tab or user): When the list updates and the card is gone, exit focus mode and remove overlay/dimming. No need to “save” the session if the item no longer exists. Backend may leave an abandoned in-progress session for that task (optional cleanup).
 
 ### 6.5 Accessibility
 
@@ -173,7 +176,24 @@ This document describes the in-depth required behaviours for **focus mode** with
 
 ---
 
-## 7. Summary Checklist
+## 7. Relationship to Backend
+
+| Behaviour area | Backend support |
+|----------------|-----------------|
+| Duration source (task vs default) | `pomodoro_settings.work_duration_minutes`; `focus_sessions.payload` (`used_task_duration` / `used_default_duration`) |
+| Single active focus | One in-progress `FocusSession` per user; `GetActiveFocusSessionAction`, `getActiveFocusSession()` |
+| Stop / Exit | `AbandonFocusSessionAction` (completed = false) |
+| Session complete (timer 0) | `CompleteFocusSessionAction` (completed = true); optional task status update |
+| Sound toggle | `pomodoro_settings.sound_enabled`, `sound_volume` |
+| Paused time | `focus_sessions.paused_seconds` when completing or abandoning |
+| Resume after refresh | In-progress session stored; `getActiveFocusSession()` returns it |
+| Optional: Start break | `FocusSessionType` short_break / long_break; settings for durations and “long break after N” |
+
+See [focus-mode-pomodoro-backend.md](focus-mode-pomodoro-backend.md) for full backend layers.
+
+---
+
+## 8. Summary Checklist
 
 | # | Area | Required behaviour |
 |---|------|--------------------|
@@ -197,4 +217,4 @@ This document describes the in-depth required behaviours for **focus mode** with
 
 ---
 
-*This spec can be used for front-end implementation and later for backend (persistence, break timers, task status updates).*
+*Required behaviours for focus mode (Pomodoro). Implement front-end and backend together using [focus-mode-pomodoro-backend.md](focus-mode-pomodoro-backend.md) for schema, models, actions, and traits.*
