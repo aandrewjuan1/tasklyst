@@ -18,6 +18,8 @@ enum ActivityLogAction: string
     case CollaboratorRemoved = 'collaborator_removed';
     case CollaboratorPermissionUpdated = 'collaborator_permission_updated';
 
+    case FocusSessionCompleted = 'focus_session_completed';
+
     public function label(): string
     {
         return match ($this) {
@@ -34,6 +36,8 @@ enum ActivityLogAction: string
             self::CollaboratorLeft => 'Collaborator left',
             self::CollaboratorRemoved => 'Collaborator removed',
             self::CollaboratorPermissionUpdated => 'Collaborator permission updated',
+
+            self::FocusSessionCompleted => 'Focus session completed',
         };
     }
 }
