@@ -453,6 +453,11 @@ class Task extends Model
         return $this->morphMany(CollaborationInvitation::class, 'collaboratable');
     }
 
+    public function focusSessions(): MorphMany
+    {
+        return $this->morphMany(FocusSession::class, 'focusable')->orderByDesc('started_at');
+    }
+
     public function collaborators(): MorphToMany
     {
         return $this->morphToMany(User::class, 'collaboratable', 'collaborations')

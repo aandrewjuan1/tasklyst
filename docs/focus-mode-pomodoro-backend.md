@@ -108,7 +108,7 @@ One row per focus session (work block or break). Supports behaviours §3 (timer)
 
 ### 4.3 Complete session
 
-- Payload: `focus_session_id` (or task_id + started_at), `ended_at`, `completed`, `paused_seconds`, optional `duration_seconds`.
+- Payload: `focus_session_id` (or task_id + started_at), `ended_at`, `completed`, `paused_seconds`, optional `duration_seconds`, optional `mark_task_status` (when completing a work session: `to_do` | `doing` | `done` to set the task’s status; omit or null = no change).
 - Optional DTO: `CompleteFocusSessionDto`.
 
 ---
@@ -129,7 +129,7 @@ One row per focus session (work block or break). Supports behaviours §3 (timer)
   Input: `User $user`, `Task $task` (or null for break), `FocusSessionType $type`, `duration_seconds`, `started_at`, optional `sequence_number`, optional payload. Ensure at most one in-progress session per user (behaviours §1.3); create `FocusSession` (completed = false, ended_at = null). Return `FocusSession`.
 
 - **`App\Actions\FocusSession\CompleteFocusSessionAction`**  
-  Input: `FocusSession $session`, `ended_at`, `completed`, `paused_seconds`. Update session; optionally record `ActivityLogAction::FocusSessionCompleted`; optionally update task status when completed work (behaviours §5.3). Return `FocusSession`.
+  Input: `FocusSession $session`, `ended_at`, `completed`, `paused_seconds`, optional `?string $markTaskStatus = null` (`to_do` | `doing` | `done`). Update session; when `completed === true` record `ActivityLogAction::FocusSessionCompleted` on the focusable; when completed work session with a task and `$markTaskStatus` is set, update the task’s status via `TaskService::updateTask` (behaviours §5.3). Return `FocusSession`.
 
 - **`App\Actions\FocusSession\AbandonFocusSessionAction`**  
   Input: `FocusSession $session` (or id + user). Set ended_at, completed = false. Use when user clicks Stop or Exit (behaviours §4.3, §4.4).
@@ -150,7 +150,7 @@ One row per focus session (work block or break). Supports behaviours §3 (timer)
 
 - `startWorkSession(User $user, Task $task, \DateTimeInterface $startedAt, int $durationSeconds, bool $usedTaskDuration = false): FocusSession`
 - `startBreakSession(User $user, FocusSessionType $breakType, \DateTimeInterface $startedAt, int $durationSeconds, int $sequenceNumber): FocusSession`
-- `completeSession(FocusSession $session, \DateTimeInterface $endedAt, bool $completed, int $pausedSeconds = 0): FocusSession`
+- `completeSession(FocusSession $session, \DateTimeInterface $endedAt, bool $completed, int $pausedSeconds = 0, ?string $markTaskStatus = null): FocusSession`
 - `abandonSession(FocusSession $session): FocusSession`
 - `getActiveSessionForUser(User $user): ?FocusSession`
 - `getSessionsForTask(Task $task, ?\DateTimeInterface $date = null): Collection`
@@ -168,7 +168,7 @@ Used by workspace index (parent of list and list-item-card). Methods:
   Payload: type, duration_seconds, started_at, optional sequence_number, optional used_task_duration. Return e.g. `['id' => $session->id, 'started_at' => ...]`.
 
 - **`completeFocusSession(int $sessionId, array $payload): bool`**  
-  Payload: ended_at, completed, paused_seconds. Load session, authorize, call CompleteFocusSessionAction.
+  Payload: ended_at, completed, paused_seconds, optional mark_task_status (to_do | doing | done). Load session, authorize, call CompleteFocusSessionAction with validated data (pass mark_task_status when present).
 
 - **`abandonFocusSession(int $sessionId): bool`**  
   Load session, AbandonFocusSessionAction. Used for Stop and Exit (behaviours §4.3, §4.4).

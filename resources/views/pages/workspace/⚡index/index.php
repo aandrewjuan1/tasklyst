@@ -20,12 +20,17 @@ use App\Actions\Project\RestoreProjectAction;
 use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
+use App\Actions\FocusSession\AbandonFocusSessionAction;
+use App\Actions\FocusSession\CompleteFocusSessionAction;
+use App\Actions\FocusSession\GetActiveFocusSessionAction;
+use App\Actions\FocusSession\StartFocusSessionAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\ForceDeleteTaskAction;
 use App\Actions\Task\RestoreTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesActivityLogs;
+use App\Livewire\Concerns\HandlesFocusSessions;
 use App\Livewire\Concerns\HandlesCollaborations;
 use App\Livewire\Concerns\HandlesComments;
 use App\Livewire\Concerns\HandlesEvents;
@@ -64,6 +69,7 @@ class extends Component
     use HandlesFiltering;
     use HandlesProjects;
     use HandlesTags;
+    use HandlesFocusSessions;
     use HandlesTasks;
     use HandlesTrash;
 
@@ -129,6 +135,14 @@ class extends Component
 
     protected DeleteCollaborationAction $deleteCollaborationAction;
 
+    protected AbandonFocusSessionAction $abandonFocusSessionAction;
+
+    protected CompleteFocusSessionAction $completeFocusSessionAction;
+
+    protected GetActiveFocusSessionAction $getActiveFocusSessionAction;
+
+    protected StartFocusSessionAction $startFocusSessionAction;
+
     /**
      * @var array<string, mixed>
      */
@@ -173,7 +187,11 @@ class extends Component
         AcceptCollaborationInvitationAction $acceptCollaborationInvitationAction,
         DeclineCollaborationInvitationAction $declineCollaborationInvitationAction,
         UpdateCollaborationPermissionAction $updateCollaborationPermissionAction,
-        DeleteCollaborationAction $deleteCollaborationAction
+        DeleteCollaborationAction $deleteCollaborationAction,
+        AbandonFocusSessionAction $abandonFocusSessionAction,
+        CompleteFocusSessionAction $completeFocusSessionAction,
+        GetActiveFocusSessionAction $getActiveFocusSessionAction,
+        StartFocusSessionAction $startFocusSessionAction
     ): void {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
@@ -204,6 +222,10 @@ class extends Component
         $this->declineCollaborationInvitationAction = $declineCollaborationInvitationAction;
         $this->updateCollaborationPermissionAction = $updateCollaborationPermissionAction;
         $this->deleteCollaborationAction = $deleteCollaborationAction;
+        $this->abandonFocusSessionAction = $abandonFocusSessionAction;
+        $this->completeFocusSessionAction = $completeFocusSessionAction;
+        $this->getActiveFocusSessionAction = $getActiveFocusSessionAction;
+        $this->startFocusSessionAction = $startFocusSessionAction;
     }
 
     public function mount(): void
