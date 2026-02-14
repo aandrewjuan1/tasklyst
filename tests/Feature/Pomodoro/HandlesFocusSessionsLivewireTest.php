@@ -102,3 +102,31 @@ test('workspace index startFocusSession with invalid type dispatches error and c
 
     expect(FocusSession::query()->forUser($this->user->id)->inProgress()->count())->toBe(0);
 });
+
+test('workspace index pauseFocusSession sets paused_at on session', function (): void {
+    $this->actingAs($this->user);
+    $session = FocusSession::factory()->for($this->user)->inProgress()->create();
+
+    Livewire::test('pages::workspace.index')
+        ->call('pauseFocusSession', $session->id)
+        ->assertOk();
+
+    $session->refresh();
+    expect($session->paused_at)->not->toBeNull();
+});
+
+test('workspace index resumeFocusSession clears paused_at and adds segment to paused_seconds', function (): void {
+    $this->actingAs($this->user);
+    $session = FocusSession::factory()->for($this->user)->inProgress()->create([
+        'paused_at' => now()->subSeconds(30),
+        'paused_seconds' => 0,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('resumeFocusSession', $session->id)
+        ->assertOk();
+
+    $session->refresh();
+    expect($session->paused_at)->toBeNull()
+        ->and($session->paused_seconds)->toBeGreaterThanOrEqual(28);
+});

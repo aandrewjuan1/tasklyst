@@ -23,6 +23,8 @@ use App\Actions\Tag\DeleteTagAction;
 use App\Actions\FocusSession\AbandonFocusSessionAction;
 use App\Actions\FocusSession\CompleteFocusSessionAction;
 use App\Actions\FocusSession\GetActiveFocusSessionAction;
+use App\Actions\FocusSession\PauseFocusSessionAction;
+use App\Actions\FocusSession\ResumeFocusSessionAction;
 use App\Actions\FocusSession\StartFocusSessionAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
@@ -73,6 +75,8 @@ class extends Component
         startFocusSession as traitStartFocusSession;
         completeFocusSession as traitCompleteFocusSession;
         abandonFocusSession as traitAbandonFocusSession;
+        pauseFocusSession as traitPauseFocusSession;
+        resumeFocusSession as traitResumeFocusSession;
     }
     use HandlesTasks;
     use HandlesTrash;
@@ -84,7 +88,7 @@ class extends Component
     /**
      * Current in-progress focus session for UI (resume/overlay). Synced on mount and after start/complete/abandon.
      *
-     * @var array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, payload?: array}|null
+     * @var array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, paused_seconds?: int, paused_at?: string|null, payload?: array}|null
      */
     public ?array $activeFocusSession = null;
 
@@ -152,6 +156,10 @@ class extends Component
 
     protected GetActiveFocusSessionAction $getActiveFocusSessionAction;
 
+    protected PauseFocusSessionAction $pauseFocusSessionAction;
+
+    protected ResumeFocusSessionAction $resumeFocusSessionAction;
+
     protected StartFocusSessionAction $startFocusSessionAction;
 
     /**
@@ -202,6 +210,8 @@ class extends Component
         AbandonFocusSessionAction $abandonFocusSessionAction,
         CompleteFocusSessionAction $completeFocusSessionAction,
         GetActiveFocusSessionAction $getActiveFocusSessionAction,
+        PauseFocusSessionAction $pauseFocusSessionAction,
+        ResumeFocusSessionAction $resumeFocusSessionAction,
         StartFocusSessionAction $startFocusSessionAction
     ): void {
         $this->taskService = $taskService;
@@ -236,6 +246,8 @@ class extends Component
         $this->abandonFocusSessionAction = $abandonFocusSessionAction;
         $this->completeFocusSessionAction = $completeFocusSessionAction;
         $this->getActiveFocusSessionAction = $getActiveFocusSessionAction;
+        $this->pauseFocusSessionAction = $pauseFocusSessionAction;
+        $this->resumeFocusSessionAction = $resumeFocusSessionAction;
         $this->startFocusSessionAction = $startFocusSessionAction;
     }
 
@@ -287,13 +299,43 @@ class extends Component
 
     /**
      * Abandon a focus session and clear activeFocusSession.
+     *
+     * @param  array<string, mixed>  $payload  Optional: paused_seconds (int)
      */
-    public function abandonFocusSession(int $sessionId): bool
+    public function abandonFocusSession(int $sessionId, array $payload = []): bool
     {
-        $ok = $this->traitAbandonFocusSession($sessionId);
+        $ok = $this->traitAbandonFocusSession($sessionId, $payload);
         if ($ok) {
             $this->activeFocusSession = null;
             // Do not dispatch: client already did optimistic update; server dispatch can race and re-dim the UI.
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Pause the focus session and sync activeFocusSession (so UI shows paused_at).
+     */
+    public function pauseFocusSession(int $sessionId): bool
+    {
+        $ok = $this->traitPauseFocusSession($sessionId);
+        if ($ok) {
+            $this->activeFocusSession = $this->getActiveFocusSession();
+            $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Resume the focus session and sync activeFocusSession (so UI clears paused_at).
+     */
+    public function resumeFocusSession(int $sessionId): bool
+    {
+        $ok = $this->traitResumeFocusSession($sessionId);
+        if ($ok) {
+            $this->activeFocusSession = $this->getActiveFocusSession();
+            $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
         }
 
         return $ok;

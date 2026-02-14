@@ -5,6 +5,8 @@ namespace App\Livewire\Concerns;
 use App\Actions\FocusSession\AbandonFocusSessionAction;
 use App\Actions\FocusSession\CompleteFocusSessionAction;
 use App\Actions\FocusSession\GetActiveFocusSessionAction;
+use App\Actions\FocusSession\PauseFocusSessionAction;
+use App\Actions\FocusSession\ResumeFocusSessionAction;
 use App\Actions\FocusSession\StartFocusSessionAction;
 use App\Enums\FocusSessionType;
 use App\Models\FocusSession;
@@ -21,6 +23,8 @@ use Illuminate\Support\Facades\Validator;
  * - CompleteFocusSessionAction $completeFocusSessionAction
  * - AbandonFocusSessionAction $abandonFocusSessionAction
  * - GetActiveFocusSessionAction $getActiveFocusSessionAction
+ * - PauseFocusSessionAction $pauseFocusSessionAction
+ * - ResumeFocusSessionAction $resumeFocusSessionAction
  */
 trait HandlesFocusSessions
 {
@@ -81,7 +85,7 @@ trait HandlesFocusSessions
 
         return [
             'id' => $session->id,
-            'started_at' => $session->started_at->toIso8601String(),
+            'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
             'type' => $session->type->value,
             'task_id' => $task->id,
@@ -135,8 +139,10 @@ trait HandlesFocusSessions
 
     /**
      * Abandon the current focus session (Stop or Exit without completing).
+     *
+     * @param  array<string, mixed>  $payload  Optional: paused_seconds (int)
      */
-    public function abandonFocusSession(int $sessionId): bool
+    public function abandonFocusSession(int $sessionId, array $payload = []): bool
     {
         $user = $this->requireAuth(__('You must be logged in to stop a focus session.'));
         if ($user === null) {
@@ -152,8 +158,60 @@ trait HandlesFocusSessions
 
         $this->authorize('update', $session);
 
-        $this->abandonFocusSessionAction->execute($session);
+        $pausedSeconds = isset($payload['paused_seconds'])
+            ? max(0, (int) $payload['paused_seconds'])
+            : 0;
+
+        $this->abandonFocusSessionAction->execute($session, $pausedSeconds);
         $this->dispatch('toast', type: 'info', message: __('Focus session stopped.'));
+
+        return true;
+    }
+
+    /**
+     * Pause the current focus session (persists paused_at so reload can restore state).
+     */
+    public function pauseFocusSession(int $sessionId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to pause a focus session.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $session = FocusSession::query()->forUser($user->id)->find($sessionId);
+        if ($session === null) {
+            $this->dispatch('toast', type: 'error', message: __('Focus session not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $session);
+
+        $this->pauseFocusSessionAction->execute($session);
+
+        return true;
+    }
+
+    /**
+     * Resume the current focus session (flushes paused_at into paused_seconds).
+     */
+    public function resumeFocusSession(int $sessionId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to resume a focus session.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $session = FocusSession::query()->forUser($user->id)->find($sessionId);
+        if ($session === null) {
+            $this->dispatch('toast', type: 'error', message: __('Focus session not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $session);
+
+        $this->resumeFocusSessionAction->execute($session);
 
         return true;
     }
@@ -161,7 +219,7 @@ trait HandlesFocusSessions
     /**
      * Return the current user's in-progress focus session as array for the frontend (resume after refresh).
      *
-     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, payload: array}|null
+     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, paused_seconds: int, paused_at: string|null, payload: array}|null
      */
     public function getActiveFocusSession(): ?array
     {
@@ -179,11 +237,13 @@ trait HandlesFocusSessions
 
         return [
             'id' => $session->id,
-            'started_at' => $session->started_at->toIso8601String(),
+            'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
             'type' => $session->type->value,
             'task_id' => $session->focusable_id,
             'sequence_number' => $session->sequence_number,
+            'paused_seconds' => (int) ($session->paused_seconds ?? 0),
+            'paused_at' => $session->paused_at?->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'payload' => $session->payload ?? [],
         ];
     }
@@ -229,7 +289,7 @@ trait HandlesFocusSessions
 
         return [
             'id' => $session->id,
-            'started_at' => $session->started_at->toIso8601String(),
+            'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
             'type' => $session->type->value,
             'task_id' => null,
