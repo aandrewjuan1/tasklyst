@@ -912,6 +912,7 @@
                             <flux:tooltip :content="__('Activity Logs')">
                                 <flux:menu.item
                                     icon="clock"
+                                    class="cursor-pointer"
                                     @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
                                 >
                                     {{ __('Activity Logs') }}
@@ -924,6 +925,7 @@
                                 <flux:menu.item
                                     variant="danger"
                                     icon="trash"
+                                    class="cursor-pointer"
                                     @click.throttle.250ms="deleteItem()"
                                 >
                                     {{ __('Move to trash') }}

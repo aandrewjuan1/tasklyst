@@ -31,6 +31,7 @@
         decliningTokens: new Set(),
         acceptErrorToast: @js(__('Could not accept invitation. Please try again.')),
         declineErrorToast: @js(__('Could not decline invitation. Please try again.')),
+        panelPlacementClassesValue: 'bottom-full right-0 mb-1',
 
         toggle() {
             if (this.open) {
@@ -41,7 +42,7 @@
             const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
             const vw = window.innerWidth;
-            const contentLeft = vw < 480 ? 24 : 320;
+            const contentLeft = vw < 768 ? 16 : 320;
             const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
 
             const spaceBelow = vh - rect.bottom;
@@ -66,23 +67,31 @@
                 this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             }
 
+            const v = this.placementVertical;
+            const h = this.placementHorizontal;
+            if (vw <= 480) {
+                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
+            } else if (v === 'top' && h === 'end') {
+                this.panelPlacementClassesValue = 'bottom-full right-0 mb-1';
+            } else if (v === 'top' && h === 'start') {
+                this.panelPlacementClassesValue = 'bottom-full left-0 mb-1';
+            } else if (v === 'bottom' && h === 'end') {
+                this.panelPlacementClassesValue = 'top-full right-0 mt-1';
+            } else if (v === 'bottom' && h === 'start') {
+                this.panelPlacementClassesValue = 'top-full left-0 mt-1';
+            } else {
+                this.panelPlacementClassesValue = 'bottom-full right-0 mb-1';
+            }
+
             this.open = true;
+            this.$dispatch('dropdown-opened');
         },
 
         close(focusAfter) {
             if (!this.open) return;
             this.open = false;
+            setTimeout(() => this.$dispatch('dropdown-closed'), 50);
             focusAfter && focusAfter.focus();
-        },
-
-        get panelPlacementClasses() {
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
-            if (v === 'top' && h === 'end') return 'bottom-full right-0 mb-1';
-            if (v === 'top' && h === 'start') return 'bottom-full left-0 mb-1';
-            if (v === 'bottom' && h === 'end') return 'top-full right-0 mt-1';
-            if (v === 'bottom' && h === 'start') return 'top-full left-0 mt-1';
-            return 'bottom-full right-0 mb-1';
         },
 
         rollbackInvitation(invitationsBackup) {
@@ -148,7 +157,7 @@
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['pending-invitations-popover']"
     class="relative inline-block"
     {{ $attributes }}
@@ -162,11 +171,7 @@
             :aria-expanded="open"
             :aria-controls="$id('pending-invitations-popover')"
             class="{{ $triggerBaseClass }}"
-            x-effect="
-                const base = @js($triggerBaseClass);
-                const openState = open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-                $el.className = base + openState;
-            "
+            :class="open ? 'pointer-events-none shadow-md scale-[1.02]' : ''"
         >
             <flux:icon name="envelope" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -189,9 +194,9 @@
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
-        @click.stop=""
+        @click.stop
         :id="$id('pending-invitations-popover')"
-        :class="panelPlacementClasses"
+        :class="panelPlacementClassesValue"
         class="absolute z-50 w-fit min-w-[240px] max-w-[min(320px,calc(100vw-2rem))] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
     >
         <div class="flex flex-col gap-2 p-3">
@@ -202,12 +207,16 @@
             </div>
             <div class="max-h-64 overflow-y-auto">
                 <template x-if="invitations.length > 0">
-                    <ul class="space-y-1.5">
+                    <ul class="space-y-3">
                         <template x-for="inv in invitations" :key="inv.token">
-                            <li class="group flex flex-col gap-1.5 rounded-md bg-muted/60 px-2 py-1.5 transition-colors hover:bg-muted/80">
-                                <p class="text-[11px] text-foreground/90 leading-snug" x-text="inv.inviter_name + ' ' + @js(__('invited you to')) + ' ' + itemTypeLabel(inv.item_type) + ': ' + (inv.item_title || '')"></p>
-                                <p class="text-[10px] text-muted-foreground" x-text="inv.permission"></p>
-                                <div class="flex items-center gap-1.5 pt-0.5">
+                            <li class="flex flex-col gap-2 rounded-lg border border-border/50 bg-muted/40 px-3 py-2.5">
+                                <p class="text-xs font-medium text-foreground leading-snug" x-text="inv.inviter_name + ' ' + @js(__('invited you to')) + ' ' + itemTypeLabel(inv.item_type) + ': ' + (inv.item_title || '')"></p>
+                                <p class="text-[11px] text-muted-foreground leading-snug">
+                                    <span>{{ __('If you accept, you\'ll get') }}</span>
+                                    <span x-text="inv.permission" class="font-medium text-foreground/80"></span>
+                                    <span>{{ __('permission.') }}</span>
+                                </p>
+                                <div class="flex flex-wrap items-center gap-2 pt-1">
                                     <flux:button
                                         size="xs"
                                         variant="primary"

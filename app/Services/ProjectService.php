@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\ActivityLogAction;
+use App\Models\CollaborationInvitation;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -75,6 +76,11 @@ class ProjectService
             $this->activityLogRecorder->record($project, $actor, ActivityLogAction::ItemDeleted, [
                 'name' => $project->name,
             ]);
+
+            CollaborationInvitation::query()
+                ->where('collaboratable_type', $project->getMorphClass())
+                ->where('collaboratable_id', $project->id)
+                ->delete();
 
             return (bool) $project->forceDelete();
         });

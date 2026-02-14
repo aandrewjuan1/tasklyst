@@ -245,6 +245,19 @@
             return 'bottom-full right-0 mb-1';
         },
 
+        get triggerButtonDynamicClass() {
+            const state = (!this.enabled && this.compactWhenDisabled)
+                ? 'border-border/60 bg-muted text-muted-foreground'
+                : (this.enabled
+                    ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
+                    : 'border-border/60 bg-muted text-muted-foreground');
+            const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
+            if (this.readonly) {
+                return 'cursor-default pointer-events-none opacity-90 ' + state;
+            }
+            return state + openState;
+        },
+
         get intervalLabel() {
             if (!this.type) return 'Every';
             const typeText = this.type === 'daily' ? 'day' : this.type === 'weekly' ? 'week' : this.type === 'monthly' ? 'month' : 'year';
@@ -254,7 +267,7 @@
     @recurring-value="handleRecurringValue($event)"
     @recurring-revert="handleRecurringRevert($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['recurring-selection-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
@@ -273,20 +286,7 @@
         @endif
         :aria-readonly="readonly"
         class="{{ $triggerInitialClass }}"
-        x-effect="
-            const base = @js($triggerBaseClass);
-            const state = (!enabled && compactWhenDisabled)
-                ? 'border-border/60 bg-muted text-muted-foreground'
-                : (enabled
-                    ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
-                    : 'border-border/60 bg-muted text-muted-foreground');
-            const openState = open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-            if (readonly) {
-                $el.className = base.replace('cursor-pointer', 'cursor-default') + ' pointer-events-none opacity-90 ' + state;
-            } else {
-                $el.className = base + ' ' + state + openState;
-            }
-        "
+        :class="triggerButtonDynamicClass"
         data-task-creation-safe
     >
         <flux:icon name="arrow-path" class="size-3" />
@@ -335,7 +335,7 @@
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
-        @click.stop=""
+        @click.stop
         :id="$id('recurring-selection-dropdown')"
         :class="panelPlacementClasses"
         class="absolute z-50 flex min-w-80 flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"

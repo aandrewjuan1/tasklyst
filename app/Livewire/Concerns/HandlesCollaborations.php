@@ -37,6 +37,7 @@ trait HandlesCollaborations
 
         $invitations = CollaborationInvitation::query()
             ->pendingForUser($user)
+            ->whereHas('collaboratable')
             ->with(['collaboratable', 'inviter'])
             ->get();
 

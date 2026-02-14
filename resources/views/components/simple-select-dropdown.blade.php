@@ -17,6 +17,7 @@
         placementHorizontal: @js($align),
         panelHeightEst: {{ $panelHeightEst }},
         panelWidthEst: {{ $panelWidthEst }},
+        panelPlacementClassesValue: 'bottom-full right-0 mb-1',
         toggle() {
             if (this.readonly) return;
             if (this.open) {
@@ -47,6 +48,14 @@
                 this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             }
 
+            const v = this.placementVertical;
+            const h = this.placementHorizontal;
+            if (v === 'top' && h === 'end') this.panelPlacementClassesValue = 'bottom-full right-0 mb-1';
+            else if (v === 'top' && h === 'start') this.panelPlacementClassesValue = 'bottom-full left-0 mb-1';
+            else if (v === 'bottom' && h === 'end') this.panelPlacementClassesValue = 'top-full right-0 mt-1';
+            else if (v === 'bottom' && h === 'start') this.panelPlacementClassesValue = 'top-full left-0 mt-1';
+            else this.panelPlacementClassesValue = 'bottom-full right-0 mb-1';
+
             this.open = true;
             this.$dispatch('dropdown-opened');
         },
@@ -59,18 +68,9 @@
 
             focusAfter && focusAfter.focus();
         },
-        get panelPlacementClasses() {
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
-            if (v === 'top' && h === 'end') return 'bottom-full right-0 mb-1';
-            if (v === 'top' && h === 'start') return 'bottom-full left-0 mb-1';
-            if (v === 'bottom' && h === 'end') return 'top-full right-0 mt-1';
-            if (v === 'bottom' && h === 'start') return 'top-full left-0 mt-1';
-            return 'bottom-full right-0 mb-1';
-        },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['simple-select-dropdown']"
     data-task-creation-safe
     class="relative inline-block"
@@ -106,7 +106,7 @@
         @click.outside="close($refs.button)"
         @click="close($refs.button)"
         :id="$id('simple-select-dropdown')"
-        :class="panelPlacementClasses"
+        :class="panelPlacementClassesValue"
         class="absolute z-50 min-w-32 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 contain-[paint] [&_button]:cursor-pointer"
     >
         {{ $slot }}

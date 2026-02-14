@@ -43,7 +43,7 @@
         placementHorizontal: @js($align),
         panelHeightEst: {{ $panelHeightEst }},
         panelWidthEst: {{ $panelWidthEst }},
-        mergedTags() {
+        get mergedTags() {
             const available = Array.isArray(this.tags) ? [...this.tags] : [];
             const selectedFallback = Array.isArray(this.initialSelectedTags) ? [...this.initialSelectedTags] : [];
 
@@ -72,7 +72,7 @@
             const tagIdStr = String(tagId);
             return fallback.some(t => String(t?.id) === tagIdStr);
         },
-        selectedTagPills() {
+        get selectedTagPills() {
             const fallback = Array.isArray(this.initialSelectedTags) ? [...this.initialSelectedTags] : [];
 
             const tagIds = this.formData?.item?.tagIds;
@@ -162,7 +162,7 @@
     }"
     x-init="alpineReady = true"
     @keydown.escape.prevent.stop="close($refs.trigger)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.trigger)"
     x-id="['tag-selection-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
@@ -197,7 +197,7 @@
             @endif
 
             {{-- Alpine-rendered tags after hydration --}}
-            <template x-for="tag in selectedTagPills()" :key="String(tag.id)">
+            <template x-for="tag in selectedTagPills" :key="String(tag.id)">
                 <span 
                     class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground" 
                     x-text="tag.name"
@@ -206,7 +206,7 @@
                 ></span>
             </template>
             <span 
-                x-show="alpineReady && selectedTagPills().length === 0" 
+                x-show="alpineReady && selectedTagPills.length === 0" 
                 x-cloak 
                 class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
             >
@@ -225,10 +225,11 @@
         x-transition:leave="transition ease-in duration-75"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
+        x-cloak
         @click.outside="close($refs.trigger)"
+        @click.stop
         :id="$id('tag-selection-dropdown')"
         :class="panelPlacementClasses"
-        x-cloak
         class="absolute z-50 flex min-w-48 flex-col gap-2 overflow-hidden rounded-md border border-border bg-white py-1 text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
         data-task-creation-safe
         role="menu"
@@ -254,7 +255,7 @@
             </div>
 
             <div class="max-h-40 overflow-y-auto">
-                <template x-for="tag in mergedTags()" :key="String(tag.id)">
+                <template x-for="tag in mergedTags" :key="String(tag.id)">
                     <label
                         class="group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         @click="$dispatch('tag-toggled', { tagId: tag.id }); $event.preventDefault()"
@@ -276,7 +277,7 @@
                         </flux:tooltip>
                     </label>
                 </template>
-                <div x-show="mergedTags().length === 0" x-cloak class="px-3 py-2 text-sm text-muted-foreground">
+                <div x-show="mergedTags.length === 0" x-cloak class="px-3 py-2 text-sm text-muted-foreground">
                     {{ __('No tags available') }}
                 </div>
             </div>

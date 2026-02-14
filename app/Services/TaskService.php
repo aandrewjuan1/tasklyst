@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ActivityLogAction;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\CollaborationInvitation;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\TaskException;
@@ -188,6 +189,11 @@ class TaskService
             $this->activityLogRecorder->record($task, $actor, ActivityLogAction::ItemDeleted, [
                 'title' => $task->title,
             ]);
+
+            CollaborationInvitation::query()
+                ->where('collaboratable_type', $task->getMorphClass())
+                ->where('collaboratable_id', $task->id)
+                ->delete();
 
             return (bool) $task->forceDelete();
         });

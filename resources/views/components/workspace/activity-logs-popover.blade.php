@@ -61,6 +61,8 @@
         loadingMore: false,
         hasMore: @js($initialHasMore),
         loadMoreErrorToast: @js(__('Could not load more activity. Please try again.')),
+        panelPlacementClassesValue: 'absolute bottom-full right-0 mb-1',
+        openedAt: 0,
 
         openFromMenu() {
             if (this.open) {
@@ -70,6 +72,7 @@
             const button = this.$refs.button;
             if (!button) {
                 this.open = true;
+                this.openedAt = Date.now();
                 this.$dispatch('dropdown-opened');
 
                 return;
@@ -103,7 +106,24 @@
                 this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             }
 
+            const v = this.placementVertical;
+            const h = this.placementHorizontal;
+            if (vw <= 480) {
+                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
+            } else if (v === 'top' && h === 'end') {
+                this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
+            } else if (v === 'top' && h === 'start') {
+                this.panelPlacementClassesValue = 'absolute bottom-full left-0 mb-1';
+            } else if (v === 'bottom' && h === 'end') {
+                this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
+            } else if (v === 'bottom' && h === 'start') {
+                this.panelPlacementClassesValue = 'absolute top-full left-0 mt-1';
+            } else {
+                this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
+            }
+
             this.open = true;
+            this.openedAt = Date.now();
             this.$dispatch('dropdown-opened');
         },
 
@@ -116,23 +136,6 @@
             setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
 
             focusAfter && focusAfter.focus();
-        },
-
-        get panelPlacementClasses() {
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
-            const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
-
-            if (vw <= 480) {
-                return 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
-            }
-
-            if (v === 'top' && h === 'end') return 'absolute bottom-full right-0 mb-1';
-            if (v === 'top' && h === 'start') return 'absolute bottom-full left-0 mb-1';
-            if (v === 'bottom' && h === 'end') return 'absolute top-full right-0 mt-1';
-            if (v === 'bottom' && h === 'start') return 'absolute top-full left-0 mt-1';
-
-            return 'absolute bottom-full right-0 mb-1';
         },
 
         async loadMore() {
@@ -172,6 +175,8 @@
             }
         },
     }"
+    @keydown.escape.prevent.stop="close($refs.button)"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target) && (Date.now() - openedAt > 200)) && close($refs.button)"
     @workspace-open-activity-logs.window="
         if ($event.detail && Number($event.detail.id ?? null) === Number(loggableId)) {
             openFromMenu();
@@ -198,8 +203,8 @@
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
-        @click.stop=""
-        :class="panelPlacementClasses"
+        @click.stop
+        :class="panelPlacementClassesValue"
         class="z-50 flex min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
         role="dialog"
         aria-modal="true"

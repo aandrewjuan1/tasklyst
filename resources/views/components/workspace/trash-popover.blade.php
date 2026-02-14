@@ -29,6 +29,7 @@
         restoringSelected: false,
         forceDeletingSelected: false,
         pendingForceDeletePayload: null,
+        panelPlacementClassesValue: 'absolute top-full right-0 mt-1',
 
         itemKey(item) {
             return item.kind + '-' + item.id;
@@ -148,6 +149,22 @@
                 } else {
                     this.placementHorizontal = rect.right > vw ? 'start' : 'end';
                 }
+
+                const v = this.placementVertical;
+                const h = this.placementHorizontal;
+                if (vw <= 480) {
+                    this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,24rem)]';
+                } else if (v === 'top' && h === 'end') {
+                    this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
+                } else if (v === 'top' && h === 'start') {
+                    this.panelPlacementClassesValue = 'absolute bottom-full left-0 mb-1';
+                } else if (v === 'bottom' && h === 'end') {
+                    this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
+                } else if (v === 'bottom' && h === 'start') {
+                    this.panelPlacementClassesValue = 'absolute top-full left-0 mt-1';
+                } else {
+                    this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
+                }
             }
 
             this.open = true;
@@ -217,23 +234,6 @@
             focusAfter && focusAfter.focus();
         },
 
-        get panelPlacementClasses() {
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
-            const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
-
-            if (vw <= 480) {
-                return 'fixed inset-x-3 bottom-4 max-h-[min(70vh,24rem)]';
-            }
-
-            if (v === 'top' && h === 'end') return 'absolute bottom-full right-0 mb-1';
-            if (v === 'top' && h === 'start') return 'absolute bottom-full left-0 mb-1';
-            if (v === 'bottom' && h === 'end') return 'absolute top-full right-0 mt-1';
-            if (v === 'bottom' && h === 'start') return 'absolute top-full left-0 mt-1';
-
-            return 'absolute top-full right-0 mt-1';
-        },
-
         kindLabel(kind) {
             const labels = { task: @js(__('Task')), project: @js(__('Project')), event: @js(__('Event')) };
             return labels[kind] || kind;
@@ -283,10 +283,12 @@
             }
         },
     }"
+    @keydown.escape.prevent.stop="close($refs.trigger)"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.trigger)"
     class="relative"
 >
     @isset($trigger)
-        <div x-ref="trigger" @click="openPanel()">
+        <div x-ref="trigger" @click="openPanel()" class="cursor-pointer">
             {{ $trigger }}
         </div>
     @else
@@ -294,7 +296,7 @@
             x-ref="trigger"
             type="button"
             @click="openPanel()"
-            class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            class="cursor-pointer inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             aria-haspopup="true"
             :aria-expanded="open"
             aria-label="{{ __('Open trash bin') }}"
@@ -316,7 +318,7 @@
         x-cloak
         @click.outside="close($refs.trigger)"
         @click.stop
-        :class="panelPlacementClasses"
+        :class="panelPlacementClassesValue"
         class="z-50 flex min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
         role="dialog"
         aria-modal="true"
@@ -342,55 +344,6 @@
             </button>
         </div>
 
-        <div class="border-b border-border/60 px-3 py-1.5" x-show="items.length > 0" x-cloak>
-            <template x-if="items.length > 0 && !selectionMode">
-                <flux:tooltip :content="__('Select items')">
-                    <button
-                        type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                        @click="selectAll()"
-                        aria-label="{{ __('Select items') }}"
-                    >
-                        <flux:icon name="squares-2x2" class="size-3.5" />
-                        <span>{{ __('Select items') }}</span>
-                    </button>
-                </flux:tooltip>
-            </template>
-            <template x-if="selectionMode">
-                <div class="flex items-center gap-1">
-                    <button
-                        type="button"
-                        class="rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                        @click="cancelSelection()"
-                    >
-                        {{ __('Cancel') }}
-                    </button>
-                    <flux:tooltip :content="__('Restore selected')">
-                        <button
-                            type="button"
-                            class="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                            :disabled="!hasSelection || restoringSelected"
-                            @click="restoreSelected()"
-                            aria-label="{{ __('Restore selected') }}"
-                        >
-                            <flux:icon name="arrow-uturn-left" class="size-3.5" />
-                        </button>
-                    </flux:tooltip>
-                    <flux:tooltip :content="__('Permanently delete selected')">
-                        <button
-                            type="button"
-                            class="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
-                            :disabled="!hasSelection || forceDeletingSelected"
-                            @click="confirmDeleteSelected()"
-                            aria-label="{{ __('Permanently delete selected') }}"
-                        >
-                            <flux:icon name="trash" class="size-3.5" />
-                        </button>
-                    </flux:tooltip>
-                </div>
-            </template>
-        </div>
-
         <div class="max-h-80 min-h-32 space-y-2 overflow-y-auto px-3 py-2.5 text-[11px]">
             <template x-if="loading && items.length === 0 && showSpinner">
                 <div class="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
@@ -410,8 +363,8 @@
                     <template x-for="(item, index) in items" :key="item.kind + '-' + item.id">
                         <div
                             class="flex items-start justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5"
-                            x-bind:class="'selectionMode ? \"cursor-pointer\" : \"\"'"
-                            x-on:click="'selectionMode && toggleSelectByKey(item.kind, item.id)'"
+                            :class="selectionMode ? 'cursor-pointer' : ''"
+                            @click="selectionMode && toggleSelectByKey(item.kind, item.id)"
                         >
                             <div class="min-w-0 flex-1 flex items-start gap-2">
                                 <template x-if="selectionMode">
@@ -419,8 +372,8 @@
                                         <input
                                             type="checkbox"
                                             class="h-3.5 w-3.5 cursor-pointer rounded border-border text-primary focus:ring-primary/20"
-                                            x-bind:checked="'isSelectedByKey(item.kind, item.id)'"
-                                            x-on:click.stop="'toggleSelectByKey(item.kind, item.id)'"
+                                            :checked="isSelectedByKey(item.kind, item.id)"
+                                            @click.stop="toggleSelectByKey(item.kind, item.id)"
                                             aria-label="{{ __('Select item') }}"
                                         />
                                     </div>
@@ -469,26 +422,80 @@
         </div>
 
         <div class="border-t border-border/60 px-3 py-1.5 flex flex-col gap-1" x-show="items.length > 0" x-cloak>
-            <button
-                x-show="hasMore"
-                type="button"
-                class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-primary hover:text-primary/80 disabled:opacity-70"
-                :class="{ 'animate-pulse': loadingMore }"
-                :disabled="loadingMore"
-                @click="loadMore()"
-            >
-                <flux:icon name="chevron-down" class="size-3" />
-                <span x-text="loadingMore ? '{{ __('Loading...') }}' : '{{ __('Load more') }}'"></span>
-            </button>
-            <button
-                type="button"
-                class="inline-flex items-center justify-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400 disabled:opacity-70"
-                :disabled="deletingAll"
-                @click="$flux.modal('delete-all').show()"
-            >
-                <flux:icon name="trash" class="size-3" />
-                <span x-text="deletingAll ? '{{ __('Emptying...') }}' : '{{ __('Empty trash') }}'"></span>
-            </button>
+            <template x-if="selectionMode">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        class="rounded-full px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                        @click="cancelSelection()"
+                    >
+                        {{ __('Cancel') }}
+                    </button>
+                    <flux:tooltip :content="__('Restore selected')">
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                            :disabled="!hasSelection || restoringSelected"
+                            @click="restoreSelected()"
+                            aria-label="{{ __('Restore selected') }}"
+                        >
+                            <flux:icon name="arrow-uturn-left" class="size-3.5" />
+                            <span>{{ __('Restore') }}</span>
+                        </button>
+                    </flux:tooltip>
+                    <flux:tooltip :content="__('Permanently delete selected')">
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400 disabled:opacity-50"
+                            :disabled="!hasSelection || forceDeletingSelected"
+                            @click="confirmDeleteSelected()"
+                            aria-label="{{ __('Permanently delete selected') }}"
+                        >
+                            <flux:icon name="trash" class="size-3.5" />
+                            <span>{{ __('Delete') }}</span>
+                        </button>
+                    </flux:tooltip>
+                </div>
+            </template>
+            <template x-if="!selectionMode">
+                <div class="flex flex-col gap-1">
+                    <button
+                        x-show="hasMore"
+                        type="button"
+                        class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-primary hover:text-primary/80 disabled:opacity-70"
+                        :class="{ 'animate-pulse': loadingMore }"
+                        :disabled="loadingMore"
+                        @click="loadMore()"
+                    >
+                        <flux:icon name="chevron-down" class="size-3" />
+                        <span x-text="loadingMore ? '{{ __('Loading...') }}' : '{{ __('Load more') }}'"></span>
+                    </button>
+                    <div class="flex items-center justify-between gap-2">
+                        <flux:tooltip :content="__('Select items')">
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                                @click="selectAll()"
+                                aria-label="{{ __('Select items') }}"
+                            >
+                                <flux:icon name="squares-2x2" class="size-3.5" />
+                                <span>{{ __('Select items') }}</span>
+                            </button>
+                        </flux:tooltip>
+                        <flux:tooltip :content="__('Empty the trash')">
+                            <button
+                                type="button"
+                                class="inline-flex items-center justify-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium text-red-600 hover:bg-red-500/10 dark:text-red-400 disabled:opacity-70"
+                                :disabled="deletingAll"
+                                @click="$flux.modal('delete-all').show()"
+                            >
+                                <flux:icon name="trash" class="size-3" />
+                                <span x-text="deletingAll ? '{{ __('Emptying...') }}' : '{{ __('Empty trash') }}'"></span>
+                            </button>
+                        </flux:tooltip>
+                    </div>
+                </div>
+            </template>
         </div>
 
         <flux:modal name="delete-selected" class="min-w-[22rem]">
@@ -542,16 +549,15 @@
         <flux:modal name="delete-item" class="min-w-[22rem]">
             <div class="space-y-6">
                 <div>
-                    <flux:heading size="lg">Delete item?</flux:heading>
+                    <flux:heading size="lg">{{ __('Delete item?') }}</flux:heading>
                     <flux:text class="mt-2">
-                        You're about to delete this item.<br>
-                        This action cannot be reversed.
+                        {{ __('You\'re about to delete this item. This action cannot be reversed.') }}
                     </flux:text>
                 </div>
                 <div class="flex gap-2">
                     <flux:spacer />
                     <flux:modal.close>
-                        <flux:button variant="ghost">Cancel</flux:button>
+                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
                     </flux:modal.close>
                     <flux:button
                         type="button"

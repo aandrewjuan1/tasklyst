@@ -43,5 +43,5 @@ test('tag selection shows placeholder when no tags selected', function (): void 
 
     expect($html)
         ->toContain('Add tags')
-        ->toContain('selectedTagPills().length === 0');
+        ->toContain('selectedTagPills.length === 0');
 });

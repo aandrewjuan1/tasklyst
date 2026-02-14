@@ -26,7 +26,7 @@
     </div>
 
     @php
-        $listLoadingTargets = 'selectedDate,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,acceptCollaborationInvitation';
+        $listLoadingTargets = 'selectedDate,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,acceptCollaborationInvitation,restoreTrashItem,restoreTrashItems';
     @endphp
 
     {{-- Real list - hidden during filter/date refresh --}}

@@ -89,7 +89,6 @@ trait HandlesTrash
      * Restore a trashed item by kind and id.
      */
     #[Async]
-    #[Renderless]
     public function restoreTrashItem(string $kind, int $id): bool
     {
         $user = $this->requireAuth(__('You must be logged in to restore items.'));
@@ -226,7 +225,6 @@ trait HandlesTrash
      * @return array{restored: int, failed: int}
      */
     #[Async]
-    #[Renderless]
     public function restoreTrashItems(array $items): array
     {
         $user = $this->requireAuth(__('You must be logged in to restore items.'));
@@ -290,6 +288,10 @@ trait HandlesTrash
         }
 
         $this->dispatchBatchTrashToast('restore', $restored, $failed);
+
+        if ($restored > 0 && method_exists($this, 'incrementListRefresh')) {
+            $this->incrementListRefresh();
+        }
 
         return ['restored' => $restored, 'failed' => $failed];
     }

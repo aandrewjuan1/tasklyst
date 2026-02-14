@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\ActivityLogAction;
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
+use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\EventException;
 use App\Models\EventInstance;
@@ -179,6 +180,11 @@ class EventService
             $this->activityLogRecorder->record($event, $actor, ActivityLogAction::ItemDeleted, [
                 'title' => $event->title,
             ]);
+
+            CollaborationInvitation::query()
+                ->where('collaboratable_type', $event->getMorphClass())
+                ->where('collaboratable_id', $event->id)
+                ->delete();
 
             return (bool) $event->forceDelete();
         });

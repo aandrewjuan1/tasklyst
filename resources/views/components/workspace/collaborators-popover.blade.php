@@ -136,6 +136,7 @@
         placementHorizontal: @js($align),
         panelHeightEst: 320,
         panelWidthEst: 300,
+        panelPlacementClassesValue: 'absolute bottom-full right-0 mb-1',
         canManageCollaborations: @js($canManageCollaborations),
         currentUserId: @js($currentUser?->id),
         people: @js($allCollaborators),
@@ -175,6 +176,7 @@
             if (vw <= 480) {
                 this.placementVertical = 'bottom';
                 this.placementHorizontal = 'center';
+                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
                 this.open = true;
                 this.$dispatch('dropdown-opened');
 
@@ -207,6 +209,14 @@
                 this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             }
 
+            const v = this.placementVertical;
+            const h = this.placementHorizontal;
+            if (v === 'top' && h === 'end') this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
+            else if (v === 'top' && h === 'start') this.panelPlacementClassesValue = 'absolute bottom-full left-0 mb-1';
+            else if (v === 'bottom' && h === 'end') this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
+            else if (v === 'bottom' && h === 'start') this.panelPlacementClassesValue = 'absolute top-full left-0 mt-1';
+            else this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
+
             this.open = true;
             this.$dispatch('dropdown-opened');
         },
@@ -222,21 +232,10 @@
             focusAfter && focusAfter.focus();
         },
 
-        get panelPlacementClasses() {
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
-            const vw = window.innerWidth || document.documentElement.clientWidth || 1024;
-
-            // Mobile: viewport-fixed bottom sheet constrained to the viewport
-            if (vw <= 480) {
-                return 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
-            }
-
-            if (v === 'top' && h === 'end') return 'absolute bottom-full right-0 mb-1';
-            if (v === 'top' && h === 'start') return 'absolute bottom-full left-0 mb-1';
-            if (v === 'bottom' && h === 'end') return 'absolute top-full right-0 mt-1';
-            if (v === 'bottom' && h === 'start') return 'absolute top-full left-0 mt-1';
-            return 'absolute bottom-full right-0 mb-1';
+        get triggerButtonClass() {
+            const base = this.triggerBaseClass;
+            const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
+            return base + openState;
         },
 
         get totalCount() {
@@ -518,7 +517,7 @@
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['collaborators-popover']"
     class="relative inline-block"
     data-task-creation-safe
@@ -533,11 +532,7 @@
             :aria-expanded="open"
             :aria-controls="$id('collaborators-popover')"
             class="{{ $triggerBaseClass }}"
-            x-effect="
-                const base = @js($triggerBaseClass);
-                const openState = open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-                $el.className = base + openState;
-            "
+            :class="open ? 'pointer-events-none shadow-md scale-[1.02]' : ''"
         >
             <flux:icon name="users" class="size-3" />
 
@@ -560,9 +555,9 @@
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
-        @click.stop=""
+        @click.stop
         :id="$id('collaborators-popover')"
-        :class="panelPlacementClasses"
+        :class="panelPlacementClassesValue"
         class="z-50 w-fit min-w-[220px] max-w-[min(320px,calc(100vw-2rem))] flex flex-col rounded-lg border border-border bg-white shadow-lg dark:bg-zinc-900"
         data-task-creation-safe
     >
@@ -696,7 +691,9 @@
 
                 <div x-show="isInviting" x-cloak class="flex flex-col gap-2">
                     <flux:input
-                        type="email"
+                        type="text"
+                        inputmode="email"
+                        autocomplete="email"
                         x-ref="inviteEmailInput"
                         x-model="newEmail"
                         @keydown="handleInviteKeydown($event)"

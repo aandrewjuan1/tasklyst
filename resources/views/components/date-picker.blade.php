@@ -347,6 +347,12 @@
             else if (endFits) this.placementHorizontal = 'end';
             else if (startFits) this.placementHorizontal = 'start';
             else this.placementHorizontal = rect.right > vw ? 'start' : 'end';
+            const card = (typeof $parent !== 'undefined' && $parent)?.$parent;
+            const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
+            if (isEndDate && card && (card.isOverdue !== undefined || card.clientOverdue !== undefined)) {
+                this.overdue = (card.isOverdue || card.clientOverdue) && !card.clientNotOverdue;
+            }
+
             this.open = true;
             this.valueWhenOpened = this.currentValue;
             this.$dispatch('date-picker-opened', { path: this.modelPath, value: this.currentValue });
@@ -379,9 +385,8 @@
     @date-picker-value="handleDatePickerValue($event)"
     @date-picker-revert="handleDatePickerRevert($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close()"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['date-picker-dropdown']"
-    x-effect="const card = (typeof $parent !== 'undefined' && $parent)?.$parent; const isEndDate = modelPath && String(modelPath).includes('endDatetime'); if (isEndDate && card && (card.isOverdue !== undefined || card.clientOverdue !== undefined)) overdue = (card.isOverdue || card.clientOverdue) && !card.clientNotOverdue"
     class="relative inline-block"
     data-task-creation-safe
     {{ $attributes }}
@@ -394,22 +399,22 @@
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
         :aria-readonly="readonly"
-        class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out {{ $overdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground' }}"
-        x-bind:class="[
+        class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out"
+        :class="[
             effectiveOverdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground',
             { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
             readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer'
         ]"
         data-task-creation-safe
     >
-        <span class="inline-flex {{ $overdue ? 'text-red-600 dark:text-red-400' : '' }}" x-bind:class="effectiveOverdue ? 'text-red-600 dark:text-red-400' : ''">
+        <span class="inline-flex" :class="effectiveOverdue ? 'text-red-600 dark:text-red-400' : ''">
             <flux:icon name="clock" class="size-3" />
         </span>
         <span class="inline-flex items-baseline gap-1">
-            <span class="text-[10px] font-semibold uppercase tracking-wide {{ $overdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70' }}" x-bind:class="effectiveOverdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70'">
+            <span class="text-[10px] font-semibold uppercase tracking-wide" :class="effectiveOverdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70'">
                 {{ $triggerLabel }}:
             </span>
-            <span class="text-xs uppercase {{ $overdue ? 'font-semibold text-red-700 dark:text-red-400' : '' }}" x-bind:class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+            <span class="text-xs uppercase" :class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
         </span>
         @if(!$readonly)
             <flux:icon name="chevron-down" class="size-3" />
