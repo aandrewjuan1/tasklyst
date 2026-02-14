@@ -37,10 +37,14 @@ class CompleteFocusSessionAction
             ? $endedAt
             : Carbon::parse($endedAt);
 
+        $session->flushPausedAt();
+
+        $finalPausedSeconds = max($session->paused_seconds, $pausedSeconds);
+
         $session->update([
             'ended_at' => $endedAt,
             'completed' => $completed,
-            'paused_seconds' => $pausedSeconds,
+            'paused_seconds' => $finalPausedSeconds,
         ]);
 
         if ($completed && $session->type === FocusSessionType::Work && $session->focusable !== null) {

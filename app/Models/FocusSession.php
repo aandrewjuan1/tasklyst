@@ -24,6 +24,7 @@ class FocusSession extends Model
         'started_at',
         'ended_at',
         'paused_seconds',
+        'paused_at',
         'payload',
     ];
 
@@ -33,6 +34,7 @@ class FocusSession extends Model
             'type' => FocusSessionType::class,
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
+            'paused_at' => 'datetime',
             'completed' => 'boolean',
             'payload' => 'array',
         ];
@@ -82,5 +84,20 @@ class FocusSession extends Model
     public function scopeThisWeek(Builder $query): Builder
     {
         return $query->whereBetween('started_at', [now()->startOfWeek(), now()->endOfWeek()]);
+    }
+
+    /**
+     * If the session is currently paused (paused_at set), add that segment to paused_seconds and clear paused_at.
+     */
+    public function flushPausedAt(): void
+    {
+        if ($this->paused_at === null) {
+            return;
+        }
+
+        $segmentSeconds = (int) max(0, now()->getTimestamp() - $this->paused_at->getTimestamp());
+        $this->paused_seconds = $this->paused_seconds + $segmentSeconds;
+        $this->paused_at = null;
+        $this->save();
     }
 }

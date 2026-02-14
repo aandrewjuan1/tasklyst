@@ -244,8 +244,150 @@
         focusStopRequestedBeforeStartResolved: false,
         defaultWorkDurationMinutes: @js($defaultWorkDurationMinutes ?? 25),
         taskDurationMinutes: @js($kind === 'task' ? $item->duration : null),
+        focusTickerNow: null,
+        focusIntervalId: null,
+        focusElapsedPercentValue: 0,
+        focusIsPaused: false,
+        focusPauseStartedAt: null,
+        focusPausedSecondsAccumulated: 0,
+        sessionComplete: false,
+        init() {
+            try {
+                if (this.kind !== 'task' || !this.activeFocusSession) return;
+                const taskId = this.activeFocusSession.task_id;
+                if (taskId == null || Number(taskId) !== Number(this.itemId)) return;
+                const ps = this.activeFocusSession.paused_seconds;
+                if (ps != null && Number.isFinite(Number(ps))) {
+                    this.focusPausedSecondsAccumulated = Math.max(0, Math.floor(Number(ps)));
+                }
+                if (this.activeFocusSession.paused_at) {
+                    const pausedAtMs = this.parseFocusStartedAt(this.activeFocusSession.paused_at);
+                    if (Number.isFinite(pausedAtMs)) {
+                        this.focusIsPaused = true;
+                        this.focusPauseStartedAt = pausedAtMs;
+                    }
+                }
+            } catch (_) {}
+        },
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
+        },
+        parseFocusStartedAt(isoString) {
+            if (!isoString) return NaN;
+            const s = String(isoString).trim();
+            if (!s) return NaN;
+            if (/Z|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s).getTime();
+            return new Date(s.replace(/\.\d{3,}$/, '') + 'Z').getTime();
+        },
+        get focusRemainingSeconds() {
+            if (!this.isFocused || !this.activeFocusSession?.started_at || !this.activeFocusSession?.duration_seconds) return 0;
+            const startedMs = this.parseFocusStartedAt(this.activeFocusSession.started_at);
+            if (!Number.isFinite(startedMs)) return 0;
+            const durationSec = Number(this.activeFocusSession.duration_seconds);
+            const nowMs = this.focusTickerNow ?? Date.now();
+            const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
+            let pausedSec = this.focusPausedSecondsAccumulated;
+            if (this.activeFocusSession.paused_at) {
+                const pausedAtMs = this.parseFocusStartedAt(this.activeFocusSession.paused_at);
+                if (Number.isFinite(pausedAtMs)) {
+                    pausedSec += (Date.now() - pausedAtMs) / 1000;
+                }
+            } else if (pausedSec === 0 && this.activeFocusSession.paused_seconds != null && Number.isFinite(Number(this.activeFocusSession.paused_seconds))) {
+                pausedSec = Math.max(0, Math.floor(Number(this.activeFocusSession.paused_seconds)));
+            }
+            if (this.focusIsPaused && this.focusPauseStartedAt) {
+                pausedSec += (Date.now() - this.focusPauseStartedAt) / 1000;
+            }
+            return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+        },
+        get focusElapsedPercent() {
+            if (!this.activeFocusSession?.duration_seconds) return 0;
+            const duration = Number(this.activeFocusSession.duration_seconds);
+            const remaining = this.focusRemainingSeconds;
+            return Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100));
+        },
+        formatFocusCountdown(seconds) {
+            const s = Math.max(0, Math.floor(Number(seconds)));
+            const h = Math.floor(s / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            const sec = s % 60;
+            if (h > 0) {
+                return `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+            }
+            return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+        },
+        startFocusTicker() {
+            if (this.focusIntervalId != null) return;
+            this.sessionComplete = false;
+            this.focusTickerNow = Date.now();
+            this.focusElapsedPercentValue = this.focusElapsedPercent;
+            this.focusIntervalId = setInterval(() => {
+                if (this.focusIsPaused) return;
+                this.focusTickerNow = Date.now();
+                this.focusElapsedPercentValue = this.focusElapsedPercent;
+                if (this.focusRemainingSeconds <= 0) {
+                    this.sessionComplete = true;
+                    this.stopFocusTicker();
+                }
+            }, 1000);
+            this._focusEscapeHandler = (e) => {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    this.stopFocus();
+                }
+            };
+            window.addEventListener('keydown', this._focusEscapeHandler);
+        },
+        stopFocusTicker() {
+            if (this.focusIntervalId != null) {
+                clearInterval(this.focusIntervalId);
+                this.focusIntervalId = null;
+            }
+            this.focusIsPaused = false;
+            this.focusPauseStartedAt = null;
+            this.focusPausedSecondsAccumulated = 0;
+            if (this._focusEscapeHandler) {
+                window.removeEventListener('keydown', this._focusEscapeHandler);
+                this._focusEscapeHandler = null;
+            }
+        },
+        async pauseFocus() {
+            if (!this.isFocused || this.focusIsPaused) return;
+            const sessionId = this.activeFocusSession?.id;
+            const isTempId = sessionId != null && String(sessionId).startsWith('temp-');
+            this.focusIsPaused = true;
+            this.focusPauseStartedAt = Date.now();
+            if (sessionId != null && !isTempId) {
+                try {
+                    await $wire.$parent.$call('pauseFocusSession', sessionId);
+                } catch (err) {
+                    this.focusIsPaused = false;
+                    this.focusPauseStartedAt = null;
+                    $wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
+                }
+            }
+        },
+        async resumeFocus() {
+            if (!this.isFocused || !this.focusIsPaused || !this.focusPauseStartedAt) return;
+            const sessionId = this.activeFocusSession?.id;
+            const isTempId = sessionId != null && String(sessionId).startsWith('temp-');
+            this.focusPausedSecondsAccumulated += (Date.now() - this.focusPauseStartedAt) / 1000;
+            this.focusPauseStartedAt = null;
+            this.focusIsPaused = false;
+            if (sessionId != null && !isTempId) {
+                try {
+                    await $wire.$parent.$call('resumeFocusSession', sessionId);
+                } catch (err) {
+                    $wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
+                }
+            }
+        },
+        getFocusPausedSecondsTotal() {
+            let total = this.focusPausedSecondsAccumulated;
+            if (this.focusIsPaused && this.focusPauseStartedAt) {
+                total += (Date.now() - this.focusPauseStartedAt) / 1000;
+            }
+            return Math.round(total);
         },
         dispatchFocusSessionUpdated(session) {
             const detail = { session: session ?? null };
@@ -295,8 +437,9 @@
                     $wire.$dispatch('toast', { type: 'error', message: (typeof result.error === 'string' ? result.error : null) || this.focusStartErrorToast });
                     return;
                 }
-                this.activeFocusSession = result || this.activeFocusSession;
-                this.dispatchFocusSessionUpdated(this.activeFocusSession);
+                const merged = { ...result, started_at: this.activeFocusSession?.started_at || result.started_at };
+                this.activeFocusSession = merged;
+                this.dispatchFocusSessionUpdated(merged);
             } catch (error) {
                 this.pendingStartPromise = null;
                 this.focusStopRequestedBeforeStartResolved = false;
@@ -315,10 +458,11 @@
                 this.dispatchFocusSessionUpdated(null);
                 return;
             }
+            const pausedSeconds = this.getFocusPausedSecondsTotal();
             try {
                 this.activeFocusSession = null;
                 this.dispatchFocusSessionUpdated(null);
-                await $wire.$parent.$call('abandonFocusSession', sessionSnapshot.id);
+                await $wire.$parent.$call('abandonFocusSession', sessionSnapshot.id, { paused_seconds: pausedSeconds });
             } catch (error) {
                 this.activeFocusSession = sessionSnapshot;
                 this.dispatchFocusSessionUpdated(sessionSnapshot);
@@ -878,7 +1022,29 @@
         }
     "
     @collaboration-self-left="hideFromList()"
-    @focus-session-updated.window="activeFocusSession = ($event.detail?.session ?? $event.detail?.[0] ?? null)"
+    @focus-session-updated.window="
+        const incoming = $event.detail?.session ?? $event.detail?.[0] ?? null;
+        if (!incoming) { activeFocusSession = null; return; }
+        const isForThisCard = Number(incoming.task_id) === Number(itemId);
+        if (isForThisCard && activeFocusSession?.started_at) {
+            activeFocusSession = { ...incoming, started_at: activeFocusSession.started_at };
+        } else {
+            activeFocusSession = incoming;
+        }
+        if (isForThisCard) {
+            if (incoming.paused_at) {
+                focusIsPaused = true;
+                focusPauseStartedAt = parseFocusStartedAt(incoming.paused_at);
+            } else {
+                focusIsPaused = false;
+                focusPauseStartedAt = null;
+                if (incoming.paused_seconds != null && Number.isFinite(Number(incoming.paused_seconds))) {
+                    focusPausedSecondsAccumulated = Math.max(0, Math.floor(Number(incoming.paused_seconds)));
+                }
+            }
+        }
+    "
+    x-effect="isFocused && activeFocusSession ? startFocusTicker() : (stopFocusTicker(), sessionComplete = false)"
     :class="{
         'relative z-50': dropdownOpenCount > 0 || isFocused,
         'pointer-events-none opacity-60': deletingInProgress,
@@ -887,7 +1053,7 @@
         'pointer-events-none select-none opacity-60': activeFocusSession && !isFocused,
     }"
 >
-    {{-- Focus mode bar (Phase 2): only interactive area when card is focused --}}
+    {{-- Focus mode bar (Phase 2 + Phase 3): timer, progress, controls --}}
     <div
         x-show="isFocused"
         x-cloak
@@ -897,19 +1063,54 @@
         x-transition:leave="transition ease-in duration-150"
         x-transition:leave-start="opacity-100 translate-y-0"
         x-transition:leave-end="opacity-0 -translate-y-0.5"
-        class="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 dark:bg-primary/20"
-        @keydown.escape.prevent="stopFocus()"
+        class="flex flex-col gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 dark:bg-primary/20"
     >
-        <span class="text-sm font-medium text-primary">{{ __('Focus mode') }}</span>
-        <flux:button
-            variant="ghost"
-            size="sm"
-            icon="x-mark"
-            class="shrink-0"
-            @click="stopFocus()"
-        >
-            {{ __('Stop') }}
-        </flux:button>
+        <div class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-primary">{{ __('Focus mode') }}</span>
+            <span
+                class="tabular-nums font-medium text-primary"
+                x-text="formatFocusCountdown(focusRemainingSeconds)"
+                aria-live="polite"
+            ></span>
+            <div class="flex shrink-0 items-center gap-1">
+                <flux:button
+                    x-show="!sessionComplete && !focusIsPaused"
+                    variant="ghost"
+                    size="sm"
+                    icon="pause"
+                    class="shrink-0"
+                    @click="pauseFocus()"
+                >
+                    {{ __('Pause') }}
+                </flux:button>
+                <flux:button
+                    x-show="!sessionComplete && focusIsPaused"
+                    x-cloak
+                    variant="ghost"
+                    size="sm"
+                    icon="play"
+                    class="shrink-0"
+                    @click="resumeFocus()"
+                >
+                    {{ __('Resume') }}
+                </flux:button>
+                <flux:button
+                    variant="ghost"
+                    size="sm"
+                    icon="x-mark"
+                    class="shrink-0"
+                    @click="stopFocus()"
+                >
+                    {{ __('Stop') }}
+                </flux:button>
+            </div>
+        </div>
+        <div class="h-2 w-full overflow-hidden rounded-full border border-zinc-300 bg-zinc-200 dark:border-zinc-600 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(focusElapsedPercentValue)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Time elapsed') }}">
+            <div
+                class="h-full rounded-full bg-(--color-accent) transition-[width] duration-1000 ease-linear"
+                :style="{ width: Math.min(100, Math.max(0, focusElapsedPercentValue)) + '%', minWidth: focusElapsedPercentValue > 0 ? '2px' : '0' }"
+            ></div>
+        </div>
     </div>
 
     <div :class="{ 'pointer-events-none': isFocused }">
