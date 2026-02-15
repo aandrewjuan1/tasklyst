@@ -2,7 +2,10 @@
 
 use App\Actions\FocusSession\StartFocusSessionAction;
 use App\Enums\FocusSessionType;
+use App\Enums\TaskStatus;
+use App\Models\RecurringTask;
 use App\Models\Task;
+use App\Models\TaskInstance;
 use App\Models\User;
 
 beforeEach(function (): void {
@@ -67,4 +70,45 @@ test('abandons previous in-progress session when starting new one', function ():
         ->and($first->completed)->toBeFalse()
         ->and($second->id)->not->toBe($first->id)
         ->and($second->focusable_id)->toBe($task2->id);
+});
+
+test('recurring task with occurrence_date creates instance and leaves base task unchanged', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create(['status' => TaskStatus::ToDo]);
+    RecurringTask::factory()->create(['task_id' => $task->id]);
+    $occurrenceDate = '2025-02-15';
+
+    $session = $this->action->execute(
+        $user,
+        $task,
+        FocusSessionType::Work,
+        1500,
+        now(),
+        1,
+        ['used_task_duration' => true],
+        $occurrenceDate
+    );
+
+    $task->refresh();
+    expect($task->status)->toBe(TaskStatus::ToDo);
+
+    $instance = TaskInstance::query()
+        ->where('task_id', $task->id)
+        ->whereDate('instance_date', $occurrenceDate)
+        ->first();
+    expect($instance)->not->toBeNull()
+        ->and($instance->status)->toBe(TaskStatus::Doing);
+
+    expect($session->payload)->toHaveKey('occurrence_date', $occurrenceDate);
+});
+
+test('recurring task without occurrence_date updates base task when to_do', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create(['status' => TaskStatus::ToDo]);
+    RecurringTask::factory()->create(['task_id' => $task->id]);
+
+    $this->action->execute($user, $task, FocusSessionType::Work, 1500, now(), 1, [], null);
+
+    $task->refresh();
+    expect($task->status)->toBe(TaskStatus::Doing);
 });

@@ -7,6 +7,7 @@ use App\Enums\TaskStatus;
 use App\Models\FocusSession;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\TaskService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
@@ -14,12 +15,14 @@ class StartFocusSessionAction
 {
     public function __construct(
         private GetActiveFocusSessionAction $getActiveFocusSessionAction,
-        private AbandonFocusSessionAction $abandonFocusSessionAction
+        private AbandonFocusSessionAction $abandonFocusSessionAction,
+        private TaskService $taskService
     ) {}
 
     /**
      * Start a focus session. Ensures at most one in-progress session per user by abandoning any current one.
      * When starting a work session for a task that is to_do, updates the task status to doing in the same flow.
+     * For recurring tasks, pass occurrenceDate to create/update a TaskInstance for that date instead of the base task.
      *
      * @param  array<string, mixed>  $payload  Optional payload (e.g. used_task_duration, used_default_duration).
      */
@@ -30,7 +33,8 @@ class StartFocusSessionAction
         int $durationSeconds,
         CarbonInterface|string $startedAt,
         int $sequenceNumber = 1,
-        array $payload = []
+        array $payload = [],
+        ?string $occurrenceDate = null
     ): FocusSession {
         $active = $this->getActiveFocusSessionAction->execute($user);
         if ($active !== null) {
@@ -41,8 +45,23 @@ class StartFocusSessionAction
             ? $startedAt
             : Carbon::parse($startedAt);
 
-        if ($task !== null && $type === FocusSessionType::Work && $task->status === TaskStatus::ToDo) {
-            $task->update(['status' => TaskStatus::Doing]);
+        if ($task !== null && $type === FocusSessionType::Work) {
+            $task->loadMissing('recurringTask');
+            $recurringTask = $task->recurringTask;
+            if ($recurringTask !== null && $occurrenceDate !== null && $occurrenceDate !== '') {
+                $date = Carbon::parse($occurrenceDate);
+                $effectiveStatus = $this->taskService->getEffectiveStatusForDateResolved($task, $date);
+                if ($effectiveStatus === TaskStatus::ToDo) {
+                    $this->taskService->updateRecurringOccurrenceStatus($task, $date, TaskStatus::Doing);
+                }
+            } elseif ($task->status === TaskStatus::ToDo) {
+                $task->update(['status' => TaskStatus::Doing]);
+            }
+        }
+
+        $sessionPayload = $payload;
+        if ($occurrenceDate !== null && $occurrenceDate !== '') {
+            $sessionPayload['occurrence_date'] = $occurrenceDate;
         }
 
         return FocusSession::query()->create([
@@ -56,7 +75,7 @@ class StartFocusSessionAction
             'started_at' => $startedAt,
             'ended_at' => null,
             'paused_seconds' => 0,
-            'payload' => $payload !== [] ? $payload : null,
+            'payload' => $sessionPayload !== [] ? $sessionPayload : null,
         ]);
     }
 }

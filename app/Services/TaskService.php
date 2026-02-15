@@ -266,6 +266,32 @@ class TaskService
     }
 
     /**
+     * Get the effective status for a task on a given date by resolving the instance from the DB when the task is recurring.
+     * Use this when the task does not have instanceForDate set (e.g. outside list processing).
+     */
+    public function getEffectiveStatusForDateResolved(Task $task, CarbonInterface $date): TaskStatus
+    {
+        $task->loadMissing('recurringTask');
+        $recurringTask = $task->recurringTask;
+
+        if ($recurringTask !== null) {
+            $instanceDate = $date instanceof \DateTimeInterface
+                ? $date->format('Y-m-d')
+                : \Carbon\Carbon::parse($date)->format('Y-m-d');
+            $instance = TaskInstance::query()
+                ->where('recurring_task_id', $recurringTask->id)
+                ->whereDate('instance_date', $instanceDate)
+                ->first();
+
+            if ($instance instanceof TaskInstance) {
+                return $instance->status ?? TaskStatus::ToDo;
+            }
+        }
+
+        return $task->status ?? TaskStatus::ToDo;
+    }
+
+    /**
      * Process recurring tasks for a given date: filter by relevant occurrences,
      * batch-load TaskInstance records, and set instanceForDate and effectiveStatusForDate on each task.
      *

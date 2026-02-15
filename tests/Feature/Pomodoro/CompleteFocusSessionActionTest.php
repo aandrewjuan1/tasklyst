@@ -6,7 +6,9 @@ use App\Enums\FocusSessionType;
 use App\Enums\TaskStatus;
 use App\Models\ActivityLog;
 use App\Models\FocusSession;
+use App\Models\RecurringTask;
 use App\Models\Task;
+use App\Models\TaskInstance;
 use App\Models\User;
 
 beforeEach(function (): void {
@@ -91,4 +93,35 @@ test('does not update task status when mark_task_status is null', function (): v
 
     $task->refresh();
     expect($task->status)->toBe(TaskStatus::ToDo);
+});
+
+test('updates recurring task instance when session payload has occurrence_date', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create(['status' => TaskStatus::ToDo]);
+    $recurring = RecurringTask::factory()->create(['task_id' => $task->id]);
+    $occurrenceDate = '2025-02-15';
+    TaskInstance::factory()->create([
+        'recurring_task_id' => $recurring->id,
+        'task_id' => $task->id,
+        'instance_date' => $occurrenceDate,
+        'status' => TaskStatus::Doing,
+    ]);
+    $session = FocusSession::factory()->for($user)->inProgress()->create([
+        'focusable_type' => $task->getMorphClass(),
+        'focusable_id' => $task->id,
+        'type' => FocusSessionType::Work,
+        'payload' => ['occurrence_date' => $occurrenceDate],
+    ]);
+
+    $this->action->execute($session, now(), true, 0, 'done');
+
+    $task->refresh();
+    expect($task->status)->toBe(TaskStatus::ToDo);
+
+    $instance = TaskInstance::query()
+        ->where('recurring_task_id', $recurring->id)
+        ->whereDate('instance_date', $occurrenceDate)
+        ->first();
+    expect($instance)->not->toBeNull()
+        ->and($instance->status)->toBe(TaskStatus::Done);
 });
