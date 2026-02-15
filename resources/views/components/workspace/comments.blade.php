@@ -44,7 +44,7 @@
 
 <div
     wire:ignore
-    class="mt-1.5 border-t border-border/50 pt-1.5 text-[11px]"
+    class="mt-1.5 pt-1.5 text-[11px]"
     x-data="{
         readonly: @js($readonly),
         alpineReady: false,
