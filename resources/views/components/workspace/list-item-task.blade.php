@@ -99,6 +99,7 @@
 
 <div
     wire:ignore
+    @task-status-updated.window="if ($event.detail?.itemId == itemId) status = $event.detail.status"
     x-data="{
         itemId: @js($item->id),
         updatePropertyMethod: @js($updatePropertyMethod),

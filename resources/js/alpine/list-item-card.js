@@ -84,6 +84,7 @@ export function listItemCard(config) {
         },
         startFocusTicker() {
             if (this.focusIntervalId != null) return;
+            if (this.sessionComplete || this.focusRemainingSeconds <= 0) return;
             this.sessionComplete = false;
             this.focusTickerNow = Date.now();
             this.focusElapsedPercentValue = this.focusElapsedPercent;
@@ -102,6 +103,7 @@ export function listItemCard(config) {
                             ended_at: new Date().toISOString(),
                             completed: true,
                             paused_seconds: pausedSeconds,
+                            mark_task_status: 'done',
                         }).catch(() => {
                             this.$wire.$dispatch('toast', { type: 'error', message: this.focusCompleteErrorToast });
                         });
@@ -148,6 +150,37 @@ export function listItemCard(config) {
             this.activeFocusSession = null;
             this.dispatchFocusSessionUpdated(null);
             this.sessionComplete = false;
+        },
+        async markTaskDoneFromFocus() {
+            if (this.kind !== 'task') return;
+            try {
+                const ok = await this.$wire.$parent.$call(
+                    this.updatePropertyMethod,
+                    this.itemId,
+                    'status',
+                    'done',
+                    false
+                );
+                if (ok === false) {
+                    this.$wire.$dispatch('toast', {
+                        type: 'error',
+                        message: this.focusMarkDoneErrorToast,
+                    });
+                } else {
+                    this.dismissCompletedFocus();
+                    window.dispatchEvent(
+                        new CustomEvent('task-status-updated', {
+                            detail: { itemId: this.itemId, status: 'done' },
+                            bubbles: true,
+                        })
+                    );
+                }
+            } catch (err) {
+                this.$wire.$dispatch('toast', {
+                    type: 'error',
+                    message: err.message ?? this.focusMarkDoneErrorToast,
+                });
+            }
         },
         async pauseFocus() {
             if (!this.isFocused || this.focusIsPaused) return;
@@ -239,6 +272,15 @@ export function listItemCard(config) {
             const promise = this.$wire.$parent.$call('startFocusSession', this.itemId, payload);
             this.pendingStartPromise = promise;
             try {
+                if (this.kind === 'task' && this.taskStatus === 'to_do') {
+                    this.taskStatus = 'doing';
+                    window.dispatchEvent(
+                        new CustomEvent('task-status-updated', {
+                            detail: { itemId: this.itemId, status: 'doing' },
+                            bubbles: true,
+                        })
+                    );
+                }
                 this.activeFocusSession = optimisticSession;
                 this.dispatchFocusSessionUpdated(optimisticSession);
                 const result = await promise;
@@ -255,6 +297,15 @@ export function listItemCard(config) {
                     return;
                 }
                 if (result && result.error) {
+                    if (this.kind === 'task' && this.taskStatus === 'doing') {
+                        this.taskStatus = 'to_do';
+                        window.dispatchEvent(
+                            new CustomEvent('task-status-updated', {
+                                detail: { itemId: this.itemId, status: 'to_do' },
+                                bubbles: true,
+                            })
+                        );
+                    }
                     this.activeFocusSession = null;
                     this.dispatchFocusSessionUpdated(null);
                     this.$wire.$dispatch('toast', { type: 'error', message: (typeof result.error === 'string' ? result.error : null) || this.focusStartErrorToast });
@@ -753,6 +804,9 @@ export function listItemCard(config) {
             } else {
                 this.dateChangeHidingCard = false;
                 const d = detail;
+                if (d && d.property === 'status' && this.kind === 'task' && d.value) {
+                    this.taskStatus = d.value;
+                }
                 if (d && ['startDatetime', 'endDatetime'].includes(d.property) && (this.kind === 'task' || this.kind === 'event')) {
                     const stillOverdue = this.isStillOverdue(d.startDatetime ?? null, d.endDatetime ?? null);
                     if (!this.isOverdue && stillOverdue) {

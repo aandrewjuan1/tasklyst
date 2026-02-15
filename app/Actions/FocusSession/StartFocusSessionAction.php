@@ -3,6 +3,7 @@
 namespace App\Actions\FocusSession;
 
 use App\Enums\FocusSessionType;
+use App\Enums\TaskStatus;
 use App\Models\FocusSession;
 use App\Models\Task;
 use App\Models\User;
@@ -18,6 +19,7 @@ class StartFocusSessionAction
 
     /**
      * Start a focus session. Ensures at most one in-progress session per user by abandoning any current one.
+     * When starting a work session for a task that is to_do, updates the task status to doing in the same flow.
      *
      * @param  array<string, mixed>  $payload  Optional payload (e.g. used_task_duration, used_default_duration).
      */
@@ -38,6 +40,10 @@ class StartFocusSessionAction
         $startedAt = $startedAt instanceof CarbonInterface
             ? $startedAt
             : Carbon::parse($startedAt);
+
+        if ($task !== null && $type === FocusSessionType::Work && $task->status === TaskStatus::ToDo) {
+            $task->update(['status' => TaskStatus::Doing]);
+        }
 
         return FocusSession::query()->create([
             'user_id' => $user->id,

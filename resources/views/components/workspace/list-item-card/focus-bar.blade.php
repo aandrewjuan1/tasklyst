@@ -56,6 +56,17 @@
                 {{ __('Stop') }}
             </flux:button>
             <flux:button
+                x-show="sessionComplete && kind === 'task'"
+                x-cloak
+                variant="ghost"
+                size="sm"
+                icon="check-circle"
+                class="shrink-0"
+                @click="markTaskDoneFromFocus()"
+            >
+                {{ __('Mark as Done') }}
+            </flux:button>
+            <flux:button
                 x-show="sessionComplete"
                 x-cloak
                 variant="ghost"
