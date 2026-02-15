@@ -13,10 +13,16 @@
     <div class="flex items-center justify-between gap-2">
         <span class="text-sm font-medium text-primary">{{ __('Focus mode') }}</span>
         <span
+            x-show="!sessionComplete"
             class="tabular-nums font-medium text-primary"
             x-text="formatFocusCountdown(focusRemainingSeconds)"
             aria-live="polite"
         ></span>
+        <span
+            x-show="sessionComplete"
+            x-cloak
+            class="font-medium text-primary"
+        >{{ __('Session complete!') }}</span>
         <div class="flex shrink-0 items-center gap-1">
             <flux:button
                 x-show="!sessionComplete && !focusIsPaused"
@@ -40,6 +46,7 @@
                 {{ __('Resume') }}
             </flux:button>
             <flux:button
+                x-show="!sessionComplete"
                 variant="ghost"
                 size="sm"
                 icon="x-mark"
@@ -47,6 +54,17 @@
                 @click="stopFocus()"
             >
                 {{ __('Stop') }}
+            </flux:button>
+            <flux:button
+                x-show="sessionComplete"
+                x-cloak
+                variant="ghost"
+                size="sm"
+                icon="x-mark"
+                class="shrink-0"
+                @click="dismissCompletedFocus()"
+            >
+                {{ __('Close') }}
             </flux:button>
         </div>
     </div>

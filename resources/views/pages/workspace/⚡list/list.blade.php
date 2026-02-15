@@ -1121,7 +1121,7 @@
                 @endif
             </div>
             @php
-                $defaultWorkDurationMinutes = config('pomodoro.defaults.work_duration_minutes', 25);
+                $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
             @endphp
             <div x-show="visibleItemCount > 0" class="space-y-4">
                 <div class="space-y-3">

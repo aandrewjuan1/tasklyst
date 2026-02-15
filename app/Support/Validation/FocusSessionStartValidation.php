@@ -12,7 +12,7 @@ final class FocusSessionStartValidation
      */
     public static function rules(): array
     {
-        $maxMinutes = config('pomodoro.max_work_duration_minutes', 120);
+        $maxMinutes = config('focus.max_duration_minutes', config('pomodoro.max_work_duration_minutes', 120));
         $maxDurationSeconds = $maxMinutes * 60;
 
         return [

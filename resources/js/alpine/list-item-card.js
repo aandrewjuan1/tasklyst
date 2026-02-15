@@ -96,9 +96,7 @@ export function listItemCard(config) {
                     const pausedSeconds = this.getFocusPausedSecondsTotal();
                     const sessionId = this.activeFocusSession?.id;
                     this.stopFocusTicker();
-                    this.activeFocusSession = null;
-                    this.dispatchFocusSessionUpdated(null);
-                    // Persist completion in background; no UI rollback on failure (timer already reached 0).
+                    // Persist completion in background; keep bar visible for "Session complete" state.
                     if (sessionId != null && !this.isTempSessionId(sessionId)) {
                         this.$wire.$parent.$call('completeFocusSession', sessionId, {
                             ended_at: new Date().toISOString(),
@@ -108,6 +106,13 @@ export function listItemCard(config) {
                             this.$wire.$dispatch('toast', { type: 'error', message: this.focusCompleteErrorToast });
                         });
                     }
+                    // Dismiss the "Session complete" bar after 2 seconds.
+                    this._completedDismissTimeoutId = setTimeout(() => {
+                        this._completedDismissTimeoutId = null;
+                        this.activeFocusSession = null;
+                        this.dispatchFocusSessionUpdated(null);
+                        this.sessionComplete = false;
+                    }, 2000);
                 }
             }, 1000);
             this._focusEscapeHandler = (e) => {
@@ -123,6 +128,10 @@ export function listItemCard(config) {
                 clearInterval(this.focusIntervalId);
                 this.focusIntervalId = null;
             }
+            if (this._completedDismissTimeoutId != null) {
+                clearTimeout(this._completedDismissTimeoutId);
+                this._completedDismissTimeoutId = null;
+            }
             this.focusIsPaused = false;
             this.focusPauseStartedAt = null;
             this.focusPausedSecondsAccumulated = 0;
@@ -130,6 +139,15 @@ export function listItemCard(config) {
                 window.removeEventListener('keydown', this._focusEscapeHandler);
                 this._focusEscapeHandler = null;
             }
+        },
+        dismissCompletedFocus() {
+            if (this._completedDismissTimeoutId != null) {
+                clearTimeout(this._completedDismissTimeoutId);
+                this._completedDismissTimeoutId = null;
+            }
+            this.activeFocusSession = null;
+            this.dispatchFocusSessionUpdated(null);
+            this.sessionComplete = false;
         },
         async pauseFocus() {
             if (!this.isFocused || this.focusIsPaused) return;
