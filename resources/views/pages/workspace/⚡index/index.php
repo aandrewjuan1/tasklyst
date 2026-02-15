@@ -71,13 +71,7 @@ class extends Component
     use HandlesFiltering;
     use HandlesProjects;
     use HandlesTags;
-    use HandlesFocusSessions {
-        startFocusSession as traitStartFocusSession;
-        completeFocusSession as traitCompleteFocusSession;
-        abandonFocusSession as traitAbandonFocusSession;
-        pauseFocusSession as traitPauseFocusSession;
-        resumeFocusSession as traitResumeFocusSession;
-    }
+    use HandlesFocusSessions;
     use HandlesTasks;
     use HandlesTrash;
 
@@ -251,6 +245,10 @@ class extends Component
         $this->startFocusSessionAction = $startFocusSessionAction;
     }
 
+    /**
+     * Mount: fetch any in-progress focus session via getActiveFocusSession() and abandon it
+     * so focus does not persist across reload, tab close, or navigation.
+     */
     public function mount(): void
     {
         if (Auth::check()) {
@@ -261,84 +259,14 @@ class extends Component
         }
         $this->selectedDate = now()->toDateString();
         $this->syncFilterTagIdFromTagIds();
-        $this->activeFocusSession = $this->getActiveFocusSession();
-    }
-
-    /**
-     * Start a focus session and sync activeFocusSession for the frontend.
-     *
-     * @param  array<string, mixed>  $payload
-     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int, sequence_number: int}|array{error: string}
-     */
-    public function startFocusSession(int $taskId, array $payload): array
-    {
-        $result = $this->traitStartFocusSession($taskId, $payload);
-        if (! isset($result['error'])) {
-            $this->activeFocusSession = $result;
-            $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
+        $session = $this->getActiveFocusSession();
+        if ($session !== null) {
+            $this->abandonFocusSession(
+                (int) $session['id'],
+                ['paused_seconds' => (int) ($session['paused_seconds'] ?? 0)]
+            );
         }
-
-        return $result;
-    }
-
-    /**
-     * Complete a focus session and clear activeFocusSession.
-     *
-     * @param  array<string, mixed>  $payload
-     */
-    public function completeFocusSession(int $sessionId, array $payload): bool
-    {
-        $ok = $this->traitCompleteFocusSession($sessionId, $payload);
-        if ($ok) {
-            $this->activeFocusSession = null;
-            // Do not dispatch: client will do optimistic update on "End focus"; server dispatch can race and re-dim.
-        }
-
-        return $ok;
-    }
-
-    /**
-     * Abandon a focus session and clear activeFocusSession.
-     *
-     * @param  array<string, mixed>  $payload  Optional: paused_seconds (int)
-     */
-    public function abandonFocusSession(int $sessionId, array $payload = []): bool
-    {
-        $ok = $this->traitAbandonFocusSession($sessionId, $payload);
-        if ($ok) {
-            $this->activeFocusSession = null;
-            // Do not dispatch: client already did optimistic update; server dispatch can race and re-dim the UI.
-        }
-
-        return $ok;
-    }
-
-    /**
-     * Pause the focus session and sync activeFocusSession (so UI shows paused_at).
-     */
-    public function pauseFocusSession(int $sessionId): bool
-    {
-        $ok = $this->traitPauseFocusSession($sessionId);
-        if ($ok) {
-            $this->activeFocusSession = $this->getActiveFocusSession();
-            $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
-        }
-
-        return $ok;
-    }
-
-    /**
-     * Resume the focus session and sync activeFocusSession (so UI clears paused_at).
-     */
-    public function resumeFocusSession(int $sessionId): bool
-    {
-        $ok = $this->traitResumeFocusSession($sessionId);
-        if ($ok) {
-            $this->activeFocusSession = $this->getActiveFocusSession();
-            $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
-        }
-
-        return $ok;
+        $this->activeFocusSession = null;
     }
 
     public function incrementListRefresh(): void

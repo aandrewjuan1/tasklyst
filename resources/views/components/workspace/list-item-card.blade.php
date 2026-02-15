@@ -41,6 +41,7 @@
     @item-update-rollback="onItemUpdateRollback()"
     @collaboration-self-left="hideFromList()"
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"
+    @task-duration-updated="onTaskDurationUpdated($event.detail)"
     x-effect="isFocused && activeFocusSession ? startFocusTicker() : (stopFocusTicker(), sessionComplete = false)"
     :class="{
         'relative z-50': dropdownOpenCount > 0 || isFocused,
@@ -54,7 +55,10 @@
 
     @include('components.workspace.list-item-card.header')
 
-    <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+    <div
+        class="flex flex-wrap items-center gap-2 pt-0.5 text-xs"
+        :class="{ 'pointer-events-none': kind === 'task' && isFocused }"
+    >
     @if($kind === 'project')
         <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEditDates" />
 

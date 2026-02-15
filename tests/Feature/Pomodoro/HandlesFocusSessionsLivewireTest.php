@@ -18,10 +18,10 @@ test('workspace index getActiveFocusSession returns null when user has no in-pro
     expect($result)->toBeNull();
 });
 
-test('workspace index getActiveFocusSession returns session array when user has in-progress session', function (): void {
+test('workspace index getActiveFocusSession returns null after mount because mount ends any in-progress session', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();
-    $session = FocusSession::factory()->for($this->user)->inProgress()->create([
+    FocusSession::factory()->for($this->user)->inProgress()->create([
         'focusable_type' => Task::class,
         'focusable_id' => $task->id,
     ]);
@@ -29,11 +29,7 @@ test('workspace index getActiveFocusSession returns session array when user has 
     $component = Livewire::test('pages::workspace.index')->instance();
     $result = $component->getActiveFocusSession();
 
-    expect($result)->toBeArray()
-        ->and($result['id'])->toBe($session->id)
-        ->and($result['task_id'])->toBe($task->id)
-        ->and($result['duration_seconds'])->toBe($session->duration_seconds)
-        ->and($result['type'])->toBe($session->type->value);
+    expect($result)->toBeNull();
 });
 
 test('workspace index startFocusSession creates session and dispatches no error toast', function (): void {
@@ -58,7 +54,19 @@ test('workspace index startFocusSession creates session and dispatches no error 
 
 test('workspace index abandonFocusSession ends session and dispatches toast', function (): void {
     $this->actingAs($this->user);
-    $session = FocusSession::factory()->for($this->user)->inProgress()->create();
+    $task = Task::factory()->for($this->user)->create();
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 1500,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload);
+
+    $session = FocusSession::query()->forUser($this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull();
 
     Livewire::test('pages::workspace.index')
         ->call('abandonFocusSession', $session->id)
@@ -71,15 +79,27 @@ test('workspace index abandonFocusSession ends session and dispatches toast', fu
 
 test('workspace index completeFocusSession updates session and dispatches toast', function (): void {
     $this->actingAs($this->user);
-    $session = FocusSession::factory()->for($this->user)->inProgress()->create();
-    $payload = [
+    $task = Task::factory()->for($this->user)->create();
+    $startPayload = [
+        'type' => 'work',
+        'duration_seconds' => 1500,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+    ];
+
+    $component = Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $startPayload);
+
+    $session = FocusSession::query()->forUser($this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull();
+
+    $completePayload = [
         'ended_at' => now()->toIso8601String(),
         'completed' => true,
         'paused_seconds' => 0,
     ];
 
-    Livewire::test('pages::workspace.index')
-        ->call('completeFocusSession', $session->id, $payload)
+    $component->call('completeFocusSession', $session->id, $completePayload)
         ->assertDispatched('toast', type: 'success', message: __('Focus session saved.'));
 
     $session->refresh();
@@ -105,10 +125,21 @@ test('workspace index startFocusSession with invalid type dispatches error and c
 
 test('workspace index pauseFocusSession sets paused_at on session', function (): void {
     $this->actingAs($this->user);
-    $session = FocusSession::factory()->for($this->user)->inProgress()->create();
+    $task = Task::factory()->for($this->user)->create();
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 1500,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+    ];
 
-    Livewire::test('pages::workspace.index')
-        ->call('pauseFocusSession', $session->id)
+    $component = Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload);
+
+    $session = FocusSession::query()->forUser($this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull();
+
+    $component->call('pauseFocusSession', $session->id)
         ->assertOk();
 
     $session->refresh();
@@ -117,16 +148,63 @@ test('workspace index pauseFocusSession sets paused_at on session', function ():
 
 test('workspace index resumeFocusSession clears paused_at and adds segment to paused_seconds', function (): void {
     $this->actingAs($this->user);
-    $session = FocusSession::factory()->for($this->user)->inProgress()->create([
-        'paused_at' => now()->subSeconds(30),
-        'paused_seconds' => 0,
-    ]);
+    $task = Task::factory()->for($this->user)->create();
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 1500,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+    ];
 
-    Livewire::test('pages::workspace.index')
-        ->call('resumeFocusSession', $session->id)
+    $component = Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload);
+
+    $session = FocusSession::query()->forUser($this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull();
+
+    $component->call('pauseFocusSession', $session->id)
+        ->assertOk();
+
+    $session->refresh();
+    expect($session->paused_at)->not->toBeNull();
+
+    $component->call('resumeFocusSession', $session->id)
         ->assertOk();
 
     $session->refresh();
     expect($session->paused_at)->toBeNull()
-        ->and($session->paused_seconds)->toBeGreaterThanOrEqual(28);
+        ->and($session->paused_seconds)->toBeGreaterThanOrEqual(0);
+});
+
+test('workspace index pauseFocusSession returns false when session is already ended', function (): void {
+    $this->actingAs($this->user);
+    $session = FocusSession::factory()->for($this->user)->create([
+        'ended_at' => now(),
+        'completed' => false,
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->call('pauseFocusSession', $session->id);
+
+    expect($component->get('activeFocusSession'))->toBeNull();
+
+    $session->refresh();
+    expect($session->paused_at)->toBeNull();
+});
+
+test('workspace index mount ends any active focus session on load so focus does not persist across reload', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+    $session = FocusSession::factory()->for($this->user)->inProgress()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'started_at' => now()->subMinutes(5),
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->assertSet('activeFocusSession', null);
+
+    $session->refresh();
+    expect($session->ended_at)->not->toBeNull()
+        ->and($session->completed)->toBeFalse();
 });

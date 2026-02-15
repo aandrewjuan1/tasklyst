@@ -17,5 +17,4 @@ return [
     'max_work_duration_minutes' => 120,
 
     'min_duration_minutes' => 1,
-
 ];

@@ -1,6 +1,5 @@
 <div
     class="space-y-4"
-    x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($activeFocusSession ?? null) })"
     x-data="{
         get focusModeActive() { return !!Alpine.store('focusSession')?.session },
         showItemCreation: false,
