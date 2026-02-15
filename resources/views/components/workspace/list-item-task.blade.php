@@ -2,6 +2,8 @@
     'item',
     'availableTags' => [],
     'updatePropertyMethod',
+    'listFilterDate' => null,
+    'initialStatus' => null,
 ])
 
 @php
@@ -35,7 +37,8 @@
         ['value' => 480, 'label' => '8+ hours'],
     ];
 
-    $statusInitialOption = collect($statusOptions)->firstWhere('value', $item->status?->value);
+    $initialStatusValue = $initialStatus ?? $item->status?->value;
+    $statusInitialOption = collect($statusOptions)->firstWhere('value', $initialStatusValue);
     $priorityInitialOption = collect($priorityOptions)->firstWhere('value', $item->priority?->value);
     $complexityInitialOption = collect($complexityOptions)->firstWhere('value', $item->complexity?->value);
 
@@ -99,7 +102,9 @@
     x-data="{
         itemId: @js($item->id),
         updatePropertyMethod: @js($updatePropertyMethod),
-        status: @js($item->status?->value),
+        listFilterDate: @js($listFilterDate),
+        isRecurringTask: @js((bool) $item->recurringTask),
+        status: @js($initialStatusValue),
         priority: @js($item->priority?->value),
         complexity: @js($item->complexity?->value),
         duration: @js($item->duration),
@@ -341,8 +346,11 @@
                 else if (property === 'startDatetime') this.startDatetime = value;
                 else if (property === 'endDatetime') this.endDatetime = value;
                 else if (property === 'recurrence') this.recurrence = value;
-                const promise = $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value);
-                const ok = await promise;
+
+                $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
+
+                const occurrenceDate = (property === 'status' && this.isRecurringTask && this.listFilterDate) ? this.listFilterDate : null;
+                const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
                 if (!ok) {
                     this.status = snapshot.status;
                     this.priority = snapshot.priority;
@@ -351,6 +359,7 @@
                     this.startDatetime = snapshot.startDatetime;
                     this.endDatetime = snapshot.endDatetime;
                     this.recurrence = snapshot.recurrence;
+                    $dispatch('item-update-rollback');
                     $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                     return false;
                 }
@@ -363,6 +372,7 @@
                 this.startDatetime = snapshot.startDatetime;
                 this.endDatetime = snapshot.endDatetime;
                 this.recurrence = snapshot.recurrence;
+                $dispatch('item-update-rollback');
                 $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                 return false;
             }
@@ -588,16 +598,6 @@
         </x-simple-select-dropdown>
     @endif
 
-    <x-recurring-selection
-        model="recurrence"
-        :initial-value="$recurrenceInitial"
-        kind="task"
-        :readonly="!$canEditRecurrence"
-        hideWhenDisabled
-        position="top"
-        align="end"
-    />
-
     <x-date-picker
         model="startDatetime"
         type="datetime-local"
@@ -628,10 +628,12 @@
     </div>
 
     <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+        @if($item->tags->isNotEmpty())
         <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
             <flux:icon name="tag" class="size-3" />
             {{ __('Tags') }}:
         </span>
+        @endif
         <div
             @tag-toggled="toggleTag($event.detail.tagId)"
             @tag-create-request="createTagOptimistic($event.detail.tagName)"
@@ -665,6 +667,4 @@
         </span>
     </span>
 @endif
-
-<x-workspace.collaborators-badge :count="$item->collaborators->count()" />
 
