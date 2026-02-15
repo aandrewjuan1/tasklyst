@@ -325,6 +325,8 @@ class ListItemCardViewModel
             'descriptionUpdateErrorToast' => __("Couldn't save :property. Try again.", ['property' => __('Description')]),
             'focusStartErrorToast' => __('Could not start focus mode. Please try again.'),
             'focusStopErrorToast' => __('Could not stop focus mode. Please try again.'),
+            'focusCompleteErrorToast' => __('Could not save focus session. Please try again.'),
+            'focusSessionNoLongerActiveToast' => __('Focus session is no longer active.'),
             'focusModeDefaultHint' => $data['focusModeDefaultHint'],
             'isEditingDescription' => false,
             'editedDescription' => $data['description'] ?? '',

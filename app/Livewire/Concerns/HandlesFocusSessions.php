@@ -25,6 +25,9 @@ use Illuminate\Support\Facades\Validator;
  * - GetActiveFocusSessionAction $getActiveFocusSessionAction
  * - PauseFocusSessionAction $pauseFocusSessionAction
  * - ResumeFocusSessionAction $resumeFocusSessionAction
+ *
+ * Optionally, the component may define public ?array $activeFocusSession = null.
+ * When present, the trait keeps it in sync and dispatches 'focus-session-updated' on start.
  */
 trait HandlesFocusSessions
 {
@@ -83,7 +86,7 @@ trait HandlesFocusSessions
             $sessionPayload
         );
 
-        return [
+        $result = [
             'id' => $session->id,
             'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
@@ -91,6 +94,13 @@ trait HandlesFocusSessions
             'task_id' => $task->id,
             'sequence_number' => $session->sequence_number,
         ];
+
+        if (property_exists($this, 'activeFocusSession')) {
+            $this->activeFocusSession = $result;
+            $this->dispatch('focus-session-updated', session: $result);
+        }
+
+        return $result;
     }
 
     /**
@@ -134,6 +144,10 @@ trait HandlesFocusSessions
         );
         $this->dispatch('toast', type: 'success', message: __('Focus session saved.'));
 
+        if (property_exists($this, 'activeFocusSession')) {
+            $this->activeFocusSession = null;
+        }
+
         return true;
     }
 
@@ -165,6 +179,10 @@ trait HandlesFocusSessions
         $this->abandonFocusSessionAction->execute($session, $pausedSeconds);
         $this->dispatch('toast', type: 'info', message: __('Focus session stopped.'));
 
+        if (property_exists($this, 'activeFocusSession')) {
+            $this->activeFocusSession = null;
+        }
+
         return true;
     }
 
@@ -186,6 +204,10 @@ trait HandlesFocusSessions
         }
 
         $this->authorize('update', $session);
+
+        if ($session->ended_at !== null) {
+            return false;
+        }
 
         $this->pauseFocusSessionAction->execute($session);
 
@@ -211,13 +233,19 @@ trait HandlesFocusSessions
 
         $this->authorize('update', $session);
 
+        if ($session->ended_at !== null) {
+            return false;
+        }
+
         $this->resumeFocusSessionAction->execute($session);
 
         return true;
     }
 
     /**
-     * Return the current user's in-progress focus session as array for the frontend (resume after refresh).
+     * Return the current user's in-progress focus session as array for the frontend.
+     * The API supports resume-after-refresh; consuming components may choose to clear
+     * the session on load (e.g. workspace index abandons any active session in mount).
      *
      * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, paused_seconds: int, paused_at: string|null, payload: array}|null
      */

@@ -10,21 +10,27 @@ export function listItemCard(config) {
         ...config,
         init() {
             try {
-                if (this.kind !== 'task' || !this.activeFocusSession) return;
-                const taskId = this.activeFocusSession.task_id;
-                if (taskId == null || Number(taskId) !== Number(this.itemId)) return;
-                const ps = this.activeFocusSession.paused_seconds;
-                if (ps != null && Number.isFinite(Number(ps))) {
-                    this.focusPausedSecondsAccumulated = Math.max(0, Math.floor(Number(ps)));
-                }
-                if (this.activeFocusSession.paused_at) {
-                    const pausedAtMs = this.parseFocusStartedAt(this.activeFocusSession.paused_at);
-                    if (Number.isFinite(pausedAtMs)) {
-                        this.focusIsPaused = true;
-                        this.focusPauseStartedAt = pausedAtMs;
+                if (this.kind !== 'task') return;
+                if (this.activeFocusSession) {
+                    const taskId = this.activeFocusSession.task_id;
+                    if (taskId != null && Number(taskId) === Number(this.itemId)) {
+                        const ps = this.activeFocusSession.paused_seconds;
+                        if (ps != null && Number.isFinite(Number(ps))) {
+                            this.focusPausedSecondsAccumulated = Math.max(0, Math.floor(Number(ps)));
+                        }
+                        if (this.activeFocusSession.paused_at) {
+                            const pausedAtMs = this.parseFocusStartedAt(this.activeFocusSession.paused_at);
+                            if (Number.isFinite(pausedAtMs)) {
+                                this.focusIsPaused = true;
+                                this.focusPauseStartedAt = pausedAtMs;
+                            }
+                        }
+                        return;
                     }
                 }
-            } catch (_) {}
+            } catch (err) {
+                console.error('[listItemCard] Failed to restore focus state:', err);
+            }
         },
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
@@ -73,6 +79,9 @@ export function listItemCard(config) {
             }
             return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
         },
+        isTempSessionId(id) {
+            return id != null && String(id).startsWith('temp-');
+        },
         startFocusTicker() {
             if (this.focusIntervalId != null) return;
             this.sessionComplete = false;
@@ -86,17 +95,17 @@ export function listItemCard(config) {
                     this.sessionComplete = true;
                     const pausedSeconds = this.getFocusPausedSecondsTotal();
                     const sessionId = this.activeFocusSession?.id;
-                    const isTempId = sessionId != null && String(sessionId).startsWith('temp-');
                     this.stopFocusTicker();
                     this.activeFocusSession = null;
                     this.dispatchFocusSessionUpdated(null);
-                    if (sessionId != null && !isTempId) {
+                    // Persist completion in background; no UI rollback on failure (timer already reached 0).
+                    if (sessionId != null && !this.isTempSessionId(sessionId)) {
                         this.$wire.$parent.$call('completeFocusSession', sessionId, {
                             ended_at: new Date().toISOString(),
                             completed: true,
                             paused_seconds: pausedSeconds,
                         }).catch(() => {
-                            this.$wire.$dispatch('toast', { type: 'error', message: this.focusStartErrorToast });
+                            this.$wire.$dispatch('toast', { type: 'error', message: this.focusCompleteErrorToast });
                         });
                     }
                 }
@@ -125,14 +134,20 @@ export function listItemCard(config) {
         async pauseFocus() {
             if (!this.isFocused || this.focusIsPaused) return;
             const sessionId = this.activeFocusSession?.id;
-            const isTempId = sessionId != null && String(sessionId).startsWith('temp-');
             this.focusIsPaused = true;
             this.focusPauseStartedAt = Date.now();
             this.focusTickerNow = Date.now();
             this.focusElapsedPercentValue = this.focusElapsedPercent;
-            if (sessionId != null && !isTempId) {
+            if (sessionId != null && !this.isTempSessionId(sessionId)) {
                 try {
-                    await this.$wire.$parent.$call('pauseFocusSession', sessionId);
+                    const ok = await this.$wire.$parent.$call('pauseFocusSession', sessionId);
+                    if (ok === false) {
+                        this.focusIsPaused = false;
+                        this.focusPauseStartedAt = null;
+                        this.activeFocusSession = null;
+                        this.dispatchFocusSessionUpdated(null);
+                        this.$wire.$dispatch('toast', { type: 'error', message: this.focusSessionNoLongerActiveToast });
+                    }
                 } catch (err) {
                     this.focusIsPaused = false;
                     this.focusPauseStartedAt = null;
@@ -143,7 +158,6 @@ export function listItemCard(config) {
         async resumeFocus() {
             if (!this.isFocused || !this.focusIsPaused || !this.focusPauseStartedAt) return;
             const sessionId = this.activeFocusSession?.id;
-            const isTempId = sessionId != null && String(sessionId).startsWith('temp-');
             const pauseStartMs = this.focusPauseStartedAt;
             const segmentSec = (Date.now() - pauseStartMs) / 1000;
             this.focusPausedSecondsAccumulated += segmentSec;
@@ -152,9 +166,18 @@ export function listItemCard(config) {
             this.focusTickerNow = Date.now();
             this.focusElapsedPercentValue = this.focusElapsedPercent;
             this._focusJustResumed = true;
-            if (sessionId != null && !isTempId) {
+            if (sessionId != null && !this.isTempSessionId(sessionId)) {
                 try {
-                    await this.$wire.$parent.$call('resumeFocusSession', sessionId);
+                    const ok = await this.$wire.$parent.$call('resumeFocusSession', sessionId);
+                    if (ok === false) {
+                        this._focusJustResumed = false;
+                        this.focusPausedSecondsAccumulated = Math.max(0, this.focusPausedSecondsAccumulated - segmentSec);
+                        this.focusIsPaused = true;
+                        this.focusPauseStartedAt = pauseStartMs;
+                        this.activeFocusSession = null;
+                        this.dispatchFocusSessionUpdated(null);
+                        this.$wire.$dispatch('toast', { type: 'error', message: this.focusSessionNoLongerActiveToast });
+                    }
                 } catch (err) {
                     this._focusJustResumed = false;
                     this.focusPausedSecondsAccumulated = Math.max(0, this.focusPausedSecondsAccumulated - segmentSec);
@@ -241,8 +264,7 @@ export function listItemCard(config) {
         async stopFocus() {
             if (!this.activeFocusSession || !this.activeFocusSession.id) return;
             const sessionSnapshot = { ...this.activeFocusSession };
-            const isTempId = String(sessionSnapshot.id).startsWith('temp-');
-            if (isTempId) {
+            if (this.isTempSessionId(sessionSnapshot.id)) {
                 this.focusStopRequestedBeforeStartResolved = true;
                 this.activeFocusSession = null;
                 this.dispatchFocusSessionUpdated(null);
@@ -700,6 +722,11 @@ export function listItemCard(config) {
             if (detail && detail.path === 'recurrence') {
                 this.updateRecurrence(detail.value);
             }
+        },
+        onTaskDurationUpdated(detail) {
+            if (!detail || this.kind !== 'task') return;
+            if (Number(detail.itemId) !== Number(this.itemId)) return;
+            this.taskDurationMinutes = detail.durationMinutes != null ? Number(detail.durationMinutes) : null;
         },
         onItemPropertyUpdated(detail) {
             if (this.shouldHideAfterPropertyUpdate(detail)) {

@@ -363,6 +363,9 @@
                     $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                     return false;
                 }
+                if (property === 'duration') {
+                    $dispatch('task-duration-updated', { itemId: this.itemId, durationMinutes: value });
+                }
                 return true;
             } catch (err) {
                 this.status = snapshot.status;
