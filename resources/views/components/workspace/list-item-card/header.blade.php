@@ -129,15 +129,9 @@
                                         icon="bolt"
                                         class="cursor-pointer"
                                         x-show="!isFocused"
-                                        @click.stop.prevent="startFocusMode()"
+                                        @click.stop="setTimeout(() => startFocusMode(), 120)"
                                     >
                                         <span class="block">{{ __('Focus mode') }}</span>
-                                        <span
-                                            x-show="!(taskDurationMinutes != null && taskDurationMinutes > 0)"
-                                            x-cloak
-                                            class="mt-0.5 block text-xs text-muted-foreground"
-                                            x-text="focusModeDefaultHint"
-                                        ></span>
                                     </flux:menu.item>
                                 </flux:tooltip>
                             @endif
