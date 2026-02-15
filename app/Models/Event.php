@@ -346,7 +346,9 @@ class Event extends Model
         static::deleting(function (Event $event) {
             $event->collaborations()->delete();
             $event->collaborationInvitations()->delete();
-            $event->recurringEvent?->delete();
+            if ($event->isForceDeleting()) {
+                $event->recurringEvent?->delete();
+            }
         });
     }
 
