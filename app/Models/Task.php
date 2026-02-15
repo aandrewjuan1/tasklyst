@@ -367,7 +367,9 @@ class Task extends Model
         static::deleting(function (Task $task) {
             $task->collaborations()->delete();
             $task->collaborationInvitations()->delete();
-            $task->recurringTask?->delete();
+            if ($task->isForceDeleting()) {
+                $task->recurringTask?->delete();
+            }
         });
     }
 

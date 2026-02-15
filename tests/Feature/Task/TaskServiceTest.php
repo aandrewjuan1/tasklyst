@@ -148,7 +148,7 @@ test('delete task soft deletes and boot removes related records', function (): v
     expect($result)->toBeTrue();
     expect(Task::withTrashed()->find($task->id))->not->toBeNull()
         ->and(Task::withTrashed()->find($task->id)->trashed())->toBeTrue();
-    expect(RecurringTask::find($recurring->id))->toBeNull();
+    expect(RecurringTask::find($recurring->id))->not->toBeNull();
     expect($collab->fresh())->toBeNull();
     expect($invitation->fresh())->toBeNull();
 });
@@ -175,6 +175,34 @@ test('force delete task removes record permanently', function (): void {
 
     expect($result)->toBeTrue();
     expect(Task::withTrashed()->find($taskId))->toBeNull();
+});
+
+test('soft delete recurring task keeps recurring task and restore brings recurrence back', function (): void {
+    $task = Task::factory()->for($this->user)->create();
+    $recurring = RecurringTask::factory()->create(['task_id' => $task->id]);
+
+    $this->service->deleteTask($task);
+
+    expect(RecurringTask::find($recurring->id))->not->toBeNull();
+
+    $restored = $this->service->restoreTask($task->fresh(), $this->user);
+    expect($restored)->toBeTrue();
+
+    $task->refresh();
+    $task->load('recurringTask');
+    expect($task->recurringTask)->not->toBeNull()
+        ->and($task->recurringTask->id)->toBe($recurring->id);
+});
+
+test('force delete task removes recurring task', function (): void {
+    $task = Task::factory()->for($this->user)->create();
+    $recurring = RecurringTask::factory()->create(['task_id' => $task->id]);
+    $recurringId = $recurring->id;
+    $task->delete();
+
+    $this->service->forceDeleteTask($task->fresh(), $this->user);
+
+    expect(RecurringTask::find($recurringId))->toBeNull();
 });
 
 test('update or create recurring task creates when enabled with type', function (): void {

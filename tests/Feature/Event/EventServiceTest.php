@@ -113,7 +113,7 @@ test('delete event soft deletes and boot removes related records', function (): 
     expect($result)->toBeTrue();
     expect(Event::withTrashed()->find($event->id))->not->toBeNull()
         ->and(Event::withTrashed()->find($event->id)->trashed())->toBeTrue();
-    expect(RecurringEvent::find($recurring->id))->toBeNull();
+    expect(RecurringEvent::find($recurring->id))->not->toBeNull();
     expect($collab->fresh())->toBeNull();
     expect($invitation->fresh())->toBeNull();
 });
@@ -140,6 +140,34 @@ test('force delete event removes record permanently', function (): void {
 
     expect($result)->toBeTrue();
     expect(Event::withTrashed()->find($eventId))->toBeNull();
+});
+
+test('soft delete recurring event keeps recurring event and restore brings recurrence back', function (): void {
+    $event = Event::factory()->for($this->user)->create();
+    $recurring = RecurringEvent::factory()->create(['event_id' => $event->id]);
+
+    $this->service->deleteEvent($event);
+
+    expect(RecurringEvent::find($recurring->id))->not->toBeNull();
+
+    $restored = $this->service->restoreEvent($event->fresh(), $this->user);
+    expect($restored)->toBeTrue();
+
+    $event->refresh();
+    $event->load('recurringEvent');
+    expect($event->recurringEvent)->not->toBeNull()
+        ->and($event->recurringEvent->id)->toBe($recurring->id);
+});
+
+test('force delete event removes recurring event', function (): void {
+    $event = Event::factory()->for($this->user)->create();
+    $recurring = RecurringEvent::factory()->create(['event_id' => $event->id]);
+    $recurringId = $recurring->id;
+    $event->delete();
+
+    $this->service->forceDeleteEvent($event->fresh(), $this->user);
+
+    expect(RecurringEvent::find($recurringId))->toBeNull();
 });
 
 test('update or create recurring event creates when enabled with type', function (): void {
