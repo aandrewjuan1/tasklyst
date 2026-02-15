@@ -83,7 +83,8 @@ trait HandlesFocusSessions
             (int) $validated['duration_seconds'],
             $validated['started_at'],
             (int) ($validated['sequence_number'] ?? 1),
-            $sessionPayload
+            $sessionPayload,
+            $validated['occurrence_date'] ?? null
         );
 
         $result = [

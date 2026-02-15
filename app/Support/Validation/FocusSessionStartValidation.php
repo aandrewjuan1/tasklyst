@@ -22,6 +22,7 @@ final class FocusSessionStartValidation
             'started_at' => ['required', 'date'],
             'sequence_number' => ['nullable', 'integer', 'min:1'],
             'payload' => ['nullable', 'array'],
+            'occurrence_date' => ['nullable', 'date'],
         ];
     }
 }

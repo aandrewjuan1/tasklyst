@@ -61,7 +61,18 @@ class CompleteFocusSessionAction
             if ($markTaskStatus !== null && $markTaskStatus !== '' && $session->focusable instanceof Task) {
                 $status = TaskStatus::tryFrom($markTaskStatus);
                 if ($status !== null) {
-                    $this->taskService->updateTask($session->focusable, ['status' => $status->value]);
+                    $task = $session->focusable;
+                    $task->loadMissing('recurringTask');
+                    $occurrenceDate = $session->payload['occurrence_date'] ?? null;
+                    if ($task->recurringTask !== null && $occurrenceDate !== null && $occurrenceDate !== '') {
+                        $this->taskService->updateRecurringOccurrenceStatus(
+                            $task,
+                            Carbon::parse($occurrenceDate),
+                            $status
+                        );
+                    } else {
+                        $this->taskService->updateTask($task, ['status' => $status->value]);
+                    }
                 }
             }
         }

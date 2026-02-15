@@ -261,6 +261,9 @@ export function listItemCard(config) {
                 started_at: startedAt,
                 payload: { used_task_duration: !!(this.taskDurationMinutes != null && this.taskDurationMinutes > 0) },
             };
+            if (this.isRecurringTask && this.listFilterDate) {
+                payload.occurrence_date = String(this.listFilterDate).slice(0, 10);
+            }
             const optimisticSession = {
                 id: 'temp-' + Date.now(),
                 task_id: this.itemId,
