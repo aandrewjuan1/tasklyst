@@ -58,10 +58,23 @@
 
             this.open = true;
             this.$dispatch('dropdown-opened');
+            this.$nextTick(() => {
+                const store = Alpine.store('simpleSelectDropdown');
+                if (store?.openDropdowns && this.$refs.panel) {
+                    store.openDropdowns.push({
+                        panel: this.$refs.panel,
+                        closeFn: () => this.close(this.$refs.button),
+                    });
+                }
+            });
         },
         close(focusAfter) {
             if (!this.open) return;
 
+            const store = Alpine.store('simpleSelectDropdown');
+            if (store?.openDropdowns && this.$refs.panel) {
+                store.openDropdowns = store.openDropdowns.filter((e) => e.panel !== this.$refs.panel);
+            }
             this.open = false;
             const leaveMs = 50;
             setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
@@ -70,7 +83,6 @@
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['simple-select-dropdown']"
     data-task-creation-safe
     class="relative inline-block"

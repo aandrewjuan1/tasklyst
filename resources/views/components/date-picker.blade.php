@@ -48,9 +48,19 @@
         panelWidthEst: 320,
         todayCache: null,
         valueChangedDebounceTimer: null,
+        effectiveOverdue: false,
 
         init() {
             this.applyInitialValue();
+            this.updateEffectiveOverdue();
+            if (typeof this.$effect === 'function') {
+                this.$effect(() => () => {
+                    if (this.valueChangedDebounceTimer) {
+                        clearTimeout(this.valueChangedDebounceTimer);
+                        this.valueChangedDebounceTimer = null;
+                    }
+                });
+            }
         },
 
         applyInitialValue() {
@@ -64,6 +74,7 @@
                 this.setTimeFromDate(baseDate);
             }
             this.buildDays();
+            this.updateEffectiveOverdue();
         },
 
         handleDatePickerValue(e) {
@@ -71,6 +82,7 @@
                 this.currentValue = e.detail.value ?? null;
                 this.initialApplied = false;
                 this.applyInitialValue();
+                this.updateEffectiveOverdue();
             }
         },
 
@@ -79,6 +91,7 @@
                 this.currentValue = e.detail.value ?? null;
                 this.initialApplied = false;
                 this.applyInitialValue();
+                this.updateEffectiveOverdue();
                 this.close(this.$refs.button);
             }
         },
@@ -130,38 +143,36 @@
         },
 
         buildDays() {
+            if (!this.todayCache) {
+                const t = new Date();
+                this.todayCache = { year: t.getFullYear(), month: t.getMonth(), date: t.getDate() };
+            }
             const firstDayOfMonth = new Date(this.year, this.month, 1).getDay();
             const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
+            const sel = this.selectedDate;
+            const isSelectedDay = (d) => sel && this.year === sel.getFullYear() && this.month === sel.getMonth() && sel.getDate() === d;
+            const isTodayDay = (d) => this.todayCache.year === this.year && this.todayCache.month === this.month && this.todayCache.date === d;
 
             const days = [];
 
-            // Leading blanks.
             for (let i = 0; i < firstDayOfMonth; i++) {
-                days.push({
-                    label: '',
-                    date: null,
-                    key: `blank-${this.year}-${this.month}-l${i}`,
-                });
+                days.push({ label: '', date: null, key: `blank-${this.year}-${this.month}-l${i}`, isSelected: false, isToday: false });
             }
 
-            // Current month days.
             for (let day = 1; day <= daysInMonth; day++) {
                 days.push({
                     label: day,
                     date: day,
                     key: `day-${this.year}-${this.month}-${day}`,
+                    isSelected: isSelectedDay(day),
+                    isToday: isTodayDay(day),
                 });
             }
 
-            // Trailing blanks to complete the final week row (auto height).
             const remainder = days.length % 7;
             const blanksNeeded = remainder === 0 ? 0 : 7 - remainder;
             for (let i = 0; i < blanksNeeded; i++) {
-                days.push({
-                    label: '',
-                    date: null,
-                    key: `blank-${this.year}-${this.month}-t${i}`,
-                });
+                days.push({ label: '', date: null, key: `blank-${this.year}-${this.month}-t${i}`, isSelected: false, isToday: false });
             }
 
             this.days = days;
@@ -178,6 +189,7 @@
         selectDay(day) {
             if (!day) return;
             this.selectedDate = new Date(this.year, this.month, day);
+            this.buildDays();
             this.updateModel();
         },
 
@@ -220,6 +232,7 @@
             this.hour = '';
             this.minute = '';
             this.currentValue = null;
+            this.updateEffectiveOverdue();
             this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: null });
         },
 
@@ -244,50 +257,18 @@
                 value += `T${hours}:${minutes}:00`;
             }
             this.currentValue = value;
-            
+            this.updateEffectiveOverdue();
+
             // Debounce the event dispatch to prevent UI blocking
             if (this.valueChangedDebounceTimer) {
                 clearTimeout(this.valueChangedDebounceTimer);
             }
             this.valueChangedDebounceTimer = setTimeout(() => {
-                this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: this.currentValue });
                 this.valueChangedDebounceTimer = null;
+                if (this.$el?.isConnected) {
+                    this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: this.currentValue });
+                }
             }, 150);
-        },
-
-        isSelected(day) {
-            if (!this.selectedDate || !day) return false;
-            return this.selectedDate.getFullYear() === this.year && this.selectedDate.getMonth() === this.month && this.selectedDate.getDate() === day;
-        },
-
-        isToday(day) {
-            if (!day) return false;
-            if (!this.todayCache) {
-                const today = new Date();
-                this.todayCache = {
-                    year: today.getFullYear(),
-                    month: today.getMonth(),
-                    date: today.getDate(),
-                };
-            }
-            return this.todayCache.year === this.year && this.todayCache.month === this.month && this.todayCache.date === day;
-        },
-
-        dayButtonClasses(day) {
-            if (!day?.date) {
-                // Keep grid spacing, but avoid hover/selected artifacts on empty cells.
-                return 'cursor-default opacity-0';
-            }
-
-            if (this.isSelected(day.date)) {
-                return 'cursor-pointer bg-pink-500 text-white shadow-sm';
-            }
-
-            if (this.isToday(day.date)) {
-                return 'cursor-pointer text-pink-600 dark:text-pink-400';
-            }
-
-            return 'cursor-pointer text-zinc-700 dark:text-zinc-300';
         },
 
         get monthLabel() {
@@ -295,17 +276,19 @@
             return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
         },
 
-        /** True if overdue from server/parent OR if the selected datetime is in the past (date and time). Only applies to end/due date picker, not start. */
-        get effectiveOverdue() {
+        /** True if overdue from server/parent OR if the selected datetime is in the past. Only applies to end/due date picker. */
+        updateEffectiveOverdue() {
             const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
-            if (!isEndDate) return false;
+            if (!isEndDate) {
+                this.effectiveOverdue = false;
+                return;
+            }
             if (this.currentValue) {
                 const parsed = this.parseIsoLocalDate(this.currentValue);
-                if (parsed && !isNaN(parsed.getTime())) {
-                    return parsed < new Date();
-                }
+                this.effectiveOverdue = parsed && !isNaN(parsed.getTime()) ? parsed < new Date() : this.overdue;
+            } else {
+                this.effectiveOverdue = this.overdue;
             }
-            return this.overdue;
         },
 
         formatDisplayValue(value) {
@@ -349,15 +332,24 @@
             if (isEndDate && card && (card.isOverdue !== undefined || card.clientOverdue !== undefined)) {
                 this.overdue = (card.isOverdue || card.clientOverdue) && !card.clientNotOverdue;
             }
+            this.updateEffectiveOverdue();
+            this.todayCache = null;
 
             this.open = true;
             this.valueWhenOpened = this.currentValue;
+            const store = Alpine.store('datePicker') ?? { open: null };
+            store.open = { panel: this.$refs.panel, close: () => this.close(this.$refs.button) };
+            Alpine.store('datePicker', store);
             this.$dispatch('date-picker-opened', { path: this.modelPath, value: this.currentValue });
             this.$dispatch('dropdown-opened');
         },
 
         close(focusAfter) {
             if (!this.open) return;
+            const state = Alpine.store('datePicker');
+            if (state && state.open && state.open.panel === this.$refs.panel) {
+                state.open = null;
+            }
             const valueChanged = this.currentValue !== this.valueWhenOpened;
             this.open = false;
             this.valueWhenOpened = null;
@@ -382,7 +374,6 @@
     @date-picker-value="handleDatePickerValue($event)"
     @date-picker-revert="handleDatePickerRevert($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     x-id="['date-picker-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
@@ -482,7 +473,7 @@
                             type="button"
                             class="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors disabled:pointer-events-none"
                             :disabled="!day.date"
-                            :class="dayButtonClasses(day)"
+                            :class="!day.date ? 'cursor-default opacity-0' : day.isSelected ? 'cursor-pointer bg-pink-500 text-white shadow-sm' : day.isToday ? 'cursor-pointer text-pink-600 dark:text-pink-400' : 'cursor-pointer text-zinc-700 dark:text-zinc-300'"
                             @click.prevent.stop="day.date && selectDay(day.date)"
                             x-text="day.label"
                         ></button>
