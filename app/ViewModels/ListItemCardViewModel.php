@@ -122,7 +122,7 @@ class ListItemCardViewModel
                 ['value' => 60, 'label' => '1 hour'],
                 ['value' => 120, 'label' => '2 hours'],
                 ['value' => 240, 'label' => '4 hours'],
-                ['value' => 480, 'label' => '8+ hours'],
+                ['value' => 480, 'label' => '8 hours'],
             ];
 
             $effectiveStatus = $item->effectiveStatusForDate ?? $item->status;
