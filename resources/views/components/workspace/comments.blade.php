@@ -52,6 +52,7 @@
         comments: @js($commentsForJs),
         totalCount: {{ $totalComments }},
         visibleCount: {{ $initialVisibleCount }},
+        visibleComments: [],
         isAddingComment: false,
         newCommentContent: '',
         savingComment: false,
@@ -81,9 +82,13 @@
         toggle() {
             this.isOpen = !this.isOpen;
         },
+        updateVisibleComments() {
+            this.visibleComments = this.comments.slice(0, this.visibleCount);
+        },
         async loadMore() {
             if (this.visibleCount < this.comments.length) {
                 this.visibleCount = Math.min(this.visibleCount + 3, this.comments.length);
+                this.updateVisibleComments();
                 return;
             }
             if (this.comments.length >= this.totalCount || this.loadingMoreComments) {
@@ -93,8 +98,9 @@
             try {
                 const response = await $wire.$parent.$call('loadMoreComments', this.commentableType, this.commentableId, this.comments.length);
                 if (response?.comments?.length) {
-                    this.comments = [...this.comments, ...response.comments];
+                    this.comments.push(...response.comments);
                     this.visibleCount = this.comments.length;
+                    this.updateVisibleComments();
                 }
             } finally {
                 this.loadingMoreComments = false;
@@ -128,6 +134,7 @@
             this.comments = this.commentsBackup;
             this.totalCount = this.totalBackup;
             this.visibleCount = this.visibleBackup;
+            this.updateVisibleComments();
             this.newCommentContent = this.commentSnapshot;
             this.isAddingComment = true;
         },
@@ -142,7 +149,7 @@
                 return;
             }
 
-            this.commentsBackup = [...this.comments];
+            this.commentsBackup = this.comments.slice();
             this.totalBackup = this.totalCount;
             this.visibleBackup = this.visibleCount;
             this.commentSnapshot = this.newCommentContent;
@@ -157,9 +164,10 @@
                 canManage: true,
             };
 
-            this.comments = [optimisticComment, ...this.comments];
+            this.comments.unshift(optimisticComment);
             this.totalCount = this.totalCount + 1;
             this.visibleCount = this.visibleCount + 1;
+            this.updateVisibleComments();
             this.newCommentContent = '';
             this.isAddingComment = false;
 
@@ -326,7 +334,7 @@
                 return;
             }
 
-            const commentsBackup = [...this.comments];
+            const commentsBackup = this.comments.slice();
             const totalBackup = this.totalCount;
             const visibleBackup = this.visibleCount;
 
@@ -339,12 +347,14 @@
                 if (this.visibleCount > this.totalCount) {
                     this.visibleCount = this.totalCount;
                 }
+                this.updateVisibleComments();
 
                 const numericId = Number(id);
                 if (!Number.isFinite(numericId)) {
                     this.comments = commentsBackup;
                     this.totalCount = totalBackup;
                     this.visibleCount = visibleBackup;
+                    this.updateVisibleComments();
 
                     return;
                 }
@@ -354,6 +364,7 @@
                     this.comments = commentsBackup;
                     this.totalCount = totalBackup;
                     this.visibleCount = visibleBackup;
+                    this.updateVisibleComments();
                     $wire.$dispatch('toast', { type: 'error', message: this.deleteCommentErrorToast });
 
                     return;
@@ -362,13 +373,14 @@
                 this.comments = commentsBackup;
                 this.totalCount = totalBackup;
                 this.visibleCount = visibleBackup;
+                this.updateVisibleComments();
                 $wire.$dispatch('toast', { type: 'error', message: error.message || this.deleteCommentErrorToast });
             } finally {
                 this.deletingCommentIds?.delete(id);
             }
         },
     }"
-    x-init="alpineReady = true"
+    x-init="updateVisibleComments(); alpineReady = true"
 >
     {{-- Server-rendered first paint --}}
     <button
@@ -477,7 +489,7 @@
 
         <template x-if="totalCount > 0">
             <div class="space-y-1.5">
-                <template x-for="(comment, index) in comments.slice(0, visibleCount)" :key="comment.id ?? index">
+                <template x-for="(comment, index) in visibleComments" :key="comment.id ?? index">
                     <div
                         class="flex items-start gap-2 rounded-md bg-muted/60 px-2 py-1.5"
                         x-cloak
@@ -517,14 +529,14 @@
                             <div
                                 x-effect="
                                     if (editingCommentId === comment.id) {
-                                        $nextTick(() => requestAnimationFrame(() => {
+                                        $nextTick(() => {
                                             const input = $el.querySelector('textarea');
                                             if (input) {
                                                 input.focus();
                                                 const length = input.value.length;
                                                 input.setSelectionRange(length, length);
                                             }
-                                        }));
+                                        });
                                     }
                                 "
                             >
