@@ -1,7 +1,10 @@
 {{-- Focus mode bar: ready state (Start/Cancel) or active session (timer, progress, Pause/Resume/Stop). Uses parent Alpine scope (listItemCard). --}}
+@php
+    $focusBarCloak = empty($hasActiveFocusOnThisTask ?? false);
+@endphp
 <div
     x-show="focusReady || isFocused"
-    x-cloak
+    @if($focusBarCloak) x-cloak @endif
     x-transition:enter="transition ease-out duration-200"
     x-transition:enter-start="opacity-0 -translate-y-0.5"
     x-transition:enter-end="opacity-100 translate-y-0"
