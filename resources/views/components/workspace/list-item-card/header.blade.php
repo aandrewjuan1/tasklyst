@@ -123,18 +123,6 @@
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
                         <flux:menu>
-                            @if($kind === 'task' && $canEdit)
-                                <flux:tooltip :content="__('Start focus mode')">
-                                    <flux:menu.item
-                                        icon="bolt"
-                                        class="cursor-pointer"
-                                        x-show="!isFocused"
-                                        @click.stop="setTimeout(() => startFocusMode(), 120)"
-                                    >
-                                        <span class="block">{{ __('Focus mode') }}</span>
-                                    </flux:menu.item>
-                                </flux:tooltip>
-                            @endif
                             <flux:tooltip :content="__('Activity Logs')">
                                 <flux:menu.item
                                     icon="clock"

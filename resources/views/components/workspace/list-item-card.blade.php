@@ -44,10 +44,10 @@
     @task-duration-updated="onTaskDurationUpdated($event.detail)"
     x-effect="isFocused && activeFocusSession ? startFocusTicker() : (stopFocusTicker(), sessionComplete = false)"
     :class="{
-        'relative z-50': dropdownOpenCount > 0 || isFocused,
+        'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
-        'pointer-events-auto': isFocused,
-        'ring-2 ring-primary/60 border-primary/50 bg-primary/5 dark:bg-primary/10 shadow-md': isFocused,
+        'pointer-events-auto': isFocused || focusReady,
+        'ring-2 ring-primary/60 border-primary/50 bg-primary/5 dark:bg-primary/10 shadow-md': isFocused || focusReady,
         'pointer-events-none select-none opacity-60': activeFocusSession && !isFocused,
     }"
 >
@@ -59,6 +59,20 @@
         class="flex flex-wrap items-center gap-2 pt-0.5 text-xs"
         :class="{ 'pointer-events-none': kind === 'task' && isFocused }"
     >
+    @if($kind === 'task' && $canEdit)
+        <div x-show="!isFocused && !focusReady" x-cloak class="shrink-0">
+            <flux:tooltip :content="__('Start focus mode')">
+                <button
+                    type="button"
+                    @click.stop="setTimeout(() => enterFocusReady(), 120)"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:bg-primary/15 hover:border-primary/60 dark:border-primary/40 dark:bg-primary/20 dark:hover:bg-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                    <flux:icon name="bolt" class="size-3 shrink-0" />
+                    <span>{{ __('Focus') }}</span>
+                </button>
+            </flux:tooltip>
+        </div>
+    @endif
     @if($kind === 'project')
         <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEditDates" />
 
