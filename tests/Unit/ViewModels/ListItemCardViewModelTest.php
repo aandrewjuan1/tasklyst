@@ -54,10 +54,14 @@ it('produces alpineConfig with expected keys and no callables for a task', funct
     expect($config)->toHaveKeys([
         'kind', 'itemId', 'canEdit', 'canDelete', 'deleteMethod', 'updatePropertyMethod',
         'editedTitle', 'recurrence', 'activeFocusSession', 'defaultWorkDurationMinutes', 'taskDurationMinutes',
+        'focusModeType', 'focusModeTypes', 'focusModeComingSoonToast',
     ]);
     expect($config['kind'])->toBe('task');
     expect($config['itemId'])->toBe($this->task->id);
     expect($config['editedTitle'])->toBe('Test Task');
+    expect($config['focusModeType'])->toBe('countdown');
+    expect($config['focusModeTypes'])->toBeArray();
+    expect($config['focusModeTypes'])->toContain(['value' => 'countdown', 'label' => 'Sprint', 'available' => true]);
 
     foreach ($config as $value) {
         expect($value)->not->toBeInstanceOf(\Closure::class);

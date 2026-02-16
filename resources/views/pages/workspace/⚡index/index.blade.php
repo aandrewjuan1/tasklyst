@@ -1,8 +1,8 @@
 <section
     class="space-y-6"
-    x-data="{ get focusModeActive() { return !!Alpine.store('focusSession')?.session } }"
-    x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession) })"
-    @focus-session-updated.window="Alpine.store('focusSession', { session: $event.detail?.session ?? $event.detail?.[0] ?? null })"
+    x-data="{ get focusModeActive() { const s = Alpine.store('focusSession'); return !!(s?.session || s?.focusReady); } }"
+    x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
+    @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{-- Centered date switcher on its own row (dim/disable when focus mode) --}}
     <div class="flex w-full justify-center transition-opacity duration-200 ease-out" :class="{ 'pointer-events-none select-none opacity-60': focusModeActive }">

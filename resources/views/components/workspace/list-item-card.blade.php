@@ -28,7 +28,7 @@
 
 <div
     {{ $attributes->merge([
-        'class' => 'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-200 ease-out',
+        'class' => 'flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-200 ease-out dark:border-zinc-700 dark:bg-zinc-900/95',
     ]) }}
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($vm->alpineConfig()) }})"
@@ -50,11 +50,13 @@
         'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
         'pointer-events-auto': isFocused || focusReady,
-        'ring-2 ring-primary/60 border-primary/50 bg-primary/5 dark:bg-primary/10 shadow-md': isFocused || focusReady,
-        'pointer-events-none select-none opacity-60': activeFocusSession && !isFocused,
+        'ring-2 ring-primary/40 border-primary/30 bg-primary/[0.06] shadow-md dark:border-primary/40 dark:bg-primary/10': isFocused || focusReady,
+        'pointer-events-none select-none opacity-60': isDimmedByFocus,
     }"
 >
-    @include('components.workspace.list-item-card.focus-bar')
+    @include('components.workspace.list-item-card.focus-bar', [
+        'focusModeTypes' => $vm->alpineConfig()['focusModeTypes'] ?? [],
+    ])
 
     @include('components.workspace.list-item-card.header')
 
