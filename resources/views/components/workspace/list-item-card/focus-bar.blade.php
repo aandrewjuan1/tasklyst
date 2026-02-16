@@ -12,7 +12,7 @@
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="opacity-100 translate-y-0"
     x-transition:leave-end="opacity-0 -translate-y-0.5"
-    class="overflow-hidden rounded-lg border-0 border-t-4 border-blue-800 bg-primary/10 shadow-inner dark:bg-primary/20"
+    class="overflow-hidden rounded-lg border-0 border-t-4 border-zinc-300 bg-primary/10 shadow-inner dark:border-zinc-600 dark:bg-primary/20"
 >
     <div class="px-4 py-3">
         {{-- Ready state: user has clicked Focus but not started the timer yet --}}
@@ -51,7 +51,7 @@
                         <template x-if="focusModeType === 'countdown'">
                             <div class="flex flex-col gap-0.5">
                                 <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                                <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks—sprint through the task.') }}</span>
+                                <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks.') }}</span>
                             </div>
                         </template>
                         <template x-if="focusModeType === 'pomodoro'">
@@ -63,7 +63,7 @@
                         <template x-if="focusModeType !== 'countdown' && focusModeType !== 'pomodoro'">
                             <div class="flex flex-col gap-0.5">
                                 <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                                <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks—sprint through the task.') }}</span>
+                                <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks.') }}</span>
                             </div>
                         </template>
                     </div>
@@ -182,7 +182,7 @@
                 aria-label="{{ __('Time elapsed') }}"
             >
                 <div
-                    class="block h-full min-w-0 rounded-full bg-(--color-accent) transition-[width] duration-300 ease-linear"
+                    class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width] duration-300 ease-linear"
                     :style="{ width: Math.min(100, Math.max(0, focusElapsedPercentValue)) + '%', minWidth: focusElapsedPercentValue > 0 ? '2px' : '0' }"
                 ></div>
             </div>
