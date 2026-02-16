@@ -43,6 +43,7 @@
         selectedDate: null,
         hour: '',
         minute: '',
+        ampm: 'AM',
         days: [],
         panelHeightEst: 420,
         panelWidthEst: 320,
@@ -136,10 +137,28 @@
         },
 
         setTimeFromDate(date) {
-            const hours = date.getHours();
+            const hours24 = date.getHours();
             const minutes = date.getMinutes();
-            this.hour = String(hours).padStart(2, '0');
+
+            let ampm = 'AM';
+            let hours12 = hours24 % 12;
+
+            if (hours24 === 0) {
+                hours12 = 12;
+                ampm = 'AM';
+            } else if (hours24 === 12) {
+                hours12 = 12;
+                ampm = 'PM';
+            } else if (hours24 > 12) {
+                hours12 = hours24 - 12;
+                ampm = 'PM';
+            } else {
+                ampm = 'AM';
+            }
+
+            this.hour = String(hours12 || 12).padStart(2, '0');
             this.minute = String(minutes).padStart(2, '0');
+            this.ampm = ampm;
         },
 
         buildDays() {
@@ -195,8 +214,8 @@
 
         normalizeHour() {
             let h = parseInt(this.hour || '0', 10);
-            if (isNaN(h) || h < 0) h = 0;
-            if (h > 23) h = 23;
+            if (isNaN(h) || h <= 0) h = 12;
+            if (h > 12) h = 12;
             this.hour = String(h).padStart(2, '0');
         },
 
@@ -231,6 +250,7 @@
             this.selectedDate = null;
             this.hour = '';
             this.minute = '';
+            this.ampm = 'AM';
             this.currentValue = null;
             this.updateEffectiveOverdue();
             this.$dispatch('date-picker-value-changed', { path: this.modelPath, value: null });
@@ -240,10 +260,19 @@
             if (!this.selectedDate) return;
             const date = new Date(this.selectedDate);
             if (this.type === 'datetime-local') {
-                let hours = parseInt(this.hour || '0', 10);
+                let hours12 = parseInt(this.hour || '0', 10);
+                if (isNaN(hours12) || hours12 <= 0) hours12 = 12;
+                if (hours12 > 12) hours12 = 12;
+
                 const minutes = parseInt(this.minute || '0', 10);
-                if (isNaN(hours) || hours < 0 || hours > 23) hours = 0;
-                date.setHours(hours, isNaN(minutes) ? 0 : minutes, 0, 0);
+                const ampm = this.ampm === 'PM' ? 'PM' : 'AM';
+
+                let hours24 = hours12 % 12;
+                if (ampm === 'PM') {
+                    hours24 += 12;
+                }
+
+                date.setHours(hours24, isNaN(minutes) ? 0 : minutes, 0, 0);
             } else {
                 date.setHours(0, 0, 0, 0);
             }
@@ -298,7 +327,7 @@
                 if (isNaN(date.getTime())) return this.notSetLabel;
                 if (this.type === 'datetime-local') {
                     const dateStr = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-                    const timeStr = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+                    const timeStr = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true });
                     return dateStr + ' ' + timeStr;
                 } else {
                     return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -510,11 +539,11 @@
                         <div class="flex items-center gap-2">
                             <input
                                 type="number"
-                                min="0"
-                                max="23"
+                                min="1"
+                                max="12"
                                 x-model="hour"
                                 @change="updateTime()"
-                                placeholder="00"
+                                placeholder="12"
                                 class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
                             />
                             <span class="pb-1 text-sm text-zinc-400 dark:text-zinc-500">:</span>
@@ -527,6 +556,28 @@
                                 placeholder="00"
                                 class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
                             />
+                            <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                                <button
+                                    type="button"
+                                    class="px-2 py-1 transition-colors"
+                                    :class="ampm === 'AM'
+                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
+                                    @click.prevent.stop="ampm = 'AM'; updateTime()"
+                                >
+                                    AM
+                                </button>
+                                <button
+                                    type="button"
+                                    class="px-2 py-1 transition-colors"
+                                    :class="ampm === 'PM'
+                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
+                                    @click.prevent.stop="ampm = 'PM'; updateTime()"
+                                >
+                                    PM
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
