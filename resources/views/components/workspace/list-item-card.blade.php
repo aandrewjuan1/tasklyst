@@ -21,6 +21,9 @@
         defaultWorkDurationMinutes: $defaultWorkDurationMinutes ?? 25,
     );
     extract($vm->viewData());
+    $hasActiveFocusOnThisTask = $kind === 'task'
+        && $activeFocusSession
+        && (string) ($activeFocusSession['task_id'] ?? '') === (string) $item->id;
 @endphp
 
 <div
@@ -60,7 +63,10 @@
         :class="{ 'pointer-events-none': kind === 'task' && isFocused }"
     >
     @if($kind === 'task' && $canEdit)
-        <div x-show="!isFocused && !focusReady" x-cloak class="shrink-0">
+        <div
+            x-show="!isFocused && !focusReady"
+            class="shrink-0 {{ $hasActiveFocusOnThisTask ? 'hidden' : '' }}"
+        >
             <flux:tooltip :content="__('Start focus mode')">
                 <button
                     type="button"
