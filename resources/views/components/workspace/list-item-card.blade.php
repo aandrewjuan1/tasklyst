@@ -28,7 +28,7 @@
 
 <div
     {{ $attributes->merge([
-        'class' => 'flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-200 ease-out dark:border-zinc-700 dark:bg-zinc-900/95',
+        'class' => 'flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-150 ease-out',
     ]) }}
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($vm->alpineConfig()) }})"
@@ -50,7 +50,7 @@
         'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
         'pointer-events-auto': isFocused || focusReady,
-        'ring-2 ring-primary/40 border-primary/30 bg-primary/[0.06] shadow-md dark:border-primary/40 dark:bg-primary/10': isFocused || focusReady,
+        'ring-2 ring-primary/40 border-primary/30 bg-primary/[0.06] shadow-md': isFocused || focusReady,
         'pointer-events-none select-none opacity-60': isDimmedByFocus,
     }"
 >
@@ -73,7 +73,7 @@
                 <button
                     type="button"
                     @click.stop="setTimeout(() => enterFocusReady(), 120)"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:bg-primary/15 hover:border-primary/60 dark:border-primary/40 dark:bg-primary/20 dark:hover:bg-primary/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:bg-primary/15 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                     <flux:icon name="bolt" class="size-3 shrink-0" />
                     <span>{{ __('Focus') }}</span>
@@ -84,7 +84,7 @@
     @if($kind === 'project')
         <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEditDates" />
 
-        <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500 dark:border-white/10">
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500">
             <flux:icon name="list-bullet" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
                 <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
