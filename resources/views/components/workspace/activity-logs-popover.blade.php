@@ -50,12 +50,7 @@
     wire:ignore
     x-data="{
         open: false,
-        placementVertical: @js($position),
-        placementHorizontal: @js($align),
-        panelHeightEst: 320,
-        panelWidthEst: 320,
         logs: @js($logsForJs),
-        totalCount: @js($totalLogs),
         loggableType: @js($loggableType),
         loggableId: @js($item->id),
         loadingMore: false,
@@ -82,32 +77,35 @@
             const vw = window.innerWidth;
             const rect = button.getBoundingClientRect();
             const contentLeft = vw < 768 ? 16 : 320;
-            const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
+            const panelHeightEst = 320;
+            const panelWidthEst = 320;
+            const effectivePanelWidth = Math.min(panelWidthEst, vw - 32);
 
             const spaceBelow = vh - rect.bottom;
             const spaceAbove = rect.top;
 
-            if (spaceBelow >= this.panelHeightEst || spaceBelow >= spaceAbove) {
-                this.placementVertical = 'bottom';
+            let placementVertical;
+            if (spaceBelow >= panelHeightEst || spaceBelow >= spaceAbove) {
+                placementVertical = 'bottom';
             } else {
-                this.placementVertical = 'top';
+                placementVertical = 'top';
             }
 
             const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
             const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
 
             if (rect.left < contentLeft) {
-                this.placementHorizontal = 'start';
+                placementHorizontal = 'start';
             } else if (endFits) {
-                this.placementHorizontal = 'end';
+                placementHorizontal = 'end';
             } else if (startFits) {
-                this.placementHorizontal = 'start';
+                placementHorizontal = 'start';
             } else {
-                this.placementHorizontal = rect.right > vw ? 'start' : 'end';
+                placementHorizontal = rect.right > vw ? 'start' : 'end';
             }
 
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
+            const v = placementVertical;
+            const h = placementHorizontal;
             if (vw <= 480) {
                 this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
             } else if (v === 'top' && h === 'end') {
@@ -138,6 +136,18 @@
             focusAfter && focusAfter.focus();
         },
 
+        handleWindowFocus(event) {
+            if (!this.open) return;
+
+            const panel = this.$refs.panel;
+            if (!panel) return;
+
+            const enoughTimePassed = Date.now() - this.openedAt > 200;
+            if (enoughTimePassed && !panel.contains(event.target)) {
+                this.close(this.$refs.button);
+            }
+        },
+
         async loadMore() {
             if (this.loadingMore || !this.hasMore) {
                 return;
@@ -163,7 +173,7 @@
                 });
 
                 if (newLogs.length) {
-                    this.logs = [...this.logs, ...newLogs];
+                    this.logs.push(...newLogs);
                 }
 
                 this.hasMore = Boolean(response?.hasMore);
@@ -176,7 +186,7 @@
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target) && (Date.now() - openedAt > 200)) && close($refs.button)"
+    @focusin.window="handleWindowFocus($event)"
     @workspace-open-activity-logs.window="
         if ($event.detail && Number($event.detail.id ?? null) === Number(loggableId)) {
             openFromMenu();
