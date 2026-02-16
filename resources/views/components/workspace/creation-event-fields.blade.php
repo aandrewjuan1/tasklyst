@@ -3,7 +3,7 @@
 @endphp
 
 {{-- Event status selector (shares formData.item.status) --}}
-<x-simple-select-dropdown position="top" align="end" x-show="creationKind === 'event'" x-cloak>
+<x-simple-select-dropdown position="top" align="end">
     <x-slot:trigger>
         <button
             type="button"
@@ -42,8 +42,6 @@
     type="button"
     class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
     :class="formData.item.allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
-    x-show="creationKind === 'event'"
-    x-cloak
     data-task-creation-safe
     @click="formData.item.allDay = !formData.item.allDay"
 >

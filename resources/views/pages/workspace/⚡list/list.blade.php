@@ -813,9 +813,21 @@
                         </div>
 
                         <div class="flex flex-wrap gap-2">
-                            <x-workspace.creation-task-fields />
-                            <x-workspace.creation-event-fields />
-                            <x-workspace.creation-project-fields />
+                            <template x-if="creationKind === 'task'">
+                                <div class="contents">
+                                    <x-workspace.creation-task-fields />
+                                </div>
+                            </template>
+                            <template x-if="creationKind === 'event'">
+                                <div class="contents">
+                                    <x-workspace.creation-event-fields />
+                                </div>
+                            </template>
+                            <template x-if="creationKind === 'project'">
+                                <div class="contents">
+                                    <x-workspace.creation-project-fields />
+                                </div>
+                            </template>
 
                             <div x-show="creationKind !== 'project'" x-cloak class="contents">
                                 @foreach ([['label' => __('Start'), 'model' => 'formData.item.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.item.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
@@ -1126,7 +1138,7 @@
                 $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
             @endphp
             <div x-show="visibleItemCount > 0" class="space-y-4">
-                <div class="space-y-3">
+                <div class="space-y-3" :class="{ 'focus-open': focusModeActive }">
                     @foreach ($items as $entry)
                         <x-workspace.list-item-card
                             :kind="$entry['kind']"

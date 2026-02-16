@@ -21,6 +21,7 @@
         defaultWorkDurationMinutes: $defaultWorkDurationMinutes ?? 25,
     );
     extract($vm->viewData());
+    $alpineConfig = $vm->alpineConfig();
     $hasActiveFocusOnThisTask = $kind === 'task'
         && $activeFocusSession
         && (string) ($activeFocusSession['task_id'] ?? '') === (string) $item->id;
@@ -28,12 +29,13 @@
 
 <div
     {{ $attributes->merge([
-        'class' => 'flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-150 ease-out',
+        'class' => 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-150 ease-out',
     ]) }}
     wire:ignore
-    x-data="listItemCard({{ \Illuminate\Support\Js::from($vm->alpineConfig()) }})"
+    x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"
     x-init="alpineReady = true"
     x-show="!hideCard"
+    x-cleanup="stopFocusTicker()"
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="opacity-100 scale-100"
     x-transition:leave-end="opacity-0 scale-[0.98]"
@@ -45,17 +47,17 @@
     @collaboration-self-left="hideFromList()"
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"
     @task-duration-updated="onTaskDurationUpdated($event.detail)"
-    x-effect="isFocused && activeFocusSession ? startFocusTicker() : (stopFocusTicker(), sessionComplete = false)"
+    x-effect="syncFocusTicker()"
     :class="{
         'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
         'pointer-events-auto': isFocused || focusReady,
         'ring-2 ring-primary/40 border-primary/30 bg-primary/[0.06] shadow-md': isFocused || focusReady,
-        'pointer-events-none select-none opacity-60': isDimmedByFocus,
+        'is-focus-active': focusReady || isFocused,
     }"
 >
     @include('components.workspace.list-item-card.focus-bar', [
-        'focusModeTypes' => $vm->alpineConfig()['focusModeTypes'] ?? [],
+        'focusModeTypes' => $alpineConfig['focusModeTypes'] ?? [],
     ])
 
     @include('components.workspace.list-item-card.header')

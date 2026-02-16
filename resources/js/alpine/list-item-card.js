@@ -9,6 +9,8 @@ export function listItemCard(config) {
     return {
         ...config,
         focusReady: false,
+        focusCountdownText: '',
+        focusProgressStyle: 'width: 0%; min-width: 0',
         init() {
             try {
                 if (this.kind !== 'task') return;
@@ -44,19 +46,13 @@ export function listItemCard(config) {
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
         },
-        get isDimmedByFocus() {
-            if (this.isFocused || this.focusReady) return false;
-            if (this.activeFocusSession) return true;
-            try {
-                return !!(window.Alpine?.store?.('focusSession')?.focusReady);
-            } catch (_) {
-                return false;
-            }
-        },
         get focusReadyDurationMinutes() {
             return this.taskDurationMinutes != null && this.taskDurationMinutes > 0
                 ? Number(this.taskDurationMinutes)
                 : this.defaultWorkDurationMinutes;
+        },
+        get formattedFocusReadyDuration() {
+            return this.formatFocusReadyDuration();
         },
         formatFocusReadyDuration() {
             const min = this.focusReadyDurationMinutes;
@@ -132,17 +128,41 @@ export function listItemCard(config) {
         isTempSessionId(id) {
             return id != null && String(id).startsWith('temp-');
         },
+        syncFocusTicker() {
+            const shouldRun = this.isFocused && this.activeFocusSession;
+            if (this._focusTickerShouldRun === shouldRun) return;
+            this._focusTickerShouldRun = shouldRun;
+            if (shouldRun) {
+                this.startFocusTicker();
+            } else {
+                this.stopFocusTicker();
+                this.sessionComplete = false;
+            }
+        },
         startFocusTicker() {
             if (this.focusIntervalId != null) return;
             if (this.sessionComplete || this.focusRemainingSeconds <= 0) return;
             this.sessionComplete = false;
             this.focusTickerNow = Date.now();
-            this.focusElapsedPercentValue = this.focusElapsedPercent;
+            const initialRemaining = this.focusRemainingSeconds;
+            const initialDuration = Number(this.activeFocusSession?.duration_seconds ?? 0);
+            this.focusElapsedPercentValue = initialDuration > 0
+                ? Math.min(100, Math.max(0, ((initialDuration - initialRemaining) / initialDuration) * 100))
+                : 0;
+            this.focusCountdownText = this.formatFocusCountdown(initialRemaining);
+            this.focusProgressStyle = `width: ${this.focusElapsedPercentValue}%; min-width: ${this.focusElapsedPercentValue > 0 ? '2px' : '0'}`;
             this.focusIntervalId = setInterval(() => {
                 if (this.focusIsPaused) return;
                 this.focusTickerNow = Date.now();
-                this.focusElapsedPercentValue = this.focusElapsedPercent;
-                if (this.focusRemainingSeconds <= 0) {
+                const remaining = this.focusRemainingSeconds;
+                const duration = Number(this.activeFocusSession?.duration_seconds ?? 0);
+                const pct = duration > 0
+                    ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))
+                    : 0;
+                this.focusElapsedPercentValue = pct;
+                this.focusCountdownText = this.formatFocusCountdown(remaining);
+                this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
+                if (remaining <= 0) {
                     this.sessionComplete = true;
                     const pausedSeconds = this.getFocusPausedSecondsTotal();
                     const sessionId = this.activeFocusSession?.id;
@@ -192,6 +212,8 @@ export function listItemCard(config) {
                 window.removeEventListener('keydown', this._focusEscapeHandler);
                 this._focusEscapeHandler = null;
             }
+            this.focusCountdownText = '';
+            this.focusProgressStyle = 'width: 0%; min-width: 0';
         },
         dismissCompletedFocus() {
             if (this._completedDismissTimeoutId != null) {
@@ -255,7 +277,11 @@ export function listItemCard(config) {
             this.focusIsPaused = true;
             this.focusPauseStartedAt = Date.now();
             this.focusTickerNow = Date.now();
+            const remaining = this.focusRemainingSeconds;
             this.focusElapsedPercentValue = this.focusElapsedPercent;
+            this.focusCountdownText = this.formatFocusCountdown(remaining);
+            const pct = this.focusElapsedPercentValue;
+            this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
             if (sessionId != null && !this.isTempSessionId(sessionId)) {
                 try {
                     const ok = await this.$wire.$parent.$call('pauseFocusSession', sessionId);
@@ -282,7 +308,11 @@ export function listItemCard(config) {
             this.focusPauseStartedAt = null;
             this.focusIsPaused = false;
             this.focusTickerNow = Date.now();
+            const remaining = this.focusRemainingSeconds;
             this.focusElapsedPercentValue = this.focusElapsedPercent;
+            this.focusCountdownText = this.formatFocusCountdown(remaining);
+            const pct = this.focusElapsedPercentValue;
+            this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
             this._focusJustResumed = true;
             if (sessionId != null && !this.isTempSessionId(sessionId)) {
                 try {

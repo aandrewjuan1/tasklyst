@@ -2,7 +2,7 @@
     $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 @endphp
 
-<x-simple-select-dropdown position="top" align="end" x-show="creationKind === 'task'" x-cloak>
+<x-simple-select-dropdown position="top" align="end">
     <x-slot:trigger>
         <button
             type="button"
@@ -36,7 +36,7 @@
     </div>
 </x-simple-select-dropdown>
 
-<x-simple-select-dropdown position="top" align="end" x-show="creationKind === 'task'" x-cloak>
+<x-simple-select-dropdown position="top" align="end">
     <x-slot:trigger>
         <button
             type="button"
@@ -70,7 +70,7 @@
     </div>
 </x-simple-select-dropdown>
 
-<x-simple-select-dropdown position="top" align="end" x-show="creationKind === 'task'" x-cloak>
+<x-simple-select-dropdown position="top" align="end">
     <x-slot:trigger>
         <button
             type="button"
@@ -104,7 +104,7 @@
     </div>
 </x-simple-select-dropdown>
 
-<x-simple-select-dropdown position="top" align="end" x-show="creationKind === 'task'" x-cloak>
+<x-simple-select-dropdown position="top" align="end">
     <x-slot:trigger>
         <button
             type="button"
