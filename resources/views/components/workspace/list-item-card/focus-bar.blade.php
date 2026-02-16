@@ -6,19 +6,25 @@
 <div
     x-show="focusReady || isFocused"
     @if($focusBarCloak) x-cloak @endif
-    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter="transition ease-out duration-150"
     x-transition:enter-start="opacity-0 -translate-y-0.5"
     x-transition:enter-end="opacity-100 translate-y-0"
     x-transition:leave="transition ease-in duration-150"
     x-transition:leave-start="opacity-100 translate-y-0"
     x-transition:leave-end="opacity-0 -translate-y-0.5"
-    class="overflow-hidden rounded-lg border-0 border-t-4 border-zinc-300 bg-primary/10 shadow-inner dark:border-zinc-600 dark:bg-primary/20"
+    class="overflow-hidden"
 >
     <div class="px-4 py-3">
         {{-- Ready state: user has clicked Focus but not started the timer yet --}}
         <div
             x-show="focusReady && !isFocused"
             x-cloak
+            x-transition:enter="transition ease-out duration-100"
+            x-transition:enter-start="opacity-0"
+            x-transition:enter-end="opacity-100"
+            x-transition:leave="transition ease-out duration-100"
+            x-transition:leave-start="opacity-100 translate-y-0"
+            x-transition:leave-end="opacity-0 -translate-y-1"
             class="flex flex-col gap-3"
         >
             {{-- Row 1: focus mode type selector --}}
@@ -51,19 +57,19 @@
                         <template x-if="focusModeType === 'countdown'">
                             <div class="flex flex-col gap-0.5">
                                 <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                                <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks.') }}</span>
+                                <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks.') }}</span>
                             </div>
                         </template>
                         <template x-if="focusModeType === 'pomodoro'">
                             <div class="flex flex-col gap-0.5">
                                 <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
-                                <span class="text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Coming soon') }}</span>
+                                <span class="text-xs leading-snug text-zinc-500">{{ __('Coming soon') }}</span>
                             </div>
                         </template>
                         <template x-if="focusModeType !== 'countdown' && focusModeType !== 'pomodoro'">
                             <div class="flex flex-col gap-0.5">
                                 <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                                <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks.') }}</span>
+                                <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks.') }}</span>
                             </div>
                         </template>
                     </div>
@@ -96,12 +102,22 @@
         </div>
 
         {{-- Active session: timer running (or paused), progress bar, Pause/Resume/Stop --}}
-        <div x-show="isFocused" class="flex flex-col gap-3">
+        <div
+            x-show="isFocused"
+            x-cloak
+            x-transition:enter="transition ease-out duration-150"
+            x-transition:enter-start="opacity-0"
+            x-transition:enter-end="opacity-100"
+            x-transition:leave="transition ease-in duration-100"
+            x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0"
+            class="flex flex-col gap-3"
+        >
             <div class="flex flex-wrap items-center gap-4">
                 <div class="min-w-0 flex-1 basis-0">
                     <div class="flex flex-col gap-0.5">
                         <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                        <span class="max-w-sm text-xs leading-snug text-zinc-500 dark:text-zinc-400">{{ __('Count down your set duration with no breaks—sprint through the task.') }}</span>
+                        <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks—sprint through the task.') }}</span>
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-3">
@@ -174,7 +190,7 @@
                 </div>
             </div>
             <div
-                class="h-2 w-full shrink-0 overflow-hidden rounded-full border border-zinc-300 bg-zinc-200 dark:border-zinc-600 dark:bg-zinc-700"
+                class="h-2 w-full shrink-0 overflow-hidden rounded-full"
                 role="progressbar"
                 :aria-valuenow="Math.round(focusElapsedPercentValue)"
                 aria-valuemin="0"
