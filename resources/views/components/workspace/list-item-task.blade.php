@@ -91,6 +91,8 @@
 
     $currentUserId = auth()->id();
     $currentUserIsOwner = $currentUserId && (int) $item->user_id === (int) $currentUserId;
+    $hasCollaborators = ($item->collaborators ?? collect())->count() > 0;
+    $isCollaboratedView = $hasCollaborators && ! $currentUserIsOwner;
     $canEdit = auth()->user()?->can('update', $item) ?? false;
     $canEditRecurrence = $currentUserIsOwner && $canEdit;
     $canEditDates = $currentUserIsOwner && $canEdit;
@@ -463,143 +465,199 @@
     @tag-deleted.window="onTagDeleted($event)"
 >
     @if($item->status)
-        <x-simple-select-dropdown position="top" align="end">
-            <x-slot:trigger>
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $statusInitialClass }}"
-                    x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
-                    aria-haspopup="menu"
-                >
-                    <flux:icon name="check-circle" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Status') }}:
-                        </span>
-                        <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
-                    </span>
-                    <flux:icon name="chevron-down" class="size-3" />
-                </button>
-            </x-slot:trigger>
-
-            <div class="flex flex-col py-1">
-                @foreach ($statusOptions as $opt)
+        @if($canEdit)
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
                     <button
                         type="button"
-                        class="{{ $dropdownItemClass }}"
-                        :class="{ 'font-semibold text-foreground': status === '{{ $opt['value'] }}' }"
-                        @click="updateProperty('status', '{{ $opt['value'] }}')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $statusInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        aria-haspopup="menu"
                     >
-                        {{ $opt['label'] }}
+                        <flux:icon name="check-circle" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Status') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
                     </button>
-                @endforeach
-            </div>
-        </x-simple-select-dropdown>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($statusOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': status === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('status', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
+        @else
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $statusInitialClass }}">
+                <flux:icon name="check-circle" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Status') }}:
+                    </span>
+                    <span class="uppercase">
+                        {{ $statusInitialOption ? $statusInitialOption['label'] : '' }}
+                    </span>
+                </span>
+            </span>
+        @endif
     @endif
 
     @if($item->priority)
-        <x-simple-select-dropdown position="top" align="end">
-            <x-slot:trigger>
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $priorityInitialClass }}"
-                    x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
-                    aria-haspopup="menu"
-                >
-                    <flux:icon name="bolt" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Priority') }}:
-                        </span>
-                        <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
-                    </span>
-                    <flux:icon name="chevron-down" class="size-3" />
-                </button>
-            </x-slot:trigger>
-
-            <div class="flex flex-col py-1">
-                @foreach ($priorityOptions as $opt)
+        @if($canEdit)
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
                     <button
                         type="button"
-                        class="{{ $dropdownItemClass }}"
-                        :class="{ 'font-semibold text-foreground': priority === '{{ $opt['value'] }}' }"
-                        @click="updateProperty('priority', '{{ $opt['value'] }}')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $priorityInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        aria-haspopup="menu"
                     >
-                        {{ $opt['label'] }}
+                        <flux:icon name="bolt" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Priority') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
                     </button>
-                @endforeach
-            </div>
-        </x-simple-select-dropdown>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($priorityOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': priority === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('priority', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
+        @else
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $priorityInitialClass }}">
+                <flux:icon name="bolt" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Priority') }}:
+                    </span>
+                    <span class="uppercase">
+                        {{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}
+                    </span>
+                </span>
+            </span>
+        @endif
     @endif
 
     @if($item->complexity)
-        <x-simple-select-dropdown position="top" align="end">
-            <x-slot:trigger>
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $complexityInitialClass }}"
-                    x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
-                    aria-haspopup="menu"
-                >
-                    <flux:icon name="squares-2x2" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Complexity') }}:
-                        </span>
-                        <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
-                    </span>
-                    <flux:icon name="chevron-down" class="size-3" />
-                </button>
-            </x-slot:trigger>
-
-            <div class="flex flex-col py-1">
-                @foreach ($complexityOptions as $opt)
+        @if($canEdit)
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
                     <button
                         type="button"
-                        class="{{ $dropdownItemClass }}"
-                        :class="{ 'font-semibold text-foreground': complexity === '{{ $opt['value'] }}' }"
-                        @click="updateProperty('complexity', '{{ $opt['value'] }}')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $complexityInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        aria-haspopup="menu"
                     >
-                        {{ $opt['label'] }}
+                        <flux:icon name="squares-2x2" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Complexity') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
                     </button>
-                @endforeach
-            </div>
-        </x-simple-select-dropdown>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($complexityOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': complexity === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('complexity', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
+        @else
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $complexityInitialClass }}">
+                <flux:icon name="squares-2x2" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Complexity') }}:
+                    </span>
+                    <span class="uppercase">
+                        {{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}
+                    </span>
+                </span>
+            </span>
+        @endif
     @endif
 
     @if(! is_null($item->duration))
-        <x-simple-select-dropdown position="top" align="end">
-            <x-slot:trigger>
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
-                    :class="{ 'shadow-md scale-[1.02]': open }"
-                    aria-haspopup="menu"
-                >
-                    <flux:icon name="clock" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Duration') }}:
-                        </span>
-                        <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
-                    </span>
-                    <flux:icon name="chevron-down" class="size-3" />
-                </button>
-            </x-slot:trigger>
-
-            <div class="flex flex-col py-1">
-                @foreach ($durationOptions as $dur)
+        @if($canEdit)
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
                     <button
                         type="button"
-                        class="{{ $dropdownItemClass }}"
-                        :class="{ 'font-semibold text-foreground': duration == {{ $dur['value'] }} }"
-                        @click="updateProperty('duration', {{ $dur['value'] }})"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+                        :class="{ 'shadow-md scale-[1.02]': open }"
+                        aria-haspopup="menu"
                     >
-                        {{ $dur['label'] }}
+                        <flux:icon name="clock" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Duration') }}:
+                            </span>
+                            <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
                     </button>
-                @endforeach
-            </div>
-        </x-simple-select-dropdown>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($durationOptions as $dur)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': duration == {{ $dur['value'] }} }"
+                            @click="updateProperty('duration', {{ $dur['value'] }})"
+                        >
+                            {{ $dur['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
+        @else
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="clock" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Duration') }}:
+                    </span>
+                    <span class="uppercase">
+                        {{ $durationInitialLabel }}
+                    </span>
+                </span>
+            </span>
+        @endif
     @endif
 
     <x-date-picker
@@ -631,21 +689,27 @@
         <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
     </div>
 
-    <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
-        @if($item->tags->isNotEmpty())
-        <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
-            <flux:icon name="tag" class="size-3" />
-            {{ __('Tags') }}:
-        </span>
-        @endif
-        <div
-            @tag-toggled="toggleTag($event.detail.tagId)"
-            @tag-create-request="createTagOptimistic($event.detail.tagName)"
-            @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
-        >
-            <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+    @php
+        $hideTagsSection = $isCollaboratedView && $item->tags->isEmpty();
+    @endphp
+
+    @unless($hideTagsSection)
+        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+            @if($item->tags->isNotEmpty())
+                <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                    <flux:icon name="tag" class="size-3" />
+                    {{ __('Tags') }}:
+                </span>
+            @endif
+            <div
+                @tag-toggled="toggleTag($event.detail.tagId)"
+                @tag-create-request="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+            >
+                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+            </div>
         </div>
-    </div>
+    @endunless
 </div>
 
 @if($item->project)

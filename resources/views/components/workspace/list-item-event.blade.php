@@ -51,6 +51,8 @@
 
     $currentUserId = auth()->id();
     $currentUserIsOwner = $currentUserId && (int) $item->user_id === (int) $currentUserId;
+    $hasCollaborators = ($item->collaborators ?? collect())->count() > 0;
+    $isCollaboratedView = $hasCollaborators && ! $currentUserIsOwner;
     $canEdit = auth()->user()?->can('update', $item) ?? false;
     $canEditRecurrence = $currentUserIsOwner && $canEdit;
     $canEditDates = $currentUserIsOwner && $canEdit;
@@ -411,60 +413,88 @@
     @tag-deleted.window="onTagDeleted($event)"
 >
     @if($item->status)
-        <x-simple-select-dropdown position="top" align="end">
-            <x-slot:trigger>
-                <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $eventStatusInitialClass }}"
-                    x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
-                    aria-haspopup="menu"
-                >
-                    <flux:icon name="check-circle" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Status') }}:
-                        </span>
-                        <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $eventStatusInitialOption ? $eventStatusInitialOption['label'] : '' }}</span>
-                    </span>
-                    <flux:icon name="chevron-down" class="size-3" />
-                </button>
-            </x-slot:trigger>
-
-            <div class="flex flex-col py-1">
-                @foreach ($eventStatusOptions as $opt)
+        @if($canEdit)
+            <x-simple-select-dropdown position="top" align="end">
+                <x-slot:trigger>
                     <button
                         type="button"
-                        class="{{ $dropdownItemClass }}"
-                        :class="{ 'font-semibold text-foreground': status === '{{ $opt['value'] }}' }"
-                        @click="updateProperty('status', '{{ $opt['value'] }}')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $eventStatusInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        aria-haspopup="menu"
                     >
-                        {{ $opt['label'] }}
+                        <flux:icon name="check-circle" class="size-3" />
+                        <span class="inline-flex items-baseline gap-1">
+                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                {{ __('Status') }}:
+                            </span>
+                            <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $eventStatusInitialOption ? $eventStatusInitialOption['label'] : '' }}</span>
+                        </span>
+                        <flux:icon name="chevron-down" class="size-3" />
                     </button>
-                @endforeach
-            </div>
-        </x-simple-select-dropdown>
+                </x-slot:trigger>
+
+                <div class="flex flex-col py-1">
+                    @foreach ($eventStatusOptions as $opt)
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': status === '{{ $opt['value'] }}' }"
+                            @click="updateProperty('status', '{{ $opt['value'] }}')"
+                        >
+                            {{ $opt['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+            </x-simple-select-dropdown>
+        @else
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $eventStatusInitialClass }}">
+                <flux:icon name="check-circle" class="size-3" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Status') }}:
+                    </span>
+                    <span class="uppercase">
+                        {{ $eventStatusInitialOption ? $eventStatusInitialOption['label'] : '' }}
+                    </span>
+                </span>
+            </span>
+        @endif
     @endif
 
-    <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $eventAllDayInitialClass }}"
-        :class="allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
-        @click="
-            const next = !allDay;
-            allDay = next;
-            updateProperty('allDay', next);
-        "
-    >
-        <flux:icon name="sun" class="size-3" />
-        <span class="inline-flex items-baseline gap-1">
-            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                {{ __('All Day') }}:
+    @if($canEdit)
+        <button
+            type="button"
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $eventAllDayInitialClass }}"
+            :class="allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
+            @click="
+                const next = !allDay;
+                allDay = next;
+                updateProperty('allDay', next);
+            "
+        >
+            <flux:icon name="sun" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('All Day') }}:
+                </span>
+                <span class="uppercase" x-text="allDay ? '{{ __('Yes') }}' : '{{ __('No') }}'">
+                    {{ $item->all_day ? __('Yes') : __('No') }}
+                </span>
             </span>
-            <span class="uppercase" x-text="allDay ? '{{ __('Yes') }}' : '{{ __('No') }}'">
-                {{ $item->all_day ? __('Yes') : __('No') }}
+        </button>
+    @else
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium dark:border-white/10 {{ $eventAllDayInitialClass }}">
+            <flux:icon name="sun" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('All Day') }}:
+                </span>
+                <span class="uppercase">
+                    {{ $item->all_day ? __('Yes') : __('No') }}
+                </span>
             </span>
         </span>
-    </button>
+    @endif
 
     <x-date-picker
         model="startDatetime"
@@ -495,20 +525,26 @@
         <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
     </div>
 
-    <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
-        @if($item->tags->isNotEmpty())
-        <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
-            <flux:icon name="tag" class="size-3" />
-            {{ __('Tags') }}:
-        </span>
-        @endif
-        <div
-            @tag-toggled="toggleTag($event.detail.tagId)"
-            @tag-create-request="createTagOptimistic($event.detail.tagName)"
-            @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
-        >
-            <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+    @php
+        $hideTagsSection = $isCollaboratedView && $item->tags->isEmpty();
+    @endphp
+
+    @unless($hideTagsSection)
+        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+            @if($item->tags->isNotEmpty())
+                <span class="inline-flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-muted-foreground">
+                    <flux:icon name="tag" class="size-3" />
+                    {{ __('Tags') }}:
+                </span>
+            @endif
+            <div
+                @tag-toggled="toggleTag($event.detail.tagId)"
+                @tag-create-request="createTagOptimistic($event.detail.tagName)"
+                @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
+            >
+                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+            </div>
         </div>
-    </div>
+    @endunless
 </div>
 
