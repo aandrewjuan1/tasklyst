@@ -14,6 +14,8 @@ use App\Models\Task;
 use App\Support\Validation\FocusSessionCompleteValidation;
 use App\Support\Validation\FocusSessionStartValidation;
 use Illuminate\Support\Facades\Validator;
+use Livewire\Attributes\Async;
+use Livewire\Attributes\Renderless;
 
 /**
  * Trait for Livewire components that start, complete, abandon, and resume focus sessions.
@@ -37,6 +39,8 @@ trait HandlesFocusSessions
      * @param  array<string, mixed>  $payload
      * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int, sequence_number: int}|array{error: string}
      */
+    #[Async]
+    #[Renderless]
     public function startFocusSession(int $taskId, array $payload): array
     {
         $user = $this->requireAuth(__('You must be logged in to start a focus session.'));
@@ -109,6 +113,8 @@ trait HandlesFocusSessions
      *
      * @param  array<string, mixed>  $payload
      */
+    #[Async]
+    #[Renderless]
     public function completeFocusSession(int $sessionId, array $payload): bool
     {
         $user = $this->requireAuth(__('You must be logged in to complete a focus session.'));
@@ -157,6 +163,8 @@ trait HandlesFocusSessions
      *
      * @param  array<string, mixed>  $payload  Optional: paused_seconds (int)
      */
+    #[Async]
+    #[Renderless]
     public function abandonFocusSession(int $sessionId, array $payload = []): bool
     {
         $user = $this->requireAuth(__('You must be logged in to stop a focus session.'));
@@ -218,6 +226,8 @@ trait HandlesFocusSessions
     /**
      * Resume the current focus session (flushes paused_at into paused_seconds).
      */
+    #[Async]
+    #[Renderless]
     public function resumeFocusSession(int $sessionId): bool
     {
         $user = $this->requireAuth(__('You must be logged in to resume a focus session.'));
@@ -250,6 +260,8 @@ trait HandlesFocusSessions
      *
      * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, paused_seconds: int, paused_at: string|null, payload: array}|null
      */
+    #[Async]
+    #[Renderless]
     public function getActiveFocusSession(): ?array
     {
         $user = $this->requireAuth(__('You must be logged in to view focus session.'));
@@ -283,6 +295,8 @@ trait HandlesFocusSessions
      * @param  array<string, mixed>  $payload
      * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: null, sequence_number: int}|array{error: string}
      */
+    #[Async]
+    #[Renderless]
     public function startBreakSession(array $payload): array
     {
         $user = $this->requireAuth(__('You must be logged in to start a break.'));
