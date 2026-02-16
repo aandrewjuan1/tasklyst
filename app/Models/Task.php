@@ -256,7 +256,7 @@ class Task extends Model
         return (string) preg_replace('/(?<!^)([A-Z])/', ' $1', $name);
     }
 
-    private static function formatDuration(mixed $minutes): ?string
+    public static function formatDuration(mixed $minutes): ?string
     {
         if ($minutes === null || $minutes === '') {
             return __('Not set');

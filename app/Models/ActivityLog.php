@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ActivityLogAction;
 use App\Enums\EventStatus;
 use App\Enums\TaskStatus;
+use App\Models\Task;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -234,6 +235,10 @@ class ActivityLog extends Model
             };
 
             return 'EVERY '.$interval.' '.$plural;
+        }
+
+        if ($field === 'duration') {
+            return Task::formatDuration($value);
         }
 
         if ($field === 'status') {
