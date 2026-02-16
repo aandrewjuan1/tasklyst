@@ -153,6 +153,15 @@ export function listItemCard(config) {
         },
         async markTaskDoneFromFocus() {
             if (this.kind !== 'task') return;
+            const previousStatus = this.taskStatus;
+            this.taskStatus = 'done';
+            this.dismissCompletedFocus();
+            window.dispatchEvent(
+                new CustomEvent('task-status-updated', {
+                    detail: { itemId: this.itemId, status: 'done' },
+                    bubbles: true,
+                })
+            );
             try {
                 const ok = await this.$wire.$parent.$call(
                     this.updatePropertyMethod,
@@ -162,20 +171,26 @@ export function listItemCard(config) {
                     false
                 );
                 if (ok === false) {
+                    this.taskStatus = previousStatus;
+                    window.dispatchEvent(
+                        new CustomEvent('task-status-updated', {
+                            detail: { itemId: this.itemId, status: previousStatus },
+                            bubbles: true,
+                        })
+                    );
                     this.$wire.$dispatch('toast', {
                         type: 'error',
                         message: this.focusMarkDoneErrorToast,
                     });
-                } else {
-                    this.dismissCompletedFocus();
-                    window.dispatchEvent(
-                        new CustomEvent('task-status-updated', {
-                            detail: { itemId: this.itemId, status: 'done' },
-                            bubbles: true,
-                        })
-                    );
                 }
             } catch (err) {
+                this.taskStatus = previousStatus;
+                window.dispatchEvent(
+                    new CustomEvent('task-status-updated', {
+                        detail: { itemId: this.itemId, status: previousStatus },
+                        bubbles: true,
+                    })
+                );
                 this.$wire.$dispatch('toast', {
                     type: 'error',
                     message: err.message ?? this.focusMarkDoneErrorToast,
