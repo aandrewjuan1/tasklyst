@@ -232,16 +232,6 @@
             focusAfter && focusAfter.focus();
         },
 
-        get triggerButtonClass() {
-            const base = this.triggerBaseClass;
-            const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-            return base + openState;
-        },
-
-        get totalCount() {
-            return this.people?.length || 0;
-        },
-
         get acceptedCount() {
             const people = this.people || [];
 
@@ -568,93 +558,91 @@
                 </h3>
             </div>
             <div class="max-h-64 overflow-y-auto">
-                <template x-if="people.length > 0">
-                    <ul class="space-y-1.5">
-                        <template
-                            x-for="person in people"
-                            :key="(person.collaboration_id ?? person.id) + '-' + (person.status ?? 'accepted')"
-                        >
-                            <li class="group flex items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5 transition-colors hover:bg-muted/80">
-                                <div class="min-w-0 flex-1">
-                                    <p
-                                        class="truncate text-[11px] font-medium text-foreground/90"
-                                        x-text="person.email"
-                                        :title="person.email"
-                                    ></p>
-                                </div>
+                <ul class="space-y-1.5" x-show="people.length > 0" x-cloak>
+                    <template
+                        x-for="person in people"
+                        :key="(person.collaboration_id ?? person.id) + '-' + (person.status ?? 'accepted')"
+                    >
+                        <li class="group flex items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5 transition-colors hover:bg-muted/80">
+                            <div class="min-w-0 flex-1">
+                                <p
+                                    class="truncate text-[11px] font-medium text-foreground/90"
+                                    x-text="person.email"
+                                    :title="person.email"
+                                ></p>
+                            </div>
 
-                                <div class="flex shrink-0 items-center gap-1.5">
-                                    <!-- Accepted collaborators: show permission toggle only if user can update collaboration -->
-                                    <template x-if="(person.status ?? 'accepted') === 'accepted' && canManageCollaborations">
-                                        <button
-                                            type="button"
-                                            class="shrink-0 inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-0.5 text-[11px] font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
-                                            :class="(person.permission_value ?? 'view') === 'edit' ? 'bg-emerald-500/10 text-emerald-600 shadow-sm dark:text-emerald-400' : 'bg-muted text-muted-foreground'"
-                                            :disabled="updatingPermissionKeys?.has(`perm-${person.collaboration_id ?? ''}`)"
-                                            @click.stop="togglePersonPermission(person)"
-                                        >
-                                            <span class="uppercase" x-text="person.permission"></span>
-                                        </button>
-                                    </template>
+                            <div class="flex shrink-0 items-center gap-1.5">
+                                <!-- Accepted collaborators: show permission toggle only if user can update collaboration -->
+                                <template x-if="(person.status ?? 'accepted') === 'accepted' && canManageCollaborations">
+                                    <button
+                                        type="button"
+                                        class="shrink-0 inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-0.5 text-[11px] font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                                        :class="(person.permission_value ?? 'view') === 'edit' ? 'bg-emerald-500/10 text-emerald-600 shadow-sm dark:text-emerald-400' : 'bg-muted text-muted-foreground'"
+                                        :disabled="updatingPermissionKeys?.has(`perm-${person.collaboration_id ?? ''}`)"
+                                        @click.stop="togglePersonPermission(person)"
+                                    >
+                                        <span class="uppercase" x-text="person.permission"></span>
+                                    </button>
+                                </template>
 
-                                    <!-- Invitations (pending / sending / declined / rejected): show status only -->
-                                    <template x-if="person.status && (person.status ?? 'accepted') !== 'accepted'">
+                                <!-- Invitations (pending / sending / declined / rejected): show status only -->
+                                <template x-if="person.status && (person.status ?? 'accepted') !== 'accepted'">
+                                    <span
+                                        class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide inline-flex items-center gap-1"
+                                        :class="{
+                                            'bg-amber-500/10 text-amber-600 dark:text-amber-500': person.status === 'pending',
+                                            'bg-muted text-muted-foreground': person.status === 'sending',
+                                            'bg-red-500/10 text-red-600 dark:text-red-500': ['declined', 'rejected'].includes(person.status),
+                                        }"
+                                        role="status"
+                                    >
+                                        <flux:icon x-show="person.status === 'sending'" class="size-3 animate-spin" name="arrow-path" x-cloak />
                                         <span
-                                            class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide inline-flex items-center gap-1"
-                                            :class="{
-                                                'bg-amber-500/10 text-amber-600 dark:text-amber-500': person.status === 'pending',
-                                                'bg-muted text-muted-foreground': person.status === 'sending',
-                                                'bg-red-500/10 text-red-600 dark:text-red-500': ['declined', 'rejected'].includes(person.status),
-                                            }"
-                                            role="status"
-                                        >
-                                            <flux:icon x-show="person.status === 'sending'" class="size-3 animate-spin" name="arrow-path" x-cloak />
-                                            <span
-                                                x-text="person.status === 'sending'
-                                                    ? '{{ __('Sending…') }}'
-                                                    : (person.status === 'pending'
-                                                        ? '{{ __('Pending') }}'
-                                                        : (['declined', 'rejected'].includes(person.status)
-                                                            ? '{{ __('Declined') }}'
-                                                            : person.status))"
-                                            ></span>
-                                        </span>
-                                    </template>
+                                            x-text="person.status === 'sending'
+                                                ? '{{ __('Sending…') }}'
+                                                : (person.status === 'pending'
+                                                    ? '{{ __('Pending') }}'
+                                                    : (['declined', 'rejected'].includes(person.status)
+                                                        ? '{{ __('Declined') }}'
+                                                        : person.status))"
+                                        ></span>
+                                    </span>
+                                </template>
 
-                                    <!-- Current user can always remove themselves from an accepted collaboration -->
-                                    <flux:tooltip content="{{ __('Remove yourself from this item') }}">
-                                        <button
-                                            type="button"
-                                            class="inline-flex items-center justify-center rounded-full border border-black/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
-                                            x-show="(person.status ?? 'accepted') === 'accepted' && currentUserId != null && Number(person.id ?? NaN) === Number(currentUserId)"
-                                            x-cloak
-                                            :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
-                                            @click.stop="removePerson(person)"
-                                        >
-                                            {{ __('Remove') }}
-                                        </button>
-                                    </flux:tooltip>
+                                <!-- Current user can always remove themselves from an accepted collaboration -->
+                                <flux:tooltip content="{{ __('Remove yourself from this item') }}">
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center justify-center rounded-full border border-black/10 px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
+                                        x-show="(person.status ?? 'accepted') === 'accepted' && currentUserId != null && Number(person.id ?? NaN) === Number(currentUserId)"
+                                        x-cloak
+                                        :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
+                                        @click.stop="removePerson(person)"
+                                    >
+                                        {{ __('Remove') }}
+                                    </button>
+                                </flux:tooltip>
 
-                                    <flux:tooltip content="{{ __('Remove collaborator or invitation') }}">
-                                        <button
-                                            type="button"
-                                            class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
-                                            x-show="canManageCollaborations && (person.status ?? 'accepted') !== 'sending'"
-                                            x-cloak
-                                            :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
-                                            @click.stop="removePerson(person)"
-                                            :aria-label="(person.status ?? 'accepted') === 'accepted'
-                                                ? '{{ __('Remove collaborator') }}'
-                                                : '{{ __('Remove invitation') }}'"
-                                        >
-                                            <flux:icon name="x-mark" class="size-3.5" />
-                                        </button>
-                                    </flux:tooltip>
-                                </div>
-                            </li>
-                        </template>
-                    </ul>
-                </template>
+                                <flux:tooltip content="{{ __('Remove collaborator or invitation') }}">
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center justify-center rounded-full p-0.5 text-[10px] text-muted-foreground/60 transition-colors hover:text-red-600 hover:bg-red-500/10"
+                                        x-show="canManageCollaborations && (person.status ?? 'accepted') !== 'sending'"
+                                        x-cloak
+                                        :disabled="removingKeys?.has(`${person.status ?? 'accepted'}-${person.id ?? person.email}`)"
+                                        @click.stop="removePerson(person)"
+                                        :aria-label="(person.status ?? 'accepted') === 'accepted'
+                                            ? '{{ __('Remove collaborator') }}'
+                                            : '{{ __('Remove invitation') }}'"
+                                    >
+                                        <flux:icon name="x-mark" class="size-3.5" />
+                                    </button>
+                                </flux:tooltip>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
             </div>
 
             <div

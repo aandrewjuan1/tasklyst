@@ -37,11 +37,23 @@
             if (this.open) {
                 return this.close(this.$refs.button);
             }
-            this.$refs.button && this.$refs.button.focus();
 
-            const rect = this.$refs.button.getBoundingClientRect();
             const vh = window.innerHeight;
             const vw = window.innerWidth;
+
+            // On very small viewports, use a viewport-fixed mobile sheet instead of anchoring to the trigger
+            if (vw <= 480) {
+                this.placementVertical = 'bottom';
+                this.placementHorizontal = 'center';
+                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
+                this.open = true;
+                this.$dispatch('dropdown-opened');
+                this.$refs.button && this.$refs.button.focus();
+
+                return;
+            }
+
+            const rect = this.$refs.button.getBoundingClientRect();
             const contentLeft = vw < 768 ? 16 : 320;
             const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
 
@@ -69,9 +81,7 @@
 
             const v = this.placementVertical;
             const h = this.placementHorizontal;
-            if (vw <= 480) {
-                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
-            } else if (v === 'top' && h === 'end') {
+            if (v === 'top' && h === 'end') {
                 this.panelPlacementClassesValue = 'bottom-full right-0 mb-1';
             } else if (v === 'top' && h === 'start') {
                 this.panelPlacementClassesValue = 'bottom-full left-0 mb-1';
@@ -85,6 +95,7 @@
 
             this.open = true;
             this.$dispatch('dropdown-opened');
+            this.$refs.button && this.$refs.button.focus();
         },
 
         close(focusAfter) {
@@ -206,40 +217,38 @@
                 </h3>
             </div>
             <div class="max-h-64 overflow-y-auto">
-                <template x-if="invitations.length > 0">
-                    <ul class="space-y-3">
-                        <template x-for="inv in invitations" :key="inv.token">
-                            <li class="flex flex-col gap-2 rounded-lg border border-border/50 bg-muted/40 px-3 py-2.5">
-                                <p class="text-xs font-medium text-foreground leading-snug" x-text="inv.inviter_name + ' ' + @js(__('invited you to')) + ' ' + itemTypeLabel(inv.item_type) + ': ' + (inv.item_title || '')"></p>
-                                <p class="text-[11px] text-muted-foreground leading-snug">
-                                    <span>{{ __('If you accept, you\'ll get') }}</span>
-                                    <span x-text="inv.permission" class="font-medium text-foreground/80"></span>
-                                    <span>{{ __('permission.') }}</span>
-                                </p>
-                                <div class="flex flex-wrap items-center gap-2 pt-1">
-                                    <flux:button
-                                        size="xs"
-                                        variant="primary"
-                                        class="shrink-0"
-                                        x-bind:disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
-                                        @click="accept(inv)"
-                                    >
-                                        {{ __('Accept') }}
-                                    </flux:button>
-                                    <flux:button
-                                        size="xs"
-                                        variant="ghost"
-                                        class="shrink-0 text-muted-foreground hover:text-foreground"
-                                        x-bind:disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
-                                        @click="decline(inv)"
-                                    >
-                                        {{ __('Decline') }}
-                                    </flux:button>
-                                </div>
-                            </li>
-                        </template>
-                    </ul>
-                </template>
+                <ul class="space-y-3" x-show="invitations.length > 0" x-cloak>
+                    <template x-for="inv in invitations" :key="inv.token">
+                        <li class="flex flex-col gap-2 rounded-lg border border-border/50 bg-muted/40 px-3 py-2.5">
+                            <p class="text-xs font-medium text-foreground leading-snug" x-text="inv.inviter_name + ' ' + @js(__('invited you to')) + ' ' + itemTypeLabel(inv.item_type) + ': ' + (inv.item_title || '')"></p>
+                            <p class="text-[11px] text-muted-foreground leading-snug">
+                                <span>{{ __('If you accept, you\'ll get') }}</span>
+                                <span x-text="inv.permission" class="font-medium text-foreground/80"></span>
+                                <span>{{ __('permission.') }}</span>
+                            </p>
+                            <div class="flex flex-wrap items-center gap-2 pt-1">
+                                <flux:button
+                                    size="xs"
+                                    variant="primary"
+                                    class="shrink-0"
+                                    x-bind:disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
+                                    @click="accept(inv)"
+                                >
+                                    {{ __('Accept') }}
+                                </flux:button>
+                                <flux:button
+                                    size="xs"
+                                    variant="ghost"
+                                    class="shrink-0 text-muted-foreground hover:text-foreground"
+                                    x-bind:disabled="acceptingTokens?.has(inv.token) || decliningTokens?.has(inv.token)"
+                                    @click="decline(inv)"
+                                >
+                                    {{ __('Decline') }}
+                                </flux:button>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
             </div>
 
             <div
