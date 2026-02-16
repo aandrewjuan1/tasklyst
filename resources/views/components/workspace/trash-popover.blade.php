@@ -9,8 +9,6 @@
         open: false,
         placementVertical: @js($position),
         placementHorizontal: @js($align),
-        panelHeightEst: 360,
-        panelWidthEst: 320,
         items: [],
         lastDeletedAt: null,
         hasMore: false,
@@ -63,10 +61,6 @@
         cancelSelection() {
             this.selectionMode = false;
             this.selectedIds = [];
-        },
-        get selectedItems() {
-            const idSet = new Set(this.selectedIds);
-            return this.items.filter((i) => idSet.has(this.itemKey(i)));
         },
         get hasSelection() {
             return this.selectedIds.length > 0;
@@ -124,14 +118,16 @@
             if (button) {
                 const vh = window.innerHeight;
                 const vw = window.innerWidth;
+                const PANEL_HEIGHT_EST = 360;
+                const PANEL_WIDTH_EST = 320;
                 const rect = button.getBoundingClientRect();
                 const contentLeft = vw < 768 ? 16 : 320;
-                const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
+                const effectivePanelWidth = Math.min(PANEL_WIDTH_EST, vw - 32);
 
                 const spaceBelow = vh - rect.bottom;
                 const spaceAbove = rect.top;
 
-                if (spaceBelow >= this.panelHeightEst || spaceBelow >= spaceAbove) {
+                if (spaceBelow >= PANEL_HEIGHT_EST || spaceBelow >= spaceAbove) {
                     this.placementVertical = 'bottom';
                 } else {
                     this.placementVertical = 'top';
@@ -213,7 +209,7 @@
                 const response = await $wire.$call('loadTrashItems', this.lastDeletedAt, 10);
                 const newItems = response?.items ?? [];
                 if (newItems.length) {
-                    this.items = [...this.items, ...newItems];
+                    this.items.push(...newItems);
                 }
                 this.hasMore = Boolean(response?.hasMore);
                 this.lastDeletedAt = response?.lastDeletedAt ?? null;
@@ -234,9 +230,14 @@
             focusAfter && focusAfter.focus();
         },
 
+        kindLabels: {
+            task: @js(__('Task')),
+            project: @js(__('Project')),
+            event: @js(__('Event')),
+        },
+
         kindLabel(kind) {
-            const labels = { task: @js(__('Task')), project: @js(__('Project')), event: @js(__('Event')) };
-            return labels[kind] || kind;
+            return this.kindLabels[kind] || kind;
         },
 
         async restore(item) {
@@ -281,6 +282,14 @@
             } finally {
                 this.deletingAll = false;
             }
+        },
+
+        async confirmForceDeleteItem() {
+            if (this.itemToForceDelete) {
+                await this.forceDelete(this.itemToForceDelete);
+            }
+            this.itemToForceDelete = null;
+            $flux.modal('delete-item').close();
         },
     }"
     @keydown.escape.prevent.stop="close($refs.trigger)"
@@ -562,7 +571,7 @@
                     <flux:button
                         type="button"
                         variant="danger"
-                        @click="(async () => { if (itemToForceDelete) await forceDelete(itemToForceDelete); itemToForceDelete = null; $flux.modal('delete-item').close(); })()"
+                        @click="confirmForceDeleteItem()"
                     >
                         {{ __('Delete item') }}
                     </flux:button>
