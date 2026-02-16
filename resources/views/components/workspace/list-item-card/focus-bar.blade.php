@@ -1,7 +1,6 @@
 {{-- Focus mode bar: ready state (Start/Cancel) or active session (timer, progress, Pause/Resume/Stop). Uses parent Alpine scope (listItemCard). --}}
 @php
     $focusBarCloak = empty($hasActiveFocusOnThisTask ?? false);
-    $focusModeTypeDisabledExpr = '!((focusModeTypes || []).find(t => t.value === focusModeType)?.available)';
 @endphp
 <div
     x-show="focusReady || isFocused"
@@ -81,7 +80,7 @@
                             size="sm"
                             icon="play"
                             class="shrink-0"
-                            x-bind:disabled="$focusModeTypeDisabledExpr"
+                            x-bind:disabled="!((focusModeTypes || []).find(t => t.value === focusModeType)?.available)"
                             @click="startFocusFromReady()"
                         >
                             {{ __('Start') }}

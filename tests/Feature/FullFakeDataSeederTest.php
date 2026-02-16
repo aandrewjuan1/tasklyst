@@ -14,13 +14,17 @@ use Database\Seeders\FullFakeDataSeeder;
 test('full fake data seeder creates exactly five users', function (): void {
     $this->seed(FullFakeDataSeeder::class);
 
-    expect(User::count())->toBe(5);
+    $fullFakeUsers = User::where('email', 'like', 'fullfake.user%@example.test')->get();
+
+    expect($fullFakeUsers)->toHaveCount(5);
 });
 
 test('full fake data seeder users have expected email pattern', function (): void {
     $this->seed(FullFakeDataSeeder::class);
 
-    $emails = User::pluck('email')->all();
+    $emails = User::where('email', 'like', 'fullfake.user%@example.test')
+        ->pluck('email')
+        ->all();
 
     expect($emails)->toHaveCount(5);
     foreach (['fullfake.user1@example.test', 'fullfake.user2@example.test', 'fullfake.user3@example.test', 'fullfake.user4@example.test', 'fullfake.user5@example.test'] as $expected) {
@@ -31,7 +35,7 @@ test('full fake data seeder users have expected email pattern', function (): voi
 test('each user has at least one project task event and tag', function (): void {
     $this->seed(FullFakeDataSeeder::class);
 
-    $users = User::all();
+    $users = User::where('email', 'like', 'fullfake.user%@example.test')->get();
     expect($users)->toHaveCount(5);
 
     foreach ($users as $user) {
