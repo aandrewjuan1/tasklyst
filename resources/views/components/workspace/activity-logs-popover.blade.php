@@ -48,6 +48,7 @@
 
 <div
     wire:ignore
+    class="relative"
     x-data="{
         open: false,
         logs: @js($logsForJs),
@@ -76,13 +77,12 @@
             const vh = window.innerHeight;
             const vw = window.innerWidth;
             const rect = button.getBoundingClientRect();
-            const contentLeft = vw < 768 ? 16 : 320;
             const panelHeightEst = 320;
-            const panelWidthEst = 320;
-            const effectivePanelWidth = Math.min(panelWidthEst, vw - 32);
 
             const spaceBelow = vh - rect.bottom;
             const spaceAbove = rect.top;
+
+            const verticalSpaceInsufficient = spaceBelow < panelHeightEst && spaceAbove < panelHeightEst;
 
             let placementVertical;
             if (spaceBelow >= panelHeightEst || spaceBelow >= spaceAbove) {
@@ -91,31 +91,15 @@
                 placementVertical = 'top';
             }
 
-            const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
-            const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
-
-            if (rect.left < contentLeft) {
-                placementHorizontal = 'start';
-            } else if (endFits) {
-                placementHorizontal = 'end';
-            } else if (startFits) {
-                placementHorizontal = 'start';
-            } else {
-                placementHorizontal = rect.right > vw ? 'start' : 'end';
-            }
-
             const v = placementVertical;
-            const h = placementHorizontal;
             if (vw <= 480) {
-                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
-            } else if (v === 'top' && h === 'end') {
+                this.panelPlacementClassesValue = 'fixed inset-x-3 top-1/2 -translate-y-1/2 max-h-[80vh] transform';
+            } else if (vw <= 640 || verticalSpaceInsufficient) {
+                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[80vh]';
+            } else if (v === 'top') {
                 this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
-            } else if (v === 'top' && h === 'start') {
-                this.panelPlacementClassesValue = 'absolute bottom-full left-0 mb-1';
-            } else if (v === 'bottom' && h === 'end') {
+            } else if (v === 'bottom') {
                 this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
-            } else if (v === 'bottom' && h === 'start') {
-                this.panelPlacementClassesValue = 'absolute top-full left-0 mt-1';
             } else {
                 this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
             }

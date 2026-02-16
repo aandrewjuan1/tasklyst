@@ -109,7 +109,7 @@
                     />
                 </div>
 
-                <div class="hidden md:block relative">
+                <div class="relative">
                     <x-workspace.activity-logs-popover
                         :item="$item"
                         :kind="$kind"
