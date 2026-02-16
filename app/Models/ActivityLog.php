@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Str;
 
 class ActivityLog extends Model
 {
@@ -59,16 +60,77 @@ class ActivityLog extends Model
         $action = $this->action;
         $payload = $this->payload ?? [];
 
+        if ($action === ActivityLogAction::CommentCreated) {
+            $actor = $this->user?->name ?? $this->user?->email ?? __('Unknown user');
+            $content = (string) ($payload['content'] ?? '');
+            $normalized = trim(preg_replace('/\s+/', ' ', $content));
+            $excerpt = Str::limit($normalized, 120);
+
+            if ($excerpt === '') {
+                return __('Comment added by :user', ['user' => $actor]);
+            }
+
+            return __('Comment added by :user: ":comment"', [
+                'user' => $actor,
+                'comment' => $excerpt,
+            ]);
+        }
+
+        if ($action === ActivityLogAction::CommentUpdated) {
+            $actor = $this->user?->name ?? $this->user?->email ?? __('Unknown user');
+            $fromRaw = (string) ($payload['from'] ?? '');
+            $toRaw = (string) ($payload['to'] ?? '');
+            $fromNorm = trim(preg_replace('/\s+/', ' ', $fromRaw));
+            $toNorm = trim(preg_replace('/\s+/', ' ', $toRaw));
+            $fromExcerpt = Str::limit($fromNorm, 80);
+            $toExcerpt = Str::limit($toNorm, 80);
+
+            if ($fromExcerpt === '' && $toExcerpt === '') {
+                return __('Comment edited by :user', ['user' => $actor]);
+            }
+
+            if ($fromExcerpt === '') {
+                return __('Comment edited by :user to ":to"', [
+                    'user' => $actor,
+                    'to' => $toExcerpt,
+                ]);
+            }
+
+            if ($toExcerpt === '') {
+                return __('Comment by :user cleared', [
+                    'user' => $actor,
+                ]);
+            }
+
+            return __('Comment edited by :user: ":from" → ":to"', [
+                'user' => $actor,
+                'from' => $fromExcerpt,
+                'to' => $toExcerpt,
+            ]);
+        }
+
+        if ($action === ActivityLogAction::CommentDeleted) {
+            $actor = $this->user?->name ?? $this->user?->email ?? __('Unknown user');
+            $content = (string) ($payload['content'] ?? '');
+            $normalized = trim(preg_replace('/\s+/', ' ', $content));
+            $excerpt = Str::limit($normalized, 120);
+
+            if ($excerpt === '') {
+                return __('Comment deleted by :user', ['user' => $actor]);
+            }
+
+            return __('Comment deleted by :user: ":comment"', [
+                'user' => $actor,
+                'comment' => $excerpt,
+            ]);
+        }
+
         if ($action === ActivityLogAction::FieldUpdated) {
             $field = (string) ($payload['field'] ?? '');
 
             // High-level labels for some complex fields.
             if ($field === 'tagIds') {
                 return __('Tags updated');
-            }
-
-            if ($field === 'recurrence') {
-                return __('Recurrence updated');
             }
 
             $from = $payload['from'] ?? null;
@@ -126,6 +188,52 @@ class ActivityLog extends Model
     {
         if ($value === null || $value === '') {
             return null;
+        }
+
+        if ($field === 'recurrence') {
+            if (! is_array($value)) {
+                return null;
+            }
+
+            $enabled = (bool) ($value['enabled'] ?? false);
+            if (! $enabled) {
+                return __('Off');
+            }
+
+            $type = (string) ($value['type'] ?? '');
+            $interval = (int) ($value['interval'] ?? 1);
+            $days = $value['daysOfWeek'] ?? [];
+
+            if ($type === '') {
+                return __('On');
+            }
+
+            $typeLabel = strtoupper($type);
+
+            if ($type === 'weekly' && is_array($days) && $days !== []) {
+                $labels = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+                $dayNames = array_map(fn (int $d) => $labels[$d] ?? null, array_map('intval', $days));
+                $dayNames = array_values(array_filter($dayNames));
+
+                $intervalPart = $interval <= 1 ? 'WEEKLY' : 'EVERY '.$interval.' WEEKS';
+                $daysPart = $dayNames !== [] ? ' ('.implode(', ', $dayNames).')' : '';
+
+                return $intervalPart.$daysPart;
+            }
+
+            if ($interval <= 1) {
+                return $typeLabel;
+            }
+
+            $plural = match ($type) {
+                'daily' => 'DAYS',
+                'weekly' => 'WEEKS',
+                'monthly' => 'MONTHS',
+                'yearly' => 'YEARS',
+                default => strtoupper($type).'S',
+            };
+
+            return 'EVERY '.$interval.' '.$plural;
         }
 
         if ($field === 'status') {

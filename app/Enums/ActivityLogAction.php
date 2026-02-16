@@ -10,6 +10,10 @@ enum ActivityLogAction: string
 
     case FieldUpdated = 'field_updated';
 
+    case CommentCreated = 'comment_created';
+    case CommentUpdated = 'comment_updated';
+    case CommentDeleted = 'comment_deleted';
+
     case CollaboratorInvited = 'collaborator_invited';
     case CollaboratorInvitationAccepted = 'collaborator_invitation_accepted';
     case CollaboratorInvitationDeclined = 'collaborator_invitation_declined';
@@ -28,6 +32,10 @@ enum ActivityLogAction: string
             self::ItemRestored => 'Item restored',
 
             self::FieldUpdated => 'Field updated',
+
+            self::CommentCreated => 'Comment added',
+            self::CommentUpdated => 'Comment edited',
+            self::CommentDeleted => 'Comment deleted',
 
             self::CollaboratorInvited => 'Collaborator invited',
             self::CollaboratorInvitationAccepted => 'Invitation accepted',
