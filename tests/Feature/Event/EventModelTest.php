@@ -220,7 +220,7 @@ test('scope timed returns only non all_day events', function (): void {
         ->and($events->first()->id)->toBe($timed->id);
 });
 
-test('deleting event cascades to collaborations collaboration invitations and recurring event', function (): void {
+test('deleting event cascades to collaborations and collaboration invitations but keeps recurring event', function (): void {
     $event = Event::factory()->for($this->owner)->create();
     $collab = Collaboration::create([
         'collaboratable_type' => Event::class,
@@ -240,7 +240,7 @@ test('deleting event cascades to collaborations collaboration invitations and re
 
     expect(Collaboration::find($collab->id))->toBeNull()
         ->and(CollaborationInvitation::find($invitation->id))->toBeNull()
-        ->and(RecurringEvent::find($recurring->id))->toBeNull();
+        ->and(RecurringEvent::find($recurring->id))->not->toBeNull();
 });
 
 test('property to column maps startDatetime endDatetime and allDay to snake_case', function (): void {

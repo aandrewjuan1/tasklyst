@@ -166,15 +166,16 @@
                 this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             }
 
+            const openedValue = this.getCurrentRecurrenceValue();
             this.open = true;
-            this.valueWhenOpened = JSON.stringify(this.getCurrentRecurrenceValue());
+            this.valueWhenOpened = { ...openedValue, daysOfWeek: [...openedValue.daysOfWeek] };
             this.$dispatch('recurring-selection-opened', { path: this.modelPath, value: this.getCurrentRecurrenceValue() });
             this.$dispatch('dropdown-opened');
         },
 
         close(focusAfter) {
             if (!this.open) return;
-            const valueChanged = JSON.stringify(this.getCurrentRecurrenceValue()) !== this.valueWhenOpened;
+            const valueChanged = this.hasValueChanged();
             this.open = false;
             this.valueWhenOpened = null;
             if (valueChanged) {
@@ -185,6 +186,29 @@
             const leaveMs = 50;
             setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
             focusAfter && focusAfter.focus();
+        },
+
+        hasValueChanged() {
+            if (!this.valueWhenOpened) {
+                return true;
+            }
+
+            const current = this.getCurrentRecurrenceValue();
+            const initial = this.valueWhenOpened;
+
+            if (current.enabled !== initial.enabled) return true;
+            if (current.type !== initial.type) return true;
+            if (current.interval !== initial.interval) return true;
+
+            if (current.daysOfWeek.length !== initial.daysOfWeek.length) return true;
+
+            for (let i = 0; i < current.daysOfWeek.length; i++) {
+                if (current.daysOfWeek[i] !== initial.daysOfWeek[i]) {
+                    return true;
+                }
+            }
+
+            return false;
         },
 
         getCurrentRecurrenceValue() {
@@ -259,69 +283,73 @@
         },
 
         get intervalLabel() {
-            if (!this.type) return 'Every';
-            const typeText = this.type === 'daily' ? 'day' : this.type === 'weekly' ? 'week' : this.type === 'monthly' ? 'month' : 'year';
-            return `Every ${this.interval} ${typeText}${this.interval !== 1 ? 's' : ''}`;
+            if (!this.type) {
+                return 'day';
+            }
+
+            const base = this.type === 'daily' ? 'day' : this.type === 'weekly' ? 'week' : this.type === 'monthly' ? 'month' : 'year';
+
+            return this.interval === 1 ? base : `${base}s`;
         },
     }"
     @recurring-value="handleRecurringValue($event)"
     @recurring-revert="handleRecurringRevert($event)"
-    @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
+    @keydown.escape.prevent.stop="open && close($refs.button)"
+    @focusin.window="open && $refs.panel && !$refs.panel.contains($event.target) && close($refs.button)"
     x-id="['recurring-selection-dropdown']"
     class="relative inline-block"
     data-task-creation-safe
     {{ $attributes }}
 >
     <flux:tooltip :content="$compactWhenDisabled ? $repeatTooltip : $changeTooltip">
-    <button
-        x-ref="button"
-        type="button"
-        @click="toggle()"
-        aria-haspopup="true"
-        :aria-expanded="open"
-        :aria-controls="$id('recurring-selection-dropdown')"
-        @if($compactWhenDisabled)
-            aria-label="{{ $repeatTooltip }}"
-        @endif
-        :aria-readonly="readonly"
-        class="{{ $triggerInitialClass }}"
-        :class="triggerButtonDynamicClass"
-        data-task-creation-safe
-    >
-        <flux:icon name="arrow-path" class="size-3" />
-
-        <span
-            class="sr-only"
-            x-show="!enabled && compactWhenDisabled"
-            style="{{ $shouldRenderCompact ? '' : 'display:none;' }}"
+        <button
+            x-ref="button"
+            type="button"
+            @click="toggle()"
+            aria-haspopup="true"
+            :aria-expanded="open"
+            :aria-controls="$id('recurring-selection-dropdown')"
+            @if($compactWhenDisabled)
+                aria-label="{{ $repeatTooltip }}"
+            @endif
+            :aria-readonly="readonly"
+            class="{{ $triggerInitialClass }}"
+            :class="triggerButtonDynamicClass"
+            data-task-creation-safe
         >
-            {{ $repeatTooltip }}
-        </span>
+            <flux:icon name="arrow-path" class="size-3" />
 
-        <span
-            class="inline-flex items-baseline gap-1"
-            x-show="enabled"
-            style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
-        >
             <span
-                class="text-[10px] font-semibold uppercase tracking-wide opacity-70"
-                x-show="enabled"
+                class="sr-only"
+                x-show="!enabled && compactWhenDisabled"
+                style="{{ $shouldRenderCompact ? '' : 'display:none;' }}"
             >
-                {{ __($triggerLabel) }}:
+                {{ $repeatTooltip }}
             </span>
-            <span class="text-xs" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
-        </span>
 
-        @if(!$readonly)
-            <flux:icon
-                name="chevron-down"
-                class="size-3"
+            <span
+                class="inline-flex items-baseline gap-1"
                 x-show="enabled"
                 style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
-            />
-        @endif
-    </button>
+            >
+                <span
+                    class="text-[10px] font-semibold uppercase tracking-wide opacity-70"
+                    x-show="enabled"
+                >
+                    {{ __($triggerLabel) }}:
+                </span>
+                <span class="text-xs" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
+            </span>
+
+            @if(!$readonly)
+                <flux:icon
+                    name="chevron-down"
+                    class="size-3"
+                    x-show="enabled"
+                    style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
+                />
+            @endif
+        </button>
     </flux:tooltip>
 
     <div
@@ -396,7 +424,10 @@
                             size="sm"
                         />
                     </div>
-                    <span class="shrink-0 text-sm text-muted-foreground" x-text="(type === 'daily' ? (interval === 1 ? 'day' : 'days') : type === 'weekly' ? (interval === 1 ? 'week' : 'weeks') : type === 'monthly' ? (interval === 1 ? 'month' : 'months') : (interval === 1 ? 'year' : 'years'))"></span>
+                    <span
+                        class="shrink-0 text-sm text-muted-foreground"
+                        x-text="intervalLabel"
+                    ></span>
                 </div>
             </template>
 
@@ -420,11 +451,11 @@
                 </div>
             </template>
 
-            <div class="flex w-full justify-center pt-3 border-t border-border/60">
+            <div class="flex w-full justify-center border-t border-border/60 pt-3">
                 <button
                     type="button"
                     @click="enabled = false; type = null; daysOfWeek = []; close($refs.button)"
-                    class="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                    class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                 >
                     {{ __('Don\'t repeat') }}
                 </button>

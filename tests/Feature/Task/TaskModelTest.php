@@ -201,7 +201,7 @@ test('scope due soon returns tasks due within given days from date', function ()
         ->and($tasks->first()->id)->toBe($dueIn3Days->id);
 });
 
-test('deleting task cascades to collaborations collaboration invitations and recurring task', function (): void {
+test('deleting task cascades to collaborations and collaboration invitations but keeps recurring task', function (): void {
     $task = Task::factory()->for($this->owner)->create();
     $collab = Collaboration::create([
         'collaboratable_type' => Task::class,
@@ -221,7 +221,7 @@ test('deleting task cascades to collaborations collaboration invitations and rec
 
     expect(Collaboration::find($collab->id))->toBeNull()
         ->and(CollaborationInvitation::find($invitation->id))->toBeNull()
-        ->and(RecurringTask::find($recurring->id))->toBeNull();
+        ->and(RecurringTask::find($recurring->id))->not->toBeNull();
 });
 
 test('property to column maps startDatetime and endDatetime to snake_case', function (): void {
