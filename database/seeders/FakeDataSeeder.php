@@ -54,6 +54,50 @@ class FakeDataSeeder extends Seeder
         $this->createDailyTask($user, 'Read', 60, null, null, [$learningTag, $personalTag]);
         $this->createDailyTask($user, 'Workout', 120, null, null, [$healthTag, $exerciseTag]);
 
+        // Create 3 tasks with to do status and no duration
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Review project proposal',
+            'description' => null,
+            'status' => TaskStatus::ToDo,
+            'priority' => TaskPriority::Medium,
+            'complexity' => TaskComplexity::Moderate,
+            'duration' => null,
+            'start_datetime' => null,
+            'end_datetime' => null,
+            'project_id' => null,
+            'event_id' => null,
+            'completed_at' => null,
+        ]);
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Call back client',
+            'description' => null,
+            'status' => TaskStatus::ToDo,
+            'priority' => TaskPriority::High,
+            'complexity' => TaskComplexity::Simple,
+            'duration' => null,
+            'start_datetime' => null,
+            'end_datetime' => null,
+            'project_id' => null,
+            'event_id' => null,
+            'completed_at' => null,
+        ]);
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Organize desk',
+            'description' => null,
+            'status' => TaskStatus::ToDo,
+            'priority' => TaskPriority::Low,
+            'complexity' => TaskComplexity::Simple,
+            'duration' => null,
+            'start_datetime' => null,
+            'end_datetime' => null,
+            'project_id' => null,
+            'event_id' => null,
+            'completed_at' => null,
+        ]);
+
         // Create Thesis Project
         Project::create([
             'user_id' => $user->id,
