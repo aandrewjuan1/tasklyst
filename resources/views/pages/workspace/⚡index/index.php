@@ -276,7 +276,7 @@ class extends Component
 
     /**
      * Get overdue tasks and events for the authenticated user.
-     * Overdue = end/due date is before today (not the selected view date).
+     * Overdue = end/due datetime is before now (date and time aware).
      * Returns a unified collection of entries with 'kind' and 'item' for rendering.
      */
     #[Computed]
@@ -290,7 +290,7 @@ class extends Component
 
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
 
-        $today = Carbon::today();
+        $now = now();
 
         $overdueTaskQuery = Task::query()
             ->with([
@@ -304,8 +304,7 @@ class extends Component
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
-            ->incomplete()
-            ->overdue($today)
+            ->overdue($now)
             ->whereDoesntHave('recurringTask');
 
         if (method_exists($this, 'applyOverdueTaskFilters')) {
@@ -326,8 +325,7 @@ class extends Component
             ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notCancelled()
-            ->notCompleted()
-            ->overdue($today)
+            ->overdue($now)
             ->whereDoesntHave('recurringEvent');
 
         if (method_exists($this, 'applyOverdueEventFilters')) {

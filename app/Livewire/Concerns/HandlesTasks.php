@@ -9,6 +9,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -373,8 +374,13 @@ trait HandlesTasks
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
-            ->incomplete()
             ->relevantForDate($date);
+
+        if ($date->isToday()) {
+            $taskQuery->where(function (Builder $q): void {
+                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+            });
+        }
 
         if (method_exists($this, 'applyTaskFilters')) {
             $this->applyTaskFilters($taskQuery);

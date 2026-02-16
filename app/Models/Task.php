@@ -566,15 +566,13 @@ class Task extends Model
     }
 
     /**
-     * Incomplete tasks whose effective due date is before the given date.
-     * Useful for an "Overdue" bucket at the top of Today.
+     * Tasks whose end/due datetime is before the given datetime (date and time).
+     * Useful for an "Overdue" bucket at the top of Today. Pass now() for time-aware overdue.
      */
-    public function scopeOverdue(Builder $query, CarbonInterface $asOfDate): Builder
+    public function scopeOverdue(Builder $query, CarbonInterface $asOf): Builder
     {
-        $startOfDay = $asOfDate->copy()->startOfDay();
-
         return $query->whereNotNull('end_datetime')
-            ->whereDate('end_datetime', '<', $startOfDay->toDateString());
+            ->where('end_datetime', '<', $asOf);
     }
 
     /**

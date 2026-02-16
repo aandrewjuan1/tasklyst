@@ -8,6 +8,7 @@ use App\Models\Tag;
 use App\Models\User;
 use App\Support\Validation\EventPayloadValidation;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -467,10 +468,16 @@ trait HandlesEvents
             ->forUser($userId)
             ->activeForDate($date);
 
+        if ($date->isToday()) {
+            $eventQuery->where(function (Builder $q): void {
+                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+            });
+        }
+
         if (method_exists($this, 'applyEventFilters')) {
             $this->applyEventFilters($eventQuery);
         } else {
-            $eventQuery->notCancelled()->notCompleted();
+            $eventQuery->notCancelled();
         }
 
         $events = $eventQuery->orderByDesc('created_at')->limit(50)->get();

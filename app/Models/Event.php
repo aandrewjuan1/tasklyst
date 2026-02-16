@@ -555,14 +555,13 @@ class Event extends Model
     }
 
     /**
-     * Events that ended before the given date (past / missed).
+     * Events whose end datetime is before the given datetime (date and time).
+     * Pass now() for time-aware overdue.
      */
-    public function scopeOverdue(Builder $query, CarbonInterface $asOfDate): Builder
+    public function scopeOverdue(Builder $query, CarbonInterface $asOf): Builder
     {
-        $startOfDay = $asOfDate->copy()->startOfDay();
-
         return $query->whereNotNull('end_datetime')
-            ->whereDate('end_datetime', '<', $startOfDay->toDateString());
+            ->where('end_datetime', '<', $asOf);
     }
 
     /**

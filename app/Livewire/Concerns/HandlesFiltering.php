@@ -380,16 +380,16 @@ trait HandlesFiltering
     /**
      * Apply filters to the event query.
      *
-     * When no event status filter is set, excludes cancelled and completed by default
-     * (user typically wants to see actionable items). When a filter is set, we do not
-     * filter by status at query level: recurring events can have effectiveStatusForDate
-     * that differs from DB status, so filtering must happen in filterEventCollection
-     * after effective status is computed.
+     * When no event status filter is set, excludes only cancelled. Completed events
+     * are shown by default. When a filter is set, we do not filter by status at query
+     * level: recurring events can have effectiveStatusForDate that differs from DB
+     * status, so filtering must happen in filterEventCollection after effective
+     * status is computed.
      */
     public function applyEventFilters(Builder $query): void
     {
         if ($this->normalizeFilterValue($this->filterEventStatus) === null) {
-            $query->notCancelled()->notCompleted();
+            $query->notCancelled();
         }
 
         if ($this->filterTagIds !== null && $this->filterTagIds !== []) {
