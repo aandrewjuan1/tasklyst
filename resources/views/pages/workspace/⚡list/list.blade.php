@@ -534,9 +534,26 @@
                 case '240':
                     return '4 {{ \Illuminate\Support\Str::plural(__('hour'), 4) }}';
                 case '480':
-                    return '8+ {{ \Illuminate\Support\Str::plural(__('hour'), 8) }}';
-                default:
-                    return '{{ __('Not set') }}';
+                    return '8 {{ \Illuminate\Support\Str::plural(__('hour'), 8) }}';
+                default: {
+                    const m = Number(duration);
+                    if (!Number.isFinite(m) || m <= 0) {
+                        return '{{ __('Not set') }}';
+                    }
+                    if (m < 60) {
+                        return m + ' {{ __('min') }}';
+                    }
+                    const hours = Math.floor(m / 60);
+                    const remainder = m % 60;
+                    const hourWord = hours === 1
+                        ? '{{ __('hour') }}'
+                        : '{{ \Illuminate\Support\Str::plural(__('hour'), 2) }}';
+                    let label = hours + ' ' + hourWord;
+                    if (remainder > 0) {
+                        label += ' ' + remainder + ' {{ __('min') }}';
+                    }
+                    return label;
+                }
             }
         },
         getStatusBadgeClass(status) {

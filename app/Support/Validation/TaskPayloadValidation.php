@@ -11,6 +11,7 @@ use Illuminate\Validation\Rule;
 
 final class TaskPayloadValidation
 {
+    public const MAX_DURATION_MINUTES = 1440; // 24 hours
     /**
      * @return array<string, mixed>
      */
@@ -52,7 +53,7 @@ final class TaskPayloadValidation
             'taskPayload.priority' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))],
             'taskPayload.complexity' => ['nullable', Rule::in(array_map(fn (TaskComplexity $c) => $c->value, TaskComplexity::cases()))],
 
-            'taskPayload.duration' => ['nullable', 'integer', 'min:1'],
+            'taskPayload.duration' => ['nullable', 'integer', 'min:1', 'max:' . self::MAX_DURATION_MINUTES],
             'taskPayload.startDatetime' => ['nullable', 'date'],
             'taskPayload.endDatetime' => ['nullable', 'date', 'after_or_equal:taskPayload.startDatetime'],
 
@@ -119,7 +120,7 @@ final class TaskPayloadValidation
             'status' => ['value' => ['nullable', Rule::in(array_map(fn (TaskStatus $s) => $s->value, TaskStatus::cases()))]],
             'priority' => ['value' => ['nullable', Rule::in(array_map(fn (TaskPriority $p) => $p->value, TaskPriority::cases()))]],
             'complexity' => ['value' => ['nullable', Rule::in(array_map(fn (TaskComplexity $c) => $c->value, TaskComplexity::cases()))]],
-            'duration' => ['value' => ['nullable', 'integer', 'min:1']],
+            'duration' => ['value' => ['nullable', 'integer', 'min:1', 'max:' . self::MAX_DURATION_MINUTES]],
             'startDatetime' => ['value' => ['nullable', 'date']],
             'endDatetime' => ['value' => ['nullable', 'date']],
             'tagIds' => [

@@ -34,7 +34,7 @@
         ['value' => 60, 'label' => '1 hour'],
         ['value' => 120, 'label' => '2 hours'],
         ['value' => 240, 'label' => '4 hours'],
-        ['value' => 480, 'label' => '8+ hours'],
+        ['value' => 480, 'label' => '8 hours'],
     ];
 
     $initialStatusValue = $initialStatus ?? $item->status?->value;
@@ -632,7 +632,24 @@
                     </button>
                 </x-slot:trigger>
 
-                <div class="flex flex-col py-1">
+                <div
+                    class="flex flex-col py-1"
+                    x-data="{
+                        customDurationValue: '',
+                        customDurationUnit: 'minutes',
+                        maxDurationMinutes: @js(\App\Support\Validation\TaskPayloadValidation::MAX_DURATION_MINUTES),
+                        applyCustomDuration() {
+                            const n = parseInt(this.customDurationValue, 10);
+                            if (!Number.isFinite(n) || n <= 0) return;
+                            let minutes = this.customDurationUnit === 'hours' ? n * 60 : n;
+                            const max = Number(this.maxDurationMinutes) || 1440;
+                            if (minutes > max) {
+                                minutes = max;
+                            }
+                            updateProperty('duration', minutes);
+                        },
+                    }"
+                >
                     @foreach ($durationOptions as $dur)
                         <button
                             type="button"
@@ -643,6 +660,47 @@
                             {{ $dur['label'] }}
                         </button>
                     @endforeach
+
+                    <div class="mt-1 border-t border-border/60 pt-2 px-3 pb-1 text-xs text-muted-foreground">
+                        <div class="mb-1 text-[11px] font-medium">
+                            {{ __('Custom duration') }}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                x-model.number="customDurationValue"
+                                placeholder="30"
+                                @click.stop
+                                @blur="applyCustomDuration()"
+                                @keydown.enter.prevent.stop="applyCustomDuration()"
+                                class="h-8 w-16 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
+                            />
+                            <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                                <button
+                                    type="button"
+                                    class="px-2 py-1 transition-colors"
+                                    :class="customDurationUnit === 'minutes'
+                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
+                                    @click.stop.prevent="customDurationUnit = 'minutes'; applyCustomDuration()"
+                                >
+                                    {{ __('Min') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="px-2 py-1 transition-colors"
+                                    :class="customDurationUnit === 'hours'
+                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
+                                    @click.stop.prevent="customDurationUnit = 'hours'; applyCustomDuration()"
+                                >
+                                    {{ __('Hours') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </x-simple-select-dropdown>
         @else
