@@ -1002,9 +1002,9 @@
         $overdueItems = $overdue->map(fn (array $entry) => array_merge($entry, ['isOverdue' => true]));
 
         $dateItems = collect()
-            ->merge($projects->map(fn ($item) => ['kind' => 'project', 'item' => $item, 'isOverdue' => false]))
-            ->merge($events->map(fn ($item) => ['kind' => 'event', 'item' => $item, 'isOverdue' => false]))
-            ->merge($tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item, 'isOverdue' => false]))
+            ->merge($projects->map(fn ($item) => ['kind' => 'project', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
+            ->merge($events->map(fn ($item) => ['kind' => 'event', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
+            ->merge($tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
             ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
             ->values();
 

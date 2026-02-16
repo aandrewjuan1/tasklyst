@@ -495,26 +495,16 @@ export function listItemCard(config) {
             }
             return false;
         },
+        /** Overdue when end datetime is in the past (before now), same logic as date-picker effectiveOverdue. */
         isStillOverdue(startDatetime, endDatetime) {
-            const today = new Date();
-            const todayStr = today.toISOString().slice(0, 10);
             const parseDateTime = (value) => {
-                if (value == null || value === '') {
-                    return null;
-                }
+                if (value == null || value === '') return null;
                 const d = new Date(value);
                 return Number.isNaN(d.getTime()) ? null : d;
             };
             const end = parseDateTime(endDatetime);
-            if (!end) {
-                return false;
-            }
-            try {
-                const endDateStr = end.toISOString().slice(0, 10);
-                return endDateStr < todayStr;
-            } catch (_) {
-                return true;
-            }
+            if (!end) return false;
+            return end < new Date();
         },
         shouldHideAfterPropertyUpdate(detail) {
             const { property, value, startDatetime: detailStart, endDatetime: detailEnd } = detail;
@@ -812,10 +802,12 @@ export function listItemCard(config) {
                 }
                 if (d && ['startDatetime', 'endDatetime'].includes(d.property) && (this.kind === 'task' || this.kind === 'event')) {
                     const stillOverdue = this.isStillOverdue(d.startDatetime ?? null, d.endDatetime ?? null);
-                    if (!this.isOverdue && stillOverdue) {
-                        this.clientOverdue = true;
+                    if (stillOverdue) {
                         this.clientNotOverdue = false;
-                    } else if (this.isOverdue && !stillOverdue) {
+                        if (!this.isOverdue) {
+                            this.clientOverdue = true;
+                        }
+                    } else {
                         this.clientOverdue = false;
                         this.clientNotOverdue = true;
                     }

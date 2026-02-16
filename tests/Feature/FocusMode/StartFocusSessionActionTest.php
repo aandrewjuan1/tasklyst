@@ -102,13 +102,24 @@ test('recurring task with occurrence_date creates instance and leaves base task 
     expect($session->payload)->toHaveKey('occurrence_date', $occurrenceDate);
 });
 
-test('recurring task without occurrence_date updates base task when to_do', function (): void {
+test('recurring task without occurrence_date creates instance for started_at date and leaves base task unchanged', function (): void {
     $user = User::factory()->create();
     $task = Task::factory()->for($user)->create(['status' => TaskStatus::ToDo]);
     RecurringTask::factory()->create(['task_id' => $task->id]);
+    $startedAt = now();
 
-    $this->action->execute($user, $task, FocusSessionType::Work, 1500, now(), 1, [], null);
+    $session = $this->action->execute($user, $task, FocusSessionType::Work, 1500, $startedAt, 1, [], null);
 
     $task->refresh();
-    expect($task->status)->toBe(TaskStatus::Doing);
+    expect($task->status)->toBe(TaskStatus::ToDo);
+
+    $expectedDate = $startedAt->format('Y-m-d');
+    $instance = TaskInstance::query()
+        ->where('task_id', $task->id)
+        ->whereDate('instance_date', $expectedDate)
+        ->first();
+    expect($instance)->not->toBeNull()
+        ->and($instance->status)->toBe(TaskStatus::Doing);
+
+    expect($session->payload)->toHaveKey('occurrence_date', $expectedDate);
 });

@@ -295,17 +295,14 @@
             return date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
         },
 
-        /** True if overdue from server/parent OR if the selected date is before today (optimistic). Only applies to end/due date picker, not start. */
+        /** True if overdue from server/parent OR if the selected datetime is in the past (date and time). Only applies to end/due date picker, not start. */
         get effectiveOverdue() {
             const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
             if (!isEndDate) return false;
             if (this.currentValue) {
                 const parsed = this.parseIsoLocalDate(this.currentValue);
                 if (parsed && !isNaN(parsed.getTime())) {
-                    const todayStart = new Date();
-                    todayStart.setHours(0, 0, 0, 0);
-                    if (parsed >= todayStart) return false;
-                    return true;
+                    return parsed < new Date();
                 }
             }
             return this.overdue;

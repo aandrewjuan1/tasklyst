@@ -45,11 +45,16 @@ class StartFocusSessionAction
             ? $startedAt
             : Carbon::parse($startedAt);
 
+        $occurrenceDateForPayload = null;
+
         if ($task !== null && $type === FocusSessionType::Work) {
             $task->loadMissing('recurringTask');
             $recurringTask = $task->recurringTask;
-            if ($recurringTask !== null && $occurrenceDate !== null && $occurrenceDate !== '') {
-                $date = Carbon::parse($occurrenceDate);
+            if ($recurringTask !== null) {
+                $date = ($occurrenceDate !== null && $occurrenceDate !== '')
+                    ? Carbon::parse($occurrenceDate)
+                    : $startedAt->copy()->startOfDay();
+                $occurrenceDateForPayload = $date->format('Y-m-d');
                 $effectiveStatus = $this->taskService->getEffectiveStatusForDateResolved($task, $date);
                 if ($effectiveStatus === TaskStatus::ToDo) {
                     $this->taskService->updateRecurringOccurrenceStatus($task, $date, TaskStatus::Doing);
@@ -60,7 +65,9 @@ class StartFocusSessionAction
         }
 
         $sessionPayload = $payload;
-        if ($occurrenceDate !== null && $occurrenceDate !== '') {
+        if ($occurrenceDateForPayload !== null) {
+            $sessionPayload['occurrence_date'] = $occurrenceDateForPayload;
+        } elseif ($occurrenceDate !== null && $occurrenceDate !== '') {
             $sessionPayload['occurrence_date'] = $occurrenceDate;
         }
 
