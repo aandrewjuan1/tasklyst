@@ -21,6 +21,6 @@ return [
     | Upper limit for a single focus session. Validation enforces this cap.
     |
     */
-    'max_duration_minutes' => env('FOCUS_MAX_DURATION_MINUTES', 120),
+    'max_duration_minutes' => env('FOCUS_MAX_DURATION_MINUTES', 1440),
 
 ];

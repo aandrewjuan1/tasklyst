@@ -32,14 +32,47 @@ export function listItemCard(config) {
             } catch (err) {
                 console.error('[listItemCard] Failed to restore focus state:', err);
             }
+            this.$watch('focusReady', (value) => {
+                try {
+                    const Alpine = window.Alpine;
+                    if (!Alpine?.store) return;
+                    const store = Alpine.store('focusSession') ?? {};
+                    Alpine.store('focusSession', { ...store, focusReady: !!value });
+                } catch (_) {}
+            });
         },
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
+        },
+        get isDimmedByFocus() {
+            if (this.isFocused || this.focusReady) return false;
+            if (this.activeFocusSession) return true;
+            try {
+                return !!(window.Alpine?.store?.('focusSession')?.focusReady);
+            } catch (_) {
+                return false;
+            }
         },
         get focusReadyDurationMinutes() {
             return this.taskDurationMinutes != null && this.taskDurationMinutes > 0
                 ? Number(this.taskDurationMinutes)
                 : this.defaultWorkDurationMinutes;
+        },
+        formatFocusReadyDuration() {
+            const min = this.focusReadyDurationMinutes;
+            const minutes = Math.max(0, Math.floor(Number(min)));
+            const hrs = Math.floor(minutes / 60);
+            const mins = minutes % 60;
+            const minLabel = this.focusDurationLabelMin ?? 'min';
+            const hrLabel = this.focusDurationLabelHr ?? 'hour';
+            const hrsLabel = this.focusDurationLabelHrs ?? 'hours';
+            if (hrs === 0) {
+                return `${minutes} ${minLabel}`;
+            }
+            if (mins === 0) {
+                return `${hrs} ${hrs === 1 ? hrLabel : hrsLabel}`;
+            }
+            return `${hrs} ${hrs === 1 ? hrLabel : hrsLabel} ${mins} ${minLabel}`;
         },
         enterFocusReady() {
             if (this.kind !== 'task' || !this.canEdit || this.isFocused) return;
@@ -285,15 +318,27 @@ export function listItemCard(config) {
         },
         async startFocusMode() {
             if (this.kind !== 'task' || !this.canEdit || this.isFocused) return;
+            const types = this.focusModeTypes ?? [];
+            const selected = types.find((t) => t.value === this.focusModeType);
+            if (selected && !selected.available) {
+                this.$wire.$dispatch('toast', {
+                    type: 'info',
+                    message: typeof this.focusModeComingSoonToast === 'string' ? this.focusModeComingSoonToast : 'Coming soon.',
+                });
+                return;
+            }
             const minutes = this.taskDurationMinutes != null && this.taskDurationMinutes > 0
                 ? Number(this.taskDurationMinutes) : this.defaultWorkDurationMinutes;
-            const durationSeconds = Math.max(60, Math.min(7200, minutes * 60));
+            const durationSeconds = Math.max(60, minutes * 60);
             const startedAt = new Date().toISOString();
             const payload = {
                 type: 'work',
                 duration_seconds: durationSeconds,
                 started_at: startedAt,
-                payload: { used_task_duration: !!(this.taskDurationMinutes != null && this.taskDurationMinutes > 0) },
+                payload: {
+                    used_task_duration: !!(this.taskDurationMinutes != null && this.taskDurationMinutes > 0),
+                    focus_mode_type: this.focusModeType ?? 'countdown',
+                },
             };
             if (this.isRecurringTask && this.listFilterDate) {
                 payload.occurrence_date = String(this.listFilterDate).slice(0, 10);

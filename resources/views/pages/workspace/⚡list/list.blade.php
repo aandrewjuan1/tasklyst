@@ -1,7 +1,7 @@
 <div
     class="space-y-4"
     x-data="{
-        get focusModeActive() { return !!Alpine.store('focusSession')?.session },
+        get focusModeActive() { const s = Alpine.store('focusSession'); return !!(s?.session || s?.focusReady); },
         showItemCreation: false,
         creationKind: 'task',
         showItemLoading: false,
@@ -645,6 +645,8 @@
         creationKind === 'task' ? formData.item.duration : null;
         validateDateRange();
     "
+    x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($activeFocusSession ?? null), focusReady: false })"
+    @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     @php
         $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';

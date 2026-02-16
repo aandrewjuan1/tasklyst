@@ -352,6 +352,15 @@ class ListItemCardViewModel
             'focusPausedSecondsAccumulated' => 0,
             '_focusJustResumed' => false,
             'sessionComplete' => false,
+            'focusModeType' => 'countdown',
+            'focusModeTypes' => [
+                ['value' => 'countdown', 'label' => __('Sprint'), 'available' => true],
+                ['value' => 'pomodoro', 'label' => __('Pomodoro'), 'available' => false],
+            ],
+            'focusModeComingSoonToast' => __('This focus mode is coming soon.'),
+            'focusDurationLabelMin' => __('min'),
+            'focusDurationLabelHr' => __('hour'),
+            'focusDurationLabelHrs' => __('hours'),
         ];
     }
 }
