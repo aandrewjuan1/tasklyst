@@ -8,6 +8,7 @@
 export function listItemCard(config) {
     return {
         ...config,
+        focusReady: false,
         init() {
             try {
                 if (this.kind !== 'task') return;
@@ -34,6 +35,22 @@ export function listItemCard(config) {
         },
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
+        },
+        get focusReadyDurationMinutes() {
+            return this.taskDurationMinutes != null && this.taskDurationMinutes > 0
+                ? Number(this.taskDurationMinutes)
+                : this.defaultWorkDurationMinutes;
+        },
+        enterFocusReady() {
+            if (this.kind !== 'task' || !this.canEdit || this.isFocused) return;
+            this.focusReady = true;
+        },
+        async startFocusFromReady() {
+            try {
+                await this.startFocusMode();
+            } finally {
+                this.focusReady = false;
+            }
         },
         parseFocusStartedAt(isoString) {
             if (!isoString) return NaN;
@@ -114,6 +131,7 @@ export function listItemCard(config) {
                         this.activeFocusSession = null;
                         this.dispatchFocusSessionUpdated(null);
                         this.sessionComplete = false;
+                        this.focusReady = false;
                     }, 2000);
                 }
             }, 1000);
@@ -150,6 +168,7 @@ export function listItemCard(config) {
             this.activeFocusSession = null;
             this.dispatchFocusSessionUpdated(null);
             this.sessionComplete = false;
+            this.focusReady = false;
         },
         async markTaskDoneFromFocus() {
             if (this.kind !== 'task') return;
@@ -355,12 +374,14 @@ export function listItemCard(config) {
                 this.focusStopRequestedBeforeStartResolved = true;
                 this.activeFocusSession = null;
                 this.dispatchFocusSessionUpdated(null);
+                this.focusReady = false;
                 return;
             }
             const pausedSeconds = this.getFocusPausedSecondsTotal();
             try {
                 this.activeFocusSession = null;
                 this.dispatchFocusSessionUpdated(null);
+                this.focusReady = false;
                 await this.$wire.$parent.$call('abandonFocusSession', sessionSnapshot.id, { paused_seconds: pausedSeconds });
             } catch (error) {
                 this.activeFocusSession = sessionSnapshot;
