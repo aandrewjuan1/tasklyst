@@ -5,10 +5,19 @@
     </head>
     <body
         class="min-h-screen bg-white dark:bg-zinc-800"
-        x-data="{}"
+        x-data="{
+            get focusModeActive() {
+                const s = Alpine.store('focusSession');
+                return !!(s?.session || s?.focusReady);
+            },
+            get sidebarClasses() {
+                return this.focusModeActive ? 'pointer-events-none select-none blur-sm' : '';
+            }
+        }"
         x-init="
             Alpine.store('datePicker', Alpine.store('datePicker') ?? { open: null });
             Alpine.store('simpleSelectDropdown', Alpine.store('simpleSelectDropdown') ?? { openDropdowns: [] });
+            Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: null, focusReady: false });
         "
         @focusin.window="
             const dp = Alpine.store('datePicker');
@@ -17,8 +26,14 @@
             const target = $event.target;
             (ss.openDropdowns || []).filter(e => e.panel && !e.panel.contains(target)).forEach(e => e.closeFn());
         "
+        @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
     >
-        <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+        <flux:sidebar 
+            sticky 
+            collapsible="mobile" 
+            class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 transition-[filter] duration-200 ease-out"
+            x-bind:class="sidebarClasses"
+        >
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
                 <flux:sidebar.collapse class="lg:hidden" />
@@ -51,7 +66,10 @@
         </flux:sidebar>
 
         <!-- Mobile User Menu -->
-        <flux:header class="lg:hidden">
+        <flux:header 
+            class="lg:hidden transition-[filter] duration-200 ease-out"
+            x-bind:class="sidebarClasses"
+        >
             <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
 
             <flux:spacer />
