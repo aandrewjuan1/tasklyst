@@ -51,4 +51,11 @@ class FocusSessionFactory extends Factory
             'ended_at' => now(),
         ]);
     }
+
+    public function work(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'type' => FocusSessionType::Work,
+        ]);
+    }
 }

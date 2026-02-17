@@ -19,7 +19,10 @@ use App\Actions\FocusSession\GetActiveFocusSessionAction;
 use App\Actions\FocusSession\PauseFocusSessionAction;
 use App\Actions\FocusSession\ResumeFocusSessionAction;
 use App\Actions\FocusSession\StartFocusSessionAction;
+use App\Actions\Pomodoro\CompletePomodoroSessionAction;
+use App\Actions\Pomodoro\GetNextPomodoroSessionTypeAction;
 use App\Actions\Pomodoro\GetOrCreatePomodoroSettingsAction;
+use App\Actions\Pomodoro\GetPomodoroSequenceNumberAction;
 use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
 use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
@@ -159,6 +162,12 @@ class extends Component
 
     protected StartFocusSessionAction $startFocusSessionAction;
 
+    protected CompletePomodoroSessionAction $completePomodoroSessionAction;
+
+    protected GetPomodoroSequenceNumberAction $getPomodoroSequenceNumberAction;
+
+    protected GetNextPomodoroSessionTypeAction $getNextPomodoroSessionTypeAction;
+
     protected GetOrCreatePomodoroSettingsAction $getOrCreatePomodoroSettingsAction;
 
     protected UpdatePomodoroSettingsAction $updatePomodoroSettingsAction;
@@ -215,7 +224,10 @@ class extends Component
         ResumeFocusSessionAction $resumeFocusSessionAction,
         StartFocusSessionAction $startFocusSessionAction,
         GetOrCreatePomodoroSettingsAction $getOrCreatePomodoroSettingsAction,
-        UpdatePomodoroSettingsAction $updatePomodoroSettingsAction
+        UpdatePomodoroSettingsAction $updatePomodoroSettingsAction,
+        CompletePomodoroSessionAction $completePomodoroSessionAction,
+        GetPomodoroSequenceNumberAction $getPomodoroSequenceNumberAction,
+        GetNextPomodoroSessionTypeAction $getNextPomodoroSessionTypeAction
     ): void {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
@@ -254,6 +266,9 @@ class extends Component
         $this->startFocusSessionAction = $startFocusSessionAction;
         $this->getOrCreatePomodoroSettingsAction = $getOrCreatePomodoroSettingsAction;
         $this->updatePomodoroSettingsAction = $updatePomodoroSettingsAction;
+        $this->completePomodoroSessionAction = $completePomodoroSessionAction;
+        $this->getPomodoroSequenceNumberAction = $getPomodoroSequenceNumberAction;
+        $this->getNextPomodoroSessionTypeAction = $getNextPomodoroSessionTypeAction;
     }
 
     /**

@@ -8,6 +8,9 @@ use App\Actions\FocusSession\GetActiveFocusSessionAction;
 use App\Actions\FocusSession\PauseFocusSessionAction;
 use App\Actions\FocusSession\ResumeFocusSessionAction;
 use App\Actions\FocusSession\StartFocusSessionAction;
+use App\Actions\Pomodoro\CompletePomodoroSessionAction;
+use App\Actions\Pomodoro\GetNextPomodoroSessionTypeAction;
+use App\Actions\Pomodoro\GetPomodoroSequenceNumberAction;
 use App\Enums\FocusSessionType;
 use App\Models\FocusSession;
 use App\Models\Task;
@@ -27,6 +30,11 @@ use Livewire\Attributes\Renderless;
  * - GetActiveFocusSessionAction $getActiveFocusSessionAction
  * - PauseFocusSessionAction $pauseFocusSessionAction
  * - ResumeFocusSessionAction $resumeFocusSessionAction
+ *
+ * For pomodoro functionality, also requires:
+ * - CompletePomodoroSessionAction $completePomodoroSessionAction (optional, for pomodoro completion)
+ * - GetPomodoroSequenceNumberAction $getPomodoroSequenceNumberAction (optional, for pomodoro sequence)
+ * - GetNextPomodoroSessionTypeAction $getNextPomodoroSessionTypeAction (optional, for pomodoro flow)
  *
  * Optionally, the component may define public ?array $activeFocusSession = null.
  * When present, the trait keeps it in sync and dispatches 'focus-session-updated' on start.
@@ -80,6 +88,11 @@ trait HandlesFocusSessions
             $sessionPayload['used_default_duration'] = true;
         }
 
+        $focusModeType = $validated['payload']['focus_mode_type'] ?? null;
+        if (is_string($focusModeType) && $focusModeType !== '') {
+            $sessionPayload['focus_mode_type'] = $focusModeType;
+        }
+
         $session = $this->startFocusSessionAction->execute(
             $user,
             $task,
@@ -98,6 +111,7 @@ trait HandlesFocusSessions
             'type' => $session->type->value,
             'task_id' => $task->id,
             'sequence_number' => $session->sequence_number,
+            'payload' => $session->payload ?? [],
         ];
 
         if (property_exists($this, 'activeFocusSession')) {
@@ -337,6 +351,145 @@ trait HandlesFocusSessions
             'type' => $session->type->value,
             'task_id' => null,
             'sequence_number' => $session->sequence_number,
+        ];
+    }
+
+    /**
+     * Complete a pomodoro session and get next session information.
+     * This wraps CompletePomodoroSessionAction to provide pomodoro-specific flow logic.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{session: array, next_session: array{type: string, sequence_number: int, duration_seconds: int, auto_start: bool}|null}|array{error: string}
+     */
+    #[Async]
+    #[Renderless]
+    public function completePomodoroSession(int $sessionId, array $payload): array
+    {
+        if (! property_exists($this, 'completePomodoroSessionAction')) {
+            // Fallback to regular completion if action not available
+            $result = $this->completeFocusSession($sessionId, $payload);
+
+            return $result ? ['session' => [], 'next_session' => null] : ['error' => __('Failed to complete session.')];
+        }
+
+        $user = $this->requireAuth(__('You must be logged in to complete a pomodoro session.'));
+        if ($user === null) {
+            return ['error' => __('You must be logged in to complete a pomodoro session.')];
+        }
+
+        $validator = Validator::make(
+            array_merge($payload, ['focus_session_id' => $sessionId]),
+            FocusSessionCompleteValidation::rules()
+        );
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: __('Invalid completion data.'));
+
+            return ['error' => $validator->errors()->first()];
+        }
+
+        $session = FocusSession::query()->forUser($user->id)->find($sessionId);
+        if ($session === null) {
+            $this->dispatch('toast', type: 'error', message: __('Focus session not found.'));
+
+            return ['error' => __('Focus session not found.')];
+        }
+
+        $this->authorize('update', $session);
+
+        $validated = $validator->validated();
+        $result = $this->completePomodoroSessionAction->execute(
+            $session,
+            $validated['ended_at'],
+            (bool) $validated['completed'],
+            (int) $validated['paused_seconds'],
+            $validated['mark_task_status'] ?? null
+        );
+
+        $this->dispatch('toast', type: 'success', message: __('Focus session saved.'));
+
+        if (property_exists($this, 'activeFocusSession')) {
+            $this->activeFocusSession = null;
+        }
+
+        $nextSession = null;
+        if ($result['next_session'] !== null) {
+            $nextSession = [
+                'type' => $result['next_session']['type']->value,
+                'sequence_number' => $result['next_session']['sequence_number'],
+                'duration_seconds' => $result['next_session']['duration_seconds'],
+                'auto_start' => $result['next_session']['auto_start'],
+            ];
+        }
+
+        return [
+            'session' => [
+                'id' => $result['session']->id,
+                'started_at' => $result['session']->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
+                'duration_seconds' => $result['session']->duration_seconds,
+                'type' => $result['session']->type->value,
+                'task_id' => $result['session']->focusable_id,
+                'sequence_number' => $result['session']->sequence_number,
+                'completed' => $result['session']->completed,
+            ],
+            'next_session' => $nextSession,
+        ];
+    }
+
+    /**
+     * Get the next pomodoro work session sequence number for the current user.
+     *
+     * @return array{sequence_number: int}|array{error: string}
+     */
+    #[Async]
+    #[Renderless]
+    public function getPomodoroSequenceNumber(): array
+    {
+        if (! property_exists($this, 'getPomodoroSequenceNumberAction')) {
+            return ['error' => __('Pomodoro sequence action not available.')];
+        }
+
+        $user = $this->requireAuth(__('You must be logged in to get pomodoro sequence number.'));
+        if ($user === null) {
+            return ['error' => __('You must be logged in.')];
+        }
+
+        $sequenceNumber = $this->getPomodoroSequenceNumberAction->execute($user);
+
+        return ['sequence_number' => $sequenceNumber];
+    }
+
+    /**
+     * Get the next pomodoro session type and details based on a completed session.
+     *
+     * @return array{type: string, sequence_number: int, duration_seconds: int}|array{error: string}
+     */
+    #[Async]
+    #[Renderless]
+    public function getNextPomodoroSessionType(int $sessionId): array
+    {
+        if (! property_exists($this, 'getNextPomodoroSessionTypeAction') || ! property_exists($this, 'getOrCreatePomodoroSettingsAction')) {
+            return ['error' => __('Pomodoro actions not available.')];
+        }
+
+        $user = $this->requireAuth(__('You must be logged in to get next pomodoro session type.'));
+        if ($user === null) {
+            return ['error' => __('You must be logged in.')];
+        }
+
+        $session = FocusSession::query()->forUser($user->id)->find($sessionId);
+        if ($session === null) {
+            return ['error' => __('Focus session not found.')];
+        }
+
+        $this->authorize('view', $session);
+
+        $settings = $this->getOrCreatePomodoroSettingsAction->execute($user);
+        $result = $this->getNextPomodoroSessionTypeAction->execute($session, $settings);
+
+        return [
+            'type' => $result['type']->value,
+            'sequence_number' => $result['sequence_number'],
+            'duration_seconds' => $result['duration_seconds'],
         ];
     }
 }
