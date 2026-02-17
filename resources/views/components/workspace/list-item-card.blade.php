@@ -27,6 +27,9 @@
     $hasActiveFocusOnThisTask = $kind === 'task'
         && $activeFocusSession
         && (string) ($activeFocusSession['task_id'] ?? '') === (string) $item->id;
+    $hasActiveBreakSession = $activeFocusSession
+        && ($activeFocusSession['type'] ?? null) !== 'work'
+        && ($activeFocusSession['type'] ?? null) !== null;
 @endphp
 
 <div
@@ -50,11 +53,11 @@
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"
     @task-duration-updated="onTaskDurationUpdated($event.detail)"
     :class="{
-        'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
+        'relative z-50': dropdownOpenCount > 0 || isFocused || isBreakFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
-        'pointer-events-auto': isFocused || focusReady,
-        'scale-[1.02] shadow-xl bg-primary/[0.06]': isFocused || focusReady,
-        'is-focus-active': focusReady || isFocused,
+        'pointer-events-auto': isFocused || isBreakFocused || focusReady,
+        'scale-[1.02] shadow-xl bg-primary/[0.06]': isFocused || isBreakFocused || focusReady,
+        'is-focus-active': focusReady || isFocused || isBreakFocused,
     }"
 >
     @include('components.workspace.list-item-card.focus-bar', [
@@ -65,14 +68,14 @@
         'pomodoroLongBreakMax' => $alpineConfig['pomodoroLongBreakMax'] ?? 60,
         'pomodoroLongBreakAfterMin' => $alpineConfig['pomodoroLongBreakAfterMin'] ?? 2,
         'pomodoroLongBreakAfterMax' => $alpineConfig['pomodoroLongBreakAfterMax'] ?? 10,
+        'hasActiveFocusOnThisTask' => $hasActiveFocusOnThisTask ?? false,
+        'hasActiveBreakSession' => $hasActiveBreakSession ?? false,
     ])
 
-    @include('components.workspace.list-item-card.header')
+    <div :class="{ 'pointer-events-none select-none': focusReady || isFocused || isBreakFocused }">
+        @include('components.workspace.list-item-card.header')
 
-    <div
-        class="flex flex-wrap items-center gap-2 pt-0.5 text-xs"
-        :class="{ 'pointer-events-none': kind === 'task' && isFocused }"
-    >
+        <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
     @if($kind === 'task' && $canEdit)
         <div
             x-show="!isFocused && !focusReady"
@@ -125,4 +128,5 @@
 
     <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
     </div>
+</div>
 </div>

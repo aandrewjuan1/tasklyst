@@ -1,9 +1,9 @@
 {{-- Focus mode bar: ready state (Start/Cancel) or active session (timer, progress, Pause/Resume/Stop). Uses parent Alpine scope (listItemCard). --}}
 @php
-    $focusBarCloak = empty($hasActiveFocusOnThisTask ?? false);
+    $focusBarCloak = ! ($hasActiveFocusOnThisTask ?? false) && ! ($hasActiveBreakSession ?? false);
 @endphp
 <div
-    x-show="focusReady || isFocused"
+    x-show="focusReady || isFocused || isBreakFocused"
     @if($focusBarCloak) x-cloak @endif
     x-transition:enter="transition ease-out duration-200"
     x-transition:enter-start="opacity-0.7 -translate-y-0.5"
@@ -17,7 +17,7 @@
         {{-- Row 1: Sprint/Pomodoro tab — always visible when bar is open; non-interactive during active session --}}
         <div
             class="w-full transition-opacity duration-150"
-            :class="{ 'pointer-events-none select-none opacity-60': isFocused }"
+            :class="{ 'pointer-events-none select-none opacity-60': isFocused || isBreakFocused }"
         >
             <flux:radio.group
                 variant="segmented"
@@ -72,9 +72,20 @@
                         </div>
                     </div>
                     {{-- Active: show Pomodoro or Sprint depending on session --}}
-                    <div class="flex flex-col gap-0.5" x-show="isFocused && activeFocusSession?.focus_mode_type === 'pomodoro'" x-cloak>
-                        <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
+                    <div class="flex flex-col gap-0.5" x-show="isFocused && activeFocusSession?.focus_mode_type === 'pomodoro' && activeFocusSession?.type === 'work'" x-cloak>
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
+                            <span class="text-xs font-medium text-zinc-500" x-text="pomodoroSequenceText"></span>
+                        </div>
                         <span class="max-w-sm text-xs leading-snug text-zinc-500" x-text="pomodoroSummaryText"></span>
+                    </div>
+                    <div class="flex flex-col gap-0.5" x-show="isBreakFocused && activeFocusSession?.type === 'short_break'" x-cloak>
+                        <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Break time') }} · {{ __('Short Break') }}</span>
+                        <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Take a short break to recharge.') }}</span>
+                    </div>
+                    <div class="flex flex-col gap-0.5" x-show="isBreakFocused && activeFocusSession?.type === 'long_break'" x-cloak>
+                        <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Break time') }} · {{ __('Long Break') }}</span>
+                        <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Take a longer break to rest and recharge.') }}</span>
                     </div>
                     <div class="flex flex-col gap-0.5" x-show="isFocused && activeFocusSession?.focus_mode_type !== 'pomodoro'" x-cloak>
                         <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
@@ -85,7 +96,7 @@
             {{-- Right: ready actions or timer actions (visibility only, no DOM swap) --}}
             <div class="flex shrink-0 items-center gap-3">
                 {{-- Ready: duration + Start/Cancel --}}
-                <div class="flex items-center gap-3" x-show="!isFocused">
+                <div class="flex items-center gap-3" x-show="!isFocused && !isBreakFocused">
                     <span class="min-w-18 text-right text-base font-semibold tabular-nums text-primary" x-text="focusModeType === 'pomodoro' ? formattedPomodoroWorkDuration : formattedFocusReadyDuration"></span>
                     <div class="flex shrink-0 items-center gap-1.5">
                         <flux:button
@@ -109,8 +120,8 @@
                         </flux:button>
                     </div>
                 </div>
-                {{-- Active: running — timer + Pause/Resume/Stop --}}
-                <div class="flex min-w-16 shrink-0 items-center gap-3" x-show="isFocused && !sessionComplete" x-cloak>
+                {{-- Active: running — timer + Pause/Resume/Stop (work or break) --}}
+                <div class="flex min-w-16 shrink-0 items-center gap-3" x-show="(isFocused || isBreakFocused) && !sessionComplete" x-cloak>
                     <span
                         class="min-w-16 text-right text-lg font-bold tabular-nums tracking-tight text-primary"
                         x-text="focusCountdownText"
@@ -149,11 +160,15 @@
                         </flux:button>
                     </div>
                 </div>
-                {{-- Active: session complete --}}
-                <div class="flex shrink-0 items-center gap-1" x-show="isFocused && sessionComplete" x-cloak>
-                    <span class="text-sm font-semibold text-primary">{{ __('Session complete!') }}</span>
+                {{-- Active: session complete (non-pomodoro only to avoid flicker with next-session UI) --}}
+                <div
+                    class="flex shrink-0 items-center gap-1"
+                    x-show="(isFocused || isBreakFocused) && sessionComplete && !nextSessionInfo && !isPomodoroSession"
+                    x-cloak
+                >
+                    <span class="text-sm font-semibold text-primary" x-text="isBreakFocused ? '{{ __('Break complete!') }}' : '{{ __('Session complete!') }}'"></span>
                     <flux:button
-                        x-show="kind === 'task'"
+                        x-show="kind === 'task' && !isBreakFocused"
                         variant="ghost"
                         size="sm"
                         icon="check-circle"
@@ -172,12 +187,44 @@
                         {{ __('Close') }}
                     </flux:button>
                 </div>
+                {{-- Next session ready (pomodoro flow) --}}
+                <div class="flex shrink-0 items-center gap-3" x-show="sessionComplete && nextSessionInfo && !nextSessionInfo.auto_start" x-cloak>
+                    <div class="flex flex-col gap-0.5 min-w-0">
+                        <span class="text-sm font-semibold text-primary" x-text="nextSessionInfo.type === 'short_break' || nextSessionInfo.type === 'long_break' ? '{{ __('Break ready!') }}' : '{{ __('Next pomodoro ready!') }}'"></span>
+                        <div class="flex items-center gap-2 text-xs text-zinc-500">
+                            <span x-text="(nextSessionInfo.type === 'short_break' ? '{{ __('Short break') }}' : nextSessionInfo.type === 'long_break' ? '{{ __('Long break') }}' : '{{ __('Pomodoro') }}') + ' · ' + nextSessionDurationText"></span>
+                        </div>
+                    </div>
+                    <flux:button
+                        variant="primary"
+                        size="sm"
+                        icon="play"
+                        class="shrink-0"
+                        @click="startNextSession(nextSessionInfo)"
+                    >
+                        <span x-text="nextSessionInfo.type === 'short_break' || nextSessionInfo.type === 'long_break' ? '{{ __('Start Break') }}' : '{{ __('Start Pomodoro') }}'"></span>
+                    </flux:button>
+                    <flux:button
+                        variant="ghost"
+                        size="sm"
+                        icon="x-mark"
+                        class="shrink-0"
+                        @click="dismissCompletedFocus()"
+                    >
+                        {{ __('Skip') }}
+                    </flux:button>
+                </div>
+                {{-- Auto-starting indicator --}}
+                <div class="flex shrink-0 items-center gap-2" x-show="sessionComplete && nextSessionInfo && nextSessionInfo.auto_start" x-cloak>
+                    <span class="text-sm font-medium text-primary">{{ __('Starting next session...') }}</span>
+                    <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
+                </div>
             </div>
         </div>
 
         {{-- Row 3: Pomodoro settings — toggleable; only when Pomodoro selected and not focused --}}
         <div
-            x-show="!isFocused && focusModeType === 'pomodoro'"
+            x-show="!isFocused && !isBreakFocused && focusModeType === 'pomodoro'"
             x-cloak
             class="flex flex-col gap-3"
         >
@@ -240,7 +287,12 @@
                             />
                         </div>
                         <div class="flex flex-col gap-2">
-                            <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroEveryLabel"></label>
+                            <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                <span x-text="pomodoroEveryLabel"></span>
+                                <span class="ml-1 text-[10px] font-normal text-zinc-400">
+                                    ({{ __('min 2') }})
+                                </span>
+                            </label>
                             <flux:input
                                 type="number"
                                 min="{{ $pomodoroLongBreakAfterMin ?? 2 }}"
@@ -293,9 +345,9 @@
             </div>
         </div>
 
-        {{-- Progress bar: only when session is active --}}
+        {{-- Progress bar: only when session is active (work or break) --}}
         <div
-            x-show="isFocused"
+            x-show="isFocused || isBreakFocused"
             x-cloak
             class="h-2 w-full shrink-0 overflow-hidden rounded-full"
             role="progressbar"
@@ -305,7 +357,8 @@
             aria-label="{{ __('Time elapsed') }}"
         >
             <div
-                class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width] duration-300 ease-linear"
+                class="block h-full min-w-0 rounded-full transition-[width,background-color] duration-300 ease-linear"
+                :class="isBreakFocused ? 'bg-green-600' : 'bg-blue-800'"
                 :style="focusProgressStyle"
             ></div>
         </div>

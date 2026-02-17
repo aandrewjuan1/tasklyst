@@ -52,6 +52,33 @@ test('workspace index startFocusSession creates session and dispatches no error 
         ->and($session->type->value)->toBe('work');
 });
 
+test('workspace index startFocusSession persists focus_mode_type in session payload for pomodoro', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 1500,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'focus_mode_type' => 'pomodoro',
+        ],
+    ];
+
+    $component = Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertNotDispatched('toast', type: 'error');
+
+    $active = $component->get('activeFocusSession');
+    expect($active)->not->toBeNull()
+        ->and($active['payload']['focus_mode_type'] ?? null)->toBe('pomodoro');
+
+    $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull()
+        ->and(($session->payload['focus_mode_type'] ?? null))->toBe('pomodoro');
+});
+
 test('workspace index abandonFocusSession ends session and dispatches toast', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();
