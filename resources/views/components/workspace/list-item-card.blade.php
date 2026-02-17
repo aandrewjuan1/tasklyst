@@ -31,14 +31,14 @@
 
 <div
     {{ $attributes->merge([
-        'class' => 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,border-color,background-color] duration-150 ease-out',
+        'class' => 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
     ]) }}
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"
     x-init="alpineReady = true"
     x-show="!hideCard"
     x-cleanup="stopFocusTicker()"
-    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave="transition ease-in duration-200"
     x-transition:leave-start="opacity-100 scale-100"
     x-transition:leave-end="opacity-0 scale-[0.98]"
     @dropdown-opened="dropdownOpenCount++"
@@ -53,7 +53,7 @@
         'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
         'pointer-events-auto': isFocused || focusReady,
-        'ring-2 ring-primary/40 border-primary/30 bg-primary/[0.06] shadow-md': isFocused || focusReady,
+        'scale-[1.02] shadow-xl bg-primary/[0.06]': isFocused || focusReady,
         'is-focus-active': focusReady || isFocused,
     }"
 >

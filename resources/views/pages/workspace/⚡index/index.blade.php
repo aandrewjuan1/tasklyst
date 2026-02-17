@@ -4,13 +4,13 @@
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
-    {{-- Centered date switcher on its own row (dim/disable when focus mode) --}}
-    <div class="flex w-full justify-center transition-opacity duration-200 ease-out" :class="{ 'pointer-events-none select-none opacity-60': focusModeActive }">
+    {{-- Centered date switcher (blur when focus mode) --}}
+    <div class="flex w-full justify-center transition-[filter] duration-200 ease-out" :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }">
         <x-workspace.date-switcher :selected-date="$this->selectedDate" />
     </div>
 
-    {{-- Filters / pending invitations / add filter / trash (dim/disable when focus mode) --}}
-    <div class="flex flex-wrap items-center justify-between gap-2 transition-opacity duration-200 ease-out" :class="{ 'pointer-events-none select-none opacity-60': focusModeActive }">
+    {{-- Filters / pending invitations / add filter / trash (blur when focus mode) --}}
+    <div class="flex flex-wrap items-center justify-between gap-2 transition-[filter] duration-200 ease-out" :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }">
         <div class="flex flex-wrap items-center gap-2">
             @auth
                 <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />

@@ -686,6 +686,14 @@ export function listItemCard(config) {
             if (this.hideCard) {
                 return;
             }
+            // If this card had focus, clear global focus state so blur styling is removed
+            if (this.focusReady || this.isFocused) {
+                this.stopFocusTicker();
+                this.focusReady = false;
+                this.activeFocusSession = null;
+                // Dispatch event to update store in parent components (index/list) - watcher also updates focusReady
+                this.dispatchFocusSessionUpdated(null);
+            }
             this.hideCard = true;
             this.$dispatch('list-item-hidden', { fromOverdue: this.isOverdue });
         },
