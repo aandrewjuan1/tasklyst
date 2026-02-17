@@ -7,6 +7,7 @@
     'isOverdue' => false,
     'activeFocusSession' => null,
     'defaultWorkDurationMinutes' => 25,
+    'pomodoroSettings' => null,
 ])
 
 @php
@@ -19,6 +20,7 @@
         isOverdue: $isOverdue ?? false,
         activeFocusSession: $activeFocusSession,
         defaultWorkDurationMinutes: $defaultWorkDurationMinutes ?? 25,
+        pomodoroSettings: $pomodoroSettings,
     );
     extract($vm->viewData());
     $alpineConfig = $vm->alpineConfig();
@@ -47,7 +49,6 @@
     @collaboration-self-left="hideFromList()"
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"
     @task-duration-updated="onTaskDurationUpdated($event.detail)"
-    x-effect="syncFocusTicker()"
     :class="{
         'relative z-50': dropdownOpenCount > 0 || isFocused || focusReady,
         'pointer-events-none opacity-60': deletingInProgress,
@@ -58,6 +59,12 @@
 >
     @include('components.workspace.list-item-card.focus-bar', [
         'focusModeTypes' => $alpineConfig['focusModeTypes'] ?? [],
+        'pomodoroWorkMin' => $alpineConfig['pomodoroWorkMin'] ?? config('pomodoro.min_duration_minutes', 1),
+        'pomodoroWorkMax' => $alpineConfig['pomodoroWorkMax'] ?? config('pomodoro.max_work_duration_minutes', 120),
+        'pomodoroShortBreakMax' => $alpineConfig['pomodoroShortBreakMax'] ?? 60,
+        'pomodoroLongBreakMax' => $alpineConfig['pomodoroLongBreakMax'] ?? 60,
+        'pomodoroLongBreakAfterMin' => $alpineConfig['pomodoroLongBreakAfterMin'] ?? 2,
+        'pomodoroLongBreakAfterMax' => $alpineConfig['pomodoroLongBreakAfterMax'] ?? 10,
     ])
 
     @include('components.workspace.list-item-card.header')

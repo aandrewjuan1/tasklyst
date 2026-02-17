@@ -28,4 +28,11 @@ new class extends Component
      * @var array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, payload?: array}|null
      */
     public ?array $activeFocusSession = null;
+
+    /**
+     * Pomodoro settings from parent (Index). Passed through to list-item-cards for Alpine state.
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $pomodoroSettings = null;
 };

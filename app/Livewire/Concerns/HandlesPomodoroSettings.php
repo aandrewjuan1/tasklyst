@@ -5,6 +5,8 @@ namespace App\Livewire\Concerns;
 use App\Models\PomodoroSetting;
 use App\Support\Validation\PomodoroSettingsValidation;
 use Illuminate\Support\Facades\Validator;
+use Livewire\Attributes\Async;
+use Livewire\Attributes\Renderless;
 
 /**
  * Trait for Livewire components that display and update Pomodoro settings.
@@ -20,6 +22,8 @@ trait HandlesPomodoroSettings
      *
      * @return array<string, mixed>
      */
+    #[Async]
+    #[Renderless]
     public function getPomodoroSettings(): array
     {
         $user = $this->requireAuth(__('You must be logged in to view Pomodoro settings.'));
@@ -48,6 +52,8 @@ trait HandlesPomodoroSettings
      *
      * @param  array<string, mixed>  $data
      */
+    #[Async]
+    #[Renderless]
     public function updatePomodoroSettings(array $data): bool
     {
         $user = $this->requireAuth(__('You must be logged in to update Pomodoro settings.'));

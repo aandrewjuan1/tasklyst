@@ -39,6 +39,13 @@ return [
         'client_id' => env('WORKOS_CLIENT_ID'),
         'secret' => env('WORKOS_API_KEY'),
         'redirect_url' => env('WORKOS_REDIRECT_URL'),
+
+        /*
+        | Session validation result is cached per session to avoid calling WorkOS
+        | on every request. This TTL (minutes) controls how long we skip the
+        | remote validation after a successful check.
+        */
+        'session_validation_cache_ttl_minutes' => (int) env('WORKOS_SESSION_VALIDATION_CACHE_TTL_MINUTES', 5),
     ],
 
 ];

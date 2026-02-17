@@ -42,6 +42,25 @@ export function listItemCard(config) {
                     Alpine.store('focusSession', { ...store, focusReady: !!value });
                 } catch (_) {}
             });
+            
+            // Watch for focus state changes to sync ticker (replaces x-effect)
+            if (this.kind === 'task') {
+                this.$watch('isFocused', (value) => {
+                    if (value && this.activeFocusSession) {
+                        this.syncFocusTicker();
+                    } else {
+                        this.stopFocusTicker();
+                    }
+                });
+                this.$watch('activeFocusSession', (session) => {
+                    if (session && this.isFocused) {
+                        this.syncFocusTicker();
+                    } else {
+                        this.stopFocusTicker();
+                    }
+                });
+                this._pomodoroLastSavedPayload = JSON.stringify(this.getPomodoroSettingsPayload());
+            }
         },
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
@@ -70,6 +89,112 @@ export function listItemCard(config) {
             }
             return `${hrs} ${hrs === 1 ? hrLabel : hrsLabel} ${mins} ${minLabel}`;
         },
+        get formattedPomodoroWorkDuration() {
+            return this.formatPomodoroDurationMinutes(this.pomodoroWorkMinutes ?? 25);
+        },
+        get pomodoroSummaryText() {
+            const work = Math.max(0, Math.floor(Number(this.pomodoroWorkMinutes ?? 25)));
+            const short = Math.max(0, Math.floor(Number(this.pomodoroShortBreakMinutes ?? 5)));
+            const long = Math.max(0, Math.floor(Number(this.pomodoroLongBreakMinutes ?? 15)));
+            const every = Math.max(2, Math.min(10, Math.floor(Number(this.pomodoroLongBreakAfter ?? 4))));
+            const minLabel = this.focusDurationLabelMin ?? 'min';
+            const everyLabel = this.pomodoroLongBreakEveryLabel ?? 'long break every';
+            return `${work} ${minLabel} work · ${short} short · ${long} long · ${everyLabel} ${every}`;
+        },
+        formatPomodoroDurationMinutes(minutes) {
+            const min = Math.max(0, Math.floor(Number(minutes)));
+            const hrs = Math.floor(min / 60);
+            const mins = min % 60;
+            const minLabel = this.focusDurationLabelMin ?? 'min';
+            const hrLabel = this.focusDurationLabelHr ?? 'hour';
+            const hrsLabel = this.focusDurationLabelHrs ?? 'hours';
+            if (hrs === 0) {
+                return `${min} ${minLabel}`;
+            }
+            if (mins === 0) {
+                return `${hrs} ${hrs === 1 ? hrLabel : hrsLabel}`;
+            }
+            return `${hrs} ${hrs === 1 ? hrLabel : hrsLabel} ${mins} ${minLabel}`;
+        },
+        getPomodoroSettingsPayload() {
+            return {
+                work_duration_minutes: Math.max(1, Math.min(120, Math.floor(Number(this.pomodoroWorkMinutes ?? 25)))),
+                short_break_minutes: Math.max(1, Math.min(60, Math.floor(Number(this.pomodoroShortBreakMinutes ?? 5)))),
+                long_break_minutes: Math.max(1, Math.min(60, Math.floor(Number(this.pomodoroLongBreakMinutes ?? 15)))),
+                long_break_after_pomodoros: Math.max(2, Math.min(10, Math.floor(Number(this.pomodoroLongBreakAfter ?? 4)))),
+                auto_start_break: !!this.pomodoroAutoStartBreak,
+                auto_start_pomodoro: !!this.pomodoroAutoStartPomodoro,
+                sound_enabled: !!this.pomodoroSoundEnabled,
+                sound_volume: Math.max(0, Math.min(100, Math.floor(Number(this.pomodoroSoundVolume ?? 80)))),
+                notification_on_complete: !!this.pomodoroNotificationOnComplete,
+            };
+        },
+        applyPomodoroSettings(settings) {
+            if (!settings || typeof settings !== 'object') return;
+            if (settings.work_duration_minutes != null) this.pomodoroWorkMinutes = Number(settings.work_duration_minutes);
+            if (settings.short_break_minutes != null) this.pomodoroShortBreakMinutes = Number(settings.short_break_minutes);
+            if (settings.long_break_minutes != null) this.pomodoroLongBreakMinutes = Number(settings.long_break_minutes);
+            if (settings.long_break_after_pomodoros != null) this.pomodoroLongBreakAfter = Number(settings.long_break_after_pomodoros);
+            if (settings.auto_start_break != null) this.pomodoroAutoStartBreak = !!settings.auto_start_break;
+            if (settings.auto_start_pomodoro != null) this.pomodoroAutoStartPomodoro = !!settings.auto_start_pomodoro;
+            if (settings.sound_enabled != null) this.pomodoroSoundEnabled = !!settings.sound_enabled;
+            if (settings.sound_volume != null) this.pomodoroSoundVolume = Number(settings.sound_volume);
+            if (settings.notification_on_complete != null) this.pomodoroNotificationOnComplete = !!settings.notification_on_complete;
+            if (this.kind === 'task') this._pomodoroLastSavedPayload = JSON.stringify(this.getPomodoroSettingsPayload());
+        },
+        async savePomodoroSettings() {
+            if (this.kind !== 'task' || !this.$wire?.$parent?.$call) return;
+            const payload = this.getPomodoroSettingsPayload();
+            const currentJson = JSON.stringify(payload);
+            if (currentJson === this._pomodoroLastSavedPayload) return;
+            
+            // PHASE 1: Create snapshot BEFORE any changes
+            const settingsSnapshot = {
+                pomodoroWorkMinutes: this.pomodoroWorkMinutes,
+                pomodoroShortBreakMinutes: this.pomodoroShortBreakMinutes,
+                pomodoroLongBreakMinutes: this.pomodoroLongBreakMinutes,
+                pomodoroLongBreakAfter: this.pomodoroLongBreakAfter,
+                pomodoroAutoStartBreak: this.pomodoroAutoStartBreak,
+                pomodoroAutoStartPomodoro: this.pomodoroAutoStartPomodoro,
+                pomodoroSoundEnabled: this.pomodoroSoundEnabled,
+                pomodoroSoundVolume: this.pomodoroSoundVolume,
+                pomodoroNotificationOnComplete: this.pomodoroNotificationOnComplete,
+            };
+            
+            const parent = this.$wire.$parent;
+            try {
+                // PHASE 2: UI already updated via x-model bindings (optimistic)
+                // PHASE 3: Call server asynchronously (don't await yet)
+                const promise = parent.$call('updatePomodoroSettings', payload);
+                
+                // PHASE 4: Handle response AFTER UI is updated
+                const ok = await promise;
+                if (ok === true) {
+                    this._pomodoroLastSavedPayload = currentJson;
+                }
+                if (ok === false) {
+                    // Rollback: fetch fresh settings from server
+                    const fresh = await parent.$call('getPomodoroSettings');
+                    this.applyPomodoroSettings(fresh ?? {});
+                }
+            } catch (err) {
+                // PHASE 5: Rollback on error - restore from snapshot
+                this.pomodoroWorkMinutes = settingsSnapshot.pomodoroWorkMinutes;
+                this.pomodoroShortBreakMinutes = settingsSnapshot.pomodoroShortBreakMinutes;
+                this.pomodoroLongBreakMinutes = settingsSnapshot.pomodoroLongBreakMinutes;
+                this.pomodoroLongBreakAfter = settingsSnapshot.pomodoroLongBreakAfter;
+                this.pomodoroAutoStartBreak = settingsSnapshot.pomodoroAutoStartBreak;
+                this.pomodoroAutoStartPomodoro = settingsSnapshot.pomodoroAutoStartPomodoro;
+                this.pomodoroSoundEnabled = settingsSnapshot.pomodoroSoundEnabled;
+                this.pomodoroSoundVolume = settingsSnapshot.pomodoroSoundVolume;
+                this.pomodoroNotificationOnComplete = settingsSnapshot.pomodoroNotificationOnComplete;
+                
+                this.$wire.$dispatch('toast', {
+                    type: 'error',
+                    message: err?.message ?? this.pomodoroSettingsSaveErrorToast ?? 'Could not save Pomodoro settings.',
+                });
+            }
+        },
         enterFocusReady() {
             if (this.kind !== 'task' || !this.canEdit || this.isFocused) return;
             this.focusReady = true;
@@ -93,19 +218,22 @@ export function listItemCard(config) {
             const startedMs = this.parseFocusStartedAt(this.activeFocusSession.started_at);
             if (!Number.isFinite(startedMs)) return 0;
             const durationSec = Number(this.activeFocusSession.duration_seconds);
+            
+            // Cache Date.now() once per evaluation to avoid multiple calls
             const nowMs = this.focusTickerNow ?? Date.now();
+            
             const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
             let pausedSec = this.focusPausedSecondsAccumulated;
             if (this.activeFocusSession.paused_at) {
                 const pausedAtMs = this.parseFocusStartedAt(this.activeFocusSession.paused_at);
                 if (Number.isFinite(pausedAtMs)) {
-                    pausedSec += (Date.now() - pausedAtMs) / 1000;
+                    pausedSec += (nowMs - pausedAtMs) / 1000;
                 }
             } else if (pausedSec === 0 && this.activeFocusSession.paused_seconds != null && Number.isFinite(Number(this.activeFocusSession.paused_seconds))) {
                 pausedSec = Math.max(0, Math.floor(Number(this.activeFocusSession.paused_seconds)));
             }
             if (this.focusIsPaused && this.focusPauseStartedAt) {
-                pausedSec += (Date.now() - this.focusPauseStartedAt) / 1000;
+                pausedSec += (nowMs - this.focusPauseStartedAt) / 1000;
             }
             return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
         },
@@ -153,15 +281,23 @@ export function listItemCard(config) {
             this.focusProgressStyle = `width: ${this.focusElapsedPercentValue}%; min-width: ${this.focusElapsedPercentValue > 0 ? '2px' : '0'}`;
             this.focusIntervalId = setInterval(() => {
                 if (this.focusIsPaused) return;
-                this.focusTickerNow = Date.now();
+                
+                // Batch all calculations first
+                const now = Date.now();
+                this.focusTickerNow = now;
                 const remaining = this.focusRemainingSeconds;
                 const duration = Number(this.activeFocusSession?.duration_seconds ?? 0);
                 const pct = duration > 0
                     ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))
                     : 0;
-                this.focusElapsedPercentValue = pct;
-                this.focusCountdownText = this.formatFocusCountdown(remaining);
-                this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
+                
+                // Batch DOM updates using requestAnimationFrame to prevent layout thrashing
+                requestAnimationFrame(() => {
+                    this.focusElapsedPercentValue = pct;
+                    this.focusCountdownText = this.formatFocusCountdown(remaining);
+                    this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
+                });
+                
                 if (remaining <= 0) {
                     this.sessionComplete = true;
                     const pausedSeconds = this.getFocusPausedSecondsTotal();
@@ -227,25 +363,44 @@ export function listItemCard(config) {
         },
         async markTaskDoneFromFocus() {
             if (this.kind !== 'task') return;
+            
+            // PHASE 1: Create snapshot BEFORE any changes
             const previousStatus = this.taskStatus;
-            this.taskStatus = 'done';
-            this.dismissCompletedFocus();
-            window.dispatchEvent(
-                new CustomEvent('task-status-updated', {
-                    detail: { itemId: this.itemId, status: 'done' },
-                    bubbles: true,
-                })
-            );
+            const activeFocusSessionSnapshot = this.activeFocusSession ? { ...this.activeFocusSession } : null;
+            const sessionCompleteSnapshot = this.sessionComplete;
+            const focusReadySnapshot = this.focusReady;
+            
             try {
-                const ok = await this.$wire.$parent.$call(
+                // PHASE 2: Update UI immediately (optimistic)
+                this.taskStatus = 'done';
+                this.dismissCompletedFocus();
+                window.dispatchEvent(
+                    new CustomEvent('task-status-updated', {
+                        detail: { itemId: this.itemId, status: 'done' },
+                        bubbles: true,
+                    })
+                );
+                
+                // PHASE 3: Call server asynchronously (don't await yet)
+                const promise = this.$wire.$parent.$call(
                     this.updatePropertyMethod,
                     this.itemId,
                     'status',
                     'done',
                     false
                 );
+                
+                // PHASE 4: Handle response AFTER UI is updated
+                const ok = await promise;
                 if (ok === false) {
+                    // PHASE 5: Rollback on error
                     this.taskStatus = previousStatus;
+                    this.activeFocusSession = activeFocusSessionSnapshot;
+                    this.sessionComplete = sessionCompleteSnapshot;
+                    this.focusReady = focusReadySnapshot;
+                    if (activeFocusSessionSnapshot) {
+                        this.dispatchFocusSessionUpdated(activeFocusSessionSnapshot);
+                    }
                     window.dispatchEvent(
                         new CustomEvent('task-status-updated', {
                             detail: { itemId: this.itemId, status: previousStatus },
@@ -258,7 +413,14 @@ export function listItemCard(config) {
                     });
                 }
             } catch (err) {
+                // PHASE 5: Rollback on error - restore from snapshot
                 this.taskStatus = previousStatus;
+                this.activeFocusSession = activeFocusSessionSnapshot;
+                this.sessionComplete = sessionCompleteSnapshot;
+                this.focusReady = focusReadySnapshot;
+                if (activeFocusSessionSnapshot) {
+                    this.dispatchFocusSessionUpdated(activeFocusSessionSnapshot);
+                }
                 window.dispatchEvent(
                     new CustomEvent('task-status-updated', {
                         detail: { itemId: this.itemId, status: previousStatus },
@@ -274,29 +436,47 @@ export function listItemCard(config) {
         async pauseFocus() {
             if (!this.isFocused || this.focusIsPaused) return;
             const sessionId = this.activeFocusSession?.id;
-            this.focusIsPaused = true;
-            this.focusPauseStartedAt = Date.now();
-            this.focusTickerNow = Date.now();
-            const remaining = this.focusRemainingSeconds;
-            this.focusElapsedPercentValue = this.focusElapsedPercent;
-            this.focusCountdownText = this.formatFocusCountdown(remaining);
-            const pct = this.focusElapsedPercentValue;
-            this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
-            if (sessionId != null && !this.isTempSessionId(sessionId)) {
-                try {
-                    const ok = await this.$wire.$parent.$call('pauseFocusSession', sessionId);
+            
+            // PHASE 1: Create snapshot BEFORE any changes
+            const snapshot = {
+                focusIsPaused: this.focusIsPaused,
+                focusPauseStartedAt: this.focusPauseStartedAt,
+                focusPausedSecondsAccumulated: this.focusPausedSecondsAccumulated,
+                activeFocusSession: this.activeFocusSession ? { ...this.activeFocusSession } : null,
+            };
+            
+            try {
+                // PHASE 2: Update UI immediately (optimistic)
+                this.focusIsPaused = true;
+                this.focusPauseStartedAt = Date.now();
+                this.focusTickerNow = Date.now();
+                const remaining = this.focusRemainingSeconds;
+                this.focusElapsedPercentValue = this.focusElapsedPercent;
+                this.focusCountdownText = this.formatFocusCountdown(remaining);
+                const pct = this.focusElapsedPercentValue;
+                this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
+                
+                if (sessionId != null && !this.isTempSessionId(sessionId)) {
+                    // PHASE 3: Call server asynchronously (don't await yet)
+                    const promise = this.$wire.$parent.$call('pauseFocusSession', sessionId);
+                    
+                    // PHASE 4: Handle response AFTER UI is updated
+                    const ok = await promise;
                     if (ok === false) {
-                        this.focusIsPaused = false;
-                        this.focusPauseStartedAt = null;
-                        this.activeFocusSession = null;
-                        this.dispatchFocusSessionUpdated(null);
+                        // PHASE 5: Rollback on error
+                        this.focusIsPaused = snapshot.focusIsPaused;
+                        this.focusPauseStartedAt = snapshot.focusPauseStartedAt;
+                        this.activeFocusSession = snapshot.activeFocusSession;
+                        this.dispatchFocusSessionUpdated(snapshot.activeFocusSession);
                         this.$wire.$dispatch('toast', { type: 'error', message: this.focusSessionNoLongerActiveToast });
                     }
-                } catch (err) {
-                    this.focusIsPaused = false;
-                    this.focusPauseStartedAt = null;
-                    this.$wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
                 }
+            } catch (err) {
+                // PHASE 5: Rollback on error - restore from snapshot
+                this.focusIsPaused = snapshot.focusIsPaused;
+                this.focusPauseStartedAt = snapshot.focusPauseStartedAt;
+                this.focusPausedSecondsAccumulated = snapshot.focusPausedSecondsAccumulated;
+                this.$wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
             }
         },
         async resumeFocus() {
@@ -304,35 +484,52 @@ export function listItemCard(config) {
             const sessionId = this.activeFocusSession?.id;
             const pauseStartMs = this.focusPauseStartedAt;
             const segmentSec = (Date.now() - pauseStartMs) / 1000;
-            this.focusPausedSecondsAccumulated += segmentSec;
-            this.focusPauseStartedAt = null;
-            this.focusIsPaused = false;
-            this.focusTickerNow = Date.now();
-            const remaining = this.focusRemainingSeconds;
-            this.focusElapsedPercentValue = this.focusElapsedPercent;
-            this.focusCountdownText = this.formatFocusCountdown(remaining);
-            const pct = this.focusElapsedPercentValue;
-            this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
-            this._focusJustResumed = true;
-            if (sessionId != null && !this.isTempSessionId(sessionId)) {
-                try {
-                    const ok = await this.$wire.$parent.$call('resumeFocusSession', sessionId);
+            
+            // PHASE 1: Create snapshot BEFORE any changes
+            const snapshot = {
+                focusIsPaused: this.focusIsPaused,
+                focusPauseStartedAt: this.focusPauseStartedAt,
+                focusPausedSecondsAccumulated: this.focusPausedSecondsAccumulated,
+                activeFocusSession: this.activeFocusSession ? { ...this.activeFocusSession } : null,
+            };
+            
+            try {
+                // PHASE 2: Update UI immediately (optimistic)
+                this.focusPausedSecondsAccumulated += segmentSec;
+                this.focusPauseStartedAt = null;
+                this.focusIsPaused = false;
+                this.focusTickerNow = Date.now();
+                const remaining = this.focusRemainingSeconds;
+                this.focusElapsedPercentValue = this.focusElapsedPercent;
+                this.focusCountdownText = this.formatFocusCountdown(remaining);
+                const pct = this.focusElapsedPercentValue;
+                this.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
+                this._focusJustResumed = true;
+                
+                if (sessionId != null && !this.isTempSessionId(sessionId)) {
+                    // PHASE 3: Call server asynchronously (don't await yet)
+                    const promise = this.$wire.$parent.$call('resumeFocusSession', sessionId);
+                    
+                    // PHASE 4: Handle response AFTER UI is updated
+                    const ok = await promise;
                     if (ok === false) {
+                        // PHASE 5: Rollback on error
                         this._focusJustResumed = false;
-                        this.focusPausedSecondsAccumulated = Math.max(0, this.focusPausedSecondsAccumulated - segmentSec);
-                        this.focusIsPaused = true;
-                        this.focusPauseStartedAt = pauseStartMs;
-                        this.activeFocusSession = null;
-                        this.dispatchFocusSessionUpdated(null);
+                        this.focusPausedSecondsAccumulated = snapshot.focusPausedSecondsAccumulated;
+                        this.focusIsPaused = snapshot.focusIsPaused;
+                        this.focusPauseStartedAt = snapshot.focusPauseStartedAt;
+                        this.activeFocusSession = snapshot.activeFocusSession;
+                        this.dispatchFocusSessionUpdated(snapshot.activeFocusSession);
                         this.$wire.$dispatch('toast', { type: 'error', message: this.focusSessionNoLongerActiveToast });
                     }
-                } catch (err) {
-                    this._focusJustResumed = false;
-                    this.focusPausedSecondsAccumulated = Math.max(0, this.focusPausedSecondsAccumulated - segmentSec);
-                    this.focusIsPaused = true;
-                    this.focusPauseStartedAt = pauseStartMs;
-                    this.$wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
                 }
+            } catch (err) {
+                // PHASE 5: Rollback on error - restore from snapshot
+                this._focusJustResumed = false;
+                this.focusPausedSecondsAccumulated = snapshot.focusPausedSecondsAccumulated;
+                this.focusIsPaused = snapshot.focusIsPaused;
+                this.focusPauseStartedAt = snapshot.focusPauseStartedAt;
+                this.$wire.$dispatch('toast', { type: 'error', message: this.focusStopErrorToast });
             }
         },
         getFocusPausedSecondsTotal() {
@@ -357,8 +554,11 @@ export function listItemCard(config) {
                 });
                 return;
             }
-            const minutes = this.taskDurationMinutes != null && this.taskDurationMinutes > 0
-                ? Number(this.taskDurationMinutes) : this.defaultWorkDurationMinutes;
+            const isPomodoro = this.focusModeType === 'pomodoro';
+            const minutes = isPomodoro
+                ? Math.max(1, Math.min(120, Math.floor(Number(this.pomodoroWorkMinutes ?? 25))))
+                : (this.taskDurationMinutes != null && this.taskDurationMinutes > 0
+                    ? Number(this.taskDurationMinutes) : this.defaultWorkDurationMinutes);
             const durationSeconds = Math.max(60, minutes * 60);
             const startedAt = new Date().toISOString();
             const payload = {
@@ -366,7 +566,7 @@ export function listItemCard(config) {
                 duration_seconds: durationSeconds,
                 started_at: startedAt,
                 payload: {
-                    used_task_duration: !!(this.taskDurationMinutes != null && this.taskDurationMinutes > 0),
+                    used_task_duration: !isPomodoro && !!(this.taskDurationMinutes != null && this.taskDurationMinutes > 0),
                     focus_mode_type: this.focusModeType ?? 'countdown',
                 },
             };
@@ -380,6 +580,7 @@ export function listItemCard(config) {
                 duration_seconds: durationSeconds,
                 type: 'work',
                 sequence_number: 1,
+                focus_mode_type: this.focusModeType ?? 'countdown',
             };
             const promise = this.$wire.$parent.$call('startFocusSession', this.itemId, payload);
             this.pendingStartPromise = promise;
@@ -423,7 +624,11 @@ export function listItemCard(config) {
                     this.$wire.$dispatch('toast', { type: 'error', message: (typeof result.error === 'string' ? result.error : null) || this.focusStartErrorToast });
                     return;
                 }
-                const merged = { ...result, started_at: this.activeFocusSession?.started_at || result.started_at };
+                const merged = {
+                    ...result,
+                    started_at: this.activeFocusSession?.started_at || result.started_at,
+                    focus_mode_type: this.activeFocusSession?.focus_mode_type ?? result.focus_mode_type ?? 'countdown',
+                };
                 this.activeFocusSession = merged;
                 this.dispatchFocusSessionUpdated(merged);
                 if (this.focusIsPaused && result.id) {
@@ -444,23 +649,36 @@ export function listItemCard(config) {
         },
         async stopFocus() {
             if (!this.activeFocusSession || !this.activeFocusSession.id) return;
+            
+            // PHASE 1: Create snapshot BEFORE any changes
             const sessionSnapshot = { ...this.activeFocusSession };
+            const focusReadySnapshot = this.focusReady;
+            
             if (this.isTempSessionId(sessionSnapshot.id)) {
                 this.focusStopRequestedBeforeStartResolved = true;
                 this.activeFocusSession = null;
                 this.dispatchFocusSessionUpdated(null);
-                this.focusReady = false;
+                this.focusReady = true;
                 return;
             }
+            
             const pausedSeconds = this.getFocusPausedSecondsTotal();
             try {
+                // PHASE 2: Update UI immediately (optimistic)
                 this.activeFocusSession = null;
                 this.dispatchFocusSessionUpdated(null);
-                this.focusReady = false;
-                await this.$wire.$parent.$call('abandonFocusSession', sessionSnapshot.id, { paused_seconds: pausedSeconds });
+                this.focusReady = true;
+                
+                // PHASE 3: Call server asynchronously (don't await yet)
+                const promise = this.$wire.$parent.$call('abandonFocusSession', sessionSnapshot.id, { paused_seconds: pausedSeconds });
+                
+                // PHASE 4: Handle response AFTER UI is updated
+                await promise;
             } catch (error) {
+                // PHASE 5: Rollback on error - restore from snapshot
                 this.activeFocusSession = sessionSnapshot;
                 this.dispatchFocusSessionUpdated(sessionSnapshot);
+                this.focusReady = focusReadySnapshot;
                 this.$wire.$dispatch('toast', { type: 'error', message: error.message || this.focusStopErrorToast });
             }
         },
@@ -868,7 +1086,11 @@ export function listItemCard(config) {
             }
             const isForThisCard = Number(incoming.task_id) === Number(this.itemId);
             if (isForThisCard && this.activeFocusSession?.started_at) {
-                this.activeFocusSession = { ...incoming, started_at: this.activeFocusSession.started_at };
+                this.activeFocusSession = {
+                    ...incoming,
+                    started_at: this.activeFocusSession.started_at,
+                    focus_mode_type: this.activeFocusSession.focus_mode_type ?? incoming.focus_mode_type ?? 'countdown',
+                };
             } else {
                 this.activeFocusSession = incoming;
             }

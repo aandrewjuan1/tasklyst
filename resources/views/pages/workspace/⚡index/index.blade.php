@@ -50,6 +50,7 @@
             :tags="$this->tags"
             :filters="$this->getFilters()"
             :active-focus-session="$this->activeFocusSession"
+            :pomodoro-settings="$this->pomodoroSettings"
         />
     </div>
 
