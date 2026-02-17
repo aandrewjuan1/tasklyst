@@ -78,9 +78,10 @@ select:focus[data-flux-control] {
     animation: loading-bar 1.2s ease-in-out infinite;
 }
 
-/* Focus bar: dim non-focused cards via CSS so cards don't subscribe to Alpine store */
+/* Focus bar: blur non-focused cards when an item is in focus mode */
 .focus-open .list-item-card:not(.is-focus-active) {
-    opacity: 0.6;
     pointer-events: none;
     user-select: none;
+    filter: blur(5px);
+    transition: filter 0.2s ease-out;
 }
