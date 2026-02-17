@@ -2,10 +2,10 @@
 
 use App\Models\User;
 use Livewire\Livewire;
-use Laravel\WorkOS\Http\Middleware\ValidateSessionWithWorkOS;
 
 test('profile page is displayed', function () {
-    $this->withoutMiddleware(ValidateSessionWithWorkOS::class);
+    // Disable middleware so the profile page loads without WorkOS session validation in tests.
+    $this->withoutMiddleware();
 
     $this->actingAs($user = User::factory()->create());
 

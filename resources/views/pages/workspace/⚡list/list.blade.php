@@ -1166,6 +1166,7 @@
                             :is-overdue="$entry['isOverdue']"
                             :active-focus-session="$activeFocusSession ?? null"
                             :default-work-duration-minutes="$defaultWorkDurationMinutes"
+                            :pomodoro-settings="$this->pomodoroSettings"
                             wire:key="{{ $entry['kind'] }}-{{ $entry['item']->id }}"
                         />
                     @endforeach

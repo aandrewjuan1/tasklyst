@@ -1,18 +1,26 @@
 <?php
 
-use App\Actions\Comment\CreateCommentAction;
-use App\Actions\Comment\DeleteCommentAction;
-use App\Actions\Comment\UpdateCommentAction;
 use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
 use App\Actions\Collaboration\CreateCollaborationInvitationAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Actions\Collaboration\DeleteCollaborationAction;
 use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
+use App\Actions\Comment\CreateCommentAction;
+use App\Actions\Comment\DeleteCommentAction;
+use App\Actions\Comment\UpdateCommentAction;
 use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\DeleteEventAction;
 use App\Actions\Event\ForceDeleteEventAction;
 use App\Actions\Event\RestoreEventAction;
 use App\Actions\Event\UpdateEventPropertyAction;
+use App\Actions\FocusSession\AbandonFocusSessionAction;
+use App\Actions\FocusSession\CompleteFocusSessionAction;
+use App\Actions\FocusSession\GetActiveFocusSessionAction;
+use App\Actions\FocusSession\PauseFocusSessionAction;
+use App\Actions\FocusSession\ResumeFocusSessionAction;
+use App\Actions\FocusSession\StartFocusSessionAction;
+use App\Actions\Pomodoro\GetOrCreatePomodoroSettingsAction;
+use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
 use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\ForceDeleteProjectAction;
@@ -20,23 +28,18 @@ use App\Actions\Project\RestoreProjectAction;
 use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
-use App\Actions\FocusSession\AbandonFocusSessionAction;
-use App\Actions\FocusSession\CompleteFocusSessionAction;
-use App\Actions\FocusSession\GetActiveFocusSessionAction;
-use App\Actions\FocusSession\PauseFocusSessionAction;
-use App\Actions\FocusSession\ResumeFocusSessionAction;
-use App\Actions\FocusSession\StartFocusSessionAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\ForceDeleteTaskAction;
 use App\Actions\Task\RestoreTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesActivityLogs;
-use App\Livewire\Concerns\HandlesFocusSessions;
 use App\Livewire\Concerns\HandlesCollaborations;
 use App\Livewire\Concerns\HandlesComments;
 use App\Livewire\Concerns\HandlesEvents;
 use App\Livewire\Concerns\HandlesFiltering;
+use App\Livewire\Concerns\HandlesFocusSessions;
+use App\Livewire\Concerns\HandlesPomodoroSettings;
 use App\Livewire\Concerns\HandlesProjects;
 use App\Livewire\Concerns\HandlesTags;
 use App\Livewire\Concerns\HandlesTasks;
@@ -50,7 +53,6 @@ use App\Services\EventService;
 use App\Services\ProjectService;
 use App\Services\TagService;
 use App\Services\TaskService;
-use Carbon\Carbon;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -69,9 +71,10 @@ class extends Component
     use HandlesComments;
     use HandlesEvents;
     use HandlesFiltering;
+    use HandlesFocusSessions;
+    use HandlesPomodoroSettings;
     use HandlesProjects;
     use HandlesTags;
-    use HandlesFocusSessions;
     use HandlesTasks;
     use HandlesTrash;
 
@@ -156,6 +159,10 @@ class extends Component
 
     protected StartFocusSessionAction $startFocusSessionAction;
 
+    protected GetOrCreatePomodoroSettingsAction $getOrCreatePomodoroSettingsAction;
+
+    protected UpdatePomodoroSettingsAction $updatePomodoroSettingsAction;
+
     /**
      * @var array<string, mixed>
      */
@@ -206,7 +213,9 @@ class extends Component
         GetActiveFocusSessionAction $getActiveFocusSessionAction,
         PauseFocusSessionAction $pauseFocusSessionAction,
         ResumeFocusSessionAction $resumeFocusSessionAction,
-        StartFocusSessionAction $startFocusSessionAction
+        StartFocusSessionAction $startFocusSessionAction,
+        GetOrCreatePomodoroSettingsAction $getOrCreatePomodoroSettingsAction,
+        UpdatePomodoroSettingsAction $updatePomodoroSettingsAction
     ): void {
         $this->taskService = $taskService;
         $this->projectService = $projectService;
@@ -243,6 +252,19 @@ class extends Component
         $this->pauseFocusSessionAction = $pauseFocusSessionAction;
         $this->resumeFocusSessionAction = $resumeFocusSessionAction;
         $this->startFocusSessionAction = $startFocusSessionAction;
+        $this->getOrCreatePomodoroSettingsAction = $getOrCreatePomodoroSettingsAction;
+        $this->updatePomodoroSettingsAction = $updatePomodoroSettingsAction;
+    }
+
+    /**
+     * Pomodoro settings for the authenticated user (passed to List for list-item-cards).
+     *
+     * @return array<string, mixed>
+     */
+    #[Computed]
+    public function pomodoroSettings(): array
+    {
+        return $this->getPomodoroSettings();
     }
 
     /**
