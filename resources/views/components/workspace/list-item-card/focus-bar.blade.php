@@ -1,8 +1,9 @@
-{{-- Focus mode bar: ready state (Start/Cancel) or active session (timer, progress, Pause/Resume/Stop). Uses parent Alpine scope (listItemCard). --}}
+{{-- Focus mode bar: ready state (Start/Cancel) or active session (timer, progress, Pause/Resume/Stop). Uses focusBar Alpine component delegating to listItemCard via store. --}}
 @php
     $focusBarCloak = ! ($hasActiveFocusOnThisTask ?? false) && ! ($hasActiveBreakSession ?? false);
 @endphp
 <div
+    x-data="focusBar({ itemId: {{ $itemId }} })"
     x-show="focusReady || isFocused || isBreakFocused"
     @if($focusBarCloak) x-cloak @endif
     x-transition:enter="transition ease-out duration-200"
