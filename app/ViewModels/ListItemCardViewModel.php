@@ -376,8 +376,6 @@ class ListItemCardViewModel
             'pomodoroAutoStartPomodoro' => $this->pomodoroSettings['auto_start_pomodoro'] ?? config('pomodoro.defaults.auto_start_pomodoro', false),
             'pomodoroSoundEnabled' => $this->pomodoroSettings['sound_enabled'] ?? config('pomodoro.defaults.sound_enabled', true),
             'pomodoroSoundVolume' => $this->pomodoroSettings['sound_volume'] ?? config('pomodoro.defaults.sound_volume', 80),
-            'pomodoroNotificationOnComplete' => $this->pomodoroSettings['notification_on_complete'] ?? config('pomodoro.defaults.notification_on_complete', false),
-            'pomodoroSettingsOpen' => false,
             'pomodoroLongBreakEveryLabel' => __('long break every'),
             'pomodoroTooltipWhat' => __('The Pomodoro Technique is a time management method: work in focused blocks (e.g. 25 minutes), then take a short break. After several blocks, take a longer break.'),
             'pomodoroTooltipHow' => __('Set your work duration, short and long break lengths, and how many work blocks before a long break. Press Start when ready.'),
@@ -385,12 +383,10 @@ class ListItemCardViewModel
             'pomodoroShortBreakLabel' => __('Short break (minutes)'),
             'pomodoroLongBreakLabel' => __('Long break (minutes)'),
             'pomodoroEveryLabel' => __('Every (pomodoros)'),
-            'pomodoroSettingsLabel' => __('Settings'),
             'pomodoroAutoStartBreakLabel' => __('Auto-start break'),
             'pomodoroAutoStartPomodoroLabel' => __('Auto-start next pomodoro'),
             'pomodoroSoundLabel' => __('Sound on complete'),
             'pomodoroVolumeLabel' => __('Volume'),
-            'pomodoroNotificationLabel' => __('Notify when complete'),
             'pomodoroSettingsSaveErrorToast' => __('Could not save Pomodoro settings. Please try again.'),
         ];
     }

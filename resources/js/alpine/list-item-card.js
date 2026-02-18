@@ -130,7 +130,6 @@ export function listItemCard(config) {
                 pomodoroAutoStartBreak: this.pomodoroAutoStartBreak,
                 pomodoroAutoStartPomodoro: this.pomodoroAutoStartPomodoro,
                 pomodoroSoundEnabled: this.pomodoroSoundEnabled,
-                pomodoroNotificationOnComplete: this.pomodoroNotificationOnComplete,
             });
         },
         applyPomodoroSettings(settings) {
@@ -143,7 +142,6 @@ export function listItemCard(config) {
             if (settings.auto_start_pomodoro != null) this.pomodoroAutoStartPomodoro = !!settings.auto_start_pomodoro;
             if (settings.sound_enabled != null) this.pomodoroSoundEnabled = !!settings.sound_enabled;
             if (settings.sound_volume != null) this.pomodoroSoundVolume = Number(settings.sound_volume);
-            if (settings.notification_on_complete != null) this.pomodoroNotificationOnComplete = !!settings.notification_on_complete;
             if (this.kind === 'task') this._pomodoroLastSavedPayload = JSON.stringify(this.getPomodoroSettingsPayload());
         },
         async savePomodoroSettings() {
@@ -228,9 +226,6 @@ export function listItemCard(config) {
         },
         playCompletionSound() {
             this._focus.playCompletionSound(this);
-        },
-        showCompletionNotification(sessionType) {
-            this._focus.showCompletionNotification(this, sessionType);
         },
         async startNextSession(nextSessionInfo) {
             return this._focus.startNextSession(this, nextSessionInfo);

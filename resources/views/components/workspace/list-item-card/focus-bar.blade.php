@@ -191,9 +191,9 @@
                 {{-- Next session ready (pomodoro flow) --}}
                 <div class="flex shrink-0 items-center gap-3" x-show="sessionComplete && nextSessionInfo && !nextSessionInfo.auto_start" x-cloak>
                     <div class="flex flex-col gap-0.5 min-w-0">
-                        <span class="text-sm font-semibold text-primary" x-text="nextSessionInfo.type === 'short_break' || nextSessionInfo.type === 'long_break' ? '{{ __('Break ready!') }}' : '{{ __('Next pomodoro ready!') }}'"></span>
+                        <span class="text-sm font-semibold text-primary" x-text="nextSessionInfo?.type === 'short_break' || nextSessionInfo?.type === 'long_break' ? '{{ __('Break ready!') }}' : '{{ __('Next pomodoro ready!') }}'"></span>
                         <div class="flex items-center gap-2 text-xs text-zinc-500">
-                            <span x-text="(nextSessionInfo.type === 'short_break' ? '{{ __('Short break') }}' : nextSessionInfo.type === 'long_break' ? '{{ __('Long break') }}' : '{{ __('Pomodoro') }}') + ' · ' + nextSessionDurationText"></span>
+                            <span x-text="(nextSessionInfo?.type === 'short_break' ? '{{ __('Short break') }}' : nextSessionInfo?.type === 'long_break' ? '{{ __('Long break') }}' : '{{ __('Pomodoro') }}') + (nextSessionInfo ? ' · ' + nextSessionDurationText : '')"></span>
                         </div>
                     </div>
                     <flux:button
@@ -203,7 +203,7 @@
                         class="shrink-0"
                         @click="startNextSession(nextSessionInfo)"
                     >
-                        <span x-text="nextSessionInfo.type === 'short_break' || nextSessionInfo.type === 'long_break' ? '{{ __('Start Break') }}' : '{{ __('Start Pomodoro') }}'"></span>
+                        <span x-text="nextSessionInfo?.type === 'short_break' || nextSessionInfo?.type === 'long_break' ? '{{ __('Start Break') }}' : '{{ __('Start Pomodoro') }}'"></span>
                     </flux:button>
                     <flux:button
                         variant="ghost"
@@ -223,126 +223,99 @@
             </div>
         </div>
 
-        {{-- Row 3: Pomodoro settings — toggleable; only when Pomodoro selected and not focused --}}
+        {{-- Row 3: Pomodoro settings — always visible when Pomodoro selected and not focused --}}
         <div
             x-show="!isFocused && !isBreakFocused && focusModeType === 'pomodoro'"
             x-cloak
-            class="flex flex-col gap-3"
+            class="flex flex-wrap items-end gap-4"
         >
-            <button
-                type="button"
-                @click="pomodoroSettingsOpen = !pomodoroSettingsOpen"
-                class="w-fit text-sm font-medium text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
-                x-text="pomodoroSettingsLabel + (pomodoroSettingsOpen ? ' ▲' : ' ▼')"
-            ></button>
-            <div
-                x-show="pomodoroSettingsOpen"
-                x-transition:enter="transition ease-out duration-150"
-                x-transition:enter-start="opacity-0"
-                x-transition:enter-end="opacity-100"
-                x-transition:leave="transition ease-in duration-100"
-                x-transition:leave-start="opacity-100"
-                x-transition:leave-end="opacity-0"
-                class="rounded-xl border border-zinc-200/80 bg-zinc-50/60 px-4 py-4 dark:border-zinc-600/50 dark:bg-zinc-800/30"
-            >
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                    {{-- Left: durations in 2x2 grid --}}
-                    <div class="grid grid-cols-2 gap-3 md:gap-4">
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroWorkLabel"></label>
-                            <flux:input
-                                type="number"
-                                min="{{ $pomodoroWorkMin ?? 1 }}"
-                                max="{{ $pomodoroWorkMax ?? 120 }}"
-                                x-model.number="pomodoroWorkMinutes"
-                                class="w-14 text-sm tabular-nums"
-                                inputmode="numeric"
-                                @blur="savePomodoroSettings()"
-                                @keydown.enter.prevent="savePomodoroSettings()"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroShortBreakLabel"></label>
-                            <flux:input
-                                type="number"
-                                min="1"
-                                max="{{ $pomodoroShortBreakMax ?? 60 }}"
-                                x-model.number="pomodoroShortBreakMinutes"
-                                class="w-14 text-sm tabular-nums"
-                                inputmode="numeric"
-                                @blur="savePomodoroSettings()"
-                                @keydown.enter.prevent="savePomodoroSettings()"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroLongBreakLabel"></label>
-                            <flux:input
-                                type="number"
-                                min="1"
-                                max="{{ $pomodoroLongBreakMax ?? 60 }}"
-                                x-model.number="pomodoroLongBreakMinutes"
-                                class="w-14 text-sm tabular-nums"
-                                inputmode="numeric"
-                                @blur="savePomodoroSettings()"
-                                @keydown.enter.prevent="savePomodoroSettings()"
-                            />
-                        </div>
-                        <div class="flex flex-col gap-2">
-                            <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                                <span x-text="pomodoroEveryLabel"></span>
-                                <span class="ml-1 text-[10px] font-normal text-zinc-400">
-                                    ({{ __('min 2') }})
-                                </span>
-                            </label>
-                            <flux:input
-                                type="number"
-                                min="{{ $pomodoroLongBreakAfterMin ?? 2 }}"
-                                max="{{ $pomodoroLongBreakAfterMax ?? 10 }}"
-                                x-model.number="pomodoroLongBreakAfter"
-                                class="w-14 text-sm tabular-nums"
-                                inputmode="numeric"
-                                @blur="savePomodoroSettings()"
-                                @keydown.enter.prevent="savePomodoroSettings()"
-                            />
-                        </div>
+            {{-- Duration inputs --}}
+            <div class="flex flex-col gap-2">
+                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroWorkLabel"></label>
+                <flux:input
+                    type="number"
+                    min="{{ $pomodoroWorkMin ?? 1 }}"
+                    max="{{ $pomodoroWorkMax ?? 120 }}"
+                    x-model.number="pomodoroWorkMinutes"
+                    class="w-14 text-sm tabular-nums"
+                    inputmode="numeric"
+                    @blur="savePomodoroSettings()"
+                    @keydown.enter.prevent="savePomodoroSettings()"
+                />
+            </div>
+            <div class="flex flex-col gap-2">
+                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroShortBreakLabel"></label>
+                <flux:input
+                    type="number"
+                    min="1"
+                    max="{{ $pomodoroShortBreakMax ?? 60 }}"
+                    x-model.number="pomodoroShortBreakMinutes"
+                    class="w-14 text-sm tabular-nums"
+                    inputmode="numeric"
+                    @blur="savePomodoroSettings()"
+                    @keydown.enter.prevent="savePomodoroSettings()"
+                />
+            </div>
+            <div class="flex flex-col gap-2">
+                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroLongBreakLabel"></label>
+                <flux:input
+                    type="number"
+                    min="1"
+                    max="{{ $pomodoroLongBreakMax ?? 60 }}"
+                    x-model.number="pomodoroLongBreakMinutes"
+                    class="w-14 text-sm tabular-nums"
+                    inputmode="numeric"
+                    @blur="savePomodoroSettings()"
+                    @keydown.enter.prevent="savePomodoroSettings()"
+                />
+            </div>
+            <div class="flex flex-col gap-2">
+                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                    <span x-text="pomodoroEveryLabel"></span>
+                    <span class="ml-1 text-[10px] font-normal text-zinc-400">
+                        ({{ __('min 2') }})
+                    </span>
+                </label>
+                <flux:input
+                    type="number"
+                    min="{{ $pomodoroLongBreakAfterMin ?? 2 }}"
+                    max="{{ $pomodoroLongBreakAfterMax ?? 10 }}"
+                    x-model.number="pomodoroLongBreakAfter"
+                    class="w-14 text-sm tabular-nums"
+                    inputmode="numeric"
+                    @blur="savePomodoroSettings()"
+                    @keydown.enter.prevent="savePomodoroSettings()"
+                />
+            </div>
+            {{-- Checkboxes and volume --}}
+            <label class="flex cursor-pointer items-center gap-2 pb-1">
+                <flux:checkbox x-model="pomodoroAutoStartBreak" @change="savePomodoroSettings()" />
+                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroAutoStartBreakLabel"></span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 pb-1">
+                <flux:checkbox x-model="pomodoroAutoStartPomodoro" @change="savePomodoroSettings()" />
+                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroAutoStartPomodoroLabel"></span>
+            </label>
+            <div class="flex items-center gap-2 pb-1">
+                <label class="flex cursor-pointer items-center gap-2">
+                    <flux:checkbox x-model="pomodoroSoundEnabled" @change="savePomodoroSettings()" />
+                    <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroSoundLabel"></span>
+                </label>
+                <template x-if="pomodoroSoundEnabled">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-xs font-medium text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroVolumeLabel"></span>
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            x-model.number="pomodoroSoundVolume"
+                            class="h-2 w-12 min-w-0 accent-primary"
+                            aria-label="Volume"
+                            @change="savePomodoroSettings()"
+                        />
+                        <span class="w-6 text-right text-xs tabular-nums text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroSoundVolume + '%'"></span>
                     </div>
-                    {{-- Right: options — row 1: auto-start x2, row 2: sound + notify, row 3: volume --}}
-                    <div class="flex flex-col gap-3 rounded-lg border border-zinc-200/80 bg-white/80 px-4 py-3 dark:border-zinc-600/50 dark:bg-zinc-800/50 md:h-fit">
-                        <div class="flex flex-wrap items-center gap-4 lg:gap-6">
-                            <label class="flex cursor-pointer items-center gap-2">
-                                <flux:checkbox x-model="pomodoroAutoStartBreak" @change="savePomodoroSettings()" />
-                                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300" x-text="pomodoroAutoStartBreakLabel"></span>
-                            </label>
-                            <label class="flex cursor-pointer items-center gap-2">
-                                <flux:checkbox x-model="pomodoroAutoStartPomodoro" @change="savePomodoroSettings()" />
-                                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300" x-text="pomodoroAutoStartPomodoroLabel"></span>
-                            </label>
-                        </div>
-                        <div class="flex flex-wrap items-center gap-4 lg:gap-6">
-                            <label class="flex cursor-pointer items-center gap-2">
-                                <flux:checkbox x-model="pomodoroSoundEnabled" @change="savePomodoroSettings()" />
-                                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300" x-text="pomodoroSoundLabel"></span>
-                            </label>
-                            <label class="flex cursor-pointer items-center gap-2">
-                                <flux:checkbox x-model="pomodoroNotificationOnComplete" @change="savePomodoroSettings()" />
-                                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300" x-text="pomodoroNotificationLabel"></span>
-                            </label>
-                        </div>
-                        <div class="flex items-center gap-3" x-show="pomodoroSoundEnabled">
-                            <span class="text-xs font-medium text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroVolumeLabel"></span>
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                x-model.number="pomodoroSoundVolume"
-                                class="h-2 flex-1 min-w-0 accent-primary"
-                                aria-label="Volume"
-                                @change="savePomodoroSettings()"
-                            />
-                            <span class="w-8 text-right text-sm tabular-nums text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroSoundVolume + '%'"></span>
-                        </div>
-                    </div>
-                </div>
+                </template>
             </div>
         </div>
 
