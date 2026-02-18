@@ -229,6 +229,9 @@ export function listItemCard(config) {
         playCompletionSound() {
             this._focus.playCompletionSound(this);
         },
+        showCompletionNotification(sessionType) {
+            this._focus.showCompletionNotification(this, sessionType);
+        },
         async startNextSession(nextSessionInfo) {
             return this._focus.startNextSession(this, nextSessionInfo);
         },
