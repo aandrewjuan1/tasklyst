@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\FocusModeType;
 use App\Enums\FocusSessionType;
 use App\Models\FocusSession;
 use App\Models\User;
@@ -26,6 +27,7 @@ class FocusSessionFactory extends Factory
             'focusable_type' => null,
             'focusable_id' => null,
             'type' => FocusSessionType::Work,
+            'focus_mode_type' => FocusModeType::Sprint,
             'sequence_number' => 1,
             'duration_seconds' => 1500,
             'completed' => false,
@@ -34,6 +36,13 @@ class FocusSessionFactory extends Factory
             'paused_seconds' => 0,
             'payload' => null,
         ];
+    }
+
+    public function pomodoro(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'focus_mode_type' => FocusModeType::Pomodoro,
+        ]);
     }
 
     public function inProgress(): static

@@ -50,15 +50,15 @@ export function listItemCard(config) {
             }
         },
         get isFocused() {
-            return this.kind === 'task' && this.activeFocusSession && Number(this.activeFocusSession.task_id) === Number(this.itemId);
+            return this.kind === 'task' && this.activeFocusSession && this.activeFocusSession.type === 'work' && Number(this.activeFocusSession.task_id) === Number(this.itemId);
         },
         get isBreakFocused() {
-            // Break sessions don't have a task_id, so check by type
             if (!this.activeFocusSession) return false;
             const isBreak = this.activeFocusSession.type === 'short_break' || this.activeFocusSession.type === 'long_break';
             if (!isBreak) return false;
-            if (this.activeFocusSession.owner_task_id == null) return true;
-            return this.kind === 'task' && Number(this.activeFocusSession.owner_task_id) === Number(this.itemId);
+            const taskId = this.activeFocusSession.owner_task_id ?? this.activeFocusSession.task_id;
+            if (taskId == null) return true;
+            return this.kind === 'task' && Number(taskId) === Number(this.itemId);
         },
         get isPomodoroSession() {
             if (!this.activeFocusSession) return false;

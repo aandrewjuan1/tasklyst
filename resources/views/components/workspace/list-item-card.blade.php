@@ -73,7 +73,7 @@
         'hasActiveBreakSession' => $hasActiveBreakSession ?? false,
     ])
 
-    <div :class="{ 'pointer-events-none select-none': focusReady || isFocused || isBreakFocused }">
+    <div :class="{ 'pointer-events-none select-none': isFocused || isBreakFocused }">
         @include('components.workspace.list-item-card.header')
 
         <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">

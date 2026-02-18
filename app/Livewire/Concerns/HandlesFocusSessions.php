@@ -109,6 +109,7 @@ trait HandlesFocusSessions
             'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
             'type' => $session->type->value,
+            'focus_mode_type' => $session->focus_mode_type?->value ?? ($session->payload['focus_mode_type'] ?? 'sprint'),
             'task_id' => $task->id,
             'sequence_number' => $session->sequence_number,
             'payload' => $session->payload ?? [],
@@ -290,11 +291,15 @@ trait HandlesFocusSessions
 
         $this->authorize('view', $session);
 
+        $focusModeType = $session->focus_mode_type?->value
+            ?? ($session->payload['focus_mode_type'] ?? 'sprint');
+
         return [
             'id' => $session->id,
             'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
             'type' => $session->type->value,
+            'focus_mode_type' => $focusModeType,
             'task_id' => $session->focusable_id,
             'sequence_number' => $session->sequence_number,
             'paused_seconds' => (int) ($session->paused_seconds ?? 0),
@@ -304,10 +309,11 @@ trait HandlesFocusSessions
     }
 
     /**
-     * Start a break session (no task). Payload: type (short_break|long_break), duration_seconds, started_at, sequence_number.
+     * Start a break session. Payload: type (short_break|long_break), duration_seconds, started_at, sequence_number, optional task_id.
+     * When task_id is provided (e.g. pomodoro break after work on a task), the break is associated with that task.
      *
      * @param  array<string, mixed>  $payload
-     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: null, sequence_number: int}|array{error: string}
+     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int}|array{error: string}
      */
     #[Async]
     #[Renderless]
@@ -318,8 +324,7 @@ trait HandlesFocusSessions
             return ['error' => __('You must be logged in to start a break.')];
         }
 
-        $data = array_merge($payload, ['task_id' => null]);
-        $validator = Validator::make($data, FocusSessionStartValidation::rules());
+        $validator = Validator::make($payload, FocusSessionStartValidation::rules());
         if ($validator->fails()) {
             $this->dispatch('toast', type: 'error', message: __('Invalid break session data.'));
 
@@ -334,14 +339,27 @@ trait HandlesFocusSessions
             return ['error' => __('Invalid session type.')];
         }
 
+        $task = null;
+        if (! empty($validated['task_id'])) {
+            $task = Task::query()->forUser($user->id)->find($validated['task_id']);
+            if ($task === null) {
+                $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+                return ['error' => __('Task not found.')];
+            }
+            $this->authorize('update', $task);
+        }
+
+        $sessionPayload = is_array($validated['payload'] ?? null) ? $validated['payload'] : [];
+
         $session = $this->startFocusSessionAction->execute(
             $user,
-            null,
+            $task,
             $type,
             (int) $validated['duration_seconds'],
             $validated['started_at'],
             (int) ($validated['sequence_number'] ?? 1),
-            []
+            $sessionPayload
         );
 
         return [
@@ -349,7 +367,7 @@ trait HandlesFocusSessions
             'started_at' => $session->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'duration_seconds' => $session->duration_seconds,
             'type' => $session->type->value,
-            'task_id' => null,
+            'task_id' => $session->focusable_id,
             'sequence_number' => $session->sequence_number,
         ];
     }
@@ -421,15 +439,18 @@ trait HandlesFocusSessions
             ];
         }
 
+        $completedSession = $result['session'];
+
         return [
             'session' => [
-                'id' => $result['session']->id,
-                'started_at' => $result['session']->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
-                'duration_seconds' => $result['session']->duration_seconds,
-                'type' => $result['session']->type->value,
-                'task_id' => $result['session']->focusable_id,
-                'sequence_number' => $result['session']->sequence_number,
-                'completed' => $result['session']->completed,
+                'id' => $completedSession->id,
+                'started_at' => $completedSession->started_at->utc()->format('Y-m-d\TH:i:s.v\Z'),
+                'duration_seconds' => $completedSession->duration_seconds,
+                'type' => $completedSession->type->value,
+                'focus_mode_type' => $completedSession->focus_mode_type?->value ?? ($completedSession->payload['focus_mode_type'] ?? 'sprint'),
+                'task_id' => $completedSession->focusable_id,
+                'sequence_number' => $completedSession->sequence_number,
+                'completed' => $completedSession->completed,
             ],
             'next_session' => $nextSession,
         ];
