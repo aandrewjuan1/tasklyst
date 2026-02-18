@@ -3,6 +3,7 @@
 namespace App\Actions\Pomodoro;
 
 use App\Actions\FocusSession\CompleteFocusSessionAction;
+use App\Enums\FocusModeType;
 use App\Enums\FocusSessionType;
 use App\Models\FocusSession;
 use Carbon\CarbonInterface;
@@ -72,19 +73,19 @@ class CompletePomodoroSessionAction
 
     /**
      * Check if a session is part of a pomodoro cycle.
-     * A pomodoro session is identified by having focus_mode_type in payload or being a work session
-     * that could be part of a pomodoro cycle.
+     * A pomodoro session is identified by focus_mode_type column or payload, or by being a break session.
      */
     private function isPomodoroSession(FocusSession $session): bool
     {
-        $payload = $session->payload ?? [];
+        if ($session->focus_mode_type === FocusModeType::Pomodoro) {
+            return true;
+        }
 
-        // Check if focus_mode_type is set to pomodoro
+        $payload = $session->payload ?? [];
         if (isset($payload['focus_mode_type']) && $payload['focus_mode_type'] === 'pomodoro') {
             return true;
         }
 
-        // If it's a break session, it's likely part of a pomodoro cycle
         if ($session->type === FocusSessionType::ShortBreak || $session->type === FocusSessionType::LongBreak) {
             return true;
         }

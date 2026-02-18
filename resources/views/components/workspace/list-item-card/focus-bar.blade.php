@@ -48,8 +48,8 @@
             {{-- Left: mode description (same area, content toggled by state) --}}
             <div class="min-w-0 flex-1 basis-0">
                 <div class="flex flex-col gap-0.5">
-                    {{-- Ready: dynamic label by focusModeType --}}
-                    <div class="flex flex-col gap-0.5" x-show="!isFocused">
+                    {{-- Ready: dynamic label by focusModeType (hide when any active session is running) --}}
+                    <div class="flex flex-col gap-0.5" x-show="!isFocused && !isBreakFocused">
                         <div class="flex flex-col gap-0.5" x-show="focusModeType === 'countdown'">
                             <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
                             <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks.') }}</span>
@@ -130,7 +130,8 @@
                     ></span>
                     <div class="flex shrink-0 items-center gap-1">
                         <flux:button
-                            x-show="!focusIsPaused"
+                            x-show="isFocused && !focusIsPaused"
+                            x-cloak
                             variant="ghost"
                             size="sm"
                             icon="pause"
@@ -140,7 +141,7 @@
                             {{ __('Pause') }}
                         </flux:button>
                         <flux:button
-                            x-show="focusIsPaused"
+                            x-show="isFocused && focusIsPaused"
                             x-cloak
                             variant="ghost"
                             size="sm"

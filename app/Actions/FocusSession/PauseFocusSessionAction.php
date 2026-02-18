@@ -13,7 +13,8 @@ class PauseFocusSessionAction
             return $session->fresh();
         }
 
-        $session->update(['paused_at' => Carbon::now()]);
+        $session->paused_at = Carbon::now();
+        $session->save();
 
         return $session->fresh();
     }

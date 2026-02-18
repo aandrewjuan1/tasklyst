@@ -52,7 +52,7 @@ test('workspace index startFocusSession creates session and dispatches no error 
         ->and($session->type->value)->toBe('work');
 });
 
-test('workspace index startFocusSession persists focus_mode_type in session payload for pomodoro', function (): void {
+test('workspace index startFocusSession persists focus_mode_type column and payload for pomodoro', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();
 
@@ -72,10 +72,11 @@ test('workspace index startFocusSession persists focus_mode_type in session payl
 
     $active = $component->get('activeFocusSession');
     expect($active)->not->toBeNull()
-        ->and($active['payload']['focus_mode_type'] ?? null)->toBe('pomodoro');
+        ->and($active['focus_mode_type'] ?? null)->toBe('pomodoro');
 
     $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
     expect($session)->not->toBeNull()
+        ->and($session->focus_mode_type->value)->toBe('pomodoro')
         ->and(($session->payload['focus_mode_type'] ?? null))->toBe('pomodoro');
 });
 
@@ -234,4 +235,48 @@ test('workspace index mount ends any active focus session on load so focus does 
     $session->refresh();
     expect($session->ended_at)->not->toBeNull()
         ->and($session->completed)->toBeFalse();
+});
+
+test('workspace index startBreakSession with task_id stores focusable_type and focusable_id for short break', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+    $payload = [
+        'type' => 'short_break',
+        'duration_seconds' => 300,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'task_id' => $task->id,
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startBreakSession', $payload)
+        ->assertNotDispatched('toast', type: 'error');
+
+    $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull()
+        ->and($session->focusable_type)->toBe(Task::class)
+        ->and($session->focusable_id)->toBe($task->id)
+        ->and($session->type->value)->toBe('short_break');
+});
+
+test('workspace index startBreakSession with task_id stores focusable_type and focusable_id for long break', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+    $payload = [
+        'type' => 'long_break',
+        'duration_seconds' => 900,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 2,
+        'task_id' => $task->id,
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startBreakSession', $payload)
+        ->assertNotDispatched('toast', type: 'error');
+
+    $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull()
+        ->and($session->focusable_type)->toBe(Task::class)
+        ->and($session->focusable_id)->toBe($task->id)
+        ->and($session->type->value)->toBe('long_break');
 });

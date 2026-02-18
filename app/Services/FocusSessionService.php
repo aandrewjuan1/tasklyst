@@ -50,11 +50,12 @@ class FocusSessionService
         FocusSessionType $breakType,
         CarbonInterface $startedAt,
         int $durationSeconds,
-        int $sequenceNumber
+        int $sequenceNumber,
+        ?Task $task = null
     ): FocusSession {
         return $this->startFocusSessionAction->execute(
             $user,
-            null,
+            $task,
             $breakType,
             $durationSeconds,
             $startedAt,

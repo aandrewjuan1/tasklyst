@@ -514,11 +514,14 @@ export function createFocusSessionController() {
             };
             try {
                 const startedAt = startedAtArg ?? new Date().toISOString();
+                const taskId = ctx.lastPomodoroTaskId ?? (ctx.kind === 'task' ? ctx.itemId : null);
                 const payload = {
                     type: nextSessionInfo.type,
                     duration_seconds: nextSessionInfo.duration_seconds,
                     started_at: startedAt,
                     sequence_number: nextSessionInfo.sequence_number,
+                    payload: { focus_mode_type: 'pomodoro' },
+                    ...(taskId != null ? { task_id: taskId } : {}),
                 };
                 const optimisticSession = {
                     id: 'temp-' + Date.now(),
@@ -640,11 +643,13 @@ export function createFocusSessionController() {
             const activeFocusSessionSnapshot = ctx.activeFocusSession ? { ...ctx.activeFocusSession } : null;
             const sessionCompleteSnapshot = ctx.sessionComplete;
             const focusReadySnapshot = ctx.focusReady;
+            const occurrenceDate = ctx.activeFocusSession?.payload?.occurrence_date
+                ?? (ctx.isRecurringTask && ctx.listFilterDate ? String(ctx.listFilterDate).slice(0, 10) : null);
             try {
                 ctx.taskStatus = 'done';
                 ctx.dismissCompletedFocus();
                 window.dispatchEvent(new CustomEvent('task-status-updated', { detail: { itemId: ctx.itemId, status: 'done' }, bubbles: true }));
-                const ok = await ctx.$wire.$parent.$call(ctx.updatePropertyMethod, ctx.itemId, 'status', 'done', false);
+                const ok = await ctx.$wire.$parent.$call(ctx.updatePropertyMethod, ctx.itemId, 'status', 'done', false, occurrenceDate);
                 if (ok === false) {
                     ctx.taskStatus = previousStatus;
                     ctx.activeFocusSession = activeFocusSessionSnapshot;

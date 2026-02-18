@@ -2,6 +2,7 @@
 
 namespace App\Actions\FocusSession;
 
+use App\Enums\FocusModeType;
 use App\Enums\FocusSessionType;
 use App\Enums\TaskStatus;
 use App\Models\FocusSession;
@@ -71,11 +72,14 @@ class StartFocusSessionAction
             $sessionPayload['occurrence_date'] = $occurrenceDate;
         }
 
+        $focusModeType = FocusModeType::fromClient($sessionPayload['focus_mode_type'] ?? null);
+
         return FocusSession::query()->create([
             'user_id' => $user->id,
             'focusable_type' => $task !== null ? $task->getMorphClass() : null,
             'focusable_id' => $task?->getKey(),
             'type' => $type,
+            'focus_mode_type' => $focusModeType,
             'sequence_number' => $sequenceNumber,
             'duration_seconds' => $durationSeconds,
             'completed' => false,

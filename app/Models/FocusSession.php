@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\FocusModeType;
 use App\Enums\FocusSessionType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,6 +19,7 @@ class FocusSession extends Model
         'focusable_type',
         'focusable_id',
         'type',
+        'focus_mode_type',
         'sequence_number',
         'duration_seconds',
         'completed',
@@ -32,6 +34,7 @@ class FocusSession extends Model
     {
         return [
             'type' => FocusSessionType::class,
+            'focus_mode_type' => FocusModeType::class,
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
             'paused_at' => 'datetime',
