@@ -61,6 +61,7 @@
     }"
 >
     @include('components.workspace.list-item-card.focus-bar', [
+        'itemId' => $item->id,
         'focusModeTypes' => $alpineConfig['focusModeTypes'] ?? [],
         'pomodoroWorkMin' => $alpineConfig['pomodoroWorkMin'] ?? config('pomodoro.min_duration_minutes', 1),
         'pomodoroWorkMax' => $alpineConfig['pomodoroWorkMax'] ?? config('pomodoro.max_work_duration_minutes', 120),
