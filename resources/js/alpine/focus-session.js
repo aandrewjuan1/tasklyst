@@ -103,6 +103,38 @@ export function createFocusSessionController() {
                 };
                 window.addEventListener('pomodoro-start-next-work', ctx._onPomodoroStartNextWork);
             }
+            const visibilityHandler = () => {
+                if (document.visibilityState === 'visible') {
+                    this.checkFocusCompletionOnVisible(ctx);
+                }
+            };
+            document.addEventListener('visibilitychange', visibilityHandler);
+            ctx._focusVisibilityListener = visibilityHandler;
+        },
+
+        checkFocusCompletionOnVisible(ctx) {
+            if (!(ctx.isFocused || ctx.isBreakFocused) || !ctx.activeFocusSession || ctx.sessionComplete) return;
+            ctx.focusTickerNow = Date.now();
+            if (ctx.focusRemainingSeconds > 0) return;
+            ctx.sessionComplete = true;
+            const pausedSeconds = ctx.getFocusPausedSecondsTotal();
+            const sessionId = ctx.activeFocusSession?.id;
+            ctx.stopFocusTicker();
+            if (sessionId != null && !isTempSessionId(sessionId)) {
+                if (ctx.isPomodoroSession) {
+                    ctx.completePomodoroSession(sessionId, pausedSeconds);
+                } else {
+                    ctx.playCompletionSound();
+                    ctx.$wire.$parent.$call('completeFocusSession', sessionId, {
+                        ended_at: new Date().toISOString(),
+                        completed: true,
+                        paused_seconds: pausedSeconds,
+                        mark_task_status: 'done',
+                    }).catch(() => {
+                        ctx.$wire.$dispatch('toast', { type: 'error', message: ctx.focusCompleteErrorToast });
+                    });
+                }
+            }
         },
 
         syncFocusTicker(ctx) {
@@ -157,6 +189,7 @@ export function createFocusSessionController() {
                         if (ctx.isPomodoroSession) {
                             ctx.completePomodoroSession(sessionId, pausedSeconds);
                         } else {
+                            ctx.playCompletionSound();
                             ctx.$wire.$parent.$call('completeFocusSession', sessionId, {
                                 ended_at: new Date().toISOString(),
                                 completed: true,
@@ -309,6 +342,7 @@ export function createFocusSessionController() {
                     return;
                 }
                 ctx.playCompletionSound();
+                ctx.showCompletionNotification(ctx.activeFocusSession?.type);
                 if (result && result.next_session) {
                     if (!ctx._pomodoroAutoStartTransitioned) ctx.nextSessionInfo = result.next_session;
                     if (result.next_session.sequence_number) ctx.pomodoroSequence = result.next_session.sequence_number;
@@ -334,6 +368,47 @@ export function createFocusSessionController() {
             }
         },
 
+        showCompletionNotification(ctx, sessionType) {
+            if (!ctx.pomodoroNotificationOnComplete) return;
+            if (typeof window === 'undefined' || !window.Notification) return;
+            if (!('requestPermission' in Notification) && Notification.permission !== 'granted') return;
+
+            const show = (title, body) => {
+                try {
+                    const n = new Notification(title, {
+                        body,
+                        icon: '/favicon.ico',
+                    });
+                    n.onshow = () => {
+                        setTimeout(() => n.close(), 5000);
+                    };
+                } catch (err) {
+                    console.warn('[listItemCard] Failed to show completion notification:', err);
+                }
+            };
+
+            const requestAndShow = async (title, body) => {
+                if (Notification.permission === 'granted') {
+                    show(title, body);
+                    return;
+                }
+                if (Notification.permission === 'denied') return;
+                try {
+                    const permission = await Notification.requestPermission();
+                    if (permission === 'granted') show(title, body);
+                } catch (err) {
+                    console.warn('[listItemCard] Notification permission request failed:', err);
+                }
+            };
+
+            const isBreak = sessionType === 'short_break' || sessionType === 'long_break';
+            if (isBreak) {
+                requestAndShow('Break over', 'Time to start your next focus session.');
+            } else {
+                requestAndShow('Pomodoro complete', 'Time for a break.');
+            }
+        },
+
         playCompletionSound(ctx) {
             if (!ctx.pomodoroSoundEnabled) return;
             try {
@@ -344,16 +419,25 @@ export function createFocusSessionController() {
                     ctx._audioGainNode = ctx._audioContext.createGain();
                     ctx._audioGainNode.connect(ctx._audioContext.destination);
                 }
-                const oscillator = ctx._audioContext.createOscillator();
-                oscillator.connect(ctx._audioGainNode);
-                oscillator.frequency.value = 800;
-                oscillator.type = 'sine';
-                const volume = Math.max(0, Math.min(1, (ctx.pomodoroSoundVolume ?? 80) / 100));
-                const now = ctx._audioContext.currentTime;
-                ctx._audioGainNode.gain.setValueAtTime(volume, now);
-                ctx._audioGainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-                oscillator.start(now);
-                oscillator.stop(now + 0.3);
+                const play = () => {
+                    const oscillator = ctx._audioContext.createOscillator();
+                    oscillator.connect(ctx._audioGainNode);
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+                    const volume = Math.max(0, Math.min(1, (ctx.pomodoroSoundVolume ?? 80) / 100));
+                    const now = ctx._audioContext.currentTime;
+                    ctx._audioGainNode.gain.setValueAtTime(volume, now);
+                    ctx._audioGainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    oscillator.start(now);
+                    oscillator.stop(now + 0.3);
+                };
+                if (ctx._audioContext.state === 'suspended') {
+                    ctx._audioContext.resume().then(play).catch((err) => {
+                        console.warn('[listItemCard] Failed to resume AudioContext for completion sound:', err);
+                    });
+                } else {
+                    play();
+                }
             } catch (error) {
                 console.warn('[listItemCard] Failed to play completion sound:', error);
             }
@@ -528,6 +612,11 @@ export function createFocusSessionController() {
 
         async savePomodoroSettings(ctx) {
             if (ctx.kind !== 'task' || !ctx.$wire?.$parent?.$call) return;
+            if (ctx.pomodoroNotificationOnComplete && typeof window !== 'undefined' && window.Notification?.requestPermission && Notification.permission === 'default') {
+                try {
+                    await Notification.requestPermission();
+                } catch (_) {}
+            }
             const settingsSnapshot = {
                 pomodoroWorkMinutes: ctx.pomodoroWorkMinutes,
                 pomodoroShortBreakMinutes: ctx.pomodoroShortBreakMinutes,
@@ -913,6 +1002,10 @@ export function createFocusSessionController() {
 
         destroy(ctx) {
             ctx.stopFocusTicker();
+            if (ctx._focusVisibilityListener) {
+                document.removeEventListener('visibilitychange', ctx._focusVisibilityListener);
+                ctx._focusVisibilityListener = null;
+            }
             if (ctx._onPomodoroStartNextWork) {
                 window.removeEventListener('pomodoro-start-next-work', ctx._onPomodoroStartNextWork);
                 ctx._onPomodoroStartNextWork = null;
