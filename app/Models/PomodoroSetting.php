@@ -17,7 +17,6 @@ class PomodoroSetting extends Model
         'auto_start_pomodoro',
         'sound_enabled',
         'sound_volume',
-        'notification_on_complete',
     ];
 
     protected function casts(): array
@@ -26,7 +25,6 @@ class PomodoroSetting extends Model
             'auto_start_break' => 'boolean',
             'auto_start_pomodoro' => 'boolean',
             'sound_enabled' => 'boolean',
-            'notification_on_complete' => 'boolean',
         ];
     }
 
@@ -46,7 +44,6 @@ class PomodoroSetting extends Model
             'auto_start_pomodoro' => config('pomodoro.defaults.auto_start_pomodoro', false),
             'sound_enabled' => config('pomodoro.defaults.sound_enabled', true),
             'sound_volume' => config('pomodoro.defaults.sound_volume', 80),
-            'notification_on_complete' => config('pomodoro.defaults.notification_on_complete', false),
         ];
     }
 

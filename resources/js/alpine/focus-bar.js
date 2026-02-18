@@ -43,9 +43,6 @@ export function focusBar(config) {
         get focusIsPaused() { return this.card?.focusIsPaused; },
         get kind() { return this.card?.kind; },
         get isPomodoroSession() { return this.card?.isPomodoroSession; },
-        get pomodoroSettingsOpen() { return this.card?.pomodoroSettingsOpen; },
-        set pomodoroSettingsOpen(v) { if (this.card != null) this.card.pomodoroSettingsOpen = v; },
-        get pomodoroSettingsLabel() { return this.card?.pomodoroSettingsLabel; },
         get pomodoroWorkMinutes() { return this.card?.pomodoroWorkMinutes; },
         set pomodoroWorkMinutes(v) { if (this.card != null) this.card.pomodoroWorkMinutes = v; },
         get pomodoroShortBreakMinutes() { return this.card?.pomodoroShortBreakMinutes; },
@@ -60,8 +57,6 @@ export function focusBar(config) {
         set pomodoroAutoStartPomodoro(v) { if (this.card != null) this.card.pomodoroAutoStartPomodoro = v; },
         get pomodoroSoundEnabled() { return this.card?.pomodoroSoundEnabled; },
         set pomodoroSoundEnabled(v) { if (this.card != null) this.card.pomodoroSoundEnabled = v; },
-        get pomodoroNotificationOnComplete() { return this.card?.pomodoroNotificationOnComplete; },
-        set pomodoroNotificationOnComplete(v) { if (this.card != null) this.card.pomodoroNotificationOnComplete = v; },
         get pomodoroSoundVolume() { return this.card?.pomodoroSoundVolume; },
         set pomodoroSoundVolume(v) { if (this.card != null) this.card.pomodoroSoundVolume = v; },
         savePomodoroSettings() { return this.card?.savePomodoroSettings(); },
@@ -72,7 +67,6 @@ export function focusBar(config) {
         get pomodoroAutoStartBreakLabel() { return this.card?.pomodoroAutoStartBreakLabel; },
         get pomodoroAutoStartPomodoroLabel() { return this.card?.pomodoroAutoStartPomodoroLabel; },
         get pomodoroSoundLabel() { return this.card?.pomodoroSoundLabel; },
-        get pomodoroNotificationLabel() { return this.card?.pomodoroNotificationLabel; },
         get pomodoroVolumeLabel() { return this.card?.pomodoroVolumeLabel; },
     };
 }

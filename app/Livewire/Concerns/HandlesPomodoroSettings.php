@@ -43,7 +43,6 @@ trait HandlesPomodoroSettings
             'auto_start_pomodoro',
             'sound_enabled',
             'sound_volume',
-            'notification_on_complete',
         ]);
     }
 

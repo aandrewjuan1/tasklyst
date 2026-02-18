@@ -24,7 +24,6 @@ final class PomodoroSettingsValidation
             'auto_start_pomodoro' => ['required', 'boolean'],
             'sound_enabled' => ['required', 'boolean'],
             'sound_volume' => ['required', 'integer', 'min:0', 'max:100'],
-            'notification_on_complete' => ['required', 'boolean'],
         ];
     }
 }

@@ -342,7 +342,6 @@ export function createFocusSessionController() {
                     return;
                 }
                 ctx.playCompletionSound();
-                ctx.showCompletionNotification(ctx.activeFocusSession?.type);
                 if (result && result.next_session) {
                     if (!ctx._pomodoroAutoStartTransitioned) ctx.nextSessionInfo = result.next_session;
                     if (result.next_session.sequence_number) ctx.pomodoroSequence = result.next_session.sequence_number;
@@ -365,47 +364,6 @@ export function createFocusSessionController() {
                 rollbackAfterError(error?.message);
             } finally {
                 ctx.completingPomodoro = false;
-            }
-        },
-
-        showCompletionNotification(ctx, sessionType) {
-            if (!ctx.pomodoroNotificationOnComplete) return;
-            if (typeof window === 'undefined' || !window.Notification) return;
-            if (!('requestPermission' in Notification) && Notification.permission !== 'granted') return;
-
-            const show = (title, body) => {
-                try {
-                    const n = new Notification(title, {
-                        body,
-                        icon: '/favicon.ico',
-                    });
-                    n.onshow = () => {
-                        setTimeout(() => n.close(), 5000);
-                    };
-                } catch (err) {
-                    console.warn('[listItemCard] Failed to show completion notification:', err);
-                }
-            };
-
-            const requestAndShow = async (title, body) => {
-                if (Notification.permission === 'granted') {
-                    show(title, body);
-                    return;
-                }
-                if (Notification.permission === 'denied') return;
-                try {
-                    const permission = await Notification.requestPermission();
-                    if (permission === 'granted') show(title, body);
-                } catch (err) {
-                    console.warn('[listItemCard] Notification permission request failed:', err);
-                }
-            };
-
-            const isBreak = sessionType === 'short_break' || sessionType === 'long_break';
-            if (isBreak) {
-                requestAndShow('Break over', 'Time to start your next focus session.');
-            } else {
-                requestAndShow('Pomodoro complete', 'Time for a break.');
             }
         },
 
@@ -612,11 +570,6 @@ export function createFocusSessionController() {
 
         async savePomodoroSettings(ctx) {
             if (ctx.kind !== 'task' || !ctx.$wire?.$parent?.$call) return;
-            if (ctx.pomodoroNotificationOnComplete && typeof window !== 'undefined' && window.Notification?.requestPermission && Notification.permission === 'default') {
-                try {
-                    await Notification.requestPermission();
-                } catch (_) {}
-            }
             const settingsSnapshot = {
                 pomodoroWorkMinutes: ctx.pomodoroWorkMinutes,
                 pomodoroShortBreakMinutes: ctx.pomodoroShortBreakMinutes,
@@ -626,7 +579,6 @@ export function createFocusSessionController() {
                 pomodoroAutoStartPomodoro: ctx.pomodoroAutoStartPomodoro,
                 pomodoroSoundEnabled: ctx.pomodoroSoundEnabled,
                 pomodoroSoundVolume: ctx.pomodoroSoundVolume,
-                pomodoroNotificationOnComplete: ctx.pomodoroNotificationOnComplete,
             };
             const payload = getPomodoroSettingsPayload({
                 pomodoroWorkMinutes: ctx.pomodoroWorkMinutes,
@@ -637,7 +589,6 @@ export function createFocusSessionController() {
                 pomodoroAutoStartBreak: ctx.pomodoroAutoStartBreak,
                 pomodoroAutoStartPomodoro: ctx.pomodoroAutoStartPomodoro,
                 pomodoroSoundEnabled: ctx.pomodoroSoundEnabled,
-                pomodoroNotificationOnComplete: ctx.pomodoroNotificationOnComplete,
             });
             ctx.pomodoroWorkMinutes = payload.work_duration_minutes;
             ctx.pomodoroShortBreakMinutes = payload.short_break_minutes;
@@ -663,7 +614,6 @@ export function createFocusSessionController() {
                 ctx.pomodoroAutoStartPomodoro = settingsSnapshot.pomodoroAutoStartPomodoro;
                 ctx.pomodoroSoundEnabled = settingsSnapshot.pomodoroSoundEnabled;
                 ctx.pomodoroSoundVolume = settingsSnapshot.pomodoroSoundVolume;
-                ctx.pomodoroNotificationOnComplete = settingsSnapshot.pomodoroNotificationOnComplete;
                 ctx.$wire.$dispatch('toast', {
                     type: 'error',
                     message: err?.message ?? ctx.pomodoroSettingsSaveErrorToast ?? 'Could not save Pomodoro settings.',

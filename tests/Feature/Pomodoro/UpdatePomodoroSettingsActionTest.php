@@ -23,7 +23,6 @@ test('updates existing pomodoro settings', function (): void {
         'auto_start_pomodoro' => true,
         'sound_enabled' => false,
         'sound_volume' => 50,
-        'notification_on_complete' => true,
     ];
 
     $result = $this->updateAction->execute($user, $validated);
@@ -32,8 +31,7 @@ test('updates existing pomodoro settings', function (): void {
         ->and($result->short_break_minutes)->toBe(10)
         ->and($result->auto_start_break)->toBeTrue()
         ->and($result->sound_enabled)->toBeFalse()
-        ->and($result->sound_volume)->toBe(50)
-        ->and($result->notification_on_complete)->toBeTrue();
+        ->and($result->sound_volume)->toBe(50);
 });
 
 test('creates then updates when user has no settings', function (): void {
@@ -49,7 +47,6 @@ test('creates then updates when user has no settings', function (): void {
         'auto_start_pomodoro' => false,
         'sound_enabled' => true,
         'sound_volume' => 80,
-        'notification_on_complete' => false,
     ];
 
     $result = $this->updateAction->execute($user, $validated);

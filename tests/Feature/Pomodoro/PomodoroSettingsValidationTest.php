@@ -15,7 +15,6 @@ function validPomodoroSettingsPayload(): array
         'auto_start_pomodoro' => false,
         'sound_enabled' => true,
         'sound_volume' => 80,
-        'notification_on_complete' => false,
     ]);
 }
 

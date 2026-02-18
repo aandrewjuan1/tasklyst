@@ -29,7 +29,6 @@ function normalizeField(value, fallback, min, max) {
  *   pomodoroAutoStartBreak?: boolean,
  *   pomodoroAutoStartPomodoro?: boolean,
  *   pomodoroSoundEnabled?: boolean,
- *   pomodoroNotificationOnComplete?: boolean,
  * }} settings
  * @returns {{
  *   work_duration_minutes: number,
@@ -40,7 +39,6 @@ function normalizeField(value, fallback, min, max) {
  *   auto_start_pomodoro: boolean,
  *   sound_enabled: boolean,
  *   sound_volume: number,
- *   notification_on_complete: boolean,
  * }}
  */
 export function getPomodoroSettingsPayload(settings) {
@@ -59,7 +57,6 @@ export function getPomodoroSettingsPayload(settings) {
         auto_start_pomodoro: !!settings?.pomodoroAutoStartPomodoro,
         sound_enabled: !!settings?.pomodoroSoundEnabled,
         sound_volume: volume,
-        notification_on_complete: !!settings?.pomodoroNotificationOnComplete,
     };
 }
 
