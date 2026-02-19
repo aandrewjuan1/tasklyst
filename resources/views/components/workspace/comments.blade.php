@@ -398,7 +398,7 @@
                 ({{ $totalComments }})
             </span>
         </span>
-        <span class="inline-flex items-center justify-center transition-transform duration-150">
+        <span class="inline-flex items-center justify-center transition-transform duration-150 focus-hide-chevron">
             <flux:icon
                 name="chevron-down"
                 class="size-3"
@@ -426,7 +426,7 @@
             </span>
         </span>
         <span
-            class="inline-flex items-center justify-center transition-transform duration-150"
+            class="inline-flex items-center justify-center transition-transform duration-150 focus-hide-chevron"
             :class="isOpen ? 'rotate-180' : ''"
         >
             <flux:icon
@@ -570,7 +570,7 @@
                     :disabled="loadingMoreComments"
                     @click="loadMore()"
                 >
-                    <flux:icon name="chevron-down" class="size-3" />
+                    <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
                     <span x-text="loadingMoreComments ? '{{ __('Loading...') }}' : '{{ __('Load more comments') }}'"></span>
                 </button>
             </div>

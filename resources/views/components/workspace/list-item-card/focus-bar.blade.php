@@ -15,10 +15,11 @@
     class="overflow-hidden"
 >
     <div class="flex flex-col gap-3 px-4 py-3">
-        {{-- Row 1: Sprint/Pomodoro tab — always visible when bar is open; non-interactive during active session --}}
+        {{-- Row 1: Sprint/Pomodoro tab — hidden when a focus or break session is active --}}
         <div
-            class="w-full transition-opacity duration-150"
-            :class="{ 'pointer-events-none select-none opacity-60': isFocused || isBreakFocused }"
+            class="w-full"
+            x-show="!isFocused && !isBreakFocused"
+            x-cloak
         >
             <flux:radio.group
                 variant="segmented"
@@ -121,47 +122,6 @@
                         </flux:button>
                     </div>
                 </div>
-                {{-- Active: running — timer + Pause/Resume/Stop (work or break) --}}
-                <div class="flex min-w-16 shrink-0 items-center gap-3" x-show="(isFocused || isBreakFocused) && !sessionComplete" x-cloak>
-                    <span
-                        class="min-w-16 text-right text-lg font-bold tabular-nums tracking-tight text-primary"
-                        x-text="focusCountdownText"
-                        aria-live="polite"
-                    ></span>
-                    <div class="flex shrink-0 items-center gap-1">
-                        <flux:button
-                            x-show="isFocused && !focusIsPaused"
-                            x-cloak
-                            variant="ghost"
-                            size="sm"
-                            icon="pause"
-                            class="shrink-0"
-                            @click="pauseFocus()"
-                        >
-                            {{ __('Pause') }}
-                        </flux:button>
-                        <flux:button
-                            x-show="isFocused && focusIsPaused"
-                            x-cloak
-                            variant="ghost"
-                            size="sm"
-                            icon="play"
-                            class="shrink-0"
-                            @click="resumeFocus()"
-                        >
-                            {{ __('Resume') }}
-                        </flux:button>
-                        <flux:button
-                            variant="ghost"
-                            size="sm"
-                            icon="x-mark"
-                            class="shrink-0"
-                            @click="stopFocus()"
-                        >
-                            {{ __('Stop') }}
-                        </flux:button>
-                    </div>
-                </div>
                 {{-- Active: session complete (non-pomodoro only to avoid flicker with next-session UI) --}}
                 <div
                     class="flex shrink-0 items-center gap-1"
@@ -221,6 +181,52 @@
                     <span class="text-sm font-medium text-primary">{{ __('Starting next session...') }}</span>
                     <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
                 </div>
+            </div>
+        </div>
+
+        {{-- Row: Active session — centered timer + Pause/Resume/Stop --}}
+        <div
+            class="flex w-full flex-col items-center justify-center gap-4 py-2"
+            x-show="(isFocused || isBreakFocused) && !sessionComplete"
+            x-cloak
+        >
+            <span
+                class="min-w-24 text-center text-4xl font-bold tabular-nums tracking-tight text-primary"
+                x-text="focusCountdownText"
+                aria-live="polite"
+            ></span>
+            <div class="flex shrink-0 items-center gap-1">
+                <flux:button
+                    x-show="isFocused && !focusIsPaused"
+                    x-cloak
+                    variant="ghost"
+                    size="sm"
+                    icon="pause"
+                    class="shrink-0"
+                    @click="pauseFocus()"
+                >
+                    {{ __('Pause') }}
+                </flux:button>
+                <flux:button
+                    x-show="isFocused && focusIsPaused"
+                    x-cloak
+                    variant="ghost"
+                    size="sm"
+                    icon="play"
+                    class="shrink-0"
+                    @click="resumeFocus()"
+                >
+                    {{ __('Resume') }}
+                </flux:button>
+                <flux:button
+                    variant="ghost"
+                    size="sm"
+                    icon="x-mark"
+                    class="shrink-0"
+                    @click="stopFocus()"
+                >
+                    {{ __('Stop') }}
+                </flux:button>
             </div>
         </div>
 

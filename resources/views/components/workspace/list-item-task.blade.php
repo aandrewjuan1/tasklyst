@@ -306,9 +306,9 @@
         getOption(options, value) {
             return options.find(o => o.value === value);
         },
-        durationLabels: { min: @js(__('min')), hour: @js(__('hour')), hours: @js(\Illuminate\Support\Str::plural(__('hour'), 2)) },
+        durationLabels: { min: @js(__('min')), hour: @js(__('hour')), hours: @js(\Illuminate\Support\Str::plural(__('hour'), 2)), notSet: @js(__('Not set')) },
         formatDurationLabel(minutes) {
-            if (minutes == null) return '';
+            if (minutes == null) return this.durationLabels.notSet;
             const m = Number(minutes);
             if (m < 59) return m + ' ' + this.durationLabels.min;
             const hours = Math.ceil(m / 60);
@@ -481,7 +481,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
                     </button>
                 </x-slot:trigger>
 
@@ -530,7 +530,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
                     </button>
                 </x-slot:trigger>
 
@@ -579,7 +579,7 @@
                             </span>
                             <span class="uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
                         </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
                     </button>
                 </x-slot:trigger>
 
@@ -611,55 +611,62 @@
         @endif
     @endif
 
-    @if(! is_null($item->duration))
-        @if($canEdit)
-            <x-simple-select-dropdown position="top" align="end">
-                <x-slot:trigger>
+    @if($canEdit)
+        <x-simple-select-dropdown position="top" align="end">
+            <x-slot:trigger>
+                <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+                    :class="{ 'shadow-md scale-[1.02]': open }"
+                    aria-haspopup="menu"
+                >
+                    <flux:icon name="clock" class="size-3" />
+                    <span class="inline-flex items-baseline gap-1">
+                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                            {{ __('Duration') }}:
+                        </span>
+                        <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
+                    </span>
+                    <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
+                </button>
+            </x-slot:trigger>
+
+            <div
+                class="flex flex-col py-1"
+                x-data="{
+                    customDurationValue: '',
+                    customDurationUnit: 'minutes',
+                    maxDurationMinutes: @js(\App\Support\Validation\TaskPayloadValidation::MAX_DURATION_MINUTES),
+                    applyCustomDuration() {
+                        const n = parseInt(this.customDurationValue, 10);
+                        if (!Number.isFinite(n) || n <= 0) return;
+                        let minutes = this.customDurationUnit === 'hours' ? n * 60 : n;
+                        const max = Number(this.maxDurationMinutes) || 1440;
+                        if (minutes > max) {
+                            minutes = max;
+                        }
+                        updateProperty('duration', minutes);
+                    },
+                }"
+            >
+                <button
+                    type="button"
+                    class="{{ $dropdownItemClass }}"
+                    :class="{ 'font-semibold text-foreground': duration == null }"
+                    @click="updateProperty('duration', null)"
+                >
+                    {{ __('Not set') }}
+                </button>
+                @foreach ($durationOptions as $dur)
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
-                        :class="{ 'shadow-md scale-[1.02]': open }"
-                        aria-haspopup="menu"
+                        class="{{ $dropdownItemClass }}"
+                        :class="{ 'font-semibold text-foreground': duration == {{ $dur['value'] }} }"
+                        @click="updateProperty('duration', {{ $dur['value'] }})"
                     >
-                        <flux:icon name="clock" class="size-3" />
-                        <span class="inline-flex items-baseline gap-1">
-                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                {{ __('Duration') }}:
-                            </span>
-                            <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
-                        </span>
-                        <flux:icon name="chevron-down" class="size-3" />
+                        {{ $dur['label'] }}
                     </button>
-                </x-slot:trigger>
-
-                <div
-                    class="flex flex-col py-1"
-                    x-data="{
-                        customDurationValue: '',
-                        customDurationUnit: 'minutes',
-                        maxDurationMinutes: @js(\App\Support\Validation\TaskPayloadValidation::MAX_DURATION_MINUTES),
-                        applyCustomDuration() {
-                            const n = parseInt(this.customDurationValue, 10);
-                            if (!Number.isFinite(n) || n <= 0) return;
-                            let minutes = this.customDurationUnit === 'hours' ? n * 60 : n;
-                            const max = Number(this.maxDurationMinutes) || 1440;
-                            if (minutes > max) {
-                                minutes = max;
-                            }
-                            updateProperty('duration', minutes);
-                        },
-                    }"
-                >
-                    @foreach ($durationOptions as $dur)
-                        <button
-                            type="button"
-                            class="{{ $dropdownItemClass }}"
-                            :class="{ 'font-semibold text-foreground': duration == {{ $dur['value'] }} }"
-                            @click="updateProperty('duration', {{ $dur['value'] }})"
-                        >
-                            {{ $dur['label'] }}
-                        </button>
-                    @endforeach
+                @endforeach
 
                     <div class="mt-1 border-t border-border/60 pt-2 px-3 pb-1 text-xs text-muted-foreground">
                         <div class="mb-1 text-[11px] font-medium">
@@ -716,7 +723,6 @@
                 </span>
             </span>
         @endif
-    @endif
 
     <x-date-picker
         model="startDatetime"

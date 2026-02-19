@@ -143,6 +143,14 @@
             },
         }"
     >
+        <button
+            type="button"
+            class="{{ $dropdownItemClass }}"
+            x-bind:class="{ 'font-semibold text-foreground': formData.item.duration == null || formData.item.duration === '' }"
+            @click="$dispatch('item-form-updated', { path: 'formData.item.duration', value: @js(null) })"
+        >
+            {{ __('Not set') }}
+        </button>
         @foreach ([['value' => '15', 'label' => '15 min'], ['value' => '30', 'label' => '30 min'], ['value' => '60', 'label' => '1 hour'], ['value' => '120', 'label' => '2 hours'], ['value' => '240', 'label' => '4 hours'], ['value' => '480', 'label' => '8 hours']] as $dur)
             <button
                 type="button"

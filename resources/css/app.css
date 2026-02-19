@@ -85,3 +85,8 @@ select:focus[data-flux-control] {
     filter: blur(5px);
     transition: filter 0.2s ease-out;
 }
+
+/* Hide dropdown chevrons when this card is in focus mode (ready or starting) */
+.list-item-card.is-focus-active .focus-hide-chevron {
+    display: none;
+}

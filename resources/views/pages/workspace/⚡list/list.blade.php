@@ -24,7 +24,7 @@
                 status: 'to_do',
                 priority: 'medium',
                 complexity: 'moderate',
-                duration: '60',
+                duration: null,
                 startDatetime: null,
                 endDatetime: null,
                 allDay: false,
@@ -105,7 +105,7 @@
                 this.formData.item.status = 'to_do';
                 this.formData.item.priority = 'medium';
                 this.formData.item.complexity = 'moderate';
-                this.formData.item.duration = '60';
+                this.formData.item.duration = null;
                 this.formData.item.allDay = false;
                 this.formData.item.projectId = null;
             } else if (this.creationKind === 'event') {
@@ -685,7 +685,7 @@
                             formData.item.status = 'to_do';
                             formData.item.priority = 'medium';
                             formData.item.complexity = 'moderate';
-                            formData.item.duration = '60';
+                            formData.item.duration = null;
                             formData.item.allDay = false;
                             formData.item.projectId = null;
                             showItemCreation = true;

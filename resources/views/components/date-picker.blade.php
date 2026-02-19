@@ -434,7 +434,7 @@
             <span class="text-xs uppercase" :class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
         </span>
         @if(!$readonly)
-            <flux:icon name="chevron-down" class="size-3" />
+            <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
         @endif
     </button>
 
