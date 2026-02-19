@@ -23,6 +23,15 @@
             // keep notSetLabel
         }
     }
+
+    // Server-rendered first paint styling so overdue dates look correct before Alpine hydrates.
+    $serverOverdue = (bool) $overdue;
+    $buttonBaseClass = $serverOverdue
+        ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400'
+        : 'border-border/60 bg-muted text-muted-foreground';
+    $iconOverdueClass = $serverOverdue ? 'text-red-600 dark:text-red-400' : '';
+    $labelOverdueClass = $serverOverdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70';
+    $valueOverdueClass = $serverOverdue ? 'font-semibold text-red-700 dark:text-red-400' : '';
 @endphp
 
 <div
@@ -416,7 +425,7 @@
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
         :aria-readonly="readonly"
-        class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out"
+        class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out {{ $buttonBaseClass }}"
         :class="[
             effectiveOverdue ? 'border-red-500/50 bg-red-500/5 text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400' : 'border-border/60 bg-muted text-muted-foreground',
             { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
@@ -424,14 +433,14 @@
         ]"
         data-task-creation-safe
     >
-        <span class="inline-flex" :class="effectiveOverdue ? 'text-red-600 dark:text-red-400' : ''">
+        <span class="inline-flex {{ $iconOverdueClass }}" :class="effectiveOverdue ? 'text-red-600 dark:text-red-400' : ''">
             <flux:icon name="clock" class="size-3" />
         </span>
         <span class="inline-flex items-baseline gap-1">
-            <span class="text-[10px] font-semibold uppercase tracking-wide" :class="effectiveOverdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70'">
+            <span class="text-[10px] font-semibold uppercase tracking-wide {{ $labelOverdueClass }}" :class="effectiveOverdue ? 'text-red-600 opacity-90 dark:text-red-400' : 'opacity-70'">
                 {{ $triggerLabel }}:
             </span>
-            <span class="text-xs uppercase" :class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+            <span class="text-xs uppercase {{ $valueOverdueClass }}" :class="effectiveOverdue ? 'font-semibold text-red-700 dark:text-red-400' : ''" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
         </span>
         @if(!$readonly)
             <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
