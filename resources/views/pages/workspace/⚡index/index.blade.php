@@ -51,6 +51,7 @@
             :filters="$this->getFilters()"
             :active-focus-session="$this->activeFocusSession"
             :pomodoro-settings="$this->pomodoroSettings"
+            :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
         />
     </div>
 

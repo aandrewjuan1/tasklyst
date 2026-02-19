@@ -24,6 +24,15 @@ use Livewire\Attributes\Renderless;
 trait HandlesEvents
 {
     /**
+     * Pagination settings for workspace event list.
+     */
+    public int $eventsPerPage = 10;
+
+    public int $eventsPage = 1;
+
+    public bool $hasMoreEvents = false;
+
+    /**
      * Create a new event for the authenticated user.
      *
      * @param  array<string, mixed>  $payload
@@ -462,6 +471,11 @@ trait HandlesEvents
 
         $date = Carbon::parse($this->selectedDate);
 
+        $eventsPerPage = property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 5;
+        $eventsPage = property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1;
+        $visibleLimit = $eventsPerPage * $eventsPage;
+        $queryLimit = $visibleLimit + 1;
+
         $eventQuery = Event::query()
             ->with([
                 'user',
@@ -490,9 +504,15 @@ trait HandlesEvents
             $eventQuery->notCancelled();
         }
 
-        $events = $eventQuery->orderByDesc('created_at')->limit(50)->get();
+        $events = $eventQuery
+            ->orderByDesc('created_at')
+            ->limit($queryLimit)
+            ->get();
 
-        $result = $this->eventService->processRecurringEventsForDate($events, $date);
+        $this->hasMoreEvents = $events->count() > $visibleLimit;
+        $visibleEvents = $events->take($visibleLimit);
+
+        $result = $this->eventService->processRecurringEventsForDate($visibleEvents, $date);
 
         if (method_exists($this, 'filterEventCollection')) {
             $result = $this->filterEventCollection($result);

@@ -18,6 +18,15 @@ use Livewire\Attributes\Renderless;
 trait HandlesProjects
 {
     /**
+     * Pagination settings for workspace project list.
+     */
+    public int $projectsPerPage = 10;
+
+    public int $projectsPage = 1;
+
+    public bool $hasMoreProjects = false;
+
+    /**
      * Create a new project for the authenticated user.
      *
      * @param  array<string, mixed>  $payload
@@ -324,7 +333,12 @@ trait HandlesProjects
 
         $date = Carbon::parse($this->selectedDate);
 
-        return Project::query()
+        $projectsPerPage = property_exists($this, 'projectsPerPage') ? (int) $this->projectsPerPage : 5;
+        $projectsPage = property_exists($this, 'projectsPage') ? max(1, (int) $this->projectsPage) : 1;
+        $visibleLimit = $projectsPerPage * $projectsPage;
+        $queryLimit = $visibleLimit + 1;
+
+        $query = Project::query()
             ->with([
                 'user',
                 'collaborations',
@@ -339,8 +353,14 @@ trait HandlesProjects
             ->forUser($userId)
             ->notArchived()
             ->activeForDate($date)
-            ->orderByDesc('created_at')
-            ->limit(50)
+            ->orderByDesc('created_at');
+
+        $projects = $query
+            ->limit($queryLimit)
             ->get();
+
+        $this->hasMoreProjects = $projects->count() > $visibleLimit;
+
+        return $projects->take($visibleLimit);
     }
 }

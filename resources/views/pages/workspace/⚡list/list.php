@@ -22,6 +22,8 @@ new class extends Component
      */
     public array $filters = [];
 
+    public bool $hasMoreItems = false;
+
     /**
      * Current in-progress focus session from parent (Index). Used for overlay and which card is focused.
      *

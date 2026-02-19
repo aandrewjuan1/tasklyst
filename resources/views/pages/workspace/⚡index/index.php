@@ -335,6 +335,41 @@ class extends Component
         $this->listRefresh++;
     }
 
+    public function loadMoreTasks(): void
+    {
+        if (property_exists($this, 'tasksPage')) {
+            $this->tasksPage++;
+        }
+    }
+
+    public function loadMoreEvents(): void
+    {
+        if (property_exists($this, 'eventsPage')) {
+            $this->eventsPage++;
+        }
+    }
+
+    public function loadMoreProjects(): void
+    {
+        if (property_exists($this, 'projectsPage')) {
+            $this->projectsPage++;
+        }
+    }
+
+    public function loadMoreItems(): void
+    {
+        if (property_exists($this, 'tasksPage')) {
+            $this->tasksPage++;
+        }
+        if (property_exists($this, 'eventsPage')) {
+            $this->eventsPage++;
+        }
+        if (property_exists($this, 'projectsPage')) {
+            $this->projectsPage++;
+        }
+        $this->listRefresh++;
+    }
+
     /**
      * Get overdue tasks and events for the authenticated user.
      * Overdue = end/due datetime is before now (date and time aware).
