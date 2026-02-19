@@ -16,6 +16,7 @@ export function focusBar(config) {
         set focusReady(v) { if (this.card != null) this.card.focusReady = v; },
         get isFocused() { return this.card?.isFocused; },
         get isBreakFocused() { return this.card?.isBreakFocused; },
+        get activeFocusSession() { return this.card?.activeFocusSession; },
         get focusModeType() { return this.card?.focusModeType; },
         set focusModeType(v) { if (this.card != null) this.card.focusModeType = v; },
         get focusModeTypes() { return this.card?.focusModeTypes; },

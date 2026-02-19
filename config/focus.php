@@ -11,7 +11,7 @@ return [
     | Pomodoro settings may override this per user when that feature is enabled.
     |
     */
-    'default_duration_minutes' => env('FOCUS_DEFAULT_DURATION_MINUTES', 1),
+    'default_duration_minutes' => env('FOCUS_DEFAULT_DURATION_MINUTES', 25),
 
     /*
     |--------------------------------------------------------------------------

@@ -9,7 +9,7 @@ import {
     predictNextPomodoroSessionInfo,
 } from '../lib/pomodoro.js';
 
-function isTempSessionId(id) {
+export function isTempSessionId(id) {
     return id != null && String(id).startsWith('temp-');
 }
 

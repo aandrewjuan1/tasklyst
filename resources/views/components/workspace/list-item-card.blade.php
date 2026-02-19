@@ -40,7 +40,7 @@
     x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"
     x-init="alpineReady = true"
     x-show="!hideCard"
-    x-cleanup="stopFocusTicker()"
+    x-cleanup="destroy()"
     x-transition:leave="transition ease-in duration-200"
     x-transition:leave-start="opacity-100 scale-100"
     x-transition:leave-end="opacity-0 scale-[0.98]"
@@ -73,7 +73,7 @@
         'hasActiveBreakSession' => $hasActiveBreakSession ?? false,
     ])
 
-    <div :class="{ 'pointer-events-none select-none': isFocused || isBreakFocused }">
+    <div :class="{ 'pointer-events-none select-none': isFocused || isBreakFocused || focusReady }">
         @include('components.workspace.list-item-card.header')
 
         <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">

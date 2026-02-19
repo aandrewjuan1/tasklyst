@@ -19,7 +19,7 @@ import {
     getPomodoroSettingsPayload as getPomodoroSettingsPayloadLib,
     predictNextPomodoroSessionInfo as predictNextPomodoroSessionInfoLib,
 } from '../lib/pomodoro.js';
-import { createFocusSessionController } from './focus-session.js';
+import { createFocusSessionController, isTempSessionId as isTempSessionIdLib } from './focus-session.js';
 
 export function listItemCard(config) {
     return {
@@ -190,7 +190,7 @@ export function listItemCard(config) {
             return formatFocusCountdownLib(seconds);
         },
         isTempSessionId(id) {
-            return id != null && String(id).startsWith('temp-');
+            return isTempSessionIdLib(id);
         },
         syncFocusTicker() {
             this._focus.syncFocusTicker(this);
