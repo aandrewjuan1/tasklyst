@@ -94,6 +94,7 @@
         skippedDates: [],
         loadingSkipped: false,
         restoreInProgressIds: [],
+        hasLoadedSkippedDates: false,
         skippedDatesSectionLabel: @js(__('Skipped dates')),
         noSkippedDatesLabel: @js(__('No skipped dates')),
         restoreOccurrenceLabel: @js(__('Restore')),
@@ -191,15 +192,17 @@
             }
         },
 
-        async loadSkippedDates() {
+        async loadSkippedDates(force = false) {
             if (!this.recurringEventId && !this.recurringTaskId) return;
             if (!this.$wire?.$parent) return;
+            if (this.hasLoadedSkippedDates && !force) return;
             this.loadingSkipped = true;
             try {
                 const method = this.recurringEventId ? 'getEventExceptions' : 'getTaskExceptions';
                 const id = this.recurringEventId ?? this.recurringTaskId;
                 const list = await this.$wire.$parent.$call(method, id);
                 this.skippedDates = Array.isArray(list) ? list : [];
+                this.hasLoadedSkippedDates = true;
             } catch (e) {
                 this.skippedDates = [];
             } finally {
@@ -212,11 +215,16 @@
             if (!this.$wire?.$parent) return;
 
             // PHASE 1: Snapshot BEFORE any changes
-            const snapshot = this.skippedDates.map((e) => ({ ...e }));
+            const index = this.skippedDates.findIndex((e) => e.id === ex.id);
+            if (index === -1) return;
+            const removed = this.skippedDates[index];
 
             this.restoreInProgressIds = [...this.restoreInProgressIds, ex.id];
             // PHASE 2: Optimistic UI update - remove row immediately
-            this.skippedDates = this.skippedDates.filter((e) => e.id !== ex.id);
+            this.skippedDates = [
+                ...this.skippedDates.slice(0, index),
+                ...this.skippedDates.slice(index + 1),
+            ];
 
             try {
                 const method = this.recurringEventId ? 'restoreRecurringEventOccurrence' : 'restoreRecurringTaskOccurrence';
@@ -226,12 +234,20 @@
                 const ok = await promise;
                 if (!ok) {
                     // PHASE 5: Rollback on error
-                    this.skippedDates = snapshot;
+                    this.skippedDates = [
+                        ...this.skippedDates.slice(0, index),
+                        removed,
+                        ...this.skippedDates.slice(index),
+                    ];
                     this.$wire.$dispatch('toast', { type: 'error', message: this.getRestoreErrorMessage(null) });
                 }
             } catch (e) {
                 // PHASE 5: Rollback on error
-                this.skippedDates = snapshot;
+                this.skippedDates = [
+                    ...this.skippedDates.slice(0, index),
+                    removed,
+                    ...this.skippedDates.slice(index),
+                ];
                 this.$wire.$dispatch('toast', { type: 'error', message: this.getRestoreErrorMessage(e) });
             } finally {
                 this.restoreInProgressIds = this.restoreInProgressIds.filter((id) => id !== ex.id);

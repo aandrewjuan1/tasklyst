@@ -363,7 +363,7 @@ export function listItemCard(config) {
 
             try {
                 // PHASE 2: Optimistic UI update - hide card immediately
-                this.hideFromList(false);
+                this.hideFromList();
 
                 // PHASE 3: Call server asynchronously
                 const promise = this.$wire.$parent.$call(this.deleteMethod, this.itemId);
@@ -666,7 +666,7 @@ export function listItemCard(config) {
         onItemPropertyUpdated(detail) {
             if (this.shouldHideAfterPropertyUpdate(detail)) {
                 this.dateChangeHidingCard = true;
-                this.hideFromList(false);
+                this.hideFromList();
             } else {
                 this.dateChangeHidingCard = false;
                 const d = detail;
