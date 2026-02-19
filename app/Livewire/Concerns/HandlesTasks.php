@@ -25,6 +25,15 @@ use Livewire\Attributes\Renderless;
 trait HandlesTasks
 {
     /**
+     * Pagination settings for workspace task list.
+     */
+    public int $tasksPerPage = 10;
+
+    public int $tasksPage = 1;
+
+    public bool $hasMoreTasks = false;
+
+    /**
      * Create a new task for the authenticated user.
      *
      * @param  array<string, mixed>  $payload
@@ -368,6 +377,11 @@ trait HandlesTasks
 
         $date = Carbon::parse($this->selectedDate);
 
+        $tasksPerPage = property_exists($this, 'tasksPerPage') ? (int) $this->tasksPerPage : 5;
+        $tasksPage = property_exists($this, 'tasksPage') ? max(1, (int) $this->tasksPage) : 1;
+        $visibleLimit = $tasksPerPage * $tasksPage;
+        $queryLimit = $visibleLimit + 1;
+
         $taskQuery = Task::query()
             ->with([
                 'project',
@@ -396,9 +410,15 @@ trait HandlesTasks
             $this->applyTaskFilters($taskQuery);
         }
 
-        $tasks = $taskQuery->orderByDesc('created_at')->limit(50)->get();
+        $tasks = $taskQuery
+            ->orderByDesc('created_at')
+            ->limit($queryLimit)
+            ->get();
 
-        $result = $this->taskService->processRecurringTasksForDate($tasks, $date);
+        $this->hasMoreTasks = $tasks->count() > $visibleLimit;
+        $visibleTasks = $tasks->take($visibleLimit);
+
+        $result = $this->taskService->processRecurringTasksForDate($visibleTasks, $date);
 
         if (method_exists($this, 'filterTaskCollection')) {
             $result = $this->filterTaskCollection($result);

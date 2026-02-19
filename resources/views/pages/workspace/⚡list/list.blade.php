@@ -1174,6 +1174,61 @@
                         />
                     @endforeach
                 </div>
+                @if ($hasMoreItems)
+                    <div
+                        class="flex flex-col items-center justify-center py-4 text-[11px] text-muted-foreground/80"
+                        x-data="{
+                            loadingMore: false,
+                            observer: null,
+                            init() {
+                                const callback = (entries) => {
+                                    entries.forEach(entry => {
+                                        if (!entry.isIntersecting || this.loadingMore) {
+                                            return;
+                                        }
+                                        this.loadingMore = true;
+                                        $wire.$parent.$call('loadMoreItems')
+                                            .then(() => { this.loadingMore = false; })
+                                            .catch(() => { this.loadingMore = false; });
+                                    });
+                                };
+                                this.observer = new IntersectionObserver(callback, { root: null, threshold: 0.25 });
+                                this.observer.observe(this.$el);
+                            },
+                            destroy() {
+                                if (this.observer) {
+                                    this.observer.disconnect();
+                                    this.observer = null;
+                                }
+                            },
+                        }"
+                    >
+                        <span x-show="!loadingMore">{{ __('Scroll to load more items...') }}</span>
+                        <div
+                            x-show="loadingMore"
+                            class="mt-2 w-full space-y-2"
+                            aria-hidden="true"
+                        >
+                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0 flex-1 space-y-2">
+                                        <flux:skeleton.line class="w-4/5" size="lg" />
+                                        <flux:skeleton.line class="w-2/3" />
+                                    </div>
+                                    <div class="flex shrink-0 items-center gap-2">
+                                        <flux:skeleton class="h-6 w-14 rounded-full" />
+                                        <flux:skeleton class="size-8 shrink-0 rounded" />
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 pt-0.5">
+                                    <flux:skeleton class="h-5 w-16 rounded-full" />
+                                    <flux:skeleton class="h-5 w-20 rounded-full" />
+                                    <flux:skeleton class="h-5 w-14 rounded-full" />
+                                </div>
+                            </flux:skeleton.group>
+                        </div>
+                    </div>
+                @endif
             </div>
         </div>
     @endif
