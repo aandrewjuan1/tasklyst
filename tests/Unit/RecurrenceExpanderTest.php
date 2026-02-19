@@ -251,6 +251,24 @@ test('getRelevantRecurringIdsForDate includes recurring with null start and end 
     expect($result['task_ids'])->toContain($taskRecurring->id);
 });
 
+test('getRelevantRecurringIdsForDate excludes recurring with null start and end when exception skips that date', function (): void {
+    $taskRecurring = RecurringTask::factory()->create([
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    TaskException::factory()->create([
+        'recurring_task_id' => $taskRecurring->id,
+        'exception_date' => Carbon::parse('2025-02-10'),
+        'is_deleted' => true,
+    ]);
+
+    $result = $this->expander->getRelevantRecurringIdsForDate(collect([$taskRecurring]), collect(), Carbon::parse('2025-02-10'));
+
+    expect($result['task_ids'])->not->toContain($taskRecurring->id);
+});
+
 test('expand uses preloaded exceptions when provided to avoid N+1', function (): void {
     $recurring = RecurringTask::factory()->create([
         'recurrence_type' => TaskRecurrenceType::Daily,

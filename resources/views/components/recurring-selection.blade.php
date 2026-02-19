@@ -8,6 +8,8 @@
     'kind' => null,
     'readonly' => false,
     'hideWhenDisabled' => false,
+    'recurringEventId' => null,
+    'recurringTaskId' => null,
 ])
 
 @php
@@ -87,6 +89,19 @@
         dayLabels: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
         dayDisplayLabels: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
         dayFullLabels: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        recurringEventId: @js($recurringEventId ?? null),
+        recurringTaskId: @js($recurringTaskId ?? null),
+        skippedDates: [],
+        loadingSkipped: false,
+        restoreInProgressIds: [],
+        skippedDatesSectionLabel: @js(__('Skipped dates')),
+        noSkippedDatesLabel: @js(__('No skipped dates')),
+        restoreOccurrenceLabel: @js(__('Restore')),
+        restoreRestoringLabel: @js(__('Restoring...')),
+        restoreErrorToast: @js(__('Could not restore occurrence. Please try again.')),
+        restoreErrorPermission: @js(__('You do not have permission to restore this occurrence.')),
+        restoreErrorNotFound: @js(__('Exception not found.')),
+        restoreErrorValidation: @js(__('Invalid request. Please try again.')),
 
         init() {
             this.applyInitialValue();
@@ -171,6 +186,71 @@
             this.valueWhenOpened = { ...openedValue, daysOfWeek: [...openedValue.daysOfWeek] };
             this.$dispatch('recurring-selection-opened', { path: this.modelPath, value: this.getCurrentRecurrenceValue() });
             this.$dispatch('dropdown-opened');
+            if (this.recurringEventId || this.recurringTaskId) {
+                this.$nextTick(() => this.loadSkippedDates());
+            }
+        },
+
+        async loadSkippedDates() {
+            if (!this.recurringEventId && !this.recurringTaskId) return;
+            if (!this.$wire?.$parent) return;
+            this.loadingSkipped = true;
+            try {
+                const method = this.recurringEventId ? 'getEventExceptions' : 'getTaskExceptions';
+                const id = this.recurringEventId ?? this.recurringTaskId;
+                const list = await this.$wire.$parent.$call(method, id);
+                this.skippedDates = Array.isArray(list) ? list : [];
+            } catch (e) {
+                this.skippedDates = [];
+            } finally {
+                this.loadingSkipped = false;
+            }
+        },
+
+        async restoreException(ex) {
+            if (this.restoreInProgressIds.includes(ex.id)) return;
+            if (!this.$wire?.$parent) return;
+
+            // PHASE 1: Snapshot BEFORE any changes
+            const snapshot = this.skippedDates.map((e) => ({ ...e }));
+
+            this.restoreInProgressIds = [...this.restoreInProgressIds, ex.id];
+            // PHASE 2: Optimistic UI update - remove row immediately
+            this.skippedDates = this.skippedDates.filter((e) => e.id !== ex.id);
+
+            try {
+                const method = this.recurringEventId ? 'restoreRecurringEventOccurrence' : 'restoreRecurringTaskOccurrence';
+                // PHASE 3: Call server asynchronously
+                const promise = this.$wire.$parent.$call(method, ex.id);
+                // PHASE 4: Handle response
+                const ok = await promise;
+                if (!ok) {
+                    // PHASE 5: Rollback on error
+                    this.skippedDates = snapshot;
+                    this.$wire.$dispatch('toast', { type: 'error', message: this.getRestoreErrorMessage(null) });
+                }
+            } catch (e) {
+                // PHASE 5: Rollback on error
+                this.skippedDates = snapshot;
+                this.$wire.$dispatch('toast', { type: 'error', message: this.getRestoreErrorMessage(e) });
+            } finally {
+                this.restoreInProgressIds = this.restoreInProgressIds.filter((id) => id !== ex.id);
+            }
+        },
+
+        formatExceptionDate(ymd) {
+            if (!ymd) return '';
+            const d = new Date(ymd + 'T12:00:00');
+            if (Number.isNaN(d.getTime())) return ymd;
+            return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+        },
+
+        getRestoreErrorMessage(error) {
+            const status = error?.status ?? error?.statusCode;
+            if (status === 403) return this.restoreErrorPermission ?? this.restoreErrorToast;
+            if (status === 404) return this.restoreErrorNotFound ?? this.restoreErrorToast;
+            if (status === 422) return this.restoreErrorValidation ?? this.restoreErrorToast;
+            return error?.message ?? this.restoreErrorToast ?? 'Could not restore occurrence.';
         },
 
         close(focusAfter) {
@@ -448,6 +528,39 @@
                             ></button>
                         </template>
                     </div>
+                </div>
+            </template>
+
+            <template x-if="(recurringEventId || recurringTaskId) && enabled">
+                <div class="flex w-full flex-col gap-2 border-t border-border/60 pt-3">
+                    <label class="block text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground" x-text="skippedDatesSectionLabel"></label>
+                    <div x-show="loadingSkipped" class="text-center text-xs text-muted-foreground">{{ __('Loading...') }}</div>
+                    <template x-if="!loadingSkipped && skippedDates.length === 0">
+                        <p class="text-center text-xs text-muted-foreground" x-text="noSkippedDatesLabel"></p>
+                    </template>
+                    <template x-if="!loadingSkipped && skippedDates.length > 0">
+                        <ul class="max-h-32 space-y-1 overflow-y-auto text-xs">
+                            <template x-for="ex in skippedDates" :key="ex.id">
+                                <li class="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5">
+                                    <span class="min-w-0 truncate" :title="ex.reason || ex.exception_date" x-text="formatExceptionDate(ex.exception_date)"></span>
+                                    <button
+                                        type="button"
+                                        class="shrink-0 inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-70"
+                                        :disabled="restoreInProgressIds.includes(ex.id)"
+                                        :aria-label="restoreInProgressIds.includes(ex.id) ? restoreRestoringLabel : (restoreOccurrenceLabel + ' ' + formatExceptionDate(ex.exception_date))"
+                                        :aria-busy="restoreInProgressIds.includes(ex.id)"
+                                        @click.throttle.250ms="restoreException(ex)"
+                                    >
+                                        <span x-show="!restoreInProgressIds.includes(ex.id)" x-cloak x-text="restoreOccurrenceLabel"></span>
+                                        <span x-show="restoreInProgressIds.includes(ex.id)" x-cloak class="inline-flex items-center gap-1">
+                                            <flux:icon name="arrow-path" class="size-3 animate-spin" />
+                                            <span x-text="restoreRestoringLabel"></span>
+                                        </span>
+                                    </button>
+                                </li>
+                            </template>
+                        </ul>
+                    </template>
                 </div>
             </template>
 

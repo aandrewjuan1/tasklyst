@@ -47,6 +47,7 @@
     @dropdown-opened="dropdownOpenCount++"
     @dropdown-closed="dropdownOpenCount--"
     @recurring-selection-updated="onRecurringSelectionUpdated($event.detail)"
+    @recurring-revert="onRecurringRevert($event.detail)"
     @item-property-updated="onItemPropertyUpdated($event.detail)"
     @item-update-rollback="onItemUpdateRollback()"
     @collaboration-self-left="hideFromList()"

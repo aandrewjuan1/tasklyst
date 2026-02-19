@@ -3,10 +3,14 @@
 namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Task\CreateTaskDto;
+use App\DataTransferObjects\Task\CreateTaskExceptionDto;
 use App\Models\Project;
+use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\TaskException;
 use App\Models\User;
+use App\Support\Validation\TaskExceptionPayloadValidation;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -150,7 +154,7 @@ trait HandlesTasks
      */
     #[Async]
     #[Renderless]
-    public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
+    public function updateTaskProperty(int $taskId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool|array
     {
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Livewire received updateTaskProperty call', [
@@ -335,6 +339,12 @@ trait HandlesTasks
             ));
         }
 
+        if ($property === 'recurrence') {
+            $task->load('recurringTask');
+
+            return ['success' => true, 'recurringTaskId' => $task->recurringTask?->id];
+        }
+
         return true;
     }
 
@@ -395,6 +405,152 @@ trait HandlesTasks
         }
 
         return $result;
+    }
+
+    /**
+     * Skip a recurring task occurrence (create a task exception for the given date).
+     * Returns the exception id on success, null on validation/authorization/failure.
+     *
+     * @param  array<string, mixed>  $payload  Must contain taskExceptionPayload with recurringTaskId, exceptionDate, optional isDeleted, reason, replacementInstanceId
+     */
+    #[Async]
+    #[Renderless]
+    public function skipRecurringTaskOccurrence(array $payload): ?int
+    {
+        $user = $this->requireAuth(__('You must be logged in to skip an occurrence.'));
+        if ($user === null) {
+            return null;
+        }
+
+        $payload = array_replace_recursive(TaskExceptionPayloadValidation::createDefaults(), $payload);
+        $validator = Validator::make(['taskExceptionPayload' => $payload], TaskExceptionPayloadValidation::createRules());
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid request.'));
+
+            return null;
+        }
+
+        $validated = $validator->validated()['taskExceptionPayload'];
+        $recurring = RecurringTask::query()->with('task')->find((int) $validated['recurringTaskId']);
+        if ($recurring === null || $recurring->task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return null;
+        }
+
+        $task = Task::query()->forUser($user->id)->find($recurring->task->id);
+        if ($task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return null;
+        }
+
+        $this->authorize('update', $task);
+
+        $dto = CreateTaskExceptionDto::fromValidated($validated);
+
+        try {
+            $exception = $this->createTaskExceptionAction->execute($user, $dto);
+        } catch (\Throwable $e) {
+            Log::error('Failed to skip recurring task occurrence.', [
+                'user_id' => $user->id,
+                'recurring_task_id' => $recurring->id,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not skip occurrence. Please try again.'));
+
+            return null;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('recurring-task-occurrence-skipped', taskExceptionId: $exception->id, taskId: $task->id);
+        $this->dispatch('toast', type: 'success', message: __('Occurrence skipped.'));
+
+        return $exception->id;
+    }
+
+    /**
+     * Restore a recurring task occurrence (delete the task exception so the occurrence appears again).
+     */
+    #[Async]
+    #[Renderless]
+    public function restoreRecurringTaskOccurrence(int $taskExceptionId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to restore an occurrence.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $exception = TaskException::query()->with('recurringTask.task')->find($taskExceptionId);
+        if ($exception === null) {
+            $this->dispatch('toast', type: 'error', message: __('Exception not found.'));
+
+            return false;
+        }
+
+        $this->authorize('delete', $exception);
+
+        try {
+            $deleted = $this->deleteTaskExceptionAction->execute($exception);
+        } catch (\Throwable $e) {
+            Log::error('Failed to restore recurring task occurrence.', [
+                'user_id' => $user->id,
+                'task_exception_id' => $taskExceptionId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not restore occurrence. Please try again.'));
+
+            return false;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Could not restore occurrence. Please try again.'));
+
+            return false;
+        }
+
+        $this->listRefresh++;
+        $taskId = $exception->recurringTask?->task_id;
+        $this->dispatch('recurring-task-occurrence-restored', taskExceptionId: $taskExceptionId, taskId: $taskId);
+        $this->dispatch('toast', type: 'success', message: __('Occurrence restored.'));
+
+        return true;
+    }
+
+    /**
+     * Get task exceptions (skipped dates) for a recurring task. For use in "Skipped dates" / Restore UI.
+     *
+     * @return array<int, array{id: int, exception_date: string, reason: string|null}>
+     */
+    public function getTaskExceptions(int $recurringTaskId): array
+    {
+        $user = $this->requireAuth(__('You must be logged in to view exceptions.'));
+        if ($user === null) {
+            return [];
+        }
+
+        $recurring = RecurringTask::query()->with('task')->find($recurringTaskId);
+        if ($recurring === null || $recurring->task === null) {
+            return [];
+        }
+
+        $task = Task::query()->forUser($user->id)->find($recurring->task->id);
+        if ($task === null) {
+            return [];
+        }
+
+        $this->authorize('update', $task);
+
+        return $recurring->taskExceptions()
+            ->orderBy('exception_date', 'desc')
+            ->get()
+            ->map(fn (TaskException $ex) => [
+                'id' => $ex->id,
+                'exception_date' => $ex->exception_date->format('Y-m-d'),
+                'reason' => $ex->reason,
+            ])
+            ->values()
+            ->all();
     }
 
     /**

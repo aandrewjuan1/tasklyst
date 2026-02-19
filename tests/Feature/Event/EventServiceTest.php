@@ -344,3 +344,99 @@ test('create event exception creates or updates exception', function (): void {
         ->and($exception->exception_date->format('Y-m-d'))->toBe('2025-02-10')
         ->and($exception->is_deleted)->toBeTrue();
 });
+
+test('create event exception stores reason when provided', function (): void {
+    $recurring = RecurringEvent::factory()->create();
+    $date = Carbon::parse('2025-02-10');
+
+    $exception = $this->service->createEventException($recurring, $date, true, null, $this->user, 'Cancelled this instance');
+
+    expect($exception->reason)->toBe('Cancelled this instance');
+});
+
+test('delete event exception removes record and occurrence is included again in expansion', function (): void {
+    $recurring = RecurringEvent::factory()->create([
+        'recurrence_type' => EventRecurrenceType::Daily,
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-28'),
+    ]);
+    $date = Carbon::parse('2025-02-10');
+    $exception = $this->service->createEventException($recurring, $date, true, null, $this->user);
+
+    $occurrencesBefore = $this->service->getOccurrencesForDateRange($recurring, $date, $date);
+    expect($occurrencesBefore)->toBeEmpty();
+
+    $result = $this->service->deleteEventException($exception);
+
+    expect($result)->toBeTrue();
+    expect(EventException::find($exception->id))->toBeNull();
+
+    $occurrencesAfter = $this->service->getOccurrencesForDateRange($recurring, $date, $date);
+    expect($occurrencesAfter)->toHaveCount(1)
+        ->and($occurrencesAfter[0]->format('Y-m-d'))->toBe('2025-02-10');
+});
+
+test('get exceptions for recurring event returns all when no date range', function (): void {
+    $recurring = RecurringEvent::factory()->create();
+    EventException::factory()->create(['recurring_event_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-01')]);
+    EventException::factory()->create(['recurring_event_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-15')]);
+
+    $exceptions = $this->service->getExceptionsForRecurringEvent($recurring);
+
+    expect($exceptions)->toHaveCount(2)
+        ->and($exceptions->pluck('exception_date')->map(fn ($d) => $d->format('Y-m-d'))->all())
+        ->toEqual(['2025-02-01', '2025-02-15']);
+});
+
+test('get exceptions for recurring event filters by date range when provided', function (): void {
+    $recurring = RecurringEvent::factory()->create();
+    EventException::factory()->create(['recurring_event_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-01')]);
+    EventException::factory()->create(['recurring_event_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-10')]);
+    EventException::factory()->create(['recurring_event_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-20')]);
+
+    $exceptions = $this->service->getExceptionsForRecurringEvent(
+        $recurring,
+        Carbon::parse('2025-02-05'),
+        Carbon::parse('2025-02-15')
+    );
+
+    expect($exceptions)->toHaveCount(1)
+        ->and($exceptions->first()->exception_date->format('Y-m-d'))->toBe('2025-02-10');
+});
+
+test('update event exception updates allowed attributes', function (): void {
+    $recurring = RecurringEvent::factory()->create();
+    $exception = EventException::factory()->create([
+        'recurring_event_id' => $recurring->id,
+        'exception_date' => Carbon::parse('2025-02-10'),
+        'is_deleted' => true,
+        'reason' => null,
+    ]);
+
+    $updated = $this->service->updateEventException($exception, [
+        'is_deleted' => false,
+        'reason' => 'Rescheduled',
+    ]);
+
+    expect($updated->is_deleted)->toBeFalse()
+        ->and($updated->reason)->toBe('Rescheduled');
+});
+
+test('update event exception ignores non allowed attributes', function (): void {
+    $recurring = RecurringEvent::factory()->create();
+    $exception = EventException::factory()->create([
+        'recurring_event_id' => $recurring->id,
+        'exception_date' => Carbon::parse('2025-02-10'),
+        'reason' => 'Original',
+    ]);
+
+    $this->service->updateEventException($exception, [
+        'exception_date' => '2025-03-01',
+        'recurring_event_id' => 999,
+    ]);
+
+    $exception->refresh();
+    expect($exception->exception_date->format('Y-m-d'))->toBe('2025-02-10')
+        ->and($exception->recurring_event_id)->toBe($recurring->id)
+        ->and($exception->reason)->toBe('Original');
+});

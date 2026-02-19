@@ -119,6 +119,22 @@ class RecurrenceExpander
     }
 
     /**
+     * Whether the preloaded exceptions collection contains an exclusion for the given date (skip or replacement).
+     *
+     * @param  Collection<int, TaskException|EventException>|null  $exceptions
+     */
+    private function dateHasExcludedException(?Collection $exceptions, string $dateStr): bool
+    {
+        if ($exceptions === null || $exceptions->isEmpty()) {
+            return false;
+        }
+
+        return $exceptions->contains(fn (TaskException|EventException $e) => $e->exception_date->format('Y-m-d') === $dateStr
+            && ($e->is_deleted || $e->replacement_instance_id !== null)
+        );
+    }
+
+    /**
      * Batch-expand recurring tasks and events to determine which are relevant for a given date.
      * Preloads exceptions in bulk to avoid N+1 queries.
      *
@@ -137,26 +153,32 @@ class RecurrenceExpander
         $taskExceptionMap = $this->preloadTaskExceptions($recurringTasks->pluck('id'), $date, $date);
         $eventExceptionMap = $this->preloadEventExceptions($recurringEvents->pluck('id'), $date, $date);
 
+        $dateStr = $date->format('Y-m-d');
+
         foreach ($recurringTasks as $recurring) {
             if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
-                $taskIds[] = $recurring->id;
+                if (! $this->dateHasExcludedException($taskExceptionMap[$recurring->id] ?? null, $dateStr)) {
+                    $taskIds[] = $recurring->id;
+                }
 
                 continue;
             }
             $occurrences = $this->expand($recurring, $date, $date, $taskExceptionMap[$recurring->id] ?? null);
-            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $date->format('Y-m-d'))) {
+            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr)) {
                 $taskIds[] = $recurring->id;
             }
         }
 
         foreach ($recurringEvents as $recurring) {
             if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
-                $eventIds[] = $recurring->id;
+                if (! $this->dateHasExcludedException($eventExceptionMap[$recurring->id] ?? null, $dateStr)) {
+                    $eventIds[] = $recurring->id;
+                }
 
                 continue;
             }
             $occurrences = $this->expand($recurring, $date, $date, $eventExceptionMap[$recurring->id] ?? null);
-            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $date->format('Y-m-d'))) {
+            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr)) {
                 $eventIds[] = $recurring->id;
             }
         }

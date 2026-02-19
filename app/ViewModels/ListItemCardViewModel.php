@@ -274,6 +274,12 @@ class ListItemCardViewModel
             'listFilterDate' => $this->listFilterDate,
             'filters' => $this->filters,
             'availableTags' => $this->availableTags,
+            'showSkipOccurrence' => in_array($kind, ['task', 'event'], true)
+                && ($kind === 'task' ? (bool) $item->recurringTask : (bool) $item->recurringEvent)
+                && $this->listFilterDate !== null
+                && (string) $this->listFilterDate !== '',
+            'recurringEventIdForSelection' => $kind === 'event' && $item->recurringEvent ? $item->recurringEvent->id : null,
+            'recurringTaskIdForSelection' => $kind === 'task' && $item->recurringTask ? $item->recurringTask->id : null,
         ];
     }
 
@@ -310,6 +316,17 @@ class ListItemCardViewModel
             'itemId' => $item->id,
             'isRecurringTask' => $kind === 'task' && (bool) $item->recurringTask,
             'hasRecurringEvent' => $kind === 'event' && (bool) $item->recurringEvent,
+            'showSkipOccurrence' => $data['showSkipOccurrence'],
+            'recurringEventId' => $kind === 'event' && $item->recurringEvent ? $item->recurringEvent->id : null,
+            'recurringTaskId' => $kind === 'task' && $item->recurringTask ? $item->recurringTask->id : null,
+            'exceptionDate' => $this->listFilterDate,
+            'skipInProgress' => false,
+            'skipOccurrenceLabel' => __('Skip this occurrence'),
+            'skipOccurrenceSkippingLabel' => __('Skipping...'),
+            'skipOccurrenceErrorToast' => __('Could not skip occurrence. Please try again.'),
+            'skipOccurrenceErrorPermission' => __('You do not have permission to skip this occurrence.'),
+            'skipOccurrenceErrorNotFound' => __('Event or task not found.'),
+            'skipOccurrenceErrorValidation' => __('Invalid request. Please try again.'),
             'recurrence' => $data['headerRecurrenceInitial'],
             'deleteErrorToast' => __('Couldn\'t move to trash. Please try again.'),
             'isEditingTitle' => false,

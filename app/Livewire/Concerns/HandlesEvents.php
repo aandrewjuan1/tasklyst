@@ -3,9 +3,13 @@
 namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Event\CreateEventDto;
+use App\DataTransferObjects\Event\CreateEventExceptionDto;
 use App\Models\Event;
+use App\Models\EventException;
+use App\Models\RecurringEvent;
 use App\Models\Tag;
 use App\Models\User;
+use App\Support\Validation\EventExceptionPayloadValidation;
 use App\Support\Validation\EventPayloadValidation;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -244,7 +248,7 @@ trait HandlesEvents
      */
     #[Async]
     #[Renderless]
-    public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool
+    public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool|array
     {
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Livewire received updateEventProperty call', [
@@ -429,6 +433,12 @@ trait HandlesEvents
             ));
         }
 
+        if ($property === 'recurrence') {
+            $event->load('recurringEvent');
+
+            return ['success' => true, 'recurringEventId' => $event->recurringEvent?->id];
+        }
+
         return true;
     }
 
@@ -489,5 +499,151 @@ trait HandlesEvents
         }
 
         return $result;
+    }
+
+    /**
+     * Skip a recurring event occurrence (create an event exception for the given date).
+     * Returns the exception id on success, null on validation/authorization/failure.
+     *
+     * @param  array<string, mixed>  $payload  Must contain eventExceptionPayload with recurringEventId, exceptionDate, optional isDeleted, reason, replacementInstanceId
+     */
+    #[Async]
+    #[Renderless]
+    public function skipRecurringEventOccurrence(array $payload): ?int
+    {
+        $user = $this->requireAuth(__('You must be logged in to skip an occurrence.'));
+        if ($user === null) {
+            return null;
+        }
+
+        $payload = array_replace_recursive(EventExceptionPayloadValidation::createDefaults(), $payload);
+        $validator = Validator::make(['eventExceptionPayload' => $payload], EventExceptionPayloadValidation::createRules());
+        if ($validator->fails()) {
+            $this->dispatch('toast', type: 'error', message: $validator->errors()->first() ?: __('Invalid request.'));
+
+            return null;
+        }
+
+        $validated = $validator->validated()['eventExceptionPayload'];
+        $recurring = RecurringEvent::query()->with('event')->find((int) $validated['recurringEventId']);
+        if ($recurring === null || $recurring->event === null) {
+            $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+            return null;
+        }
+
+        $event = Event::query()->forUser($user->id)->find($recurring->event->id);
+        if ($event === null) {
+            $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+            return null;
+        }
+
+        $this->authorize('update', $event);
+
+        $dto = CreateEventExceptionDto::fromValidated($validated);
+
+        try {
+            $exception = $this->createEventExceptionAction->execute($user, $dto);
+        } catch (\Throwable $e) {
+            Log::error('Failed to skip recurring event occurrence.', [
+                'user_id' => $user->id,
+                'recurring_event_id' => $recurring->id,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not skip occurrence. Please try again.'));
+
+            return null;
+        }
+
+        $this->listRefresh++;
+        $this->dispatch('recurring-event-occurrence-skipped', eventExceptionId: $exception->id, eventId: $event->id);
+        $this->dispatch('toast', type: 'success', message: __('Occurrence skipped.'));
+
+        return $exception->id;
+    }
+
+    /**
+     * Restore a recurring event occurrence (delete the event exception so the occurrence appears again).
+     */
+    #[Async]
+    #[Renderless]
+    public function restoreRecurringEventOccurrence(int $eventExceptionId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to restore an occurrence.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $exception = EventException::query()->with('recurringEvent.event')->find($eventExceptionId);
+        if ($exception === null) {
+            $this->dispatch('toast', type: 'error', message: __('Exception not found.'));
+
+            return false;
+        }
+
+        $this->authorize('delete', $exception);
+
+        try {
+            $deleted = $this->deleteEventExceptionAction->execute($exception);
+        } catch (\Throwable $e) {
+            Log::error('Failed to restore recurring event occurrence.', [
+                'user_id' => $user->id,
+                'event_exception_id' => $eventExceptionId,
+                'exception' => $e,
+            ]);
+            $this->dispatch('toast', type: 'error', message: __('Could not restore occurrence. Please try again.'));
+
+            return false;
+        }
+
+        if (! $deleted) {
+            $this->dispatch('toast', type: 'error', message: __('Could not restore occurrence. Please try again.'));
+
+            return false;
+        }
+
+        $this->listRefresh++;
+        $eventId = $exception->recurringEvent?->event_id;
+        $this->dispatch('recurring-event-occurrence-restored', eventExceptionId: $eventExceptionId, eventId: $eventId);
+        $this->dispatch('toast', type: 'success', message: __('Occurrence restored.'));
+
+        return true;
+    }
+
+    /**
+     * Get event exceptions (skipped dates) for a recurring event. For use in "Skipped dates" / Restore UI.
+     *
+     * @return array<int, array{id: int, exception_date: string, reason: string|null}>
+     */
+    public function getEventExceptions(int $recurringEventId): array
+    {
+        $user = $this->requireAuth(__('You must be logged in to view exceptions.'));
+        if ($user === null) {
+            return [];
+        }
+
+        $recurring = RecurringEvent::query()->with('event')->find($recurringEventId);
+        if ($recurring === null || $recurring->event === null) {
+            return [];
+        }
+
+        $event = Event::query()->forUser($user->id)->find($recurring->event->id);
+        if ($event === null) {
+            return [];
+        }
+
+        $this->authorize('update', $event);
+
+        return $recurring->eventExceptions()
+            ->orderBy('exception_date', 'desc')
+            ->get()
+            ->map(fn (EventException $ex) => [
+                'id' => $ex->id,
+                'exception_date' => $ex->exception_date->format('Y-m-d'),
+                'reason' => $ex->reason,
+            ])
+            ->values()
+            ->all();
     }
 }

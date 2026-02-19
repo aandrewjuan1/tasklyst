@@ -395,6 +395,75 @@ export function listItemCard(config) {
                 this.deletingInProgress = false;
             }
         },
+        async skipThisOccurrence() {
+            const canSkip =
+                (this.kind === 'event' && this.recurringEventId != null && this.exceptionDate) ||
+                (this.kind === 'task' && this.recurringTaskId != null && this.exceptionDate);
+            if (!canSkip || this.skipInProgress || this.hideCard) {
+                return;
+            }
+
+            const exceptionDate = String(this.exceptionDate ?? '').slice(0, 10);
+            if (!exceptionDate) {
+                return;
+            }
+
+            const wasOverdue = this.isOverdue;
+
+            // PHASE 1: Snapshot BEFORE any changes
+            const snapshot = { hideCard: this.hideCard };
+
+            this.skipInProgress = true;
+
+            try {
+                // PHASE 2: Optimistic UI update - hide card immediately
+                this.hideFromList();
+                // PHASE 3: Call server asynchronously
+                const method =
+                    this.kind === 'event' ? 'skipRecurringEventOccurrence' : 'skipRecurringTaskOccurrence';
+                const payload =
+                    this.kind === 'event'
+                        ? {
+                              recurringEventId: this.recurringEventId,
+                              exceptionDate,
+                              isDeleted: true,
+                          }
+                        : {
+                              recurringTaskId: this.recurringTaskId,
+                              exceptionDate,
+                              isDeleted: true,
+                          };
+                const promise = this.$wire.$parent.$call(method, payload);
+                // PHASE 4: Handle response
+                const result = await promise;
+                if (result == null) {
+                    // PHASE 5: Rollback on error
+                    this.hideCard = snapshot.hideCard;
+                    this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
+                    this.$wire.$dispatch('toast', {
+                        type: 'error',
+                        message: this.getSkipErrorMessage(null),
+                    });
+                }
+            } catch (e) {
+                // PHASE 5: Rollback on error
+                this.hideCard = snapshot.hideCard;
+                this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
+                this.$wire.$dispatch('toast', {
+                    type: 'error',
+                    message: this.getSkipErrorMessage(e),
+                });
+            } finally {
+                this.skipInProgress = false;
+            }
+        },
+        getSkipErrorMessage(error) {
+            const status = error?.status ?? error?.statusCode;
+            if (status === 403) return this.skipOccurrenceErrorPermission ?? this.skipOccurrenceErrorToast;
+            if (status === 404) return this.skipOccurrenceErrorNotFound ?? this.skipOccurrenceErrorToast;
+            if (status === 422) return this.skipOccurrenceErrorValidation ?? this.skipOccurrenceErrorToast;
+            return error?.message ?? this.skipOccurrenceErrorToast ?? 'Could not skip occurrence.';
+        },
         startEditingTitle() {
             if (!this.canEdit || this.deletingInProgress || !this.updatePropertyMethod) return;
             this.titleSnapshot = this.editedTitle;
@@ -541,17 +610,33 @@ export function listItemCard(config) {
             const snapshot = this.recurrence;
             this.recurrence = value;
 
+            const applyRevert = () => {
+                this.showSkipOccurrence = !!(snapshot?.enabled);
+                if (!(snapshot?.enabled)) {
+                    this.recurringTaskId = null;
+                    this.recurringEventId = null;
+                }
+            };
+
             try {
-                const ok = await this.$wire.$parent.$call(this.updatePropertyMethod, this.itemId, 'recurrence', value, false);
+                const result = await this.$wire.$parent.$call(this.updatePropertyMethod, this.itemId, 'recurrence', value, false);
+                const ok = result === true || (result && result.success === true);
                 if (!ok) {
                     this.recurrence = snapshot;
+                    applyRevert();
                     this.$dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
                     this.$wire.$dispatch('toast', { type: 'error', message: this.recurrenceUpdateErrorToast });
                     return;
                 }
+                this.showSkipOccurrence = !!(value?.enabled);
+                if (value?.enabled && result && typeof result === 'object') {
+                    if (result.recurringTaskId != null) this.recurringTaskId = result.recurringTaskId;
+                    if (result.recurringEventId != null) this.recurringEventId = result.recurringEventId;
+                }
                 this.$dispatch('recurring-value', { path: 'recurrence', value });
             } catch (e) {
                 this.recurrence = snapshot;
+                applyRevert();
                 this.$dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
                 this.$wire.$dispatch('toast', { type: 'error', message: this.recurrenceUpdateErrorToast });
             }
@@ -562,6 +647,15 @@ export function listItemCard(config) {
         onRecurringSelectionUpdated(detail) {
             if (detail && detail.path === 'recurrence') {
                 this.updateRecurrence(detail.value);
+            }
+        },
+        onRecurringRevert(detail) {
+            if (!detail || detail.path !== 'recurrence') return;
+            const v = detail.value;
+            this.showSkipOccurrence = !!(v?.enabled);
+            if (!(v?.enabled)) {
+                this.recurringTaskId = null;
+                this.recurringEventId = null;
             }
         },
         onTaskDurationUpdated(detail) {
