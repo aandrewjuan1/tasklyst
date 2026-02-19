@@ -4,6 +4,7 @@
     'updatePropertyMethod',
     'listFilterDate' => null,
     'initialStatus' => null,
+    'isOverdue' => false,
 ])
 
 @php
@@ -516,6 +517,7 @@
         position="top"
         align="end"
         :initial-value="$eventEndDatetimeInitial"
+        :overdue="$isOverdue"
         :readonly="!$canEditDates"
         data-task-creation-safe
     />

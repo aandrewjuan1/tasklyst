@@ -117,6 +117,7 @@
             :update-property-method="$updatePropertyMethod"
             :list-filter-date="$listFilterDate"
             :initial-status="$eventEffectiveStatus?->value ?? $item->status?->value"
+            :is-overdue="$isOverdue"
         />
     @elseif($kind === 'task')
         <x-workspace.list-item-task
@@ -125,6 +126,7 @@
             :update-property-method="$updatePropertyMethod"
             :list-filter-date="$listFilterDate"
             :initial-status="$effectiveStatus?->value ?? $item->status?->value"
+            :is-overdue="$isOverdue"
         />
     @endif
 
