@@ -92,6 +92,8 @@
                             :initial-value="$headerRecurrenceInitial"
                             :kind="$kind"
                             :readonly="!$canEditRecurrence"
+                            :recurring-event-id="$recurringEventIdForSelection ?? null"
+                            :recurring-task-id="$recurringTaskIdForSelection ?? null"
                             compactWhenDisabled
                             hideWhenDisabled
                             position="top"
@@ -133,7 +135,27 @@
                                 </flux:menu.item>
                             </flux:tooltip>
 
-                            <flux:separator />
+                            <flux:tooltip
+                                x-show="showSkipOccurrence"
+                                x-cloak
+                                style="display: none;"
+                                :content="__('Don\'t show this occurrence on this date')"
+                            >
+                                <flux:menu.item
+                                    icon="calendar-days"
+                                    class="cursor-pointer"
+                                    ::aria-label="skipInProgress ? skipOccurrenceSkippingLabel : skipOccurrenceLabel"
+                                    ::aria-busy="skipInProgress"
+                                    @click.throttle.250ms="skipThisOccurrence()"
+                                >
+                                    <span x-show="!skipInProgress" x-cloak>{{ __('Skip this occurrence') }}</span>
+                                    <span x-show="skipInProgress" x-cloak class="inline-flex items-center gap-1.5">
+                                        <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
+                                        <span x-text="skipOccurrenceSkippingLabel"></span>
+                                    </span>
+                                </flux:menu.item>
+                            </flux:tooltip>
+                            <flux:separator x-show="showSkipOccurrence" x-cloak style="display: none;" />
 
                             <flux:tooltip :content="__('Move to trash')">
                                 <flux:menu.item
@@ -161,6 +183,8 @@
                         :initial-value="$headerRecurrenceInitial"
                         :kind="$kind"
                         :readonly="!$canEditRecurrence"
+                        :recurring-event-id="$recurringEventIdForSelection ?? null"
+                        :recurring-task-id="$recurringTaskIdForSelection ?? null"
                         compactWhenDisabled
                         hideWhenDisabled
                         position="top"

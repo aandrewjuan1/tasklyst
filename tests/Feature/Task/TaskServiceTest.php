@@ -371,3 +371,99 @@ test('create task exception creates or updates exception', function (): void {
         ->and($exception->exception_date->format('Y-m-d'))->toBe('2025-02-10')
         ->and($exception->is_deleted)->toBeTrue();
 });
+
+test('create task exception stores reason when provided', function (): void {
+    $recurring = RecurringTask::factory()->create();
+    $date = Carbon::parse('2025-02-10');
+
+    $exception = $this->service->createTaskException($recurring, $date, true, null, $this->user, 'Skipped for holiday');
+
+    expect($exception->reason)->toBe('Skipped for holiday');
+});
+
+test('delete task exception removes record and occurrence is included again in expansion', function (): void {
+    $recurring = RecurringTask::factory()->create([
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-28'),
+    ]);
+    $date = Carbon::parse('2025-02-10');
+    $exception = $this->service->createTaskException($recurring, $date, true, null, $this->user);
+
+    $occurrencesBefore = $this->service->getOccurrencesForDateRange($recurring, $date, $date);
+    expect($occurrencesBefore)->toBeEmpty();
+
+    $result = $this->service->deleteTaskException($exception);
+
+    expect($result)->toBeTrue();
+    expect(TaskException::find($exception->id))->toBeNull();
+
+    $occurrencesAfter = $this->service->getOccurrencesForDateRange($recurring, $date, $date);
+    expect($occurrencesAfter)->toHaveCount(1)
+        ->and($occurrencesAfter[0]->format('Y-m-d'))->toBe('2025-02-10');
+});
+
+test('get exceptions for recurring task returns all when no date range', function (): void {
+    $recurring = RecurringTask::factory()->create();
+    TaskException::factory()->create(['recurring_task_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-01')]);
+    TaskException::factory()->create(['recurring_task_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-15')]);
+
+    $exceptions = $this->service->getExceptionsForRecurringTask($recurring);
+
+    expect($exceptions)->toHaveCount(2)
+        ->and($exceptions->pluck('exception_date')->map(fn ($d) => $d->format('Y-m-d'))->all())
+        ->toEqual(['2025-02-01', '2025-02-15']);
+});
+
+test('get exceptions for recurring task filters by date range when provided', function (): void {
+    $recurring = RecurringTask::factory()->create();
+    TaskException::factory()->create(['recurring_task_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-01')]);
+    TaskException::factory()->create(['recurring_task_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-10')]);
+    TaskException::factory()->create(['recurring_task_id' => $recurring->id, 'exception_date' => Carbon::parse('2025-02-20')]);
+
+    $exceptions = $this->service->getExceptionsForRecurringTask(
+        $recurring,
+        Carbon::parse('2025-02-05'),
+        Carbon::parse('2025-02-15')
+    );
+
+    expect($exceptions)->toHaveCount(1)
+        ->and($exceptions->first()->exception_date->format('Y-m-d'))->toBe('2025-02-10');
+});
+
+test('update task exception updates allowed attributes', function (): void {
+    $recurring = RecurringTask::factory()->create();
+    $exception = TaskException::factory()->create([
+        'recurring_task_id' => $recurring->id,
+        'exception_date' => Carbon::parse('2025-02-10'),
+        'is_deleted' => true,
+        'reason' => null,
+    ]);
+
+    $updated = $this->service->updateTaskException($exception, [
+        'is_deleted' => false,
+        'reason' => 'Rescheduled',
+    ]);
+
+    expect($updated->is_deleted)->toBeFalse()
+        ->and($updated->reason)->toBe('Rescheduled');
+});
+
+test('update task exception ignores non allowed attributes', function (): void {
+    $recurring = RecurringTask::factory()->create();
+    $exception = TaskException::factory()->create([
+        'recurring_task_id' => $recurring->id,
+        'exception_date' => Carbon::parse('2025-02-10'),
+        'reason' => 'Original',
+    ]);
+
+    $this->service->updateTaskException($exception, [
+        'exception_date' => '2025-03-01',
+        'recurring_task_id' => 999,
+    ]);
+
+    $exception->refresh();
+    expect($exception->exception_date->format('Y-m-d'))->toBe('2025-02-10')
+        ->and($exception->recurring_task_id)->toBe($recurring->id)
+        ->and($exception->reason)->toBe('Original');
+});

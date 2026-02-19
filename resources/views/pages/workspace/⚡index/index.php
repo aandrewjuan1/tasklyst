@@ -9,7 +9,9 @@ use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
 use App\Actions\Event\CreateEventAction;
+use App\Actions\Event\CreateEventExceptionAction;
 use App\Actions\Event\DeleteEventAction;
+use App\Actions\Event\DeleteEventExceptionAction;
 use App\Actions\Event\ForceDeleteEventAction;
 use App\Actions\Event\RestoreEventAction;
 use App\Actions\Event\UpdateEventPropertyAction;
@@ -32,7 +34,9 @@ use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
 use App\Actions\Task\CreateTaskAction;
+use App\Actions\Task\CreateTaskExceptionAction;
 use App\Actions\Task\DeleteTaskAction;
+use App\Actions\Task\DeleteTaskExceptionAction;
 use App\Actions\Task\ForceDeleteTaskAction;
 use App\Actions\Task\RestoreTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
@@ -62,6 +66,7 @@ use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 new
@@ -81,7 +86,8 @@ class extends Component
     use HandlesTasks;
     use HandlesTrash;
 
-    public string $selectedDate;
+    #[Url(as: 'date')]
+    public ?string $selectedDate = null;
 
     public int $listRefresh = 0;
 
@@ -133,6 +139,14 @@ class extends Component
     protected UpdateProjectPropertyAction $updateProjectPropertyAction;
 
     protected UpdateTaskPropertyAction $updateTaskPropertyAction;
+
+    protected CreateTaskExceptionAction $createTaskExceptionAction;
+
+    protected DeleteTaskExceptionAction $deleteTaskExceptionAction;
+
+    protected CreateEventExceptionAction $createEventExceptionAction;
+
+    protected DeleteEventExceptionAction $deleteEventExceptionAction;
 
     protected CreateCommentAction $createCommentAction;
 
@@ -209,6 +223,10 @@ class extends Component
         UpdateEventPropertyAction $updateEventPropertyAction,
         UpdateProjectPropertyAction $updateProjectPropertyAction,
         UpdateTaskPropertyAction $updateTaskPropertyAction,
+        CreateTaskExceptionAction $createTaskExceptionAction,
+        DeleteTaskExceptionAction $deleteTaskExceptionAction,
+        CreateEventExceptionAction $createEventExceptionAction,
+        DeleteEventExceptionAction $deleteEventExceptionAction,
         CreateCommentAction $createCommentAction,
         UpdateCommentAction $updateCommentAction,
         DeleteCommentAction $deleteCommentAction,
@@ -250,6 +268,10 @@ class extends Component
         $this->updateEventPropertyAction = $updateEventPropertyAction;
         $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;
+        $this->createTaskExceptionAction = $createTaskExceptionAction;
+        $this->deleteTaskExceptionAction = $deleteTaskExceptionAction;
+        $this->createEventExceptionAction = $createEventExceptionAction;
+        $this->deleteEventExceptionAction = $deleteEventExceptionAction;
         $this->createCommentAction = $createCommentAction;
         $this->updateCommentAction = $updateCommentAction;
         $this->deleteCommentAction = $deleteCommentAction;
@@ -294,7 +316,9 @@ class extends Component
             $this->authorize('viewAny', Project::class);
             $this->authorize('viewAny', Tag::class);
         }
-        $this->selectedDate = now()->toDateString();
+        if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
+            $this->selectedDate = now()->toDateString();
+        }
         $this->syncFilterTagIdFromTagIds();
         $session = $this->getActiveFocusSession();
         if ($session !== null) {

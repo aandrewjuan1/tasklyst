@@ -377,7 +377,8 @@ class EventService
         CarbonInterface $date,
         bool $isDeleted,
         ?EventInstance $replacement = null,
-        ?User $createdBy = null
+        ?User $createdBy = null,
+        ?string $reason = null
     ): EventException {
         $exceptionDate = $date instanceof \DateTimeInterface
             ? $date->format('Y-m-d')
@@ -392,7 +393,56 @@ class EventService
                 'is_deleted' => $isDeleted,
                 'replacement_instance_id' => $replacement?->id,
                 'created_by' => $createdBy?->id,
+                'reason' => $reason,
             ]
         );
+    }
+
+    /**
+     * Delete an EventException. After deletion, the occurrence will again be included in recurrence expansion.
+     */
+    public function deleteEventException(EventException $exception): bool
+    {
+        return (bool) $exception->delete();
+    }
+
+    /**
+     * Get exceptions for a recurring event, optionally filtered by date range.
+     *
+     * @return Collection<int, EventException>
+     */
+    public function getExceptionsForRecurringEvent(
+        RecurringEvent $recurringEvent,
+        ?CarbonInterface $start = null,
+        ?CarbonInterface $end = null
+    ): Collection {
+        $query = $recurringEvent->eventExceptions();
+
+        if ($start !== null) {
+            $query->whereDate('exception_date', '>=', $start);
+        }
+        if ($end !== null) {
+            $query->whereDate('exception_date', '<=', $end);
+        }
+
+        return $query->orderBy('exception_date')->get();
+    }
+
+    /**
+     * Update an EventException. Only is_deleted, reason, and replacement_instance_id can be updated.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function updateEventException(EventException $exception, array $attributes): EventException
+    {
+        $allowed = ['is_deleted', 'reason', 'replacement_instance_id'];
+        $filtered = array_intersect_key($attributes, array_flip($allowed));
+
+        if ($filtered !== []) {
+            $exception->fill($filtered);
+            $exception->save();
+        }
+
+        return $exception->fresh();
     }
 }

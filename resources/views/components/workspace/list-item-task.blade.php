@@ -52,7 +52,7 @@
         ? 'bg-' . $complexityInitialOption['color'] . '/10 text-' . $complexityInitialOption['color']
         : 'bg-muted text-muted-foreground';
 
-    $durationInitialLabel = '';
+    $durationInitialLabel = $item->duration === null ? __('Not set') : '';
     if ($item->duration !== null) {
         $m = (int) $item->duration;
         if ($m < 60) {

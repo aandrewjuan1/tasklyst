@@ -410,7 +410,8 @@ class TaskService
         CarbonInterface $date,
         bool $isDeleted,
         ?TaskInstance $replacement = null,
-        ?User $createdBy = null
+        ?User $createdBy = null,
+        ?string $reason = null
     ): TaskException {
         $exceptionDate = $date instanceof \DateTimeInterface
             ? $date->format('Y-m-d')
@@ -425,7 +426,56 @@ class TaskService
                 'is_deleted' => $isDeleted,
                 'replacement_instance_id' => $replacement?->id,
                 'created_by' => $createdBy?->id,
+                'reason' => $reason,
             ]
         );
+    }
+
+    /**
+     * Delete a TaskException. After deletion, the occurrence will again be included in recurrence expansion.
+     */
+    public function deleteTaskException(TaskException $exception): bool
+    {
+        return (bool) $exception->delete();
+    }
+
+    /**
+     * Get exceptions for a recurring task, optionally filtered by date range.
+     *
+     * @return Collection<int, TaskException>
+     */
+    public function getExceptionsForRecurringTask(
+        RecurringTask $recurringTask,
+        ?CarbonInterface $start = null,
+        ?CarbonInterface $end = null
+    ): Collection {
+        $query = $recurringTask->taskExceptions();
+
+        if ($start !== null) {
+            $query->whereDate('exception_date', '>=', $start);
+        }
+        if ($end !== null) {
+            $query->whereDate('exception_date', '<=', $end);
+        }
+
+        return $query->orderBy('exception_date')->get();
+    }
+
+    /**
+     * Update a TaskException. Only is_deleted, reason, and replacement_instance_id can be updated.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function updateTaskException(TaskException $exception, array $attributes): TaskException
+    {
+        $allowed = ['is_deleted', 'reason', 'replacement_instance_id'];
+        $filtered = array_intersect_key($attributes, array_flip($allowed));
+
+        if ($filtered !== []) {
+            $exception->fill($filtered);
+            $exception->save();
+        }
+
+        return $exception->fresh();
     }
 }
