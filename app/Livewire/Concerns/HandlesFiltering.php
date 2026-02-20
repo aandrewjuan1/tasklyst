@@ -119,6 +119,18 @@ trait HandlesFiltering
     }
 
     /**
+     * Reset list pagination (if supported) and increment list refresh.
+     * Use when filters change so the list shows page 1 of the new result set.
+     */
+    protected function refreshListAfterFilterChange(): void
+    {
+        if (method_exists($this, 'resetListPagination')) {
+            $this->resetListPagination();
+        }
+        $this->incrementListRefresh();
+    }
+
+    /**
      * Set a filter value. Triggers a re-render when filters change.
      */
     public function setFilter(string $key, mixed $value): void
@@ -175,7 +187,7 @@ trait HandlesFiltering
             $this->syncItemTypeFromTypeSpecificFilters();
         }
 
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     /**
@@ -214,7 +226,7 @@ trait HandlesFiltering
         if ($value === '') {
             $this->filterItemType = null;
         }
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     public function updatedFilterTaskStatus(?string $value): void
@@ -223,7 +235,7 @@ trait HandlesFiltering
             $this->filterTaskStatus = null;
         }
         $this->syncItemTypeFromTypeSpecificFilters();
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     public function updatedFilterTaskPriority(?string $value): void
@@ -232,7 +244,7 @@ trait HandlesFiltering
             $this->filterTaskPriority = null;
         }
         $this->syncItemTypeFromTypeSpecificFilters();
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     public function updatedFilterTaskComplexity(?string $value): void
@@ -241,7 +253,7 @@ trait HandlesFiltering
             $this->filterTaskComplexity = null;
         }
         $this->syncItemTypeFromTypeSpecificFilters();
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     public function updatedFilterEventStatus(?string $value): void
@@ -250,7 +262,7 @@ trait HandlesFiltering
             $this->filterEventStatus = null;
         }
         $this->syncItemTypeFromTypeSpecificFilters();
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     public function updatedFilterRecurring(?string $value): void
@@ -258,7 +270,7 @@ trait HandlesFiltering
         if ($value === '') {
             $this->filterRecurring = null;
         }
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     public function updatedFilterTagId(?string $value): void
@@ -270,7 +282,7 @@ trait HandlesFiltering
             $id = (int) $value;
             $this->filterTagIds = $id > 0 ? [$id] : null;
         }
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     /**
@@ -283,7 +295,7 @@ trait HandlesFiltering
             $this->{$property} = null;
         }
         $this->filterTagId = null;
-        $this->incrementListRefresh();
+        $this->refreshListAfterFilterChange();
     }
 
     /**

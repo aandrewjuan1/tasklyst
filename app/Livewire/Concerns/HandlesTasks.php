@@ -27,7 +27,7 @@ trait HandlesTasks
     /**
      * Pagination settings for workspace task list.
      */
-    public int $tasksPerPage = 10;
+    public int $tasksPerPage = 5;
 
     public int $tasksPage = 1;
 
