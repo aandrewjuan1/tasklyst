@@ -1203,7 +1203,6 @@
                             },
                         }"
                     >
-                        <span x-show="!loadingMore">{{ __('Scroll to load more items...') }}</span>
                         <div
                             x-show="loadingMore"
                             class="mt-2 w-full space-y-2"
