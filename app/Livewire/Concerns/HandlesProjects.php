@@ -20,7 +20,7 @@ trait HandlesProjects
     /**
      * Pagination settings for workspace project list.
      */
-    public int $projectsPerPage = 5;
+    public int $projectsPerPage = 10;
 
     public int $projectsPage = 1;
 
@@ -333,7 +333,7 @@ trait HandlesProjects
 
         $date = Carbon::parse($this->selectedDate);
 
-        $projectsPerPage = property_exists($this, 'projectsPerPage') ? (int) $this->projectsPerPage : 5;
+        $projectsPerPage = property_exists($this, 'projectsPerPage') ? (int) $this->projectsPerPage : 10;
         $projectsPage = property_exists($this, 'projectsPage') ? max(1, (int) $this->projectsPage) : 1;
         $visibleLimit = $projectsPerPage * $projectsPage;
         $queryLimit = $visibleLimit + 1;

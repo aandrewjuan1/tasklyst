@@ -64,7 +64,6 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
-use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -358,27 +357,6 @@ class extends Component
     public function updatedSelectedDate(): void
     {
         $this->resetListPagination();
-    }
-
-    public function loadMoreTasks(): void
-    {
-        if (property_exists($this, 'tasksPage')) {
-            $this->tasksPage++;
-        }
-    }
-
-    public function loadMoreEvents(): void
-    {
-        if (property_exists($this, 'eventsPage')) {
-            $this->eventsPage++;
-        }
-    }
-
-    public function loadMoreProjects(): void
-    {
-        if (property_exists($this, 'projectsPage')) {
-            $this->projectsPage++;
-        }
     }
 
     /**

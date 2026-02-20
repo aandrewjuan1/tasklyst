@@ -1177,31 +1177,14 @@
                 @if ($hasMoreItems)
                     <div
                         class="flex flex-col items-center justify-center py-4 text-[11px] text-muted-foreground/80"
-                        x-data="{
-                            loadingMore: false,
-                            observer: null,
-                            init() {
-                                const callback = (entries) => {
-                                    entries.forEach(entry => {
-                                        if (!entry.isIntersecting || this.loadingMore) {
-                                            return;
-                                        }
-                                        this.loadingMore = true;
-                                        $wire.$parent.$call('loadMoreItems')
-                                            .then(() => { this.loadingMore = false; })
-                                            .catch(() => { this.loadingMore = false; });
-                                    });
-                                };
-                                this.observer = new IntersectionObserver(callback, { root: null, threshold: 0.25 });
-                                this.observer.observe(this.$el);
-                            },
-                            destroy() {
-                                if (this.observer) {
-                                    this.observer.disconnect();
-                                    this.observer = null;
-                                }
-                            },
-                        }"
+                        x-data="{ loadingMore: false }"
+                        x-intersect.threshold.25="
+                            if (!loadingMore) {
+                                loadingMore = true;
+                                $wire.$parent.$call('loadMoreItems')
+                                    .finally(() => { loadingMore = false; });
+                            }
+                        "
                     >
                         <div
                             x-show="loadingMore"
