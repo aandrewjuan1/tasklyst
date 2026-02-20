@@ -123,6 +123,11 @@
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
                 />
+
+                <x-workspace.upcoming
+                    :items="$this->upcoming"
+                    :selected-date="$this->selectedDate"
+                />
             </div>
         </div>
     </div>

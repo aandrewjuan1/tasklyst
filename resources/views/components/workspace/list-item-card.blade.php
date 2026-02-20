@@ -78,59 +78,63 @@
         @include('components.workspace.list-item-card.header')
 
         <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
-    @if($kind === 'task' && $canEdit)
-        <div
-            x-show="!isFocused && !focusReady"
-            class="shrink-0 {{ $hasActiveFocusOnThisTask ? 'hidden' : '' }}"
-        >
-            <flux:tooltip :content="__('Start focus mode')">
-                <button
-                    type="button"
-                    @click.stop="setTimeout(() => enterFocusReady(), 120)"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:bg-primary/15 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            @if($kind === 'task' && $canEdit)
+                <div
+                    x-show="!isFocused && !focusReady"
+                    class="shrink-0 {{ $hasActiveFocusOnThisTask ? 'hidden' : '' }}"
                 >
-                    <flux:icon name="bolt" class="size-3 shrink-0" />
-                    <span>{{ __('Focus') }}</span>
-                </button>
-            </flux:tooltip>
+                    <flux:tooltip :content="__('Start focus mode')">
+                        <button
+                            type="button"
+                            @click.stop="setTimeout(() => enterFocusReady(), 120)"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:bg-primary/15 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                            <flux:icon name="bolt" class="size-3 shrink-0" />
+                            <span>{{ __('Focus') }}</span>
+                        </button>
+                    </flux:tooltip>
+                </div>
+            @endif
+
+            @if($kind === 'project')
+                <x-workspace.list-item-project
+                    :item="$item"
+                    :update-property-method="$updatePropertyMethod"
+                    :readonly="!$canEditDates"
+                />
+
+                <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500">
+                    <flux:icon name="list-bullet" class="size-3" />
+                    <span class="inline-flex items-baseline gap-1">
+                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                            {{ __('Tasks') }}:
+                        </span>
+                        <span>
+                            {{ $item->tasks_count }}
+                        </span>
+                    </span>
+                </span>
+            @elseif($kind === 'event')
+                <x-workspace.list-item-event
+                    :item="$item"
+                    :available-tags="$availableTags"
+                    :update-property-method="$updatePropertyMethod"
+                    :list-filter-date="$listFilterDate"
+                    :initial-status="$eventEffectiveStatus?->value ?? $item->status?->value"
+                    :is-overdue="$isOverdue"
+                />
+            @elseif($kind === 'task')
+                <x-workspace.list-item-task
+                    :item="$item"
+                    :available-tags="$availableTags"
+                    :update-property-method="$updatePropertyMethod"
+                    :list-filter-date="$listFilterDate"
+                    :initial-status="$effectiveStatus?->value ?? $item->status?->value"
+                    :is-overdue="$isOverdue"
+                />
+            @endif
         </div>
-    @endif
-    @if($kind === 'project')
-        <x-workspace.list-item-project :item="$item" :update-property-method="$updatePropertyMethod" :readonly="!$canEditDates" />
 
-        <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500">
-            <flux:icon name="list-bullet" class="size-3" />
-            <span class="inline-flex items-baseline gap-1">
-                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    {{ __('Tasks') }}:
-                </span>
-                <span>
-                    {{ $item->tasks_count }}
-                </span>
-            </span>
-        </span>
+        <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
     </div>
-    @elseif($kind === 'event')
-        <x-workspace.list-item-event
-            :item="$item"
-            :available-tags="$availableTags"
-            :update-property-method="$updatePropertyMethod"
-            :list-filter-date="$listFilterDate"
-            :initial-status="$eventEffectiveStatus?->value ?? $item->status?->value"
-            :is-overdue="$isOverdue"
-        />
-    @elseif($kind === 'task')
-        <x-workspace.list-item-task
-            :item="$item"
-            :available-tags="$availableTags"
-            :update-property-method="$updatePropertyMethod"
-            :list-filter-date="$listFilterDate"
-            :initial-status="$effectiveStatus?->value ?? $item->status?->value"
-            :is-overdue="$isOverdue"
-        />
-    @endif
-
-    <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
-    </div>
-</div>
 </div>

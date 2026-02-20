@@ -30,13 +30,14 @@
     >
         <flux:sidebar 
             sticky 
-            collapsible="mobile" 
+            collapsible 
+            persist="false"
             class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 transition-[filter] duration-200 ease-out"
             x-bind:class="sidebarClasses"
         >
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
-                <flux:sidebar.collapse class="lg:hidden" />
+                <flux:sidebar.collapse />
             </flux:sidebar.header>
 
             <flux:sidebar.nav>
