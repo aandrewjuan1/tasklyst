@@ -32,11 +32,6 @@
 
     @php
         $listLoadingTargets = 'selectedDate,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,acceptCollaborationInvitation,restoreTrashItem,restoreTrashItems';
-        
-        // Parse selected date for calendar
-        $selectedDateForCalendar = $this->selectedDate ? \Illuminate\Support\Carbon::parse($this->selectedDate) : now();
-        $currentMonth = $selectedDateForCalendar->month;
-        $currentYear = $selectedDateForCalendar->year;
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
@@ -125,8 +120,8 @@
             <div class="sticky top-6">
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
-                    :current-month="$currentMonth"
-                    :current-year="$currentYear"
+                    :current-month="$this->calendarMonth"
+                    :current-year="$this->calendarYear"
                 />
             </div>
         </div>
