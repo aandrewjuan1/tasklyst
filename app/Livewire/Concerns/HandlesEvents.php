@@ -26,7 +26,7 @@ trait HandlesEvents
     /**
      * Pagination settings for workspace event list.
      */
-    public int $eventsPerPage = 5;
+    public int $eventsPerPage = 10;
 
     public int $eventsPage = 1;
 
@@ -471,7 +471,7 @@ trait HandlesEvents
 
         $date = Carbon::parse($this->selectedDate);
 
-        $eventsPerPage = property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 5;
+        $eventsPerPage = property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 10;
         $eventsPage = property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1;
         $visibleLimit = $eventsPerPage * $eventsPage;
         $queryLimit = $visibleLimit + 1;

@@ -27,7 +27,7 @@ trait HandlesTasks
     /**
      * Pagination settings for workspace task list.
      */
-    public int $tasksPerPage = 5;
+    public int $tasksPerPage = 10;
 
     public int $tasksPage = 1;
 
@@ -377,7 +377,7 @@ trait HandlesTasks
 
         $date = Carbon::parse($this->selectedDate);
 
-        $tasksPerPage = property_exists($this, 'tasksPerPage') ? (int) $this->tasksPerPage : 5;
+        $tasksPerPage = property_exists($this, 'tasksPerPage') ? (int) $this->tasksPerPage : 10;
         $tasksPage = property_exists($this, 'tasksPage') ? max(1, (int) $this->tasksPage) : 1;
         $visibleLimit = $tasksPerPage * $tasksPage;
         $queryLimit = $visibleLimit + 1;
