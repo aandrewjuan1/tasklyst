@@ -320,18 +320,22 @@ trait HandlesProjects
     #[Computed]
     public function projects(): Collection
     {
+        // Early return: Skip if filtered to other item types (before any work)
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'projects') {
+            return collect();
+        }
+
         $userId = Auth::id();
 
         if ($userId === null) {
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
-        if ($filterItemType !== null && $filterItemType !== 'projects') {
-            return collect();
-        }
-
-        $date = Carbon::parse($this->selectedDate);
+        // Use cached parsed date if available, otherwise parse
+        $date = method_exists($this, 'getParsedSelectedDate')
+            ? $this->getParsedSelectedDate()
+            : Carbon::parse($this->selectedDate);
 
         $projectsPerPage = property_exists($this, 'projectsPerPage') ? (int) $this->projectsPerPage : 10;
         $projectsPage = property_exists($this, 'projectsPage') ? max(1, (int) $this->projectsPage) : 1;

@@ -88,18 +88,42 @@
         lastNavAt: 0,
         navThrottleMs: 300,
         
+        get focusModeActive() {
+            const s = Alpine.store('focusSession');
+            return !!(s?.session || s?.focusReady);
+        },
+        
         init() {
+            // Initialize Alpine store if not already initialized
+            Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: null, focusReady: false });
+            
+            // Initialize today cache once
+            const t = new Date();
+            this.todayCache = { year: t.getFullYear(), month: t.getMonth(), date: t.getDate() };
+            
             this.buildDays();
+            this.updateMonthLabel();
             this.alpineReady = true;
+            
             // Watch for selectedDate changes from Livewire
             this.$watch('$wire.selectedDate', (value) => {
-                if (value) {
-                    this.selectedDate = value;
-                    const date = new Date(value + 'T12:00:00');
-                    // Update calendar view to show the selected date's month
-                    this.month = date.getMonth();
-                    this.year = date.getFullYear();
+                if (!value) return;
+                const date = new Date(value + 'T12:00:00');
+                const newMonth = date.getMonth();
+                const newYear = date.getFullYear();
+                
+                // Only rebuild if month/year changed
+                if (newMonth !== this.month || newYear !== this.year) {
+                    this.month = newMonth;
+                    this.year = newYear;
+                    this.updateMonthLabel();
                     this.buildDays();
+                } else {
+                    // Just update selection state without full rebuild
+                    this.selectedDate = value;
+                    this.days.forEach(day => {
+                        day.isSelected = day.dateString === value;
+                    });
                 }
             });
         },
@@ -111,20 +135,26 @@
         },
         
         buildDays() {
-            if (!this.todayCache) {
-                const t = new Date();
-                this.todayCache = { year: t.getFullYear(), month: t.getMonth(), date: t.getDate() };
-            }
-            
             const firstDayOfMonth = new Date(this.year, this.month, 1).getDay();
             const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
             const previousMonth = new Date(this.year, this.month, 0);
             const daysInPreviousMonth = previousMonth.getDate();
             
-            const days = [];
+            const daysToShowFromPreviousMonth = firstDayOfMonth;
+            const remainder = (daysToShowFromPreviousMonth + daysInMonth) % 7;
+            const blanksNeeded = remainder === 0 ? 0 : 7 - remainder;
+            const expectedLength = daysToShowFromPreviousMonth + daysInMonth + blanksNeeded;
+            
+            // Reuse array if same size to reduce GC pressure
+            let days;
+            if (this.days.length === expectedLength) {
+                this.days.length = 0; // Clear but keep array reference
+                days = this.days;
+            } else {
+                days = [];
+            }
             
             // Previous month days (grayed out)
-            const daysToShowFromPreviousMonth = firstDayOfMonth;
             for (let i = daysInPreviousMonth - daysToShowFromPreviousMonth + 1; i <= daysInPreviousMonth; i++) {
                 days.push({
                     day: i,
@@ -156,8 +186,6 @@
             }
             
             // Next month days to fill last week (only fill to complete the week, not always 6 rows)
-            const remainder = days.length % 7;
-            const blanksNeeded = remainder === 0 ? 0 : 7 - remainder;
             for (let day = 1; day <= blanksNeeded; day++) {
                 days.push({
                     day: day,
@@ -172,23 +200,34 @@
         },
         
         changeMonth(offset) {
+            if (!this.navAllowed()) return;
             const newMonth = this.month + offset;
             const date = new Date(this.year, newMonth, 1);
             this.month = date.getMonth();
             this.year = date.getFullYear();
+            this.updateMonthLabel();
             this.buildDays();
         },
         
-        get monthLabel() {
+        monthLabel: '',
+        monthLabelCache: null,
+        
+        updateMonthLabel() {
+            const cacheKey = `${this.year}-${this.month}`;
+            if (this.monthLabelCache === cacheKey) return;
+            
             const date = new Date(this.year, this.month, 1);
-            return date.toLocaleDateString(this.locale, { month: 'long', year: 'numeric' });
+            this.monthLabel = date.toLocaleDateString(this.locale, { month: 'long', year: 'numeric' });
+            this.monthLabelCache = cacheKey;
         },
         
         selectDay(dayData) {
             if (!dayData.dateString) return;
-            // Optimistic update: update local state and rebuild calendar immediately
+            // Optimistic update: update only selection state without full rebuild
+            const oldSelected = this.days.find(d => d.isSelected);
+            if (oldSelected) oldSelected.isSelected = false;
+            dayData.isSelected = true;
             this.selectedDate = dayData.dateString;
-            this.buildDays();
             // Update Livewire selectedDate (server will sync in background)
             $wire.set('selectedDate', dayData.dateString);
         },
@@ -205,7 +244,9 @@
             $wire.set('selectedDate', this.today);
         },
     }"
-    class="w-full"
+    class="w-full transition-[filter] duration-200 ease-out"
+    :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }"
+    @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{-- Calendar Container --}}
     <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
@@ -227,7 +268,10 @@
 
             {{-- Month/Year Display --}}
             <div class="text-center">
-                <h2 class="text-base font-semibold text-foreground tabular-nums" x-text="monthLabel">
+                <h2 class="text-base font-semibold text-foreground tabular-nums" x-text="monthLabel" x-show="alpineReady">
+                    {{ \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y') }}
+                </h2>
+                <h2 class="text-base font-semibold text-foreground tabular-nums" x-show="!alpineReady">
                     {{ \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y') }}
                 </h2>
             </div>
@@ -262,13 +306,14 @@
 
             {{-- Calendar Days Grid --}}
             <div class="grid grid-cols-7 gap-1.5">
-                {{-- Server-rendered first paint --}}
+                {{-- Server-rendered first paint (visible by default) --}}
                 @foreach ($serverDays as $dayData)
                     @if ($dayData['month'] !== 'current')
                         {{-- Previous/Next Month Days (Grayed Out) --}}
                         <div 
                             x-show="!alpineReady"
                             class="flex aspect-square w-full items-center justify-center"
+                            style="display: flex;"
                         >
                             <span class="text-sm tabular-nums text-muted-foreground/40 dark:text-muted-foreground/30">{{ $dayData['day'] }}</span>
                         </div>
@@ -277,6 +322,7 @@
                         <button
                             x-show="!alpineReady"
                             type="button"
+                            style="display: flex;"
                             @click="if (typeof $wire !== 'undefined') { $wire.set('selectedDate', '{{ $dayData['dateString'] }}'); }"
                             wire:loading.attr="disabled"
                             wire:target="selectedDate"
@@ -293,7 +339,7 @@
                     @endif
                 @endforeach
                 
-                {{-- Alpine reactive (replaces server content when hydrated) --}}
+                {{-- Alpine reactive (shown when Alpine ready) --}}
                 <template x-for="dayData in days" :key="`day-${year}-${month}-${dayData.day}-${dayData.month}`">
                     <div class="flex aspect-square w-full items-center justify-center" x-show="alpineReady" x-cloak>
                         {{-- Previous/Next Month Days (Grayed Out) --}}

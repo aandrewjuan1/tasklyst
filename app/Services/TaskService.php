@@ -300,11 +300,23 @@ class TaskService
      */
     public function processRecurringTasksForDate(Collection $tasks, CarbonInterface $date): Collection
     {
-        $recurringTasks = $tasks->pluck('recurringTask')->filter();
-        $relevantIds = $recurringTasks->isNotEmpty()
-            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate($recurringTasks, collect(), $date)
-            : ['task_ids' => [], 'event_ids' => []];
+        // Early return if no tasks
+        if ($tasks->isEmpty()) {
+            return $tasks;
+        }
 
+        $recurringTasks = $tasks->pluck('recurringTask')->filter();
+
+        // Early return if no recurring tasks - skip all processing
+        if ($recurringTasks->isEmpty()) {
+            return $tasks->map(function (Task $task) use ($date): Task {
+                $task->effectiveStatusForDate = $this->getEffectiveStatusForDate($task, $date);
+
+                return $task;
+            })->values();
+        }
+
+        $relevantIds = $this->recurrenceExpander->getRelevantRecurringIdsForDate($recurringTasks, collect(), $date);
         $relevantTaskIds = array_flip($relevantIds['task_ids']);
 
         $filteredTasks = $tasks
@@ -320,6 +332,7 @@ class TaskService
         $recurringTaskIds = $filteredTasks->pluck('recurringTask.id')->filter()->values();
         $instancesByRecurringId = $recurringTaskIds->isNotEmpty()
             ? TaskInstance::query()
+                ->select(['id', 'recurring_task_id', 'instance_date', 'status', 'created_at', 'updated_at'])
                 ->whereIn('recurring_task_id', $recurringTaskIds)
                 ->whereDate('instance_date', $date)
                 ->get()
