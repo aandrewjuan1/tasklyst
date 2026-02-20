@@ -91,6 +91,12 @@ class extends Component
     public int $listRefresh = 0;
 
     /**
+     * Cached parsed date to avoid parsing multiple times.
+     * Cleared when selectedDate changes.
+     */
+    protected ?\Carbon\CarbonInterface $parsedSelectedDate = null;
+
+    /**
      * Current in-progress focus session for UI (resume/overlay). Synced on mount and after start/complete/abandon.
      *
      * @var array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int|null, sequence_number: int, paused_seconds?: int, paused_at?: string|null, payload?: array}|null
@@ -353,10 +359,24 @@ class extends Component
 
     /**
      * When the selected date changes, reset pagination so we show page 1 for the new date.
+     * Also clear the cached parsed date so it gets re-parsed.
      */
     public function updatedSelectedDate(): void
     {
+        $this->parsedSelectedDate = null;
         $this->resetListPagination();
+    }
+
+    /**
+     * Get the parsed selected date, caching it to avoid multiple parses.
+     */
+    protected function getParsedSelectedDate(): \Carbon\CarbonInterface
+    {
+        if ($this->parsedSelectedDate === null) {
+            $this->parsedSelectedDate = \Carbon\Carbon::parse($this->selectedDate);
+        }
+
+        return $this->parsedSelectedDate;
     }
 
     /**
@@ -397,59 +417,68 @@ class extends Component
 
         $now = now();
 
-        $overdueTaskQuery = Task::query()
-            ->with([
-                'project',
-                'tags',
-                'collaborations',
-                'collaborators',
-                'collaborationInvitations.invitee',
-                'comments.user',
-            ])
-            ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
-            ->forUser($userId)
-            ->overdue($now)
-            ->whereDoesntHave('recurringTask');
-
-        if (method_exists($this, 'applyOverdueTaskFilters')) {
-            $this->applyOverdueTaskFilters($overdueTaskQuery);
+        // Early return: Skip overdue queries if filtered to projects only
+        if ($filterItemType === 'projects') {
+            return collect();
         }
 
-        $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
-            ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
+        // Only query overdue tasks if not filtered to events only
+        $overdueTasks = collect();
+        if ($filterItemType !== 'events') {
+            $overdueTaskQuery = Task::query()
+                ->with([
+                    'project',
+                    'tags',
+                    'collaborations',
+                    'collaborators',
+                    'collaborationInvitations.invitee',
+                    'comments.user',
+                ])
+                ->withCount('activityLogs')
+                ->withRecentActivityLogs(5)
+                ->forUser($userId)
+                ->overdue($now)
+                ->whereDoesntHave('recurringTask');
 
-        $overdueEventQuery = Event::query()
-            ->with([
-                'tags',
-                'collaborations',
-                'collaborators',
-                'collaborationInvitations.invitee',
-            ])
-            ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
-            ->forUser($userId)
-            ->notCancelled()
-            ->overdue($now)
-            ->whereDoesntHave('recurringEvent');
+            if (method_exists($this, 'applyOverdueTaskFilters')) {
+                $this->applyOverdueTaskFilters($overdueTaskQuery);
+            }
 
-        if (method_exists($this, 'applyOverdueEventFilters')) {
-            $this->applyOverdueEventFilters($overdueEventQuery);
+            $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
+                ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
         }
 
-        $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
-            ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
+        // Only query overdue events if not filtered to tasks only
+        $overdueEvents = collect();
+        if ($filterItemType !== 'tasks') {
+            $overdueEventQuery = Event::query()
+                ->with([
+                    'tags',
+                    'collaborations',
+                    'collaborators',
+                    'collaborationInvitations.invitee',
+                ])
+                ->withCount('activityLogs')
+                ->withRecentActivityLogs(5)
+                ->forUser($userId)
+                ->notCancelled()
+                ->overdue($now)
+                ->whereDoesntHave('recurringEvent');
 
-        if ($filterItemType !== null) {
-            if ($filterItemType === 'tasks') {
-                return collect($overdueTasks->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
+            if (method_exists($this, 'applyOverdueEventFilters')) {
+                $this->applyOverdueEventFilters($overdueEventQuery);
             }
-            if ($filterItemType === 'events') {
-                return collect($overdueEvents->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
-            }
-            if ($filterItemType === 'projects') {
-                return collect();
-            }
+
+            $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
+                ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
+        }
+
+        // Return filtered results based on item type
+        if ($filterItemType === 'tasks') {
+            return collect($overdueTasks->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
+        }
+        if ($filterItemType === 'events') {
+            return collect($overdueEvents->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)->values()->all());
         }
 
         return collect($overdueTasks->all())

@@ -364,18 +364,22 @@ trait HandlesTasks
     #[Computed]
     public function tasks(): Collection
     {
+        // Early return: Skip if filtered to other item types (before any work)
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'tasks') {
+            return collect();
+        }
+
         $userId = Auth::id();
 
         if ($userId === null) {
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
-        if ($filterItemType !== null && $filterItemType !== 'tasks') {
-            return collect();
-        }
-
-        $date = Carbon::parse($this->selectedDate);
+        // Use cached parsed date if available, otherwise parse
+        $date = method_exists($this, 'getParsedSelectedDate')
+            ? $this->getParsedSelectedDate()
+            : Carbon::parse($this->selectedDate);
 
         $tasksPerPage = property_exists($this, 'tasksPerPage') ? (int) $this->tasksPerPage : 10;
         $tasksPage = property_exists($this, 'tasksPage') ? max(1, (int) $this->tasksPage) : 1;

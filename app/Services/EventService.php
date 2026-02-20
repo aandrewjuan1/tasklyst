@@ -267,11 +267,23 @@ class EventService
      */
     public function processRecurringEventsForDate(Collection $events, CarbonInterface $date): Collection
     {
-        $recurringEvents = $events->pluck('recurringEvent')->filter();
-        $relevantIds = $recurringEvents->isNotEmpty()
-            ? $this->recurrenceExpander->getRelevantRecurringIdsForDate(collect(), $recurringEvents, $date)
-            : ['task_ids' => [], 'event_ids' => []];
+        // Early return if no events
+        if ($events->isEmpty()) {
+            return $events;
+        }
 
+        $recurringEvents = $events->pluck('recurringEvent')->filter();
+
+        // Early return if no recurring events - skip all processing
+        if ($recurringEvents->isEmpty()) {
+            return $events->map(function (Event $event) use ($date): Event {
+                $event->effectiveStatusForDate = $this->getEffectiveStatusForDate($event, $date);
+
+                return $event;
+            })->values();
+        }
+
+        $relevantIds = $this->recurrenceExpander->getRelevantRecurringIdsForDate(collect(), $recurringEvents, $date);
         $relevantEventIds = array_flip($relevantIds['event_ids']);
 
         $filteredEvents = $events
@@ -287,6 +299,7 @@ class EventService
         $recurringEventIds = $filteredEvents->pluck('recurringEvent.id')->filter()->values();
         $instancesByRecurringId = $recurringEventIds->isNotEmpty()
             ? EventInstance::query()
+                ->select(['id', 'recurring_event_id', 'instance_date', 'status', 'created_at', 'updated_at'])
                 ->whereIn('recurring_event_id', $recurringEventIds)
                 ->whereDate('instance_date', $date)
                 ->get()

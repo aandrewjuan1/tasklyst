@@ -458,18 +458,22 @@ trait HandlesEvents
     #[Computed]
     public function events(): Collection
     {
+        // Early return: Skip if filtered to other item types (before any work)
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'events') {
+            return collect();
+        }
+
         $userId = Auth::id();
 
         if ($userId === null) {
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
-        if ($filterItemType !== null && $filterItemType !== 'events') {
-            return collect();
-        }
-
-        $date = Carbon::parse($this->selectedDate);
+        // Use cached parsed date if available, otherwise parse
+        $date = method_exists($this, 'getParsedSelectedDate')
+            ? $this->getParsedSelectedDate()
+            : Carbon::parse($this->selectedDate);
 
         $eventsPerPage = property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 10;
         $eventsPage = property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1;
