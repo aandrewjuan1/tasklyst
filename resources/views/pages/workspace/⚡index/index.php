@@ -505,6 +505,132 @@ class extends Component
             ->values();
     }
 
+    /**
+     * Get upcoming tasks, events, and projects for the authenticated user.
+     * Upcoming = within the next N days starting today (independent of the selected date).
+     * Returns a unified collection of entries with 'kind' and 'item' for rendering.
+     */
+    #[Computed]
+    public function upcoming(): Collection
+    {
+        $userId = Auth::id();
+
+        if ($userId === null) {
+            return collect();
+        }
+
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+
+        // Base date is always "today" for upcoming, regardless of the selected workspace date.
+        $fromDate = now()->startOfDay();
+        $days = 7;
+
+        $entries = collect();
+
+        // Upcoming tasks (due soon by end_datetime)
+        if ($filterItemType === null || $filterItemType === 'tasks') {
+            $taskQuery = Task::query()
+                ->with([
+                    'project',
+                    'tags',
+                    'collaborations',
+                    'collaborators',
+                    'collaborationInvitations.invitee',
+                    'comments.user',
+                ])
+                ->withCount('activityLogs')
+                ->withRecentActivityLogs(5)
+                ->forUser($userId)
+                ->dueSoon($fromDate, $days)
+                ->whereDoesntHave('recurringTask');
+
+            if (method_exists($this, 'applyTaskFilters')) {
+                $this->applyTaskFilters($taskQuery);
+            }
+
+            $upcomingTasks = $taskQuery
+                ->orderBy('end_datetime')
+                ->limit(50)
+                ->get()
+                ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
+
+            $entries = $entries->merge($upcomingTasks);
+        }
+
+        // Upcoming events (starting soon by start_datetime)
+        if ($filterItemType === null || $filterItemType === 'events') {
+            $eventQuery = Event::query()
+                ->with([
+                    'tags',
+                    'collaborations',
+                    'collaborators',
+                    'collaborationInvitations.invitee',
+                ])
+                ->withCount('activityLogs')
+                ->withRecentActivityLogs(5)
+                ->forUser($userId)
+                ->startingSoon($fromDate, $days)
+                ->whereDoesntHave('recurringEvent');
+
+            if (method_exists($this, 'applyEventFilters')) {
+                $this->applyEventFilters($eventQuery);
+            } else {
+                $eventQuery->notCancelled();
+            }
+
+            $upcomingEvents = $eventQuery
+                ->orderBy('start_datetime')
+                ->limit(50)
+                ->get()
+                ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
+
+            $entries = $entries->merge($upcomingEvents);
+        }
+
+        // Upcoming projects (starting soon by start_datetime)
+        if ($filterItemType === null || $filterItemType === 'projects') {
+            $projectQuery = Project::query()
+                ->with([
+                    'user',
+                    'collaborations',
+                    'collaborators',
+                    'collaborationInvitations.invitee',
+                ])
+                ->withCount('tasks')
+                ->withCount('activityLogs')
+                ->withRecentActivityLogs(5)
+                ->forUser($userId)
+                ->startingSoon($fromDate, $days)
+                ->notArchived();
+
+            if (method_exists($this, 'applyProjectFilters')) {
+                $this->applyProjectFilters($projectQuery);
+            }
+
+            $upcomingProjects = $projectQuery
+                ->orderBy('start_datetime')
+                ->limit(50)
+                ->get()
+                ->map(fn (Project $project) => ['kind' => 'project', 'item' => $project]);
+
+            $entries = $entries->merge($upcomingProjects);
+        }
+
+        // Sort all upcoming entries by their relevant datetime.
+        return $entries
+            ->sortBy(function (array $entry): int {
+                /** @var \App\Models\Task|\App\Models\Event|\App\Models\Project $item */
+                $item = $entry['item'];
+
+                return match ($entry['kind']) {
+                    'task' => $item->end_datetime?->timestamp ?? PHP_INT_MAX,
+                    'event', 'project' => $item->start_datetime?->timestamp ?? PHP_INT_MAX,
+                    default => PHP_INT_MAX,
+                };
+            })
+            ->values();
+    }
+
     protected function requireAuth(string $message): ?User
     {
         $user = Auth::user();
