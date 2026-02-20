@@ -310,6 +310,24 @@ class extends Component
     }
 
     /**
+     * Calendar month for the selected date (computed to avoid parsing in Blade).
+     */
+    #[Computed]
+    public function calendarMonth(): int
+    {
+        return $this->getParsedSelectedDate()->month;
+    }
+
+    /**
+     * Calendar year for the selected date (computed to avoid parsing in Blade).
+     */
+    #[Computed]
+    public function calendarYear(): int
+    {
+        return $this->getParsedSelectedDate()->year;
+    }
+
+    /**
      * Mount: fetch any in-progress focus session via getActiveFocusSession() and abandon it
      * so focus does not persist across reload, tab close, or navigation.
      */
