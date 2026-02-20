@@ -335,6 +335,31 @@ class extends Component
         $this->listRefresh++;
     }
 
+    /**
+     * Reset list pagination to first page. Call when date or filters change
+     * so the list shows page 1 of the new result set.
+     */
+    public function resetListPagination(): void
+    {
+        if (property_exists($this, 'tasksPage')) {
+            $this->tasksPage = 1;
+        }
+        if (property_exists($this, 'eventsPage')) {
+            $this->eventsPage = 1;
+        }
+        if (property_exists($this, 'projectsPage')) {
+            $this->projectsPage = 1;
+        }
+    }
+
+    /**
+     * When the selected date changes, reset pagination so we show page 1 for the new date.
+     */
+    public function updatedSelectedDate(): void
+    {
+        $this->resetListPagination();
+    }
+
     public function loadMoreTasks(): void
     {
         if (property_exists($this, 'tasksPage')) {
@@ -356,6 +381,12 @@ class extends Component
         }
     }
 
+    /**
+     * Load the next page of tasks, events, and projects (infinite scroll).
+     * Incrementing listRefresh forces the list component to remount with the new
+     * data so the DOM updates correctly (nested Livewire child does not receive
+     * updated props from parent re-render otherwise).
+     */
     public function loadMoreItems(): void
     {
         if (property_exists($this, 'tasksPage')) {

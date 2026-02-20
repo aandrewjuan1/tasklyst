@@ -26,7 +26,7 @@ trait HandlesEvents
     /**
      * Pagination settings for workspace event list.
      */
-    public int $eventsPerPage = 10;
+    public int $eventsPerPage = 5;
 
     public int $eventsPage = 1;
 

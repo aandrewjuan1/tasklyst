@@ -20,7 +20,7 @@ trait HandlesProjects
     /**
      * Pagination settings for workspace project list.
      */
-    public int $projectsPerPage = 10;
+    public int $projectsPerPage = 5;
 
     public int $projectsPage = 1;
 
