@@ -123,9 +123,16 @@
 
     // Only owner can manage collaborations
     $canManageCollaborations = $isOwner;
-    
-    // Check if user can edit the item (for message display)
+
+    // When item is collaborated into current user: show owner-style trigger (user + permission icon + owner name)
+    $owner = $item->user ?? null;
+    $showCollaboratedTrigger = !$isOwner && $owner;
     $canEditItem = $currentUser?->can('update', $item) ?? false;
+    $collaboratedTooltip = $showCollaboratedTrigger
+        ? ($canEditItem
+            ? __('Owned by :name. You can edit this.', ['name' => $owner->name])
+            : __('Owned by :name. You have view-only access.', ['name' => $owner->name]))
+        : null;
 @endphp
 
 <div
@@ -513,26 +520,43 @@
     data-task-creation-safe
     {{ $attributes }}
 >
-    <flux:tooltip content="{{ $labelByKind }}">
-        <button
-            x-ref="button"
-            type="button"
-            @click="toggle()"
-            aria-haspopup="true"
-            :aria-expanded="open"
-            :aria-controls="$id('collaborators-popover')"
-            class="{{ $triggerBaseClass }}"
-            :class="open ? 'pointer-events-none shadow-md scale-[1.02]' : ''"
-        >
-            <flux:icon name="users" class="size-3" />
-
-            <span class="inline-flex items-baseline gap-1">
-                <span class="text-xs" x-text="acceptedCount">
-                    {{ $collaboratorCount }}
-                </span>
-            </span>
-        </button>
-    </flux:tooltip>
+    @if($showCollaboratedTrigger)
+        <flux:tooltip :content="$collaboratedTooltip">
+            <button
+                x-ref="button"
+                type="button"
+                @click="toggle()"
+                aria-haspopup="true"
+                :aria-expanded="open"
+                :aria-controls="$id('collaborators-popover')"
+                class="{{ $triggerBaseClass }}"
+                :class="open ? 'pointer-events-none shadow-md scale-[1.02]' : ''"
+            >
+                <flux:icon name="user" class="size-3 shrink-0" />
+                @if($canEditItem)
+                    <flux:icon name="pencil-square" class="size-3 shrink-0" />
+                @else
+                    <flux:icon name="eye" class="size-3 shrink-0" />
+                @endif
+                <span class="truncate max-w-24">{{ $owner->name }}</span>
+            </button>
+        </flux:tooltip>
+    @else
+        <flux:tooltip content="{{ $labelByKind }}">
+            <button
+                x-ref="button"
+                type="button"
+                @click="toggle()"
+                aria-haspopup="true"
+                :aria-expanded="open"
+                :aria-controls="$id('collaborators-popover')"
+                class="{{ $triggerBaseClass }}"
+                :class="open ? 'pointer-events-none shadow-md scale-[1.02]' : ''"
+            >
+                <flux:icon name="share" class="size-3" />
+            </button>
+        </flux:tooltip>
+    @endif
 
     <div
         x-ref="panel"
