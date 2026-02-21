@@ -350,7 +350,6 @@ trait HandlesProjects
                 'collaborationInvitations.invitee',
             ])
             ->withRecentComments(5)
-            ->withCount('tasks')
             ->withCount('comments')
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)

@@ -17,6 +17,8 @@ final readonly class CreateTaskDto
         public ?Carbon $startDatetime,
         public ?Carbon $endDatetime,
         public ?int $projectId,
+        public ?int $eventId,
+        public ?int $parentTaskId,
         /** @var array<int> */
         public array $tagIds,
         /** @var array<string, mixed>|null */
@@ -43,6 +45,8 @@ final readonly class CreateTaskDto
             startDatetime: DateHelper::parseOptional($validated['startDatetime'] ?? null),
             endDatetime: DateHelper::parseOptional($validated['endDatetime'] ?? null),
             projectId: isset($validated['projectId']) ? (int) $validated['projectId'] : null,
+            eventId: isset($validated['eventId']) ? (int) $validated['eventId'] : null,
+            parentTaskId: isset($validated['parentTaskId']) ? (int) $validated['parentTaskId'] : null,
             tagIds: $validated['tagIds'] ?? [],
             recurrence: $recurrenceEnabled && is_array($recurrenceData) ? $recurrenceData : null,
         );
@@ -65,6 +69,8 @@ final readonly class CreateTaskDto
             'start_datetime' => $this->startDatetime,
             'end_datetime' => $this->endDatetime,
             'project_id' => $this->projectId,
+            'event_id' => $this->eventId,
+            'parent_task_id' => $this->parentTaskId,
             'tagIds' => $this->tagIds,
             'recurrence' => $this->recurrence,
         ];
