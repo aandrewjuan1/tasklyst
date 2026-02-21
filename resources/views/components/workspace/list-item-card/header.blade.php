@@ -11,18 +11,27 @@
             >
                 {{ $title }}
             </p>
-            <input
+            <div
                 x-show="isEditingTitle"
                 x-cloak
-                x-ref="titleInput"
-                x-model="editedTitle"
-                @keydown.enter.prevent="handleEnterKey()"
-                @keydown.escape="cancelEditingTitle()"
-                @blur="handleBlur()"
-                wire:ignore
-                class="w-full min-w-0 text-lg font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
-                type="text"
-            />
+                class="relative inline-block min-w-full"
+            >
+                <span
+                    class="invisible inline-block whitespace-pre px-1 py-0.5 text-lg font-semibold leading-tight"
+                    aria-hidden="true"
+                    x-text="editedTitle || '\u00A0'"
+                ></span>
+                <input
+                    x-ref="titleInput"
+                    x-model="editedTitle"
+                    @keydown.enter.prevent="handleEnterKey()"
+                    @keydown.escape="cancelEditingTitle()"
+                    @blur="handleBlur()"
+                    wire:ignore
+                    class="absolute inset-0 w-full min-w-0 text-lg font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
+                    type="text"
+                />
+            </div>
 
             <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
                 {{-- Server-rendered first paint --}}
@@ -62,18 +71,27 @@
                     </button>
                 </div>
 
-                <textarea
+                <div
                     x-show="isEditingDescription"
                     x-cloak
-                    x-ref="descriptionInput"
-                    x-model="editedDescription"
-                    x-on:keydown="handleDescriptionKeydown($event)"
-                    x-on:blur="handleDescriptionBlur()"
-                    wire:ignore
-                    rows="2"
-                    class="w-full min-w-0 text-xs rounded-md bg-muted/20 px-2 py-1 -mx-1 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10 resize-none"
-                    placeholder="{{ __('Add a description...') }}"
-                ></textarea>
+                    class="relative inline-block min-h-[3.5rem] min-w-full"
+                >
+                    <span
+                        class="invisible inline-block whitespace-pre-wrap break-words px-2 py-1 text-xs leading-relaxed"
+                        aria-hidden="true"
+                        x-text="editedDescription || '\u00A0'"
+                    ></span>
+                    <textarea
+                        x-ref="descriptionInput"
+                        x-model="editedDescription"
+                        x-on:keydown="handleDescriptionKeydown($event)"
+                        x-on:blur="handleDescriptionBlur()"
+                        wire:ignore
+                        rows="2"
+                        class="absolute inset-0 w-full min-w-0 resize-none rounded-md bg-muted/20 px-2 py-1 text-xs leading-relaxed -mx-1 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
+                        placeholder="{{ __('Add a description...') }}"
+                    ></textarea>
+                </div>
             </div>
         </div>
 
@@ -201,40 +219,6 @@
                     align="end"
                 />
             </div>
-
-            @if($showOwnerBadge)
-                <flux:tooltip content="{{ __('Owner') }}: {{ $owner->name }}">
-                    <span
-                        class="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-                    >
-                        <flux:icon name="user" class="size-3 shrink-0" />
-                        <span class="inline-flex items-baseline gap-1">
-                            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                {{ __('Owner') }}:
-                            </span>
-                            <span class="truncate max-w-24">{{ $owner->name }}</span>
-                        </span>
-                    </span>
-                </flux:tooltip>
-            @endif
-
-            @if(! $currentUserIsOwner)
-                @if($canEdit)
-                    <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:border-emerald-400/50 dark:text-emerald-400"
-                    >
-                        <flux:icon name="pencil-square" class="size-3 shrink-0" />
-                        <span>{{ __('Can edit') }}</span>
-                    </span>
-                @else
-                    <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                    >
-                        <flux:icon name="eye" class="size-3 shrink-0" />
-                        <span>{{ __('View only') }}</span>
-                    </span>
-                @endif
-            @endif
 
             @if(in_array($kind, ['task', 'event'], true))
                 <span

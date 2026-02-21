@@ -386,7 +386,7 @@
     <button
         x-show="!alpineReady"
         type="button"
-        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
+        class="cursor-pointer inline-flex items-center gap-1.5 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
         aria-controls="{{ $commentsPanelId }}"
     >
         <flux:icon name="chat-bubble-left-ellipsis" class="size-3" />
@@ -411,7 +411,7 @@
         x-show="alpineReady"
         x-cloak
         type="button"
-        class="cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
+        class="cursor-pointer inline-flex items-center gap-1.5 bg-muted px-2.5 py-1 font-medium text-muted-foreground transition-colors hover:bg-muted/80"
         @click="toggle()"
         :aria-expanded="isOpen.toString()"
         aria-controls="{{ $commentsPanelId }}"

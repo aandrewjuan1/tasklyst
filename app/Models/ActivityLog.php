@@ -276,6 +276,10 @@ class ActivityLog extends Model
             return $bool ? __('Yes') : __('No');
         }
 
+        if (in_array($field, ['name', 'title', 'description'], true) && is_scalar($value)) {
+            return Str::limit(trim((string) $value), 50);
+        }
+
         if (is_scalar($value)) {
             return (string) $value;
         }
