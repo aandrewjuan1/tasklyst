@@ -14,6 +14,7 @@ This application is a Laravel application and its main Laravel ecosystems packag
 - php - 8.2.12
 - laravel/framework (LARAVEL) - v12
 - laravel/prompts (PROMPTS) - v0
+- laravel/reverb (REVERB) - v1
 - livewire/flux (FLUXUI_FREE) - v2
 - livewire/livewire (LIVEWIRE) - v4
 - laravel/mcp (MCP) - v0
@@ -22,6 +23,7 @@ This application is a Laravel application and its main Laravel ecosystems packag
 - pestphp/pest (PEST) - v3
 - phpunit/phpunit (PHPUNIT) - v11
 - tailwindcss (TAILWINDCSS) - v4
+- laravel-echo (ECHO) - v2
 
 ## Conventions
 - You must follow all existing code conventions used in this application. When creating or editing a file, check sibling files for the correct structure, approach, and naming.
@@ -381,4 +383,11 @@ it('has emails', function (string $email) {
 | overflow-ellipsis | text-ellipsis |
 | decoration-slice | box-decoration-slice |
 | decoration-clone | box-decoration-clone |
+
+=== prism-php/prism rules ===
+
+## Prism
+
+- Prism is a Laravel package for integrating Large Language Models (LLMs) into applications with a fluent, expressive and eloquent API.
+- IMPORTANT: Activate `developing-with-prism` skill when working with Prism features.
 </laravel-boost-guidelines>
