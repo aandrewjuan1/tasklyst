@@ -1,17 +1,6 @@
-{{-- Focus mode bar: ready state (Start/Cancel) or active session (timer, progress, Pause/Resume/Stop). Uses focusBar Alpine component delegating to listItemCard via store. --}}
-@php
-    $focusBarCloak = ! ($hasActiveFocusOnThisTask ?? false) && ! ($hasActiveBreakSession ?? false);
-@endphp
+{{-- Focus bar: inside modal; uses parent listItemCard scope (no separate Alpine component). --}}
 <div
-    x-data="focusBar({ itemId: {{ $itemId }} })"
-    x-show="focusReady || isFocused || isBreakFocused"
-    @if($focusBarCloak) x-cloak @endif
-    x-transition:enter="transition ease-out duration-200"
-    x-transition:enter-start="opacity-0.7 -translate-y-0.5"
-    x-transition:enter-end="opacity-100 translate-y-0"
-    x-transition:leave="transition ease-in duration-200"
-    x-transition:leave-start="opacity-100 translate-y-0"
-    x-transition:leave-end="opacity-0 -translate-y-0.5"
+    id="focus-modal-title"
     class="overflow-hidden"
 >
     <div class="flex flex-col gap-3 px-4 py-3">
@@ -116,7 +105,7 @@
                             size="sm"
                             icon="x-mark"
                             class="shrink-0"
-                            @click="focusReady = false"
+                            @click="closeFocusModal()"
                         >
                             {{ __('Cancel') }}
                         </flux:button>

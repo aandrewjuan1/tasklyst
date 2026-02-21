@@ -5,19 +5,120 @@
     </head>
     <body
         class="min-h-screen bg-white dark:bg-zinc-800"
-        x-data="{
-            get focusModeActive() {
-                const s = Alpine.store('focusSession');
-                return !!(s?.session || s?.focusReady);
-            },
-            get sidebarClasses() {
-                return this.focusModeActive ? 'pointer-events-none select-none blur-sm' : '';
-            }
-        }"
+        x-data="{}"
         x-init="
             Alpine.store('datePicker', Alpine.store('datePicker') ?? { open: null });
             Alpine.store('simpleSelectDropdown', Alpine.store('simpleSelectDropdown') ?? { openDropdowns: [] });
             Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: null, focusReady: false });
+            Alpine.store('focusModal', Alpine.store('focusModal') ?? { openItemId: null });
+        "
+        x-effect="
+            const focusModalOpen = !!(Alpine.store('focusModal')?.openItemId ?? Alpine.store('focusSession')?.session);
+            const el = $el;
+            function applyLock() {
+                const scrollbarWidth = focusModalOpen ? (window.innerWidth - document.documentElement.clientWidth) : 0;
+                if (focusModalOpen) {
+                    var scrollY;
+                    var reapplyLock = el.dataset.lockedScrollY != null && el.dataset.lockedScrollY !== '';
+                    if (reapplyLock) {
+                        scrollY = parseInt(el.dataset.lockedScrollY, 10);
+                    } else {
+                        scrollY = window.scrollY ?? document.documentElement.scrollTop;
+                        el.dataset.lockedScrollY = String(scrollY);
+                    }
+                    var stickyTopsBefore = [];
+                    if (!reapplyLock) {
+                        var viewportSticky = el.querySelectorAll('[data-focus-lock-viewport]');
+                        viewportSticky.forEach(function (node) { stickyTopsBefore.push(node.getBoundingClientRect().top); });
+                    }
+                    const translateY = 'translateY(' + scrollY + 'px)';
+                    var headers = el.querySelectorAll('[data-flux-header]');
+                    headers.forEach(function (node) { node.style.transition = 'none'; node.style.transform = translateY; });
+                    var sidebars = el.querySelectorAll('[data-flux-sidebar]');
+                    sidebars.forEach(function (node) { node.style.transition = 'none'; });
+                    document.documentElement.style.overflow = 'hidden';
+                    document.documentElement.style.paddingRight = scrollbarWidth ? scrollbarWidth + 'px' : '';
+                    el.style.position = 'fixed';
+                    el.style.top = '-' + scrollY + 'px';
+                    el.style.left = '0';
+                    el.style.right = '0';
+                    el.style.width = '100%';
+                    el.style.overflow = 'hidden';
+                    el.style.paddingRight = scrollbarWidth ? scrollbarWidth + 'px' : '';
+                    if (!reapplyLock && stickyTopsBefore.length) {
+                        var viewportSticky2 = el.querySelectorAll('[data-focus-lock-viewport]');
+                        var stickyTop = 24, stickyThreshold = 60;
+                        viewportSticky2.forEach(function (node, i) {
+                            node.style.transition = 'none';
+                            if (stickyTopsBefore[i] <= stickyThreshold) {
+                                var r = node.getBoundingClientRect();
+                                node.style.transform = 'translateY(' + (stickyTop - r.top) + 'px)';
+                            } else node.style.transform = '';
+                        });
+                    }
+                } else {
+                    unlock();
+                }
+            }
+            function unlock() {
+                const scrollY = parseInt($el.dataset.lockedScrollY || '0', 10);
+                const body = $el;
+                const sidebars = body.querySelectorAll('[data-flux-sidebar], [data-flux-header], [data-focus-lock-viewport]');
+                var rects = [];
+                sidebars.forEach(function (node) {
+                    var r = node.getBoundingClientRect();
+                    rects.push({ node: node, top: r.top, left: r.left, width: r.width, height: r.height });
+                });
+                function restoreScroll() {
+                    document.documentElement.scrollTop = scrollY;
+                    body.scrollTop = scrollY;
+                    window.scrollTo(0, scrollY);
+                }
+                requestAnimationFrame(function () {
+                    var prevScrollBehavior = document.documentElement.style.scrollBehavior;
+                    document.documentElement.style.scrollBehavior = 'auto';
+                    rects.forEach(function (o) {
+                        o.node.style.transition = 'none';
+                        o.node.style.position = 'fixed';
+                        o.node.style.top = o.top + 'px';
+                        o.node.style.left = o.left + 'px';
+                        o.node.style.width = o.width + 'px';
+                        o.node.style.height = o.height + 'px';
+                        o.node.style.transform = '';
+                        o.node.style.margin = '0';
+                        o.node.style.boxSizing = 'border-box';
+                    });
+                    body.style.position = '';
+                    body.style.top = '';
+                    body.style.left = '';
+                    body.style.right = '';
+                    body.style.width = '';
+                    body.style.overflow = '';
+                    body.style.paddingRight = '';
+                    document.documentElement.style.overflow = '';
+                    document.documentElement.style.paddingRight = '';
+                    restoreScroll();
+                    requestAnimationFrame(function () {
+                        rects.forEach(function (o) {
+                            o.node.style.position = '';
+                            o.node.style.top = '';
+                            o.node.style.left = '';
+                            o.node.style.width = '';
+                            o.node.style.height = '';
+                            o.node.style.margin = '';
+                            o.node.style.boxSizing = '';
+                            o.node.style.transition = '';
+                        });
+                        document.documentElement.style.scrollBehavior = prevScrollBehavior || '';
+                        delete body.dataset.lockedScrollY;
+                        restoreScroll();
+                        setTimeout(restoreScroll, 0);
+                        setTimeout(restoreScroll, 100);
+                    });
+                });
+            }
+            if (focusModalOpen) requestAnimationFrame(applyLock);
+            else applyLock();
         "
         @focusin.window="
             const dp = Alpine.store('datePicker');
@@ -32,8 +133,7 @@
             sticky 
             collapsible 
             persist="false"
-            class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 transition-[filter] duration-200 ease-out"
-            x-bind:class="sidebarClasses"
+            class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900"
         >
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
@@ -67,10 +167,7 @@
         </flux:sidebar>
 
         <!-- Mobile User Menu -->
-        <flux:header 
-            class="lg:hidden transition-[filter] duration-200 ease-out"
-            x-bind:class="sidebarClasses"
-        >
+        <flux:header class="lg:hidden">
             <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
 
             <flux:spacer />

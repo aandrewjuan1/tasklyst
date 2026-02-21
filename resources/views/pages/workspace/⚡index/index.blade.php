@@ -1,16 +1,16 @@
 <section
     class="space-y-6"
-    x-data="{ get focusModeActive() { const s = Alpine.store('focusSession'); return !!(s?.session || s?.focusReady); } }"
+    x-data="{}"
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
-    {{-- Centered date switcher (blur when focus mode) --}}
-    <div class="flex w-full justify-center transition-[filter] duration-200 ease-out" :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }">
+    {{-- Centered date switcher --}}
+    <div class="flex w-full justify-center">
         <x-workspace.date-switcher :selected-date="$this->selectedDate" />
     </div>
 
-    {{-- Filters / pending invitations / add filter / trash (blur when focus mode) --}}
-    <div class="flex flex-wrap items-center justify-between gap-2 transition-[filter] duration-200 ease-out" :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }">
+    {{-- Filters / pending invitations / add filter / trash --}}
+    <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex flex-wrap items-center gap-2">
             @auth
                 <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
@@ -117,7 +117,7 @@
 
         {{-- Right Side: Calendar (20%) --}}
         <div class="hidden lg:block lg:w-1/5 lg:shrink-0">
-            <div class="sticky top-6">
+            <div class="sticky top-6" data-focus-lock-viewport>
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"

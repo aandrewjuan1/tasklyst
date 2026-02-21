@@ -88,11 +88,6 @@
         lastNavAt: 0,
         navThrottleMs: 300,
         
-        get focusModeActive() {
-            const s = Alpine.store('focusSession');
-            return !!(s?.session || s?.focusReady);
-        },
-        
         init() {
             // Initialize Alpine store if not already initialized
             Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: null, focusReady: false });
@@ -244,8 +239,7 @@
             $wire.set('selectedDate', this.today);
         },
     }"
-    class="w-full transition-[filter] duration-200 ease-out"
-    :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }"
+    class="w-full"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{-- Calendar Container --}}

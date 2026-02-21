@@ -13,22 +13,46 @@ export function isTempSessionId(id) {
     return id != null && String(id).startsWith('temp-');
 }
 
-/** Single global Escape handler: stops focus on the card that currently has an active session. */
+/** Compute remaining seconds without touching reactive state (for ticker interval). */
+function getRemainingSecondsAt(ctx, nowMs) {
+    if ((!ctx.isFocused && !ctx.isBreakFocused) || !ctx.activeFocusSession?.started_at || !ctx.activeFocusSession?.duration_seconds) return 0;
+    const startedMs = parseFocusStartedAt(ctx.activeFocusSession.started_at);
+    if (!Number.isFinite(startedMs)) return 0;
+    const durationSec = Number(ctx.activeFocusSession.duration_seconds);
+    const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
+    let pausedSec = ctx.focusPausedSecondsAccumulated;
+    if (ctx.activeFocusSession.paused_at) {
+        const pausedAtMs = parseFocusStartedAt(ctx.activeFocusSession.paused_at);
+        if (Number.isFinite(pausedAtMs)) pausedSec += (nowMs - pausedAtMs) / 1000;
+    } else if (pausedSec === 0 && ctx.activeFocusSession.paused_seconds != null && Number.isFinite(Number(ctx.activeFocusSession.paused_seconds))) {
+        pausedSec = Math.max(0, Math.floor(Number(ctx.activeFocusSession.paused_seconds)));
+    }
+    if (ctx.focusIsPaused && ctx.focusPauseStartedAt) {
+        pausedSec += (nowMs - ctx.focusPauseStartedAt) / 1000;
+    }
+    return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+}
+
+const POMODORO_SAVE_DEBOUNCE_MS = 400;
+
+/**
+ * Single global Escape handler: stops focus on the card that currently has modal/session (O(1) via focusModal store).
+ * Intentionally never removed; one handler for the app lifetime.
+ */
 function ensureGlobalEscapeHandler() {
     if (window.__focusEscapeHandlerRegistered) return;
     window.__focusEscapeHandlerRegistered = true;
     window.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        const store = window.Alpine?.store?.('listItemCards');
-        if (!store || typeof store !== 'object') return;
-        for (const itemId of Object.keys(store)) {
-            const card = store[itemId];
-            if (card && (card.isFocused || card.isBreakFocused) && card.activeFocusSession) {
-                e.preventDefault();
-                card.stopFocus();
-                return;
-            }
-        }
+        const openItemId = window.Alpine?.store?.('focusModal')?.openItemId;
+        if (openItemId == null) return;
+        const card = window.Alpine?.store?.('listItemCards')?.[openItemId];
+        if (!card) return;
+        const hasModalOrSession = card.focusReady || card.isFocused || card.isBreakFocused;
+        if (!hasModalOrSession) return;
+        e.preventDefault();
+        if (card.focusReady) card.closeFocusModal?.();
+        else card.stopFocus();
     });
 }
 
@@ -72,14 +96,7 @@ export function createFocusSessionController() {
             } catch (err) {
                 console.error('[listItemCard] Failed to restore focus state:', err);
             }
-            ctx.$watch('focusReady', (value) => {
-                try {
-                    const Alpine = window.Alpine;
-                    if (!Alpine?.store) return;
-                    const store = Alpine.store('focusSession') ?? {};
-                    Alpine.store('focusSession', { ...store, focusReady: !!value });
-                } catch (_) {}
-            });
+            // focusSession.focusReady no longer set here; scroll lock uses focusModal.openItemId (see list-item-card watcher)
             if (ctx.kind === 'task') {
                 ctx.$watch(
                     () => (ctx.isFocused || ctx.isBreakFocused) && ctx.activeFocusSession,
@@ -162,24 +179,22 @@ export function createFocusSessionController() {
                 : 0;
             ctx.focusCountdownText = formatFocusCountdown(initialRemaining);
             ctx.focusProgressStyle = `width: ${ctx.focusElapsedPercentValue}%; min-width: ${ctx.focusElapsedPercentValue > 0 ? '2px' : '0'}`;
-            const displayThrottleMs = 1000;
+            const tickMs = 1000;
             ctx.focusIntervalId = setInterval(() => {
                 if (ctx.focusIsPaused) return;
                 const now = Date.now();
-                ctx.focusTickerNow = now;
-                const remaining = ctx.focusRemainingSeconds;
+                const remaining = getRemainingSecondsAt(ctx, now);
                 const duration = Number(ctx.activeFocusSession?.duration_seconds ?? 0);
                 const pct = duration > 0
                     ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))
                     : 0;
-                if (now - ctx._lastDisplayUpdate >= displayThrottleMs || remaining <= 0) {
-                    ctx._lastDisplayUpdate = now;
-                    requestAnimationFrame(() => {
-                        ctx.focusElapsedPercentValue = pct;
-                        ctx.focusCountdownText = formatFocusCountdown(remaining);
-                        ctx.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
-                    });
-                }
+                ctx._lastDisplayUpdate = now;
+                ctx.focusTickerNow = now;
+                requestAnimationFrame(() => {
+                    ctx.focusElapsedPercentValue = pct;
+                    ctx.focusCountdownText = formatFocusCountdown(remaining);
+                    ctx.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
+                });
                 if (remaining <= 0) {
                     ctx.sessionComplete = true;
                     const pausedSeconds = ctx.getFocusPausedSecondsTotal();
@@ -201,7 +216,7 @@ export function createFocusSessionController() {
                         }
                     }
                 }
-            }, 250);
+            }, tickMs);
         },
 
         stopFocusTicker(ctx) {
@@ -240,6 +255,7 @@ export function createFocusSessionController() {
             ctx.dispatchFocusSessionUpdated(null);
             ctx.sessionComplete = false;
             ctx.focusReady = false;
+            ctx.restoreFocusAfterModalClose?.();
         },
 
         optimisticallyStartNextPomodoroSession(ctx, nextSessionInfo, startedAt) {
@@ -571,7 +587,16 @@ export function createFocusSessionController() {
             }
         },
 
-        async savePomodoroSettings(ctx) {
+        savePomodoroSettings(ctx) {
+            if (ctx.kind !== 'task' || !ctx.$wire?.$parent?.$call) return;
+            if (ctx._savePomodoroSettingsTimeout) clearTimeout(ctx._savePomodoroSettingsTimeout);
+            ctx._savePomodoroSettingsTimeout = setTimeout(() => {
+                ctx._savePomodoroSettingsTimeout = null;
+                this._savePomodoroSettingsNow(ctx);
+            }, POMODORO_SAVE_DEBOUNCE_MS);
+        },
+
+        async _savePomodoroSettingsNow(ctx) {
             if (ctx.kind !== 'task' || !ctx.$wire?.$parent?.$call) return;
             const settingsSnapshot = {
                 pomodoroWorkMinutes: ctx.pomodoroWorkMinutes,
@@ -923,6 +948,15 @@ export function createFocusSessionController() {
                 return;
             }
             const isBreak = incoming.type === 'short_break' || incoming.type === 'long_break';
+            const taskId = incoming.task_id != null ? Number(incoming.task_id) : null;
+            const ownerId = incoming.owner_task_id != null ? Number(incoming.owner_task_id) : null;
+            if (ctx.kind !== 'task') {
+                if (!isBreak || ownerId == null) return;
+                if (ownerId !== Number(ctx.itemId)) return;
+            } else {
+                if (!isBreak && taskId !== Number(ctx.itemId)) return;
+                if (isBreak && ownerId != null && ownerId !== Number(ctx.itemId)) return;
+            }
             const isForThisCard = isBreak
                 ? (incoming.owner_task_id != null ? (ctx.kind === 'task' && Number(incoming.owner_task_id) === Number(ctx.itemId)) : ctx.isBreakFocused)
                 : Number(incoming.task_id) === Number(ctx.itemId);
@@ -957,6 +991,10 @@ export function createFocusSessionController() {
 
         destroy(ctx) {
             ctx.stopFocusTicker();
+            if (ctx._savePomodoroSettingsTimeout) {
+                clearTimeout(ctx._savePomodoroSettingsTimeout);
+                ctx._savePomodoroSettingsTimeout = null;
+            }
             if (ctx._focusVisibilityListener) {
                 document.removeEventListener('visibilitychange', ctx._focusVisibilityListener);
                 ctx._focusVisibilityListener = null;

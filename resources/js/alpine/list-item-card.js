@@ -21,6 +21,9 @@ import {
 } from '../lib/pomodoro.js';
 import { createFocusSessionController, isTempSessionId as isTempSessionIdLib } from './focus-session.js';
 
+const FOCUS_MODAL_FOCUSABLE_SELECTOR =
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function listItemCard(config) {
     return {
         ...config,
@@ -48,6 +51,69 @@ export function listItemCard(config) {
                 }
                 store[this.itemId] = this;
             }
+            // Sync focus modal store so layout can react (scroll lock uses openItemId)
+            this.$watch(
+                'isFocusModalOpen',
+                (open) => {
+                    const focusModal = window.Alpine?.store?.('focusModal');
+                    if (!focusModal) return;
+                    if (open) {
+                        focusModal.openItemId = this.itemId;
+                        this.$nextTick(() => this.focusFirstInModal());
+                    } else if (focusModal.openItemId === this.itemId) {
+                        focusModal.openItemId = null;
+                    }
+                },
+                { immediate: true }
+            );
+        },
+        /** Focus first focusable element in the modal (a11y). */
+        focusFirstInModal() {
+            const panel = this.$refs?.focusModalPanel;
+            if (!panel) return;
+            const focusable = panel.querySelector(FOCUS_MODAL_FOCUSABLE_SELECTOR);
+            if (focusable?.focus) focusable.focus({ preventScroll: true });
+        },
+        /** Keep Tab focus inside the modal (a11y focus trap). */
+        trapFocusInModal(e) {
+            if (e.key !== 'Tab' || !this.isFocusModalOpen) return;
+            const panel = this.$refs?.focusModalPanel;
+            if (!panel || !panel.contains(e.target)) return;
+            const list = panel.querySelectorAll(FOCUS_MODAL_FOCUSABLE_SELECTOR);
+            const focusables = Array.from(list).filter((el) => el.offsetParent !== null && !el.hasAttribute('disabled'));
+            if (focusables.length === 0) return;
+            const i = focusables.indexOf(document.activeElement);
+            if (e.shiftKey) {
+                if (i <= 0) {
+                    e.preventDefault();
+                    focusables[focusables.length - 1].focus();
+                }
+            } else {
+                if (i === -1 || i >= focusables.length - 1) {
+                    e.preventDefault();
+                    focusables[0].focus();
+                }
+            }
+        },
+        /** True when focus modal is visible (ready, focused, or break). */
+        get isFocusModalOpen() {
+            return !!(this.focusReady || this.isFocused || this.isBreakFocused);
+        },
+        /** Close the focus modal and return focus to the trigger without scrolling. */
+        closeFocusModal() {
+            this.focusReady = false;
+            this.restoreFocusAfterModalClose();
+        },
+        /** Return focus to the in-list Focus trigger without scrolling (used on any modal close). */
+        restoreFocusAfterModalClose() {
+            this.$nextTick(() => {
+                const el = this.$refs?.focusTrigger;
+                if (el?.focus) el.focus({ preventScroll: true });
+            });
+        },
+        /** True when this card has focus modal open or an active focus/break session — use for locking list card and hiding chevrons */
+        get isCardLockedForFocus() {
+            return this.isFocusModalOpen;
         },
         get isFocused() {
             return this.kind === 'task' && this.activeFocusSession && this.activeFocusSession.type === 'work' && Number(this.activeFocusSession.task_id) === Number(this.itemId);
@@ -151,7 +217,8 @@ export function listItemCard(config) {
             this._focus.enterFocusReady(this);
         },
         async startFocusFromReady() {
-            return this._focus.startFocusFromReady(this);
+            await this._focus.startFocusFromReady(this);
+            this.$nextTick(() => this.focusFirstInModal());
         },
         parseFocusStartedAt(isoString) {
             return parseFocusStartedAtLib(isoString);

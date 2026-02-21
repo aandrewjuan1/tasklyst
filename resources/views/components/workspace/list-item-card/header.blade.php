@@ -1,5 +1,5 @@
 {{-- Header: title, description, type badge, recurring (task/event), collaborators, activity logs, overflow dropdown. Uses parent scope. --}}
-<div :class="{ 'pointer-events-none': isFocused }">
+<div>
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
             <p

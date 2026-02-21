@@ -1,7 +1,6 @@
 <div
     class="space-y-4"
     x-data="{
-        get focusModeActive() { const s = Alpine.store('focusSession'); return !!(s?.session || s?.focusReady); },
         showItemCreation: false,
         creationKind: 'task',
         showItemLoading: false,
@@ -668,7 +667,7 @@
     @php
         $dropdownItemClass = 'flex w-full items-center rounded-md px-3 py-2 text-sm text-left hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
     @endphp
-    <div class="relative z-10 transition-[filter] duration-200 ease-out" :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }">
+    <div class="relative z-10">
         <flux:dropdown position="right" align="start">
             <flux:button icon:trailing="plus-circle" data-item-creation-safe>
                 {{ __('Add') }}
@@ -1155,10 +1154,7 @@
                 $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
             @endphp
             <div x-show="visibleItemCount > 0" class="space-y-4">
-                <div
-                    class="space-y-3 transition-[filter] duration-200 ease-out"
-                    :class="{ 'focus-open': focusModeActive }"
-                >
+                <div class="space-y-3">
                     @foreach ($items as $entry)
                         <x-workspace.list-item-card
                             :kind="$entry['kind']"

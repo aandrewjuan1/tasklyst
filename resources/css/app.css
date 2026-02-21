@@ -78,15 +78,51 @@ select:focus[data-flux-control] {
     animation: loading-bar 1.2s ease-in-out infinite;
 }
 
-/* Focus bar: blur non-focused cards when an item is in focus mode */
-.focus-open .list-item-card:not(.is-focus-active) {
-    pointer-events: none;
-    user-select: none;
-    filter: blur(5px);
-    transition: filter 0.2s ease-out;
-}
-
-/* Hide dropdown chevrons when this card is in focus mode (ready or starting) */
-.list-item-card.is-focus-active .focus-hide-chevron {
+/* Focus modal / session: hide dropdown chevrons in list card and in modal */
+.is-focus-locked .focus-hide-chevron {
     display: none;
 }
+
+/* Focus lock transform is applied inline in layout so sidebar/header don't flicker. */
+
+/* Fixed sidebar on desktop: full viewport height on the left, no empty space when scrolling */
+@media (min-width: 1024px) {
+    body:has([data-flux-sidebar]) {
+        grid-template-columns: 16rem minmax(0, 1fr);
+    }
+
+    body:has([data-flux-sidebar][data-flux-sidebar-collapsed-desktop]) {
+        grid-template-columns: 3.5rem minmax(0, 1fr);
+    }
+
+    [data-flux-sidebar] {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100dvh;
+        width: 16rem;
+        max-height: none;
+    }
+
+    [data-flux-sidebar][data-flux-sidebar-collapsed-desktop] {
+        width: 3.5rem;
+    }
+
+    [dir="rtl"] body:has([data-flux-sidebar]) {
+        grid-template-areas:
+            "header header sidebar"
+            "main main sidebar"
+            "footer footer sidebar";
+        grid-template-columns: minmax(0, 1fr) 16rem;
+    }
+
+    [dir="rtl"] body:has([data-flux-sidebar][data-flux-sidebar-collapsed-desktop]) {
+        grid-template-columns: minmax(0, 1fr) 3.5rem;
+    }
+
+    [dir="rtl"] [data-flux-sidebar] {
+        left: auto;
+        right: 0;
+    }
+}
+

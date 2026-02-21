@@ -66,11 +66,7 @@
     };
 @endphp
 
-<div
-    x-data="{ get focusModeActive() { const s = Alpine.store('focusSession'); return !!(s?.session || s?.focusReady); } }"
-    class="mt-4 w-full transition-[filter] duration-200 ease-out"
-    :class="{ 'pointer-events-none select-none blur-sm': focusModeActive }"
->
+<div class="mt-4 w-full">
     <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
         <div class="flex items-center justify-between border-b border-border/60 px-4 py-3 dark:border-zinc-800">
             <div class="flex items-center gap-2">
