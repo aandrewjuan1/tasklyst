@@ -5,6 +5,8 @@
     "editors": [
         "cursor"
     ],
-    "guidelines": [],
+    "guidelines": [
+        "prism-php/prism"
+    ],
     "herd_mcp": true
 }
