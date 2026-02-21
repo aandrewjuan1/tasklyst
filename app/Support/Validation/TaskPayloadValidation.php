@@ -28,6 +28,8 @@ final class TaskPayloadValidation
             'startDatetime' => null,
             'endDatetime' => null,
             'projectId' => null,
+            'eventId' => null,
+            'parentTaskId' => null,
             'tagIds' => [],
             'pendingTagNames' => [],
             'recurrence' => [
@@ -59,6 +61,8 @@ final class TaskPayloadValidation
             'taskPayload.endDatetime' => ['nullable', 'date', 'after_or_equal:taskPayload.startDatetime'],
 
             'taskPayload.projectId' => ['nullable', 'integer', 'exists:projects,id'],
+            'taskPayload.eventId' => ['nullable', 'integer', 'exists:events,id'],
+            'taskPayload.parentTaskId' => ['nullable', 'integer', 'exists:tasks,id'],
             'taskPayload.tagIds' => ['array'],
             'taskPayload.tagIds.*' => [
                 'integer',
@@ -97,6 +101,9 @@ final class TaskPayloadValidation
             'duration',
             'startDatetime',
             'endDatetime',
+            'projectId',
+            'eventId',
+            'parentTaskId',
             'tagIds',
             'recurrence',
         ];
@@ -136,6 +143,9 @@ final class TaskPayloadValidation
                 'value.daysOfWeek' => ['array'],
                 'value.daysOfWeek.*' => ['integer', 'between:0,6'],
             ],
+            'projectId' => ['value' => ['nullable', 'integer', 'exists:projects,id']],
+            'eventId' => ['value' => ['nullable', 'integer', 'exists:events,id']],
+            'parentTaskId' => ['value' => ['nullable', 'integer', 'exists:tasks,id']],
             default => [],
         };
 

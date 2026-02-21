@@ -183,6 +183,15 @@ class UpdateTaskPropertyAction
     private function updateSimpleProperty(Task $task, string $property, mixed $validatedValue): UpdateTaskPropertyResult
     {
         $column = Task::propertyToColumn($property);
+
+        if ($column === 'parent_task_id' && $validatedValue !== null && (int) $validatedValue === (int) $task->id) {
+            return UpdateTaskPropertyResult::failure(
+                $task->parent_task_id,
+                $validatedValue,
+                __('A task cannot be its own parent.')
+            );
+        }
+
         $oldValue = $task->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];

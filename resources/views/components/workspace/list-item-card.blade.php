@@ -102,18 +102,6 @@
                     :update-property-method="$updatePropertyMethod"
                     :readonly="!$canEditDates"
                 />
-
-                <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-500">
-                    <flux:icon name="list-bullet" class="size-3" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Tasks') }}:
-                        </span>
-                        <span>
-                            {{ $item->tasks_count }}
-                        </span>
-                    </span>
-                </span>
             @elseif($kind === 'event')
                 <x-workspace.list-item-event
                     :item="$item"

@@ -6,6 +6,7 @@ use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\RecurringEvent;
+use App\Models\Task;
 use App\Models\User;
 use Carbon\Carbon;
 
@@ -264,4 +265,14 @@ test('get property value for update returns correct value for status dates all_d
         ->and($event->getPropertyValueForUpdate('endDatetime'))->toEqual($end)
         ->and($event->getPropertyValueForUpdate('allDay'))->toBeTrue()
         ->and($event->getPropertyValueForUpdate('title'))->toBe('Test Event');
+});
+
+test('event has many tasks', function (): void {
+    $event = Event::factory()->for($this->owner)->create(['title' => 'Event with tasks']);
+    $t1 = Task::factory()->for($this->owner)->create(['title' => 'Task 1', 'event_id' => $event->id]);
+    $t2 = Task::factory()->for($this->owner)->create(['title' => 'Task 2', 'event_id' => $event->id]);
+    Task::factory()->for($this->owner)->create(['title' => 'Unrelated', 'event_id' => null]);
+
+    expect($event->tasks)->toHaveCount(2)
+        ->and($event->tasks->pluck('id')->all())->toEqual([$t1->id, $t2->id]);
 });

@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Task\CreateTaskDto;
 use App\DataTransferObjects\Task\CreateTaskExceptionDto;
+use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Tag;
@@ -74,6 +75,28 @@ trait HandlesTasks
                 return;
             }
             $this->authorize('update', $project);
+        }
+
+        $eventId = $validatedTask['eventId'] ?? null;
+        if ($eventId !== null) {
+            $event = Event::query()->forUser($user->id)->find((int) $eventId);
+            if ($event === null) {
+                $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+                return;
+            }
+            $this->authorize('update', $event);
+        }
+
+        $parentTaskId = $validatedTask['parentTaskId'] ?? null;
+        if ($parentTaskId !== null) {
+            $parentTask = Task::query()->forUser($user->id)->find((int) $parentTaskId);
+            if ($parentTask === null) {
+                $this->dispatch('toast', type: 'error', message: __('Parent task not found.'));
+
+                return;
+            }
+            $this->authorize('update', $parentTask);
         }
 
         if (($validatedTask['pendingTagNames'] ?? []) !== []) {
@@ -290,6 +313,36 @@ trait HandlesTasks
         }
 
         $validatedValue = $validator->validated()['value'];
+
+        if ($property === 'projectId' && $validatedValue !== null) {
+            $project = Project::query()->forUser($user->id)->find((int) $validatedValue);
+            if ($project === null) {
+                $this->dispatch('toast', type: 'error', message: __('Project not found.'));
+
+                return false;
+            }
+            $this->authorize('update', $project);
+        }
+
+        if ($property === 'eventId' && $validatedValue !== null) {
+            $event = Event::query()->forUser($user->id)->find((int) $validatedValue);
+            if ($event === null) {
+                $this->dispatch('toast', type: 'error', message: __('Event not found.'));
+
+                return false;
+            }
+            $this->authorize('update', $event);
+        }
+
+        if ($property === 'parentTaskId' && $validatedValue !== null) {
+            $parentTask = Task::query()->forUser($user->id)->find((int) $validatedValue);
+            if ($parentTask === null) {
+                $this->dispatch('toast', type: 'error', message: __('Parent task not found.'));
+
+                return false;
+            }
+            $this->authorize('update', $parentTask);
+        }
 
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Validation passed, calling action', [
