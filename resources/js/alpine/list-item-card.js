@@ -10,6 +10,7 @@ import {
     parseFocusStartedAt as parseFocusStartedAtLib,
     formatFocusCountdown as formatFocusCountdownLib,
     formatDurationMinutes,
+    getFocusRemainingSeconds,
 } from '../lib/focus-time.js';
 import {
     isItemStillRelevantForList,
@@ -29,7 +30,6 @@ export function listItemCard(config) {
         ...config,
         focusReady: false,
         focusCountdownText: '',
-        focusProgressStyle: 'width: 0%; min-width: 0',
         nextSessionInfo: null, // Stores next session info from pomodoro completion
         isBreakSession: false, // Tracks if current session is a break
         lastPomodoroTaskId: null, // Tracks last task used for pomodoro (for auto-start next pomodoro)
@@ -179,13 +179,6 @@ export function listItemCard(config) {
             // Work: X → Short break: Y → Long break: Z ⟳ Long break every N pomodoros
             return `Work: ${work} ${minLabel} → Short break: ${short} ${minLabel} → Long break: ${long} ${minLabel} ⟳ ${everyLabel} ${every} pomodoros`;
         },
-        formatPomodoroDurationMinutes(minutes) {
-            return formatDurationMinutes(minutes, {
-                minLabel: this.focusDurationLabelMin ?? 'min',
-                hrLabel: this.focusDurationLabelHr ?? 'hour',
-                hrsLabel: this.focusDurationLabelHrs ?? 'hours',
-            });
-        },
         getPomodoroSettingsPayload() {
             return getPomodoroSettingsPayloadLib({
                 pomodoroWorkMinutes: this.pomodoroWorkMinutes,
@@ -225,36 +218,12 @@ export function listItemCard(config) {
         },
         get focusRemainingSeconds() {
             if ((!this.isFocused && !this.isBreakFocused) || !this.activeFocusSession?.started_at || !this.activeFocusSession?.duration_seconds) return 0;
-            const startedMs = parseFocusStartedAtLib(this.activeFocusSession.started_at);
-            if (!Number.isFinite(startedMs)) return 0;
-            const durationSec = Number(this.activeFocusSession.duration_seconds);
-            
-            // Cache Date.now() once per evaluation to avoid multiple calls
             const nowMs = this.focusTickerNow ?? Date.now();
-            
-            const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
-            let pausedSec = this.focusPausedSecondsAccumulated;
-            if (this.activeFocusSession.paused_at) {
-                const pausedAtMs = parseFocusStartedAtLib(this.activeFocusSession.paused_at);
-                if (Number.isFinite(pausedAtMs)) {
-                    pausedSec += (nowMs - pausedAtMs) / 1000;
-                }
-            } else if (pausedSec === 0 && this.activeFocusSession.paused_seconds != null && Number.isFinite(Number(this.activeFocusSession.paused_seconds))) {
-                pausedSec = Math.max(0, Math.floor(Number(this.activeFocusSession.paused_seconds)));
-            }
-            if (this.focusIsPaused && this.focusPauseStartedAt) {
-                pausedSec += (nowMs - this.focusPauseStartedAt) / 1000;
-            }
-            return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
-        },
-        get focusElapsedPercent() {
-            if (!this.activeFocusSession?.duration_seconds) return 0;
-            const duration = Number(this.activeFocusSession.duration_seconds);
-            const remaining = this.focusRemainingSeconds;
-            return Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100));
-        },
-        formatFocusCountdown(seconds) {
-            return formatFocusCountdownLib(seconds);
+            return getFocusRemainingSeconds(this.activeFocusSession, nowMs, {
+                pausedSecondsAccumulated: this.focusPausedSecondsAccumulated,
+                isPaused: this.focusIsPaused,
+                pauseStartedAtMs: this.focusPauseStartedAt ?? null,
+            });
         },
         isTempSessionId(id) {
             return isTempSessionIdLib(id);

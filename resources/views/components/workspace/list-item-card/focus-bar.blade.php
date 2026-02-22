@@ -329,7 +329,7 @@
             <div
                 class="block h-full min-w-0 rounded-full transition-[width,background-color] duration-300 ease-linear"
                 :class="isBreakFocused ? 'bg-green-600' : 'bg-blue-800'"
-                :style="focusProgressStyle"
+                :style="'width: ' + (focusElapsedPercentValue ?? 0) + '%; min-width: ' + ((focusElapsedPercentValue ?? 0) > 0 ? '2px' : '0')"
             ></div>
         </div>
     </div>

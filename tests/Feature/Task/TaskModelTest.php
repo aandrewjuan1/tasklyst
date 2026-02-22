@@ -6,6 +6,8 @@ use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
+use App\Models\Event;
+use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
@@ -273,4 +275,50 @@ test('property to column maps parent task id project id and event id', function 
     expect(Task::propertyToColumn('parentTaskId'))->toBe('parent_task_id')
         ->and(Task::propertyToColumn('projectId'))->toBe('project_id')
         ->and(Task::propertyToColumn('eventId'))->toBe('event_id');
+});
+
+test('scope for project returns only tasks in that project', function (): void {
+    $projectA = Project::factory()->for($this->owner)->create();
+    $projectB = Project::factory()->for($this->owner)->create();
+    $inA = Task::factory()->for($this->owner)->create(['project_id' => $projectA->id]);
+    Task::factory()->for($this->owner)->create(['project_id' => $projectB->id]);
+
+    $tasks = Task::query()->forUser($this->owner->id)->forProject($projectA)->get();
+
+    expect($tasks)->toHaveCount(1)
+        ->and($tasks->first()->id)->toBe($inA->id);
+});
+
+test('scope for project accepts project id', function (): void {
+    $project = Project::factory()->for($this->owner)->create();
+    $task = Task::factory()->for($this->owner)->create(['project_id' => $project->id]);
+
+    $tasks = Task::query()->forUser($this->owner->id)->forProject($project->id)->get();
+
+    expect($tasks)->toHaveCount(1)
+        ->and($tasks->first()->id)->toBe($task->id);
+});
+
+test('scope for event returns only tasks in that event', function (): void {
+    $eventA = Event::factory()->for($this->owner)->create();
+    $eventB = Event::factory()->for($this->owner)->create();
+    $inA = Task::factory()->for($this->owner)->create(['event_id' => $eventA->id]);
+    Task::factory()->for($this->owner)->create(['event_id' => $eventB->id]);
+
+    $tasks = Task::query()->forUser($this->owner->id)->forEvent($eventA)->get();
+
+    expect($tasks)->toHaveCount(1)
+        ->and($tasks->first()->id)->toBe($inA->id);
+});
+
+test('scope subtasks of returns only subtasks of that parent', function (): void {
+    $parent = Task::factory()->for($this->owner)->create(['title' => 'Parent']);
+    $sub1 = Task::factory()->for($this->owner)->create(['parent_task_id' => $parent->id]);
+    $sub2 = Task::factory()->for($this->owner)->create(['parent_task_id' => $parent->id]);
+    Task::factory()->for($this->owner)->create(['parent_task_id' => null]);
+
+    $tasks = Task::query()->forUser($this->owner->id)->subtasksOf($parent)->get();
+
+    expect($tasks)->toHaveCount(2)
+        ->and($tasks->pluck('id')->all())->toEqualCanonicalizing([$sub1->id, $sub2->id]);
 });

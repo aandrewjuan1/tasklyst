@@ -5,7 +5,10 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\Event;
+use App\Models\Project;
 use App\Models\Tag;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\Validation\TaskPayloadValidation;
 use Carbon\Carbon;
@@ -266,4 +269,83 @@ test('create task dto from validated with recurrence disabled sets recurrence nu
     $dto = CreateTaskDto::fromValidated($validated);
 
     expect($dto->recurrence)->toBeNull();
+});
+
+test('validate nested task consistency for create returns null when no parent', function (): void {
+    $validated = [
+        'title' => 'Task',
+        'parentTaskId' => null,
+        'projectId' => 1,
+        'eventId' => 2,
+    ];
+
+    expect(TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validated))->toBeNull();
+});
+
+test('validate nested task consistency for create returns error when subtask project does not match parent', function (): void {
+    $user = User::factory()->create();
+    $projectA = Project::factory()->for($user)->create();
+    $projectB = Project::factory()->for($user)->create();
+    $parent = Task::factory()->for($user)->create(['project_id' => $projectA->id, 'event_id' => null]);
+
+    $validated = [
+        'title' => 'Subtask',
+        'parentTaskId' => $parent->id,
+        'projectId' => $projectB->id,
+        'eventId' => null,
+    ];
+
+    $error = TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validated);
+
+    expect($error)->not->toBeNull()
+        ->and($error)->toContain('project');
+});
+
+test('validate nested task consistency for create returns error when subtask event does not match parent', function (): void {
+    $user = User::factory()->create();
+    $eventA = Event::factory()->for($user)->create();
+    $eventB = Event::factory()->for($user)->create();
+    $parent = Task::factory()->for($user)->create(['project_id' => null, 'event_id' => $eventA->id]);
+
+    $validated = [
+        'title' => 'Subtask',
+        'parentTaskId' => $parent->id,
+        'projectId' => null,
+        'eventId' => $eventB->id,
+    ];
+
+    $error = TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validated);
+
+    expect($error)->not->toBeNull()
+        ->and($error)->toContain('event');
+});
+
+test('validate nested task consistency for create returns null when subtask project and event match parent', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create();
+    $event = Event::factory()->for($user)->create();
+    $parent = Task::factory()->for($user)->create(['project_id' => $project->id, 'event_id' => $event->id]);
+
+    $validated = [
+        'title' => 'Subtask',
+        'parentTaskId' => $parent->id,
+        'projectId' => $project->id,
+        'eventId' => $event->id,
+    ];
+
+    expect(TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validated))->toBeNull();
+});
+
+test('validate nested task consistency for create returns null when subtask project and event are null', function (): void {
+    $user = User::factory()->create();
+    $parent = Task::factory()->for($user)->create(['project_id' => null, 'event_id' => null]);
+
+    $validated = [
+        'title' => 'Subtask',
+        'parentTaskId' => $parent->id,
+        'projectId' => null,
+        'eventId' => null,
+    ];
+
+    expect(TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validated))->toBeNull();
 });

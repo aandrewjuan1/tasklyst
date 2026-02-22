@@ -535,6 +535,36 @@ class Task extends Model
         });
     }
 
+    /**
+     * Tasks that belong to the given project.
+     */
+    public function scopeForProject(Builder $query, Project|int $project): Builder
+    {
+        $projectId = $project instanceof Project ? $project->id : $project;
+
+        return $query->where('project_id', $projectId);
+    }
+
+    /**
+     * Tasks that belong to the given event.
+     */
+    public function scopeForEvent(Builder $query, Event|int $event): Builder
+    {
+        $eventId = $event instanceof Event ? $event->id : $event;
+
+        return $query->where('event_id', $eventId);
+    }
+
+    /**
+     * Subtasks of the given parent task.
+     */
+    public function scopeSubtasksOf(Builder $query, Task|int $parent): Builder
+    {
+        $parentId = $parent instanceof Task ? $parent->id : $parent;
+
+        return $query->where('parent_task_id', $parentId);
+    }
+
     public function scopeIncomplete(Builder $query): Builder
     {
         return $query->whereNull('completed_at');

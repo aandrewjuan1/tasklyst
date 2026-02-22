@@ -3,6 +3,8 @@
 use App\Enums\CollaborationPermission;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\Event;
+use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
@@ -466,4 +468,57 @@ test('update task exception ignores non allowed attributes', function (): void {
     expect($exception->exception_date->format('Y-m-d'))->toBe('2025-02-10')
         ->and($exception->recurring_task_id)->toBe($recurring->id)
         ->and($exception->reason)->toBe('Original');
+});
+
+test('get tasks for project returns only tasks in that project for date', function (): void {
+    $project = Project::factory()->for($this->user)->create();
+    $date = Carbon::parse('2025-02-10');
+    $inProject = Task::factory()->for($this->user)->create([
+        'project_id' => $project->id,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    $other = Task::factory()->for($this->user)->create([
+        'project_id' => null,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    $tasks = $this->service->getTasksForProject($project, $this->user->id, $date);
+
+    expect($tasks->pluck('id')->all())->toContain($inProject->id)
+        ->and($tasks->pluck('id')->all())->not->toContain($other->id);
+});
+
+test('get tasks for event returns only tasks in that event for date', function (): void {
+    $event = Event::factory()->for($this->user)->create();
+    $date = Carbon::parse('2025-02-10');
+    $inEvent = Task::factory()->for($this->user)->create([
+        'event_id' => $event->id,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    $other = Task::factory()->for($this->user)->create([
+        'event_id' => null,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    $tasks = $this->service->getTasksForEvent($event, $this->user->id, $date);
+
+    expect($tasks->pluck('id')->all())->toContain($inEvent->id)
+        ->and($tasks->pluck('id')->all())->not->toContain($other->id);
+});
+
+test('get subtasks of returns only subtasks of that parent', function (): void {
+    $parent = Task::factory()->for($this->user)->create(['title' => 'Parent']);
+    $sub1 = Task::factory()->for($this->user)->create(['parent_task_id' => $parent->id]);
+    $sub2 = Task::factory()->for($this->user)->create(['parent_task_id' => $parent->id]);
+    $root = Task::factory()->for($this->user)->create(['parent_task_id' => null]);
+
+    $tasks = $this->service->getSubtasksOf($parent, $this->user->id, null);
+
+    expect($tasks)->toHaveCount(2)
+        ->and($tasks->pluck('id')->all())->toEqualCanonicalizing([$sub1->id, $sub2->id])
+        ->and($tasks->pluck('id')->all())->not->toContain($root->id);
 });

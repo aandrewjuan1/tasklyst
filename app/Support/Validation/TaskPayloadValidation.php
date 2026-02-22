@@ -6,6 +6,7 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\Task;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
@@ -177,6 +178,37 @@ final class TaskPayloadValidation
                     'minutes' => (string) $durationMinutes,
                 ]);
             }
+        }
+
+        return null;
+    }
+
+    /**
+     * When parentTaskId is set, subtask's projectId and eventId must match the parent's or be null.
+     * Call after standard validation; returns first error message or null.
+     *
+     * @param  array<string, mixed>  $validatedTask  Validated taskPayload (with parentTaskId, projectId, eventId)
+     */
+    public static function validateNestedTaskConsistencyForCreate(array $validatedTask): ?string
+    {
+        $parentTaskId = $validatedTask['parentTaskId'] ?? null;
+        if ($parentTaskId === null || $parentTaskId === '') {
+            return null;
+        }
+
+        $parent = Task::query()->find((int) $parentTaskId);
+        if ($parent === null) {
+            return null;
+        }
+
+        $projectId = isset($validatedTask['projectId']) ? (int) $validatedTask['projectId'] : null;
+        if ($projectId !== null && $parent->project_id !== null && $projectId !== (int) $parent->project_id) {
+            return __('A subtask’s project must match the parent task’s project or be empty.');
+        }
+
+        $eventId = isset($validatedTask['eventId']) ? (int) $validatedTask['eventId'] : null;
+        if ($eventId !== null && $parent->event_id !== null && $eventId !== (int) $parent->event_id) {
+            return __('A subtask’s event must match the parent task’s event or be empty.');
         }
 
         return null;

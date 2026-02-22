@@ -16,6 +16,32 @@ export function parseFocusStartedAt(isoString) {
 }
 
 /**
+ * Compute remaining seconds for a focus session at a given time.
+ * @param {{ started_at: string, duration_seconds: number, paused_at?: string, paused_seconds?: number }} session
+ * @param {number} nowMs - Current time in milliseconds.
+ * @param {{ pausedSecondsAccumulated?: number, isPaused?: boolean, pauseStartedAtMs?: number|null }} [options]
+ * @returns {number} Remaining seconds (>= 0).
+ */
+export function getFocusRemainingSeconds(session, nowMs, options = {}) {
+    if (!session?.started_at || session?.duration_seconds == null) return 0;
+    const startedMs = parseFocusStartedAt(session.started_at);
+    if (!Number.isFinite(startedMs)) return 0;
+    const durationSec = Number(session.duration_seconds);
+    const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
+    let pausedSec = Number(options.pausedSecondsAccumulated) || 0;
+    if (session.paused_at) {
+        const pausedAtMs = parseFocusStartedAt(session.paused_at);
+        if (Number.isFinite(pausedAtMs)) pausedSec += (nowMs - pausedAtMs) / 1000;
+    } else if (pausedSec === 0 && session.paused_seconds != null && Number.isFinite(Number(session.paused_seconds))) {
+        pausedSec = Math.max(0, Math.floor(Number(session.paused_seconds)));
+    }
+    if (options.isPaused && options.pauseStartedAtMs != null) {
+        pausedSec += (nowMs - options.pauseStartedAtMs) / 1000;
+    }
+    return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+}
+
+/**
  * Format seconds as countdown string (e.g. "05:00" or "1:00:00").
  * @param {number} seconds
  * @returns {string}
