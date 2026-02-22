@@ -12,11 +12,6 @@
     /** @var \Illuminate\Database\Eloquent\Collection<int, \App\Models\Task> $tasks */
     $tasks = $item->tasks ?? collect();
     $totalTasks = (int) ($item->tasks_count ?? $tasks->count());
-    $kindLabel = match ($kind) {
-        'project' => __('Project'),
-        'event' => __('Event'),
-        default => null,
-    };
     $subtasksPanelId = 'subtasks-panel-'.($kind ?? 'item').'-'.$item->id;
 
     $statusClassMap = [
@@ -37,10 +32,10 @@
     })->values()->all();
 @endphp
 
-@if($totalTasks > 0)
 <div
     wire:ignore
     class="mt-1.5 pt-1.5 text-[11px]"
+    style="{{ $totalTasks > 0 ? '' : 'display: none;' }}"
     x-data="{
         isOpen: false,
         tasks: @js($tasksForAlpine),
@@ -49,22 +44,60 @@
         removeErrorToast: @js(__('Could not remove task from :parent. Try again.', ['parent' => $kind === 'project' ? __('project') : __('event')])),
         removeSuccessToast: @js(__('Task removed from :parent.', ['parent' => $kind === 'project' ? __('project') : __('event')])),
         removingTaskIds: new Set(),
+        defaultStatusClass: @js($statusClassMap[TaskStatus::ToDo->value] ?? 'bg-muted text-muted-foreground'),
         get totalCount() { return this.tasks.length; },
         toggle() {
             this.isOpen = !this.isOpen;
         },
+        onSubtaskAdded(detail) {
+            if (!detail || detail.taskId == null) return;
+            const matchesProject = this.parentProperty === 'projectId' && detail.projectId != null && Number(detail.projectId) === Number(this.parentId);
+            const matchesEvent = this.parentProperty === 'eventId' && detail.eventId != null && Number(detail.eventId) === Number(this.parentId);
+            if (!matchesProject && !matchesEvent) return;
+            if (this.tasks.some(t => Number(t.id) === Number(detail.taskId))) return;
+            this.tasks = [...this.tasks, {
+                id: detail.taskId,
+                title: detail.title ?? '',
+                statusLabel: detail.statusLabel ?? '',
+                statusClass: detail.statusClass ?? this.defaultStatusClass,
+            }];
+        },
+        onTaskParentSet(detail) {
+            if (!detail || detail.taskId == null) return;
+            const removedFromThisProject = this.parentProperty === 'projectId' && detail.previousProjectId != null && Number(detail.previousProjectId) === Number(this.parentId);
+            const removedFromThisEvent = this.parentProperty === 'eventId' && detail.previousEventId != null && Number(detail.previousEventId) === Number(this.parentId);
+            if (removedFromThisProject || removedFromThisEvent) {
+                this.tasks = this.tasks.filter(t => Number(t.id) !== Number(detail.taskId));
+            }
+        },
+        onSubtaskUnbound(detail) {
+            if (!detail || detail.taskId == null) return;
+            const unboundFromThisProject = this.parentProperty === 'projectId' && detail.unboundProjectId != null && Number(detail.unboundProjectId) === Number(this.parentId);
+            const unboundFromThisEvent = this.parentProperty === 'eventId' && detail.unboundEventId != null && Number(detail.unboundEventId) === Number(this.parentId);
+            if (unboundFromThisProject || unboundFromThisEvent) {
+                this.tasks = this.tasks.filter(t => Number(t.id) !== Number(detail.taskId));
+            }
+        },
         removeTrashedTask(taskId) {
-            const id = Number(taskId);
-            if (!Number.isFinite(id)) return;
-            this.tasks = this.tasks.filter(t => t.id !== id);
+            if (taskId == null || !Number.isFinite(Number(taskId))) return;
+            this.tasks = this.tasks.filter((t) => Number(t.id) !== Number(taskId));
+        },
+        onTaskStatusUpdated(detail) {
+            if (!detail || detail.itemId == null) return;
+            const id = Number(detail.itemId);
+            this.tasks = this.tasks.map((t) =>
+                Number(t.id) === id
+                    ? { ...t, statusLabel: detail.statusLabel ?? '', statusClass: detail.statusClass ?? this.defaultStatusClass }
+                    : t
+            );
         },
         async removeFromParent(task) {
-            if (this.removingTaskIds?.has(task.id)) return;
-            this.removingTaskIds = this.removingTaskIds || new Set();
+            if (this.removingTaskIds.has(task.id)) return;
             this.removingTaskIds.add(task.id);
-            const snapshot = { ...task };
+            // PHASE 1: Snapshot for rollback
             const tasksBackup = [...this.tasks];
             try {
+                // PHASE 2: Optimistic update – remove from list and notify task card
                 this.tasks = this.tasks.filter(t => t.id !== task.id);
                 window.dispatchEvent(new CustomEvent('workspace-subtask-unbound', {
                     detail: {
@@ -74,10 +107,13 @@
                     },
                     bubbles: true,
                 }));
+                // PHASE 3: Call server asynchronously
                 const promise = $wire.$parent.$call('updateTaskProperty', task.id, this.parentProperty, null, true);
+                // PHASE 4: Handle response
                 await promise;
                 $wire.$dispatch('toast', { type: 'success', message: this.removeSuccessToast });
             } catch (error) {
+                // PHASE 5: Rollback on error
                 this.tasks = tasksBackup;
                 $wire.$dispatch('toast', { type: 'error', message: this.removeErrorToast });
             } finally {
@@ -86,6 +122,10 @@
         },
     }"
     @workspace-subtask-trashed.window="removeTrashedTask($event.detail.taskId)"
+    @workspace-subtask-added.window="onSubtaskAdded($event.detail)"
+    @workspace-task-parent-set.window="onTaskParentSet($event.detail)"
+    @workspace-subtask-unbound.window="onSubtaskUnbound($event.detail)"
+    @task-status-updated.window="onTaskStatusUpdated($event.detail)"
     x-show="tasks.length > 0"
 >
     <button
@@ -152,4 +192,3 @@
         </ul>
     </div>
 </div>
-@endif

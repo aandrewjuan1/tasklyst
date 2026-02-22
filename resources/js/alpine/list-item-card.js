@@ -68,11 +68,117 @@ export function listItemCard(config) {
             );
             this._onSubtaskUnbound = (e) => {
                 const d = e.detail || {};
-                if (this.kind !== 'task' || d.taskId == null || d.taskId !== this.itemId) return;
-                if (d.unboundProjectId != null && d.unboundProjectId === this.itemProjectId) this.showProjectPill = false;
-                if (d.unboundEventId != null && d.unboundEventId === this.itemEventId) this.showEventPill = false;
+                if (this.kind !== 'task' || d.taskId == null || Number(d.taskId) !== Number(this.itemId)) return;
+                if (d.unboundProjectId != null && Number(d.unboundProjectId) === Number(this.itemProjectId)) {
+                    this.showProjectPill = false;
+                    this.itemProjectId = null;
+                    this.itemProjectName = null;
+                }
+                if (d.unboundEventId != null && Number(d.unboundEventId) === Number(this.itemEventId)) {
+                    this.showEventPill = false;
+                    this.itemEventId = null;
+                    this.itemEventTitle = null;
+                }
             };
             window.addEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
+
+            this._onParentSet = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.taskId == null || Number(d.taskId) !== Number(this.itemId)) return;
+                const previousProjectId = this.itemProjectId != null ? this.itemProjectId : null;
+                const previousEventId = this.itemEventId != null ? this.itemEventId : null;
+                if ('projectId' in d) {
+                    this.showProjectPill = d.projectId != null;
+                    this.itemProjectId = d.projectId ?? null;
+                    this.itemProjectName = d.projectName ?? null;
+                }
+                if ('eventId' in d) {
+                    this.showEventPill = d.eventId != null;
+                    this.itemEventId = d.eventId ?? null;
+                    this.itemEventTitle = d.eventTitle ?? null;
+                }
+                if ('projectId' in d && previousProjectId != null && (d.projectId == null || d.projectId === undefined)) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-subtask-unbound', {
+                            detail: {
+                                taskId: this.itemId,
+                                unboundProjectId: previousProjectId,
+                                unboundEventId: null,
+                            },
+                            bubbles: true,
+                        })
+                    );
+                }
+                if ('eventId' in d && previousEventId != null && (d.eventId == null || d.eventId === undefined)) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-subtask-unbound', {
+                            detail: {
+                                taskId: this.itemId,
+                                unboundProjectId: null,
+                                unboundEventId: previousEventId,
+                            },
+                            bubbles: true,
+                        })
+                    );
+                }
+                // Notify parent subtasks so they can add this task to their list (optimistic)
+                if (d.projectId != null || d.eventId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-subtask-added', {
+                            detail: {
+                                taskId: this.itemId,
+                                projectId: d.projectId ?? null,
+                                projectName: d.projectName ?? null,
+                                eventId: d.eventId ?? null,
+                                eventTitle: d.eventTitle ?? null,
+                                title: this.editedTitle ?? '',
+                                statusLabel: this.taskStatusLabel ?? '',
+                                statusClass: this.taskStatusClass ?? 'bg-muted text-muted-foreground',
+                            },
+                            bubbles: true,
+                        })
+                    );
+                }
+            };
+            window.addEventListener('workspace-task-parent-set', this._onParentSet);
+
+            this._onProjectNameUpdated = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.projectId == null) return;
+                if (Number(d.projectId) === Number(this.itemProjectId)) {
+                    this.itemProjectName = d.name ?? null;
+                }
+            };
+            this._onEventTitleUpdated = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.eventId == null) return;
+                if (Number(d.eventId) === Number(this.itemEventId)) {
+                    this.itemEventTitle = d.title ?? null;
+                }
+            };
+            window.addEventListener('workspace-project-name-updated', this._onProjectNameUpdated);
+            window.addEventListener('workspace-event-title-updated', this._onEventTitleUpdated);
+
+            this._onProjectTrashed = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.projectId == null) return;
+                if (Number(d.projectId) === Number(this.itemProjectId)) {
+                    this.showProjectPill = false;
+                    this.itemProjectId = null;
+                    this.itemProjectName = null;
+                }
+            };
+            this._onEventTrashed = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.eventId == null) return;
+                if (Number(d.eventId) === Number(this.itemEventId)) {
+                    this.showEventPill = false;
+                    this.itemEventId = null;
+                    this.itemEventTitle = null;
+                }
+            };
+            window.addEventListener('workspace-project-trashed', this._onProjectTrashed);
+            window.addEventListener('workspace-event-trashed', this._onEventTrashed);
         },
         /** Focus first focusable element in the modal (a11y). */
         focusFirstInModal() {
@@ -390,6 +496,21 @@ export function listItemCard(config) {
 
             return false;
         },
+        rollbackDeleteItem(snapshot, wasOverdue) {
+            this.hideCard = snapshot.hideCard;
+            this.focusReady = snapshot.focusReady;
+            this.activeFocusSession = snapshot.activeFocusSession;
+            if (snapshot.activeFocusSession) {
+                this.dispatchFocusSessionUpdated(snapshot.activeFocusSession);
+            }
+            this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
+            window.dispatchEvent(
+                new CustomEvent('workspace-item-trashed-rollback', {
+                    detail: { kind: this.kind, id: this.itemId },
+                    bubbles: true,
+                })
+            );
+        },
         async deleteItem() {
             if (!this.canDelete || this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
 
@@ -415,6 +536,34 @@ export function listItemCard(config) {
                         })
                     );
                 }
+                if (this.kind === 'project' && this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-project-trashed', {
+                            detail: { projectId: this.itemId },
+                            bubbles: true,
+                        })
+                    );
+                }
+                if (this.kind === 'event' && this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-event-trashed', {
+                            detail: { eventId: this.itemId },
+                            bubbles: true,
+                        })
+                    );
+                }
+                // Notify trash popover so it can add the item to its list (optimistic)
+                window.dispatchEvent(
+                    new CustomEvent('workspace-item-trashed', {
+                        detail: {
+                            kind: this.kind,
+                            id: this.itemId,
+                            title: this.editedTitle ?? '',
+                            deleted_at_display: 'Just now',
+                        },
+                        bubbles: true,
+                    })
+                );
 
                 // PHASE 3: Call server asynchronously
                 const promise = this.$wire.$parent.$call(this.deleteMethod, this.itemId);
@@ -422,25 +571,11 @@ export function listItemCard(config) {
                 // PHASE 4: Handle response
                 const ok = await promise;
                 if (!ok) {
-                    // PHASE 5: Rollback on error
-                    this.hideCard = snapshot.hideCard;
-                    this.focusReady = snapshot.focusReady;
-                    this.activeFocusSession = snapshot.activeFocusSession;
-                    if (snapshot.activeFocusSession) {
-                        this.dispatchFocusSessionUpdated(snapshot.activeFocusSession);
-                    }
-                    this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
+                    this.rollbackDeleteItem(snapshot, wasOverdue);
                     this.$wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
                 }
             } catch (e) {
-                // PHASE 5: Rollback on error
-                this.hideCard = snapshot.hideCard;
-                this.focusReady = snapshot.focusReady;
-                this.activeFocusSession = snapshot.activeFocusSession;
-                if (snapshot.activeFocusSession) {
-                    this.dispatchFocusSessionUpdated(snapshot.activeFocusSession);
-                }
-                this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
+                this.rollbackDeleteItem(snapshot, wasOverdue);
                 this.$wire.$dispatch('toast', { type: 'error', message: this.deleteErrorToast });
             } finally {
                 this.deletingInProgress = false;
@@ -568,6 +703,22 @@ export function listItemCard(config) {
                 } else {
                     this.isEditingTitle = false;
                     this.titleSnapshot = null;
+                    if (this.kind === 'project' && this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-project-name-updated', {
+                                detail: { projectId: this.itemId, name: trimmedTitle },
+                                bubbles: true,
+                            })
+                        );
+                    }
+                    if (this.kind === 'event' && this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-event-title-updated', {
+                                detail: { eventId: this.itemId, title: trimmedTitle },
+                                bubbles: true,
+                            })
+                        );
+                    }
                 }
             } catch (error) {
                 this.editedTitle = snapshot;
@@ -748,6 +899,21 @@ export function listItemCard(config) {
         destroy() {
             if (this._onSubtaskUnbound) {
                 window.removeEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
+            }
+            if (this._onParentSet) {
+                window.removeEventListener('workspace-task-parent-set', this._onParentSet);
+            }
+            if (this._onProjectNameUpdated) {
+                window.removeEventListener('workspace-project-name-updated', this._onProjectNameUpdated);
+            }
+            if (this._onEventTitleUpdated) {
+                window.removeEventListener('workspace-event-title-updated', this._onEventTitleUpdated);
+            }
+            if (this._onProjectTrashed) {
+                window.removeEventListener('workspace-project-trashed', this._onProjectTrashed);
+            }
+            if (this._onEventTrashed) {
+                window.removeEventListener('workspace-event-trashed', this._onEventTrashed);
             }
             if (this.itemId != null && window.Alpine?.store) {
                 const store = window.Alpine.store('listItemCards');

@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\Event;
+use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
 use App\ViewModels\ListItemCardViewModel;
@@ -85,4 +87,68 @@ it('accepts collection for availableTags and normalizes to array', function () {
     $data = $vm->viewData();
     expect($data['availableTags'])->toBeArray();
     expect($data['availableTags'])->toHaveCount(1);
+});
+
+it('hides project and event pills when parent project or event is trashed', function () {
+    $this->actingAs($this->user);
+    $project = Project::factory()->for($this->user)->create(['name' => 'My Project']);
+    $event = Event::factory()->for($this->user)->create(['title' => 'My Event']);
+    $task = Task::factory()->for($this->user)->create([
+        'title' => 'Subtask',
+        'project_id' => $project->id,
+        'event_id' => $event->id,
+    ]);
+    $project->delete();
+    $event->delete();
+    $task->refresh();
+    expect($task->project_id)->toBe($project->id);
+    expect($task->event_id)->toBe($event->id);
+    expect($task->project)->toBeNull();
+    expect($task->event)->toBeNull();
+
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+    $config = $vm->alpineConfig();
+
+    expect($config['showProjectPill'])->toBeFalse();
+    expect($config['showEventPill'])->toBeFalse();
+    expect($config['itemProjectName'])->toBeNull();
+    expect($config['itemEventTitle'])->toBeNull();
+});
+
+it('shows project and event pills when parents exist and are not trashed', function () {
+    $this->actingAs($this->user);
+    $project = Project::factory()->for($this->user)->create(['name' => 'My Project']);
+    $event = Event::factory()->for($this->user)->create(['title' => 'My Event']);
+    $task = Task::factory()->for($this->user)->create([
+        'title' => 'Subtask',
+        'project_id' => $project->id,
+        'event_id' => $event->id,
+    ]);
+    $task->load(['project', 'event']);
+
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+    $config = $vm->alpineConfig();
+
+    expect($config['showProjectPill'])->toBeTrue();
+    expect($config['showEventPill'])->toBeTrue();
+    expect($config['itemProjectName'])->toBe('My Project');
+    expect($config['itemEventTitle'])->toBe('My Event');
 });

@@ -353,6 +353,16 @@
 
                 $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
 
+                if (property === 'status') {
+                    const opt = this.getOption(this.statusOptions, value);
+                    $dispatch('task-status-updated', {
+                        itemId: this.itemId,
+                        status: value,
+                        statusLabel: opt?.label ?? '',
+                        statusClass: opt ? 'bg-' + opt.color + '/10 text-' + opt.color : 'bg-muted text-muted-foreground',
+                    });
+                }
+
                 const occurrenceDate = (property === 'status' && this.isRecurringTask && this.listFilterDate) ? this.listFilterDate : null;
                 const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
                 if (!ok) {
@@ -363,6 +373,15 @@
                     this.startDatetime = snapshot.startDatetime;
                     this.endDatetime = snapshot.endDatetime;
                     this.recurrence = snapshot.recurrence;
+                    if (property === 'status') {
+                        const rollbackOpt = this.getOption(this.statusOptions, snapshot.status);
+                        $dispatch('task-status-updated', {
+                            itemId: this.itemId,
+                            status: snapshot.status,
+                            statusLabel: rollbackOpt?.label ?? '',
+                            statusClass: rollbackOpt ? 'bg-' + rollbackOpt.color + '/10 text-' + rollbackOpt.color : 'bg-muted text-muted-foreground',
+                        });
+                    }
                     $dispatch('item-update-rollback');
                     $wire.$dispatch('toast', { type: 'error', message: this.editErrorToast });
                     return false;
@@ -379,6 +398,15 @@
                 this.startDatetime = snapshot.startDatetime;
                 this.endDatetime = snapshot.endDatetime;
                 this.recurrence = snapshot.recurrence;
+                if (property === 'status') {
+                    const rollbackOpt = this.getOption(this.statusOptions, snapshot.status);
+                    $dispatch('task-status-updated', {
+                        itemId: this.itemId,
+                        status: snapshot.status,
+                        statusLabel: rollbackOpt?.label ?? '',
+                        statusClass: rollbackOpt ? 'bg-' + rollbackOpt.color + '/10 text-' + rollbackOpt.color : 'bg-muted text-muted-foreground',
+                    });
+                }
                 $dispatch('item-update-rollback');
                 $wire.$dispatch('toast', { type: 'error', message: err.message || this.editErrorToast });
                 return false;
@@ -772,31 +800,89 @@
     @endunless
 </div>
 
-<span
-    x-show="kind === 'task' && showProjectPill"
-    x-cloak
-    class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300"
->
-    <flux:icon name="folder" class="size-3" />
-    <span class="inline-flex items-baseline gap-1">
-        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-90">
-            {{ __('Project') }}:
+@if($canEdit)
+    <x-workspace.project-parent-popover
+        :task-id="$item->id"
+        :current-project-id="$item->project_id"
+        :current-project-name="$item->project?->name"
+    >
+        <span
+            x-show="kind === 'task'"
+            class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300"
+        >
+            <flux:icon name="folder" class="size-3" />
+            <span
+                class="inline-flex items-baseline gap-1"
+                style="{{ ($item->project_id && $item->project) ? '' : 'display: none;' }}"
+                x-show="showProjectPill"
+            >
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-90">{{ __('Project') }}:</span>
+                <span class="truncate max-w-[120px] uppercase" x-text="itemProjectName ?? ''">{{ $item->project?->name ?? '' }}</span>
+            </span>
+            <span
+                class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-90"
+                style="{{ ($item->project_id && $item->project) ? 'display: none;' : '' }}"
+                x-show="!showProjectPill"
+            >
+                {{ __('Put in project') }}
+            </span>
         </span>
-        <span class="truncate max-w-[120px] uppercase">{{ $item->project?->name ?? '' }}</span>
-    </span>
-</span>
+    </x-workspace.project-parent-popover>
 
-<span
-    x-show="kind === 'task' && showEventPill"
-    x-cloak
-    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500 dark:border-white/10"
->
-    <flux:icon name="calendar" class="size-3" />
-    <span class="inline-flex items-baseline gap-1">
-        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-            {{ __('Event') }}:
+    <x-workspace.event-parent-popover
+        :task-id="$item->id"
+        :current-event-id="$item->event_id"
+        :current-event-title="$item->event?->title"
+    >
+        <span
+            x-show="kind === 'task'"
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500 dark:border-white/10"
+        >
+            <flux:icon name="calendar" class="size-3" />
+            <span
+                class="inline-flex items-baseline gap-1"
+                style="{{ ($item->event_id && $item->event) ? '' : 'display: none;' }}"
+                x-show="showEventPill"
+            >
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Event') }}:</span>
+                <span class="truncate max-w-[120px] uppercase" x-text="itemEventTitle ?? ''">{{ $item->event?->title ?? '' }}</span>
+            </span>
+            <span
+                class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-70"
+                style="{{ ($item->event_id && $item->event) ? 'display: none;' : '' }}"
+                x-show="!showEventPill"
+            >
+                {{ __('Put in event') }}
+            </span>
         </span>
-        <span class="truncate max-w-[120px] uppercase">{{ $item->event?->title ?? '' }}</span>
+    </x-workspace.event-parent-popover>
+@else
+    <span
+        x-show="kind === 'task' && showProjectPill"
+        x-cloak
+        class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300"
+    >
+        <flux:icon name="folder" class="size-3" />
+        <span class="inline-flex items-baseline gap-1">
+            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-90">
+                {{ __('Project') }}:
+            </span>
+            <span class="truncate max-w-[120px] uppercase">{{ $item->project?->name ?? '' }}</span>
+        </span>
     </span>
-</span>
+
+    <span
+        x-show="kind === 'task' && showEventPill"
+        x-cloak
+        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500 dark:border-white/10"
+    >
+        <flux:icon name="calendar" class="size-3" />
+        <span class="inline-flex items-baseline gap-1">
+            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                {{ __('Event') }}:
+            </span>
+            <span class="truncate max-w-[120px] uppercase">{{ $item->event?->title ?? '' }}</span>
+        </span>
+    </span>
+@endif
 

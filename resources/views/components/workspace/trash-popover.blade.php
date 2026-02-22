@@ -32,6 +32,26 @@
         itemKey(item) {
             return item.kind + '-' + item.id;
         },
+        addTrashedItem(detail) {
+            if (!detail || detail.kind == null || detail.id == null) return;
+            const key = detail.kind + '-' + detail.id;
+            if (this.items.some((i) => this.itemKey(i) === key)) return;
+            this.items = [
+                {
+                    kind: detail.kind,
+                    id: detail.id,
+                    title: detail.title ?? '',
+                    deleted_at: detail.deleted_at ?? new Date().toISOString(),
+                    deleted_at_display: detail.deleted_at_display ?? 'Just now',
+                },
+                ...this.items,
+            ];
+        },
+        removeTrashedItemRollback(detail) {
+            if (!detail || detail.kind == null || detail.id == null) return;
+            const key = detail.kind + '-' + detail.id;
+            this.items = this.items.filter((i) => this.itemKey(i) !== key);
+        },
         isSelected(item) {
             return this.selectedIds.includes(this.itemKey(item));
         },
@@ -294,6 +314,8 @@
     }"
     @keydown.escape.prevent.stop="close($refs.trigger)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.trigger)"
+    @workspace-item-trashed.window="addTrashedItem($event.detail)"
+    @workspace-item-trashed-rollback.window="removeTrashedItemRollback($event.detail)"
     class="relative"
 >
     @isset($trigger)

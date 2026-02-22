@@ -528,6 +528,36 @@ trait HandlesEvents
     }
 
     /**
+     * Load events for parent selection (e.g. "Put task in event" popover).
+     * No date filter; returns all non-cancelled events for the user.
+     *
+     * @return array{items: array<int, array{id: int, title: string}>, hasMore: bool}
+     */
+    public function loadEventsForParentSelection(?int $cursorId = null, int $limit = 50): array
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return ['items' => [], 'hasMore' => false];
+        }
+
+        $query = Event::query()
+            ->forUser($userId)
+            ->notCancelled()
+            ->orderBy('title')
+            ->limit($limit + 1);
+
+        if ($cursorId !== null) {
+            $query->where('id', '>', $cursorId);
+        }
+
+        $events = $query->get(['id', 'title']);
+        $hasMore = $events->count() > $limit;
+        $items = $events->take($limit)->map(fn (Event $e) => ['id' => $e->id, 'title' => $e->title])->values()->all();
+
+        return ['items' => $items, 'hasMore' => $hasMore];
+    }
+
+    /**
      * Skip a recurring event occurrence (create an event exception for the given date).
      * Returns the exception id on success, null on validation/authorization/failure.
      *
