@@ -54,6 +54,7 @@
         logs: @js($logsForJs),
         loggableType: @js($loggableType),
         loggableId: @js($item->id),
+        kind: @js(strtolower((string) ($kind ?? ''))),
         loadingMore: false,
         hasMore: @js($initialHasMore),
         loadMoreErrorToast: @js(__('Could not load more activity. Please try again.')),
@@ -172,7 +173,7 @@
     @keydown.escape.prevent.stop="close($refs.button)"
     @focusin.window="handleWindowFocus($event)"
     @workspace-open-activity-logs.window="
-        if ($event.detail && Number($event.detail.id ?? null) === Number(loggableId)) {
+        if ($event.detail && Number($event.detail.id ?? null) === Number(loggableId) && (!$event.detail.kind || $event.detail.kind === kind)) {
             openFromMenu();
         }
     "

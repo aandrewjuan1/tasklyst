@@ -73,6 +73,7 @@
     // Initial month/year for Alpine.js (0-indexed month for JavaScript)
     $initialMonth = $currentMonth - 1; // JavaScript months are 0-indexed
     $initialYear = $currentYear;
+    $initialMonthLabel = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y');
 @endphp
 
 <div
@@ -204,8 +205,8 @@
             this.buildDays();
         },
         
-        monthLabel: '',
-        monthLabelCache: null,
+        monthLabel: @js($initialMonthLabel),
+        monthLabelCache: @js($initialYear . '-' . $initialMonth),
         
         updateMonthLabel() {
             const cacheKey = `${this.year}-${this.month}`;
@@ -260,12 +261,9 @@
                 </svg>
             </button>
 
-            {{-- Month/Year Display --}}
+            {{-- Month/Year Display: single element so "Month Year" is not shown twice before Alpine hydrates --}}
             <div class="text-center">
-                <h2 class="text-sm font-semibold text-foreground tabular-nums sm:text-base" x-text="monthLabel" x-show="alpineReady">
-                    {{ \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y') }}
-                </h2>
-                <h2 class="text-sm font-semibold text-foreground tabular-nums sm:text-base" x-show="!alpineReady">
+                <h2 class="text-sm font-semibold text-foreground tabular-nums sm:text-base" x-text="monthLabel">
                     {{ \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y') }}
                 </h2>
             </div>
