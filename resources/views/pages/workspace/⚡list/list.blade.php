@@ -669,7 +669,7 @@
     @endphp
     <div class="relative z-10">
         <flux:dropdown position="right" align="start">
-            <flux:button icon:trailing="plus-circle" data-item-creation-safe>
+            <flux:button icon:trailing="plus-circle" data-item-creation-safe x-bind:disabled="showItemLoading">
                 {{ __('Add') }}
             </flux:button>
 

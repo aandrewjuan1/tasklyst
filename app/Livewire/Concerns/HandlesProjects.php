@@ -368,4 +368,34 @@ trait HandlesProjects
 
         return $projects->take($visibleLimit);
     }
+
+    /**
+     * Load projects for parent selection (e.g. "Put task in project" popover).
+     * No date filter; returns all non-archived projects for the user.
+     *
+     * @return array{items: array<int, array{id: int, name: string}>, hasMore: bool}
+     */
+    public function loadProjectsForParentSelection(?int $cursorId = null, int $limit = 50): array
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return ['items' => [], 'hasMore' => false];
+        }
+
+        $query = Project::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->orderBy('name')
+            ->limit($limit + 1);
+
+        if ($cursorId !== null) {
+            $query->where('id', '>', $cursorId);
+        }
+
+        $projects = $query->get(['id', 'name']);
+        $hasMore = $projects->count() > $limit;
+        $items = $projects->take($limit)->map(fn (Project $p) => ['id' => $p->id, 'name' => $p->name])->values()->all();
+
+        return ['items' => $items, 'hasMore' => $hasMore];
+    }
 }
