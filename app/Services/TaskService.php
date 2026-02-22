@@ -396,56 +396,8 @@ class TaskService
     }
 
     /**
-     * Get subtasks of the given parent task.
-     * When date is provided, filters by relevantForDate and processes recurrence; otherwise returns all subtasks.
-     *
-     * @param  array{limit?: int}  $options
-     * @return Collection<int, Task>
-     */
-    public function getSubtasksOf(Task $parent, int $userId, ?CarbonInterface $date = null, array $options = []): Collection
-    {
-        $limit = $options['limit'] ?? 500;
-
-        $query = Task::query()
-            ->with([
-                'project',
-                'event',
-                'user',
-                'recurringTask',
-                'tags',
-                'collaborations',
-                'collaborators',
-                'collaborationInvitations.invitee',
-            ])
-            ->withRecentComments(5)
-            ->withCount('comments')
-            ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
-            ->forUser($userId)
-            ->subtasksOf($parent)
-            ->orderBy('id')
-            ->limit($limit);
-
-        if ($date !== null) {
-            $query->relevantForDate($date);
-        }
-
-        $tasks = $query->get();
-
-        if ($date !== null) {
-            return $this->processRecurringTasksForDate($tasks, $date);
-        }
-
-        return $tasks->map(function (Task $task): Task {
-            $task->effectiveStatusForDate = $this->getEffectiveStatusForDate($task, now());
-
-            return $task;
-        })->values();
-    }
-
-    /**
      * Base query for task list (workspace-style: eager loads, forUser, relevantForDate).
-     * Caller should apply forProject/forEvent/subtasksOf and order/limit.
+     * Caller should apply forProject/forEvent and order/limit.
      */
     private function taskListBaseQuery(int $userId, CarbonInterface $date): \Illuminate\Database\Eloquent\Builder
     {

@@ -66,13 +66,6 @@ trait HandlesTasks
 
         $validatedTask = $validated['taskPayload'];
 
-        $nestedError = TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validatedTask);
-        if ($nestedError !== null) {
-            $this->dispatch('toast', type: 'error', message: $nestedError);
-
-            return;
-        }
-
         $projectId = $validatedTask['projectId'] ?? null;
         if ($projectId !== null) {
             $project = Project::query()->forUser($user->id)->find((int) $projectId);
@@ -93,17 +86,6 @@ trait HandlesTasks
                 return;
             }
             $this->authorize('update', $event);
-        }
-
-        $parentTaskId = $validatedTask['parentTaskId'] ?? null;
-        if ($parentTaskId !== null) {
-            $parentTask = Task::query()->forUser($user->id)->find((int) $parentTaskId);
-            if ($parentTask === null) {
-                $this->dispatch('toast', type: 'error', message: __('Parent task not found.'));
-
-                return;
-            }
-            $this->authorize('update', $parentTask);
         }
 
         if (($validatedTask['pendingTagNames'] ?? []) !== []) {
@@ -341,16 +323,6 @@ trait HandlesTasks
             $this->authorize('update', $event);
         }
 
-        if ($property === 'parentTaskId' && $validatedValue !== null) {
-            $parentTask = Task::query()->forUser($user->id)->find((int) $validatedValue);
-            if ($parentTask === null) {
-                $this->dispatch('toast', type: 'error', message: __('Parent task not found.'));
-
-                return false;
-            }
-            $this->authorize('update', $parentTask);
-        }
-
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Validation passed, calling action', [
                 'task_id' => $taskId,
@@ -481,12 +453,6 @@ trait HandlesTasks
             if ($event !== null) {
                 $this->authorize('view', $event);
                 $taskQuery->forEvent($event);
-            }
-        } elseif (property_exists($this, 'listContextParentTaskId') && $this->listContextParentTaskId !== null && $this->listContextParentTaskId !== '') {
-            $parentTask = Task::query()->forUser($userId)->find((int) $this->listContextParentTaskId);
-            if ($parentTask !== null) {
-                $this->authorize('view', $parentTask);
-                $taskQuery->subtasksOf($parentTask);
             }
         }
 

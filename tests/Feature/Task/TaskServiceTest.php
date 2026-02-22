@@ -509,16 +509,3 @@ test('get tasks for event returns only tasks in that event for date', function (
     expect($tasks->pluck('id')->all())->toContain($inEvent->id)
         ->and($tasks->pluck('id')->all())->not->toContain($other->id);
 });
-
-test('get subtasks of returns only subtasks of that parent', function (): void {
-    $parent = Task::factory()->for($this->user)->create(['title' => 'Parent']);
-    $sub1 = Task::factory()->for($this->user)->create(['parent_task_id' => $parent->id]);
-    $sub2 = Task::factory()->for($this->user)->create(['parent_task_id' => $parent->id]);
-    $root = Task::factory()->for($this->user)->create(['parent_task_id' => null]);
-
-    $tasks = $this->service->getSubtasksOf($parent, $this->user->id, null);
-
-    expect($tasks)->toHaveCount(2)
-        ->and($tasks->pluck('id')->all())->toEqualCanonicalizing([$sub1->id, $sub2->id])
-        ->and($tasks->pluck('id')->all())->not->toContain($root->id);
-});

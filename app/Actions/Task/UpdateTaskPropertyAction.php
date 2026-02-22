@@ -184,56 +184,6 @@ class UpdateTaskPropertyAction
     {
         $column = Task::propertyToColumn($property);
 
-        if ($column === 'parent_task_id' && $validatedValue !== null && (int) $validatedValue === (int) $task->id) {
-            return UpdateTaskPropertyResult::failure(
-                $task->parent_task_id,
-                $validatedValue,
-                __('A task cannot be its own parent.')
-            );
-        }
-
-        if ($column === 'parent_task_id' && $validatedValue !== null) {
-            $parent = Task::query()->find((int) $validatedValue);
-            if ($parent !== null) {
-                if ($task->project_id !== null && (int) $task->project_id !== (int) $parent->project_id) {
-                    return UpdateTaskPropertyResult::failure(
-                        $task->parent_task_id,
-                        $validatedValue,
-                        __('A subtask’s project must match the parent task’s project or be empty.')
-                    );
-                }
-                if ($task->event_id !== null && (int) $task->event_id !== (int) $parent->event_id) {
-                    return UpdateTaskPropertyResult::failure(
-                        $task->parent_task_id,
-                        $validatedValue,
-                        __('A subtask’s event must match the parent task’s event or be empty.')
-                    );
-                }
-            }
-        }
-
-        if ($column === 'project_id' && $task->parent_task_id !== null) {
-            $parent = $task->parentTask ?? Task::query()->find($task->parent_task_id);
-            if ($parent !== null && $validatedValue !== null && (int) $validatedValue !== (int) $parent->project_id) {
-                return UpdateTaskPropertyResult::failure(
-                    $task->project_id,
-                    $validatedValue,
-                    __('A subtask’s project must match the parent task’s project or be empty.')
-                );
-            }
-        }
-
-        if ($column === 'event_id' && $task->parent_task_id !== null) {
-            $parent = $task->parentTask ?? Task::query()->find($task->parent_task_id);
-            if ($parent !== null && $validatedValue !== null && (int) $validatedValue !== (int) $parent->event_id) {
-                return UpdateTaskPropertyResult::failure(
-                    $task->event_id,
-                    $validatedValue,
-                    __('A subtask’s event must match the parent task’s event or be empty.')
-                );
-            }
-        }
-
         $oldValue = $task->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];

@@ -250,30 +250,8 @@ test('get property value for update returns correct value for enums and dates', 
         ->and($task->getPropertyValueForUpdate('title'))->toBe('Test Task');
 });
 
-test('task can belong to parent task and have subtasks', function (): void {
-    $parent = Task::factory()->for($this->owner)->create(['title' => 'Parent']);
-    $child1 = Task::factory()->for($this->owner)->create(['title' => 'Child 1', 'parent_task_id' => $parent->id]);
-    $child2 = Task::factory()->for($this->owner)->create(['title' => 'Child 2', 'parent_task_id' => $parent->id]);
-
-    expect($parent->subtasks)->toHaveCount(2)
-        ->and($child1->parentTask->id)->toBe($parent->id)
-        ->and($child2->parentTask->id)->toBe($parent->id)
-        ->and($parent->parentTask)->toBeNull();
-});
-
-test('scope root tasks returns only top-level tasks', function (): void {
-    $root = Task::factory()->for($this->owner)->create(['title' => 'Root', 'parent_task_id' => null]);
-    Task::factory()->for($this->owner)->create(['title' => 'Sub', 'parent_task_id' => $root->id]);
-
-    $rootTasks = Task::query()->forUser($this->owner->id)->rootTasks()->get();
-
-    expect($rootTasks)->toHaveCount(1)
-        ->and($rootTasks->first()->id)->toBe($root->id);
-});
-
-test('property to column maps parent task id project id and event id', function (): void {
-    expect(Task::propertyToColumn('parentTaskId'))->toBe('parent_task_id')
-        ->and(Task::propertyToColumn('projectId'))->toBe('project_id')
+test('property to column maps project id and event id', function (): void {
+    expect(Task::propertyToColumn('projectId'))->toBe('project_id')
         ->and(Task::propertyToColumn('eventId'))->toBe('event_id');
 });
 
@@ -309,16 +287,4 @@ test('scope for event returns only tasks in that event', function (): void {
 
     expect($tasks)->toHaveCount(1)
         ->and($tasks->first()->id)->toBe($inA->id);
-});
-
-test('scope subtasks of returns only subtasks of that parent', function (): void {
-    $parent = Task::factory()->for($this->owner)->create(['title' => 'Parent']);
-    $sub1 = Task::factory()->for($this->owner)->create(['parent_task_id' => $parent->id]);
-    $sub2 = Task::factory()->for($this->owner)->create(['parent_task_id' => $parent->id]);
-    Task::factory()->for($this->owner)->create(['parent_task_id' => null]);
-
-    $tasks = Task::query()->forUser($this->owner->id)->subtasksOf($parent)->get();
-
-    expect($tasks)->toHaveCount(2)
-        ->and($tasks->pluck('id')->all())->toEqualCanonicalizing([$sub1->id, $sub2->id]);
 });
