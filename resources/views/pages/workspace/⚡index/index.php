@@ -91,6 +91,24 @@ class extends Component
     public int $listRefresh = 0;
 
     /**
+     * Optional list context: when set, task list shows only tasks in this project.
+     * Authorized in HandlesTasks::tasks() before applying scope.
+     */
+    public ?int $listContextProjectId = null;
+
+    /**
+     * Optional list context: when set, task list shows only tasks in this event.
+     * Authorized in HandlesTasks::tasks() before applying scope.
+     */
+    public ?int $listContextEventId = null;
+
+    /**
+     * Optional list context: when set, task list shows only subtasks of this task.
+     * Authorized in HandlesTasks::tasks() before applying scope.
+     */
+    public ?int $listContextParentTaskId = null;
+
+    /**
      * Cached parsed date to avoid parsing multiple times.
      * Cleared when selectedDate changes.
      */

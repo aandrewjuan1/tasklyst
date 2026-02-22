@@ -3,7 +3,7 @@
  * and performs all focus/pomodoro actions. Keeps list-item-card.js thin.
  */
 
-import { parseFocusStartedAt, formatFocusCountdown } from '../lib/focus-time.js';
+import { parseFocusStartedAt, formatFocusCountdown, getFocusRemainingSeconds } from '../lib/focus-time.js';
 import {
     getPomodoroSettingsPayload,
     predictNextPomodoroSessionInfo,
@@ -13,24 +13,14 @@ export function isTempSessionId(id) {
     return id != null && String(id).startsWith('temp-');
 }
 
-/** Compute remaining seconds without touching reactive state (for ticker interval). */
+/** Compute remaining seconds using shared helper (for ticker and pause/resume). */
 function getRemainingSecondsAt(ctx, nowMs) {
     if ((!ctx.isFocused && !ctx.isBreakFocused) || !ctx.activeFocusSession?.started_at || !ctx.activeFocusSession?.duration_seconds) return 0;
-    const startedMs = parseFocusStartedAt(ctx.activeFocusSession.started_at);
-    if (!Number.isFinite(startedMs)) return 0;
-    const durationSec = Number(ctx.activeFocusSession.duration_seconds);
-    const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
-    let pausedSec = ctx.focusPausedSecondsAccumulated;
-    if (ctx.activeFocusSession.paused_at) {
-        const pausedAtMs = parseFocusStartedAt(ctx.activeFocusSession.paused_at);
-        if (Number.isFinite(pausedAtMs)) pausedSec += (nowMs - pausedAtMs) / 1000;
-    } else if (pausedSec === 0 && ctx.activeFocusSession.paused_seconds != null && Number.isFinite(Number(ctx.activeFocusSession.paused_seconds))) {
-        pausedSec = Math.max(0, Math.floor(Number(ctx.activeFocusSession.paused_seconds)));
-    }
-    if (ctx.focusIsPaused && ctx.focusPauseStartedAt) {
-        pausedSec += (nowMs - ctx.focusPauseStartedAt) / 1000;
-    }
-    return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+    return getFocusRemainingSeconds(ctx.activeFocusSession, nowMs, {
+        pausedSecondsAccumulated: ctx.focusPausedSecondsAccumulated,
+        isPaused: ctx.focusIsPaused,
+        pauseStartedAtMs: ctx.focusPauseStartedAt ?? null,
+    });
 }
 
 const POMODORO_SAVE_DEBOUNCE_MS = 400;
@@ -171,14 +161,12 @@ export function createFocusSessionController() {
             ensureGlobalEscapeHandler();
             ctx.sessionComplete = false;
             ctx.focusTickerNow = Date.now();
-            ctx._lastDisplayUpdate = 0;
             const initialRemaining = ctx.focusRemainingSeconds;
             const initialDuration = Number(ctx.activeFocusSession?.duration_seconds ?? 0);
             ctx.focusElapsedPercentValue = initialDuration > 0
                 ? Math.min(100, Math.max(0, ((initialDuration - initialRemaining) / initialDuration) * 100))
                 : 0;
             ctx.focusCountdownText = formatFocusCountdown(initialRemaining);
-            ctx.focusProgressStyle = `width: ${ctx.focusElapsedPercentValue}%; min-width: ${ctx.focusElapsedPercentValue > 0 ? '2px' : '0'}`;
             const tickMs = 1000;
             ctx.focusIntervalId = setInterval(() => {
                 if (ctx.focusIsPaused) return;
@@ -188,13 +176,9 @@ export function createFocusSessionController() {
                 const pct = duration > 0
                     ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))
                     : 0;
-                ctx._lastDisplayUpdate = now;
                 ctx.focusTickerNow = now;
-                requestAnimationFrame(() => {
-                    ctx.focusElapsedPercentValue = pct;
-                    ctx.focusCountdownText = formatFocusCountdown(remaining);
-                    ctx.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
-                });
+                ctx.focusElapsedPercentValue = pct;
+                ctx.focusCountdownText = formatFocusCountdown(remaining);
                 if (remaining <= 0) {
                     ctx.sessionComplete = true;
                     const pausedSeconds = ctx.getFocusPausedSecondsTotal();
@@ -232,7 +216,6 @@ export function createFocusSessionController() {
             ctx.focusPauseStartedAt = null;
             ctx.focusPausedSecondsAccumulated = 0;
             ctx.focusCountdownText = '';
-            ctx.focusProgressStyle = 'width: 0%; min-width: 0';
         },
 
         dismissCompletedFocus(ctx) {
@@ -708,11 +691,10 @@ export function createFocusSessionController() {
                 ctx.focusIsPaused = true;
                 ctx.focusPauseStartedAt = Date.now();
                 ctx.focusTickerNow = Date.now();
-                const remaining = ctx.focusRemainingSeconds;
-                ctx.focusElapsedPercentValue = ctx.focusElapsedPercent;
+                const remaining = getRemainingSecondsAt(ctx, Date.now());
+                const duration = Number(ctx.activeFocusSession?.duration_seconds ?? 0);
+                ctx.focusElapsedPercentValue = duration > 0 ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100)) : 0;
                 ctx.focusCountdownText = formatFocusCountdown(remaining);
-                const pct = ctx.focusElapsedPercentValue;
-                ctx.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
                 if (sessionId != null && !isTempSessionId(sessionId)) {
                     const ok = await ctx.$wire.$parent.$call('pauseFocusSession', sessionId);
                     if (ok === false) {
@@ -746,11 +728,10 @@ export function createFocusSessionController() {
                 ctx.focusPauseStartedAt = null;
                 ctx.focusIsPaused = false;
                 ctx.focusTickerNow = Date.now();
-                const remaining = ctx.focusRemainingSeconds;
-                ctx.focusElapsedPercentValue = ctx.focusElapsedPercent;
+                const remaining = getRemainingSecondsAt(ctx, Date.now());
+                const duration = Number(ctx.activeFocusSession?.duration_seconds ?? 0);
+                ctx.focusElapsedPercentValue = duration > 0 ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100)) : 0;
                 ctx.focusCountdownText = formatFocusCountdown(remaining);
-                const pct = ctx.focusElapsedPercentValue;
-                ctx.focusProgressStyle = `width: ${pct}%; min-width: ${pct > 0 ? '2px' : '0'}`;
                 ctx._focusJustResumed = true;
                 if (sessionId != null && !isTempSessionId(sessionId)) {
                     const ok = await ctx.$wire.$parent.$call('resumeFocusSession', sessionId);

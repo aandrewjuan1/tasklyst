@@ -66,6 +66,13 @@ trait HandlesTasks
 
         $validatedTask = $validated['taskPayload'];
 
+        $nestedError = TaskPayloadValidation::validateNestedTaskConsistencyForCreate($validatedTask);
+        if ($nestedError !== null) {
+            $this->dispatch('toast', type: 'error', message: $nestedError);
+
+            return;
+        }
+
         $projectId = $validatedTask['projectId'] ?? null;
         if ($projectId !== null) {
             $project = Project::query()->forUser($user->id)->find((int) $projectId);
@@ -461,6 +468,26 @@ trait HandlesTasks
             $taskQuery->where(function (Builder $q): void {
                 $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
             });
+        }
+
+        if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
+            $project = Project::query()->forUser($userId)->find((int) $this->listContextProjectId);
+            if ($project !== null) {
+                $this->authorize('view', $project);
+                $taskQuery->forProject($project);
+            }
+        } elseif (property_exists($this, 'listContextEventId') && $this->listContextEventId !== null && $this->listContextEventId !== '') {
+            $event = Event::query()->forUser($userId)->find((int) $this->listContextEventId);
+            if ($event !== null) {
+                $this->authorize('view', $event);
+                $taskQuery->forEvent($event);
+            }
+        } elseif (property_exists($this, 'listContextParentTaskId') && $this->listContextParentTaskId !== null && $this->listContextParentTaskId !== '') {
+            $parentTask = Task::query()->forUser($userId)->find((int) $this->listContextParentTaskId);
+            if ($parentTask !== null) {
+                $this->authorize('view', $parentTask);
+                $taskQuery->subtasksOf($parentTask);
+            }
         }
 
         if (method_exists($this, 'applyTaskFilters')) {

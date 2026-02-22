@@ -6,6 +6,8 @@ use App\Enums\ActivityLogAction;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\CollaborationInvitation;
+use App\Models\Event;
+use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\TaskException;
@@ -349,6 +351,129 @@ class TaskService
                 return $task;
             })
             ->values();
+    }
+
+    /**
+     * Get tasks for the given project for the selected date.
+     * Uses same eager loads and recurrence processing as the workspace list.
+     *
+     * @param  array{limit?: int}  $options
+     * @return Collection<int, Task>
+     */
+    public function getTasksForProject(Project $project, int $userId, CarbonInterface $date, array $options = []): Collection
+    {
+        $limit = $options['limit'] ?? 500;
+
+        $query = $this->taskListBaseQuery($userId, $date)
+            ->forProject($project)
+            ->orderByDesc('created_at')
+            ->limit($limit);
+
+        $tasks = $query->get();
+
+        return $this->processRecurringTasksForDate($tasks, $date);
+    }
+
+    /**
+     * Get tasks for the given event for the selected date.
+     * Uses same eager loads and recurrence processing as the workspace list.
+     *
+     * @param  array{limit?: int}  $options
+     * @return Collection<int, Task>
+     */
+    public function getTasksForEvent(Event $event, int $userId, CarbonInterface $date, array $options = []): Collection
+    {
+        $limit = $options['limit'] ?? 500;
+
+        $query = $this->taskListBaseQuery($userId, $date)
+            ->forEvent($event)
+            ->orderByDesc('created_at')
+            ->limit($limit);
+
+        $tasks = $query->get();
+
+        return $this->processRecurringTasksForDate($tasks, $date);
+    }
+
+    /**
+     * Get subtasks of the given parent task.
+     * When date is provided, filters by relevantForDate and processes recurrence; otherwise returns all subtasks.
+     *
+     * @param  array{limit?: int}  $options
+     * @return Collection<int, Task>
+     */
+    public function getSubtasksOf(Task $parent, int $userId, ?CarbonInterface $date = null, array $options = []): Collection
+    {
+        $limit = $options['limit'] ?? 500;
+
+        $query = Task::query()
+            ->with([
+                'project',
+                'event',
+                'user',
+                'recurringTask',
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+            ])
+            ->withRecentComments(5)
+            ->withCount('comments')
+            ->withCount('activityLogs')
+            ->withRecentActivityLogs(5)
+            ->forUser($userId)
+            ->subtasksOf($parent)
+            ->orderBy('id')
+            ->limit($limit);
+
+        if ($date !== null) {
+            $query->relevantForDate($date);
+        }
+
+        $tasks = $query->get();
+
+        if ($date !== null) {
+            return $this->processRecurringTasksForDate($tasks, $date);
+        }
+
+        return $tasks->map(function (Task $task): Task {
+            $task->effectiveStatusForDate = $this->getEffectiveStatusForDate($task, now());
+
+            return $task;
+        })->values();
+    }
+
+    /**
+     * Base query for task list (workspace-style: eager loads, forUser, relevantForDate).
+     * Caller should apply forProject/forEvent/subtasksOf and order/limit.
+     */
+    private function taskListBaseQuery(int $userId, CarbonInterface $date): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = Task::query()
+            ->with([
+                'project',
+                'event',
+                'user',
+                'recurringTask',
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+            ])
+            ->withRecentComments(5)
+            ->withCount('comments')
+            ->withCount('activityLogs')
+            ->withRecentActivityLogs(5)
+            ->forUser($userId)
+            ->relevantForDate($date);
+
+        if ($date->isToday()) {
+            $query->where(function (\Illuminate\Database\Eloquent\Builder $q): void {
+                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+            });
+        }
+
+        return $query;
     }
 
     /**
