@@ -66,6 +66,13 @@ export function listItemCard(config) {
                 },
                 { immediate: true }
             );
+            this._onSubtaskUnbound = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.taskId == null || d.taskId !== this.itemId) return;
+                if (d.unboundProjectId != null && d.unboundProjectId === this.itemProjectId) this.showProjectPill = false;
+                if (d.unboundEventId != null && d.unboundEventId === this.itemEventId) this.showEventPill = false;
+            };
+            window.addEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
         },
         /** Focus first focusable element in the modal (a11y). */
         focusFirstInModal() {
@@ -400,6 +407,14 @@ export function listItemCard(config) {
             try {
                 // PHASE 2: Optimistic UI update - hide card immediately
                 this.hideFromList();
+                if (this.kind === 'task' && this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-subtask-trashed', {
+                            detail: { taskId: this.itemId },
+                            bubbles: true,
+                        })
+                    );
+                }
 
                 // PHASE 3: Call server asynchronously
                 const promise = this.$wire.$parent.$call(this.deleteMethod, this.itemId);
@@ -731,6 +746,9 @@ export function listItemCard(config) {
         },
         /** Unregisters this card from listItemCards store and clears focus ticker/listeners via the focus controller. */
         destroy() {
+            if (this._onSubtaskUnbound) {
+                window.removeEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
+            }
             if (this.itemId != null && window.Alpine?.store) {
                 const store = window.Alpine.store('listItemCards');
                 if (store && typeof store === 'object') {

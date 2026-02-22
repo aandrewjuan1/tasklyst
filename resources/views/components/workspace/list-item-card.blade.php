@@ -196,6 +196,10 @@
             @endif
         </div>
 
+        @if(in_array($kind, ['project', 'event'], true))
+            <x-workspace.subtasks :item="$item" :kind="$kind" />
+        @endif
+
         <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
     </div>
 </div>

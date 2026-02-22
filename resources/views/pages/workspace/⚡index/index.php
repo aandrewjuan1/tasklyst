@@ -483,6 +483,7 @@ class extends Component
         if ($filterItemType !== 'tasks') {
             $overdueEventQuery = Event::query()
                 ->with([
+                    'tasks',
                     'tags',
                     'collaborations',
                     'collaborators',
@@ -573,6 +574,7 @@ class extends Component
         if ($filterItemType === null || $filterItemType === 'events') {
             $eventQuery = Event::query()
                 ->with([
+                    'tasks',
                     'tags',
                     'collaborations',
                     'collaborators',
@@ -603,6 +605,7 @@ class extends Component
         if ($filterItemType === null || $filterItemType === 'projects') {
             $projectQuery = Project::query()
                 ->with([
+                    'tasks',
                     'user',
                     'collaborations',
                     'collaborators',
