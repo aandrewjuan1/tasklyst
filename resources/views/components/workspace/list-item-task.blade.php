@@ -773,10 +773,10 @@
 </div>
 
 @if($item->project)
-    <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10">
+    <span class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300">
         <flux:icon name="folder" class="size-3" />
         <span class="inline-flex items-baseline gap-1">
-            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+            <span class="text-[10px] font-semibold uppercase tracking-wide opacity-90">
                 {{ __('Project') }}:
             </span>
             <span class="truncate max-w-[120px] uppercase">{{ $item->project->name }}</span>
