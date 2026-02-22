@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
@@ -371,8 +370,6 @@ class Task extends Model
             if ($task->isForceDeleting()) {
                 $task->recurringTask?->delete();
             }
-            // Subtasks become root when parent is deleted (soft or force)
-            $task->subtasks()->update(['parent_task_id' => null]);
         });
     }
 
@@ -388,7 +385,6 @@ class Task extends Model
         'end_datetime',
         'project_id',
         'event_id',
-        'parent_task_id',
         'completed_at',
     ];
 
@@ -417,16 +413,6 @@ class Task extends Model
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
-    }
-
-    public function parentTask(): BelongsTo
-    {
-        return $this->belongsTo(Task::class, 'parent_task_id');
-    }
-
-    public function subtasks(): HasMany
-    {
-        return $this->hasMany(Task::class, 'parent_task_id')->orderBy('id');
     }
 
     public function recurringTask(): HasOne
@@ -489,7 +475,6 @@ class Task extends Model
         return match ($property) {
             'startDatetime' => 'start_datetime',
             'endDatetime' => 'end_datetime',
-            'parentTaskId' => 'parent_task_id',
             'projectId' => 'project_id',
             'eventId' => 'event_id',
             default => $property,
@@ -509,19 +494,10 @@ class Task extends Model
             'complexity' => $this->complexity?->value,
             'start_datetime' => $this->start_datetime,
             'end_datetime' => $this->end_datetime,
-            'parent_task_id' => $this->parent_task_id,
             'project_id' => $this->project_id,
             'event_id' => $this->event_id,
             default => $this->{$column},
         };
-    }
-
-    /**
-     * Tasks that are not subtasks (top-level only).
-     */
-    public function scopeRootTasks(Builder $query): Builder
-    {
-        return $query->whereNull('parent_task_id');
     }
 
     public function scopeForUser(Builder $query, int $userId): Builder
@@ -553,16 +529,6 @@ class Task extends Model
         $eventId = $event instanceof Event ? $event->id : $event;
 
         return $query->where('event_id', $eventId);
-    }
-
-    /**
-     * Subtasks of the given parent task.
-     */
-    public function scopeSubtasksOf(Builder $query, Task|int $parent): Builder
-    {
-        $parentId = $parent instanceof Task ? $parent->id : $parent;
-
-        return $query->where('parent_task_id', $parentId);
     }
 
     public function scopeIncomplete(Builder $query): Builder

@@ -103,12 +103,6 @@ class extends Component
     public ?int $listContextEventId = null;
 
     /**
-     * Optional list context: when set, task list shows only subtasks of this task.
-     * Authorized in HandlesTasks::tasks() before applying scope.
-     */
-    public ?int $listContextParentTaskId = null;
-
-    /**
      * Cached parsed date to avoid parsing multiple times.
      * Cleared when selectedDate changes.
      */

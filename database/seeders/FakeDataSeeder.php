@@ -98,13 +98,82 @@ class FakeDataSeeder extends Seeder
             'completed_at' => null,
         ]);
 
+        // Create one-off event with 2 tasks
+        $sprintPlanning = Event::create([
+            'user_id' => $user->id,
+            'title' => 'Sprint Planning',
+            'description' => 'Weekly sprint planning and backlog refinement.',
+            'start_datetime' => Carbon::now()->next('Monday')->setTime(9, 0),
+            'end_datetime' => Carbon::now()->next('Monday')->setTime(11, 0),
+            'all_day' => false,
+            'status' => EventStatus::Scheduled,
+        ]);
+
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Prepare sprint agenda',
+            'description' => 'List topics and priorities for the sprint.',
+            'status' => TaskStatus::ToDo,
+            'priority' => TaskPriority::High,
+            'complexity' => TaskComplexity::Simple,
+            'duration' => 30,
+            'start_datetime' => $sprintPlanning->start_datetime,
+            'end_datetime' => $sprintPlanning->start_datetime?->copy()->addMinutes(30),
+            'project_id' => null,
+            'event_id' => $sprintPlanning->id,
+            'completed_at' => null,
+        ]);
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Send calendar invite',
+            'description' => null,
+            'status' => TaskStatus::ToDo,
+            'priority' => TaskPriority::Medium,
+            'complexity' => TaskComplexity::Simple,
+            'duration' => 15,
+            'start_datetime' => null,
+            'end_datetime' => null,
+            'project_id' => null,
+            'event_id' => $sprintPlanning->id,
+            'completed_at' => null,
+        ]);
+
         // Create Thesis Project
-        Project::create([
+        $thesisProject = Project::create([
             'user_id' => $user->id,
             'name' => 'Thesis Project',
             'description' => 'A comprehensive project spanning from January to May 2026, focusing on strategic planning and execution.',
             'start_datetime' => Carbon::create(2026, 1, 1)->startOfDay(),
             'end_datetime' => Carbon::create(2026, 5, 15)->endOfDay(),
+        ]);
+
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Literature review',
+            'description' => 'Review and summarize relevant papers.',
+            'status' => TaskStatus::Doing,
+            'priority' => TaskPriority::High,
+            'complexity' => TaskComplexity::Complex,
+            'duration' => 480,
+            'start_datetime' => Carbon::create(2026, 1, 15)->setTime(9, 0),
+            'end_datetime' => Carbon::create(2026, 1, 15)->setTime(17, 0),
+            'project_id' => $thesisProject->id,
+            'event_id' => null,
+            'completed_at' => null,
+        ]);
+        Task::create([
+            'user_id' => $user->id,
+            'title' => 'Draft chapter 1',
+            'description' => 'First draft of introduction and background.',
+            'status' => TaskStatus::ToDo,
+            'priority' => TaskPriority::Medium,
+            'complexity' => TaskComplexity::Moderate,
+            'duration' => 240,
+            'start_datetime' => null,
+            'end_datetime' => null,
+            'project_id' => $thesisProject->id,
+            'event_id' => null,
+            'completed_at' => null,
         ]);
 
         // Add random comments to the seeded tasks.
