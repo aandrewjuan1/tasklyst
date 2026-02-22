@@ -482,6 +482,7 @@ trait HandlesEvents
 
         $eventQuery = Event::query()
             ->with([
+                'tasks',
                 'user',
                 'recurringEvent',
                 'tags',
@@ -491,6 +492,7 @@ trait HandlesEvents
             ])
             ->withRecentComments(5)
             ->withCount('comments')
+            ->withCount('tasks')
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)

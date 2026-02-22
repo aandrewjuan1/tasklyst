@@ -344,6 +344,7 @@ trait HandlesProjects
 
         $query = Project::query()
             ->with([
+                'tasks',
                 'user',
                 'collaborations',
                 'collaborators',
@@ -351,6 +352,7 @@ trait HandlesProjects
             ])
             ->withRecentComments(5)
             ->withCount('comments')
+            ->withCount('tasks')
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
