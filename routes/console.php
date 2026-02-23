@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('workos:warm-jwk')
     ->twiceDaily(0, 12)
     ->withoutOverlapping();
+
+Schedule::command('calendar:sync-feeds')
+    ->everyThirtyMinutes()
+    ->withoutOverlapping();

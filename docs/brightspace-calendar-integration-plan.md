@@ -61,6 +61,8 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 **Goal:** Add storage for calendar feeds and extend tasks so they can be linked to an external source.
 
+**Status:** ✅ Completed.
+
 ### 1.1 Migration: `create_calendar_feeds_table`
 
 - **File:** `database/migrations/YYYY_MM_DD_HHMMSS_create_calendar_feeds_table.php`
@@ -115,6 +117,8 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 **Goal:** Fetch an ICS URL, parse VEVENTs, and upsert tasks without duplicating or logging as user actions.
 
+**Status:** ✅ Completed.
+
 ### 2.1 Service: `IcsParserService`
 
 - **File:** `app/Services/IcsParserService.php`
@@ -150,6 +154,8 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 ## Phase 3: Actions & DTOs
 
 **Goal:** Application-layer actions for connecting, syncing, and disconnecting feeds; DTOs for validated input.
+
+**Status:** ✅ Completed.
 
 ### 3.1 DTO: `CreateCalendarFeedDto`
 
@@ -205,6 +211,8 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 **Goal:** Validate feed URL and name; ensure only the owner can manage feeds and optionally restrict editing of synced tasks.
 
+**Status:** ✅ Completed.
+
 ### 4.1 Validation: `CalendarFeedPayloadValidation`
 
 - **File:** `app/Support/Validation/CalendarFeedPayloadValidation.php`
@@ -233,6 +241,8 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 **Goal:** Run sync periodically and optionally expose a manual sync command.
 
+**Status:** ✅ Completed.
+
 ### 5.1 Console command: `calendar:sync-feeds`
 
 - **File:** `app/Console/Commands/SyncCalendarFeedsCommand.php`
@@ -250,6 +260,8 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 ## Phase 6: Edge Cases & Cleanup
 
 **Goal:** Handle failures and optional cleanup of stale tasks.
+
+**Status:** ✅ Completed.
 
 ### 6.1 HTTP and parsing failures
 

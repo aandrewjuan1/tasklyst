@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
+use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -380,11 +381,14 @@ class Task extends Model
         'status',
         'priority',
         'complexity',
+        'source_type',
+        'source_id',
         'duration',
         'start_datetime',
         'end_datetime',
         'project_id',
         'event_id',
+        'calendar_feed_id',
         'completed_at',
     ];
 
@@ -394,6 +398,7 @@ class Task extends Model
             'status' => TaskStatus::class,
             'priority' => TaskPriority::class,
             'complexity' => TaskComplexity::class,
+            'source_type' => TaskSourceType::class,
             'start_datetime' => 'datetime',
             'end_datetime' => 'datetime',
             'completed_at' => 'datetime',
@@ -413,6 +418,11 @@ class Task extends Model
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
+    }
+
+    public function calendarFeed(): BelongsTo
+    {
+        return $this->belongsTo(CalendarFeed::class, 'calendar_feed_id');
     }
 
     public function recurringTask(): HasOne
@@ -529,6 +539,17 @@ class Task extends Model
         $eventId = $event instanceof Event ? $event->id : $event;
 
         return $query->where('event_id', $eventId);
+    }
+
+    public function scopeFromFeed(Builder $query): Builder
+    {
+        return $query->whereNotNull('source_type');
+    }
+
+    public function scopeNative(Builder $query): Builder
+    {
+        return $query->whereNull('source_type')
+            ->orWhere('source_type', TaskSourceType::Manual);
     }
 
     public function scopeIncomplete(Builder $query): Builder
