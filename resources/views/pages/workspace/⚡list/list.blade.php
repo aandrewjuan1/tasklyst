@@ -1042,6 +1042,8 @@
         $totalItemsCount = $items->count();
 
         $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
+        $hasActiveSearch = $filters['hasActiveSearch'] ?? false;
+        $searchQueryDisplay = $filters['searchQuery'] ?? null;
         $itemTypeLabels = [
             'tasks' => __('Tasks'),
             'events' => __('Events'),
@@ -1070,6 +1072,11 @@
                     {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
                 </flux:text>
             </div>
+            @if ($hasActiveSearch && $searchQueryDisplay)
+                <flux:text class="text-xs text-muted-foreground/70">
+                    {{ __('No results for “:query”. Try a different search or clear the search.', ['query' => $searchQueryDisplay]) }}
+                </flux:text>
+            @endif
             @if ($hasActiveFilters && $activeFilterParts !== [])
                 <flux:text class="text-xs text-muted-foreground/70">
                     {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
@@ -1077,7 +1084,7 @@
                 <flux:text class="text-xs text-muted-foreground/70">
                     {{ __('Try adjusting filters or add a new task, project, or event for this day') }}
                 </flux:text>
-            @else
+            @elseif (!$hasActiveSearch)
                 <flux:text class="text-xs text-muted-foreground/70">
                     {{ __('Add a task, project, or event for this day to get started') }}
                 </flux:text>
@@ -1137,6 +1144,11 @@
                         {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
                     </flux:text>
                 </div>
+                @if ($hasActiveSearch && $searchQueryDisplay)
+                    <flux:text class="text-xs text-muted-foreground/70">
+                        {{ __('No results for “:query”. Try a different search or clear the search.', ['query' => $searchQueryDisplay]) }}
+                    </flux:text>
+                @endif
                 @if ($hasActiveFilters && $activeFilterParts !== [])
                     <flux:text class="text-xs text-muted-foreground/70">
                         {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
@@ -1144,7 +1156,7 @@
                     <flux:text class="text-xs text-muted-foreground/70">
                         {{ __('Try adjusting filters or add a new task, project, or event for this day') }}
                     </flux:text>
-                @else
+                @elseif (!$hasActiveSearch)
                     <flux:text class="text-xs text-muted-foreground/70">
                         {{ __('Add a task, project, or event for this day to get started') }}
                     </flux:text>

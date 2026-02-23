@@ -316,6 +316,7 @@ trait HandlesProjects
 
     /**
      * Get projects for the selected date for the authenticated user.
+     * When "search all items" is active, returns projects across all dates (no date scope).
      */
     #[Computed]
     public function projects(): Collection
@@ -332,15 +333,12 @@ trait HandlesProjects
             return collect();
         }
 
-        // Use cached parsed date if available, otherwise parse
-        $date = method_exists($this, 'getParsedSelectedDate')
-            ? $this->getParsedSelectedDate()
-            : Carbon::parse($this->selectedDate);
-
         $projectsPerPage = property_exists($this, 'projectsPerPage') ? (int) $this->projectsPerPage : 10;
         $projectsPage = property_exists($this, 'projectsPage') ? max(1, (int) $this->projectsPage) : 1;
         $visibleLimit = $projectsPerPage * $projectsPage;
         $queryLimit = $visibleLimit + 1;
+
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
 
         $query = Project::query()
             ->with([
@@ -356,9 +354,20 @@ trait HandlesProjects
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
             ->forUser($userId)
-            ->notArchived()
-            ->activeForDate($date)
-            ->orderByDesc('created_at');
+            ->notArchived();
+
+        if (! $searchAllItems) {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $query->activeForDate($date);
+        }
+
+        $query->orderByDesc('created_at');
+
+        if (method_exists($this, 'applySearchToQuery')) {
+            $this->applySearchToQuery($query, 'name');
+        }
 
         $projects = $query
             ->limit($queryLimit)

@@ -392,6 +392,7 @@ trait HandlesTasks
     /**
      * Get tasks for the selected date for the authenticated user.
      * Uses batch recurrence expansion to avoid N+1 queries.
+     * When "search all items" is active, returns tasks across all dates (no date scope).
      */
     #[Computed]
     public function tasks(): Collection
@@ -408,15 +409,12 @@ trait HandlesTasks
             return collect();
         }
 
-        // Use cached parsed date if available, otherwise parse
-        $date = method_exists($this, 'getParsedSelectedDate')
-            ? $this->getParsedSelectedDate()
-            : Carbon::parse($this->selectedDate);
-
         $tasksPerPage = property_exists($this, 'tasksPerPage') ? (int) $this->tasksPerPage : 10;
         $tasksPage = property_exists($this, 'tasksPage') ? max(1, (int) $this->tasksPage) : 1;
         $visibleLimit = $tasksPerPage * $tasksPage;
         $queryLimit = $visibleLimit + 1;
+
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
 
         $taskQuery = Task::query()
             ->with([
@@ -433,13 +431,19 @@ trait HandlesTasks
             ->withCount('comments')
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
-            ->forUser($userId)
-            ->relevantForDate($date);
+            ->forUser($userId);
 
-        if ($date->isToday()) {
-            $taskQuery->where(function (Builder $q): void {
-                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
-            });
+        if (! $searchAllItems) {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $taskQuery->relevantForDate($date);
+
+            if ($date->isToday()) {
+                $taskQuery->where(function (Builder $q): void {
+                    $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+                });
+            }
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
@@ -460,6 +464,10 @@ trait HandlesTasks
             $this->applyTaskFilters($taskQuery);
         }
 
+        if (method_exists($this, 'applySearchToQuery')) {
+            $this->applySearchToQuery($taskQuery, 'title');
+        }
+
         $tasks = $taskQuery
             ->orderByDesc('created_at')
             ->limit($queryLimit)
@@ -468,7 +476,14 @@ trait HandlesTasks
         $this->hasMoreTasks = $tasks->count() > $visibleLimit;
         $visibleTasks = $tasks->take($visibleLimit);
 
-        $result = $this->taskService->processRecurringTasksForDate($visibleTasks, $date);
+        if ($searchAllItems) {
+            $result = $visibleTasks;
+        } else {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $result = $this->taskService->processRecurringTasksForDate($visibleTasks, $date);
+        }
 
         if (method_exists($this, 'filterTaskCollection')) {
             $result = $this->filterTaskCollection($result);

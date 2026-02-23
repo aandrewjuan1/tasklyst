@@ -443,6 +443,11 @@ class extends Component
             return collect();
         }
 
+        // When search scope is "all items", main list shows all matching items; skip overdue bucket to avoid duplicates.
+        if (method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems()) {
+            return collect();
+        }
+
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
 
         $now = now();
@@ -474,6 +479,10 @@ class extends Component
                 $this->applyOverdueTaskFilters($overdueTaskQuery);
             }
 
+            if (method_exists($this, 'applySearchToQuery')) {
+                $this->applySearchToQuery($overdueTaskQuery, 'title');
+            }
+
             $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
                 ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
         }
@@ -498,6 +507,10 @@ class extends Component
 
             if (method_exists($this, 'applyOverdueEventFilters')) {
                 $this->applyOverdueEventFilters($overdueEventQuery);
+            }
+
+            if (method_exists($this, 'applySearchToQuery')) {
+                $this->applySearchToQuery($overdueEventQuery, 'title');
             }
 
             $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
@@ -561,6 +574,10 @@ class extends Component
                 $this->applyTaskFilters($taskQuery);
             }
 
+            if (method_exists($this, 'applySearchToQuery')) {
+                $this->applySearchToQuery($taskQuery, 'title');
+            }
+
             $upcomingTasks = $taskQuery
                 ->orderBy('end_datetime')
                 ->limit(50)
@@ -592,6 +609,10 @@ class extends Component
                 $eventQuery->notCancelled();
             }
 
+            if (method_exists($this, 'applySearchToQuery')) {
+                $this->applySearchToQuery($eventQuery, 'title');
+            }
+
             $upcomingEvents = $eventQuery
                 ->orderBy('start_datetime')
                 ->limit(50)
@@ -620,6 +641,10 @@ class extends Component
 
             if (method_exists($this, 'applyProjectFilters')) {
                 $this->applyProjectFilters($projectQuery);
+            }
+
+            if (method_exists($this, 'applySearchToQuery')) {
+                $this->applySearchToQuery($projectQuery, 'name');
             }
 
             $upcomingProjects = $projectQuery
