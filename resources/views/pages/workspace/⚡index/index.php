@@ -43,6 +43,7 @@ use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesActivityLogs;
 use App\Livewire\Concerns\HandlesCollaborations;
 use App\Livewire\Concerns\HandlesComments;
+use App\Livewire\Concerns\HandlesCalendarFeeds;
 use App\Livewire\Concerns\HandlesEvents;
 use App\Livewire\Concerns\HandlesFiltering;
 use App\Livewire\Concerns\HandlesFocusSessions;
@@ -76,6 +77,7 @@ class extends Component
     use HandlesActivityLogs;
     use HandlesCollaborations;
     use HandlesComments;
+    use HandlesCalendarFeeds;
     use HandlesEvents;
     use HandlesFiltering;
     use HandlesFocusSessions;
@@ -556,16 +558,6 @@ class extends Component
         // Upcoming tasks (due soon by end_datetime)
         if ($filterItemType === null || $filterItemType === 'tasks') {
             $taskQuery = Task::query()
-                ->with([
-                    'project',
-                    'tags',
-                    'collaborations',
-                    'collaborators',
-                    'collaborationInvitations.invitee',
-                    'comments.user',
-                ])
-                ->withCount('activityLogs')
-                ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->dueSoon($fromDate, $days)
                 ->whereDoesntHave('recurringTask');
@@ -590,15 +582,6 @@ class extends Component
         // Upcoming events (starting soon by start_datetime)
         if ($filterItemType === null || $filterItemType === 'events') {
             $eventQuery = Event::query()
-                ->with([
-                    'tasks',
-                    'tags',
-                    'collaborations',
-                    'collaborators',
-                    'collaborationInvitations.invitee',
-                ])
-                ->withCount('activityLogs')
-                ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->startingSoon($fromDate, $days)
                 ->whereDoesntHave('recurringEvent');
@@ -625,16 +608,6 @@ class extends Component
         // Upcoming projects (starting soon by start_datetime)
         if ($filterItemType === null || $filterItemType === 'projects') {
             $projectQuery = Project::query()
-                ->with([
-                    'tasks',
-                    'user',
-                    'collaborations',
-                    'collaborators',
-                    'collaborationInvitations.invitee',
-                ])
-                ->withCount('tasks')
-                ->withCount('activityLogs')
-                ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->startingSoon($fromDate, $days)
                 ->notArchived();
