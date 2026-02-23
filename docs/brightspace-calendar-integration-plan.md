@@ -340,24 +340,14 @@ The flow below matches the existing workspace structure:
 **Calendar-feeds flow aligned with the above:**
 
 - **Backend on the index:** The **workspace index** (`index.php`) uses the **`HandlesCalendarFeeds`** trait. The index exposes: `connectCalendarFeed(payload)`, `syncCalendarFeed(feedId)`, `disconnectCalendarFeed(feedId)`, `loadCalendarFeeds()`. The frontend calls these on the **index** via **`$wire`** (e.g. `$wire.connectCalendarFeed(payload)`, `$wire.syncCalendarFeed(feedId)`, `$wire.loadCalendarFeeds()`), because the calendar-feeds popover lives in the index view so `$wire` is the index.
-- **Trigger in upcoming:** Add a subtle link/button in the **upcoming** Blade component (`resources/views/components/workspace/upcoming.blade.php`) that opens a **calendar-feeds popover**, similar to how `pending-invitations-popover` and `collaborators-popover` work.
+- **Trigger in index right column:** In the right sidebar of the index view (above the upcoming panel), render a primary Flux-style button via `<x-workspace.calendar-feeds-popover />` that is labeled something like “Sync with Brightspace calendar” and opens the calendar-feeds popover. This keeps the entry point visually close to the calendar/upcoming context while living directly in the index template.
 - **Custom popover component:** Implement a new Blade component, e.g. `resources/views/components/workspace/calendar-feeds-popover.blade.php`, that encapsulates the trigger and popover panel. It uses Alpine for open/close and positioning, mirroring the behavior of `date-picker`, `recurring-selection`, `workspace/pending-invitations-popover`, or `workspace/collaborators-popover`.
 - **Form & list in popover:** Inside the popover panel, render the connect form and list of feeds. Use **Livewire state on the index** (`wire:model` or Alpine payload + `$wire.connectCalendarFeed(payload)`) and call `$wire.syncCalendarFeed(feedId)`, `$wire.disconnectCalendarFeed(feedId)` for per-feed actions.
 - **Loading feeds:** When the popover opens, frontend calls `$wire.$call('loadCalendarFeeds')` (index trait method) to fetch feeds, similar to how trash and collaborators popovers fetch their data.
 
 ---
 
-### 1. Entry point in upcoming component
-
-**File:** `resources/views/components/workspace/upcoming.blade.php`
-
-- In the **upcoming** header or footer, add a small link/button or chip: e.g. “Brightspace calendar” or “Connect calendar.”
-- That trigger should render/use the new calendar-feeds popover component, e.g. `<x-workspace.calendar-feeds-popover />`, and delegate open/close behavior to that component’s Alpine logic.
-- Reuse styling similar to other subtle controls in the upcoming area so it doesn’t dominate the panel.
-
----
-
-### 2. Calendar feeds popover (in index view)
+### 1. Calendar feeds popover (in index view)
 
 **No separate Livewire component.** The calendar-feeds UI lives in a **Blade popover component** that is rendered inside the **index view**; the **index** component uses **`HandlesCalendarFeeds`** and exposes the methods. Alpine / Livewire inside the popover call the index via **`$wire`**.
 
@@ -374,13 +364,11 @@ The flow below matches the existing workspace structure:
 - **Backend:** Index uses **`HandlesCalendarFeeds`** trait; form submit and buttons call **index** via `$wire.connectCalendarFeed(payload)`, `$wire.syncCalendarFeed(feedId)`, `$wire.disconnectCalendarFeed(feedId)`; list data from `$wire.$call('loadCalendarFeeds')` when the popover opens.
 ---
 
-### 3. Where to put the popover in the index view
+### 2. Where to put the popover in the index view
 
 **File:** `resources/views/pages/workspace/⚡index/index.blade.php`
 
-- In the **right column**, ensure the calendar-feeds popover component is rendered in the same Livewire index DOM tree as `upcoming`, so `$wire` refers to the index. For example:
-  - Render `<x-workspace.calendar-feeds-popover />` near `<x-workspace.upcoming />`, and have upcoming reference it visually; or
-  - Render the popover inside `upcoming.blade.php`, but still within the index component.
+- In the **right column**, ensure the calendar-feeds popover component is rendered in the same Livewire index DOM tree as `calendar` and `upcoming`, so `$wire` refers to the index. For example, render `<x-workspace.calendar-feeds-popover />` in a small control row between `<x-workspace.calendar />` and `<x-workspace.upcoming />`.
 - All `$wire` calls in the popover target the **index** (HandlesCalendarFeeds). Do not add a separate Livewire component for calendar feeds.
 ---
 
@@ -396,6 +384,7 @@ The flow below matches the existing workspace structure:
 - **Sync now:** Loading state on the button for that feed; on success, update “Last synced” and toast.
 - **Disconnect:** Optional confirmation then run disconnect and refresh list.
 - **Errors:** Show validation errors under the form; do not close the modal so the user can fix the URL.
+- **Form loading behavior:** For the “Connect” action, mirror the interaction pattern used in `workspace/collaborators-popover`: disable the submit button while `$wire.connectCalendarFeed(...)` is in-flight, optionally show a small spinner/icon on the button, and surface generic failures via a toast in addition to inline validation messages.
 
 ---
 
@@ -403,9 +392,9 @@ The flow below matches the existing workspace structure:
 
 | Item | File / location |
 |------|------------------|
-| Entry point | `resources/views/components/workspace/upcoming.blade.php` (header/footer control → uses calendar-feeds popover component) |
+| Entry point | `resources/views/pages/workspace/⚡index/index.blade.php` (right column, between calendar and upcoming, renders calendar-feeds popover trigger + optional quick-sync button) |
 | Popover component | `resources/views/components/workspace/calendar-feeds-popover.blade.php` — trigger + popover panel with form and feed list; Alpine/Livewire call `$wire.connectCalendarFeed(...)`, `$wire.syncCalendarFeed(id)`, `$wire.$call('loadCalendarFeeds')` (index = $wire) |
-| Index component | `resources/views/pages/workspace/⚡index/index.php` — add `use HandlesCalendarFeeds;` and inject calendar-feed actions; exposes `connectCalendarFeed`, `syncCalendarFeed`, `disconnectCalendarFeed`, `loadCalendarFeeds` |
+| Index component | `resources/views/pages/workspace/⚡index/index.blade.php` — add `use HandlesCalendarFeeds;` and inject calendar-feed actions; exposes `connectCalendarFeed`, `syncCalendarFeed`, `disconnectCalendarFeed`, `loadCalendarFeeds` |
 | Trait | `app/Livewire/Concerns/HandlesCalendarFeeds.php` — used by the index component |
 | Copy / instructions | Optional “How do I get this link?” content inside the popover view |
 

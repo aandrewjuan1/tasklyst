@@ -68,17 +68,15 @@
 
 <div class="mt-4 w-full">
     <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3 dark:border-zinc-800">
-            <div class="flex items-center gap-2">
-                <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
-                <div class="flex flex-col">
-                    <span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {{ __('Upcoming (next :days days)', ['days' => 7]) }}
-                    </span>
-                    <span class="text-[11px] text-muted-foreground/80">
-                        {{ __('Starting today') }}
-                    </span>
-                </div>
+        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+            <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
+            <div class="flex flex-col">
+                <span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ __('Upcoming (next :days days)', ['days' => 7]) }}
+                </span>
+                <span class="text-[11px] text-muted-foreground/80">
+                    {{ __('Starting today') }}
+                </span>
             </div>
         </div>
 

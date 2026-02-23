@@ -125,3 +125,43 @@ ICS;
 
     expect(Task::query()->whereKey($staleTask->id)->exists())->toBeTrue();
 });
+
+it('skips events that are entirely in the past', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->subDays(7)->setTime(9, 0)->utc();
+    $end = $start->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:past-event@example.com
+SUMMARY:Old Assignment
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = new CalendarFeedSyncService(new IcsParserService);
+
+    $service->sync($feed);
+
+    expect(Task::query()->count())->toBe(0);
+
+    $feed->refresh();
+    expect($feed->last_synced_at)->not->toBeNull();
+});

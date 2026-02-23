@@ -46,6 +46,9 @@ class CalendarFeedSyncService
 
             return;
         }
+
+        $events = $this->filterEventsWithinSyncWindow($events);
+
         if ($events === []) {
             $feed->update(['last_synced_at' => now()]);
 
@@ -84,5 +87,44 @@ class CalendarFeedSyncService
 
             $feed->update(['last_synced_at' => now()]);
         });
+    }
+
+    /**
+     * Limit synced events to a reasonable time window so we don't
+     * import thousands of long‑past or far‑future items from feeds.
+     *
+     * Currently:
+     * - Skip events that ended before today.
+     * - Skip events that start more than 1 year in the future.
+     *
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterEventsWithinSyncWindow(array $events): array
+    {
+        $today = now()->startOfDay();
+        $futureLimit = $today->copy()->addYear()->endOfDay();
+
+        return array_values(array_filter($events, static function (array $event) use ($today, $futureLimit): bool {
+            $start = $event['dtstart'] ?? null;
+            $end = $event['dtend'] ?? null;
+
+            if (! $start instanceof \Carbon\CarbonInterface && ! $end instanceof \Carbon\CarbonInterface) {
+                return true;
+            }
+
+            $effectiveEnd = $end instanceof \Carbon\CarbonInterface ? $end : $start;
+            $effectiveStart = $start instanceof \Carbon\CarbonInterface ? $start : $effectiveEnd;
+
+            if ($effectiveEnd instanceof \Carbon\CarbonInterface && $effectiveEnd->lt($today)) {
+                return false;
+            }
+
+            if ($effectiveStart instanceof \Carbon\CarbonInterface && $effectiveStart->gt($futureLimit)) {
+                return false;
+            }
+
+            return true;
+        }));
     }
 }
