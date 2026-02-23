@@ -26,32 +26,32 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 - User provides a Brightspace calendar subscribe URL (ICS feed). The URL contains a secret token.
 - System stores the feed in a new `calendar_feeds` table (per user).
-- A scheduled command (or manual trigger) fetches the ICS, parses VEVENTs, and upserts into `events` using `source_type` + `source_id` to avoid duplicates and allow updates.
-- Events created from a feed are first-class `Event` records but are identifiable as read-only/synced (no activity log, optional UI guard via policy or attribute).
+- A scheduled command (or manual trigger) fetches the ICS, parses VEVENTs, and upserts into `tasks` using `source_type` + `source_id` to avoid duplicates and allow updates.
+- Tasks created from a feed are first-class `Task` records but are identifiable as read-only/synced (no activity log, optional UI guard via TaskPolicy).
 
 ### Conventions Used
 
 - **Tables:** Plural snake_case (`calendar_feeds`).
 - **Actions:** `App\Actions\CalendarFeed\{Verb}CalendarFeedAction`, inject services, `execute(User, Dto)` or `execute(CalendarFeed)`.
-- **Services:** `CalendarFeedService` (feed CRUD + orchestrate sync), `IcsParserService` (parse ICS string → array of event data). Event persistence from sync does **not** call `ActivityLogRecorder`.
+- **Services:** `CalendarFeedService` (feed CRUD + orchestrate sync), `IcsParserService` (parse ICS string → array of event-like data). Task persistence from sync does **not** call `ActivityLogRecorder`.
 - **DTOs:** `CreateCalendarFeedDto` (and optionally `SyncCalendarFeedDto` if needed) with `fromValidated()` and `toServiceAttributes()`.
 - **Validation:** `App\Support\Validation\CalendarFeedPayloadValidation` with `rules()` and `defaults()` (and optional `rulesForProperty()` / `allowedUpdateProperties()` if we add update-feed later).
 - **Traits (Livewire Concerns):** `App\Livewire\Concerns\HandlesCalendarFeeds` — used by the **workspace index** (`resources/views/pages/workspace/⚡index/index.php`). Alpine/frontend calls index trait methods via `$wire` (e.g. `$wire.connectCalendarFeed(payload)`, `$wire.loadCalendarFeeds()`). Same pattern as the index’s HandlesEvents, HandlesTasks, HandlesTrash on the index.
-- **Enums:** `EventSourceType` (e.g. `Manual`, `Brightspace`) for `events.source_type`; optional `CalendarFeedSource` for `calendar_feeds.source` if we support multiple feed types later.
+- **Enums:** `TaskSourceType` (e.g. `Manual`, `Brightspace`) for `tasks.source_type`; optional `CalendarFeedSource` for `calendar_feeds.source` if we support multiple feed types later.
 
 ### Backend layers checklist (consistency audit)
 
 | Layer | In plan? | Notes |
 |-------|----------|--------|
-| **Migrations** | Yes | `create_calendar_feeds_table`, `add_source_columns_to_events_table`. |
-| **Models** | Yes | `CalendarFeed`, extend `Event`. |
-| **Enums** | Yes | `EventSourceType`; optional `CalendarFeedSource`. |
-| **Services** | Yes | `IcsParserService`, `CalendarFeedSyncService`, `CalendarFeedService`; optional `EventService::createOrUpdateEventFromFeed`. |
+| **Migrations** | Yes | `create_calendar_feeds_table`, `add_source_columns_to_tasks_table`. |
+| **Models** | Yes | `CalendarFeed`, extend `Task`. |
+| **Enums** | Yes | `TaskSourceType`; optional `CalendarFeedSource`. |
+| **Services** | Yes | `IcsParserService`, `CalendarFeedSyncService`, `CalendarFeedService`; optional `TaskService` helper for feed sync. |
 | **Actions** | Yes | `ConnectCalendarFeedAction`, `SyncCalendarFeedAction`, `DisconnectCalendarFeedAction`. |
 | **DTOs** | Yes | `CreateCalendarFeedDto` (`fromValidated`, `toServiceAttributes`). |
 | **Validation** | Yes | `CalendarFeedPayloadValidation` (`defaults()`, `rules()`). Key rules to match Livewire properties (e.g. `feedUrl`, `feedName` or `calendarFeedPayload.feedUrl`). |
 | **Traits (Concerns)** | Yes | `HandlesCalendarFeeds` — used by the **workspace index** (index.php); frontend calls index via `$wire`. |
-| **Policies** | Yes | `CalendarFeedPolicy`; optional guard in `EventPolicy`. |
+| **Policies** | Yes | `CalendarFeedPolicy`; optional guard in `TaskPolicy`. |
 | **Console / Schedule** | Yes | `SyncCalendarFeedsCommand`, `routes/console.php`. |
 | **Form Requests** | N/A | This app uses `Support\Validation\*PayloadValidation` classes, not Form Request classes. Plan uses that. |
 
@@ -59,7 +59,7 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 ## Phase 1: Schema & Core Models
 
-**Goal:** Add storage for calendar feeds and extend events so they can be linked to an external source.
+**Goal:** Add storage for calendar feeds and extend tasks so they can be linked to an external source.
 
 ### 1.1 Migration: `create_calendar_feeds_table`
 
@@ -77,19 +77,19 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 - **Indexes:** `user_id` (FK index); optionally `(user_id, source)` if we expect multiple feeds per user per source.
 - **Notes:** No soft deletes unless you want to retain feed history; for simplicity, hard delete is fine.
 
-### 1.2 Migration: `add_source_columns_to_events_table`
+### 1.2 Migration: `add_source_columns_to_tasks_table`
 
-- **File:** `database/migrations/YYYY_MM_DD_HHMMSS_add_source_columns_to_events_table.php`
-- **Changes on `events`:**
+- **File:** `database/migrations/YYYY_MM_DD_HHMMSS_add_source_columns_to_tasks_table.php`
+- **Changes on `tasks`:**
   - `source_type` (string, nullable) — e.g. `'manual'`, `'brightspace'`. Use enum-backed values.
   - `source_id` (string, nullable) — external UID from ICS (e.g. `6606-927@eac.brightspace.com`)
-  - Optional: `calendar_feed_id` (foreign key to `calendar_feeds.id`, nullable, null on delete) — so we know which feed an event came from (helps on disconnect).
-- **Unique index:** `(user_id, source_type, source_id)` where `source_type` and `source_id` are not null — ensures one event per external UID per user for upsert.
-- **Note:** If you re-add `location` for display of Brightspace LOCATION, add a nullable `location` column in this or a separate migration.
+  - `calendar_feed_id` (foreign key to `calendar_feeds.id`, nullable, null on delete) — so we know which feed a task came from (helps on disconnect).
+- **Unique index:** `(user_id, source_type, source_id)` where `source_type` and `source_id` are not null — ensures one task per external UID per user for upsert.
+- **Note:** Optional: add nullable `location` on tasks if you want to store ICS LOCATION (Task model currently has no location column).
 
-### 1.3 Enum: `EventSourceType`
+### 1.3 Enum: `TaskSourceType`
 
-- **File:** `app/Enums/EventSourceType.php`
+- **File:** `app/Enums/TaskSourceType.php`
 - **Cases:** `Manual = 'manual'`, `Brightspace = 'brightspace'`. Optionally `Ical = 'ical'` for generic ICS later.
 - **Methods (optional):** `label()` for UI; `isExternal(): bool` (true for non-Manual) to drive read-only behavior in policy or attributes.
 
@@ -98,28 +98,28 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 - **File:** `app/Models/CalendarFeed.php`
 - **Fillable:** `user_id`, `name`, `feed_url`, `source`, `sync_enabled`, `last_synced_at`
 - **Casts:** `sync_enabled` => boolean, `last_synced_at` => datetime
-- **Relations:** `belongsTo(User::class)`; `hasMany(Event::class, 'calendar_feed_id')` if you added `calendar_feed_id` on events.
+- **Relations:** `belongsTo(User::class)`; `hasMany(Task::class, 'calendar_feed_id')`.
 - **Scopes (optional):** `scopeSyncEnabled($query)` for scheduled sync.
 - **Security:** Consider `$hidden = ['feed_url']` on serialization so the token is never leaked in JSON; or leave visible only to backend and never expose in API responses.
 
-### 1.5 Model: `Event` — extend
+### 1.5 Model: `Task` — extend
 
-- **File:** `app/Models/Event.php`
-- **Changes:** Add `source_type`, `source_id`, and optionally `calendar_feed_id` to `$fillable`. Add cast for `source_type` => `EventSourceType::class` (nullable). Add relation `belongsTo(CalendarFeed::class, 'calendar_feed_id')` if column exists.
-- **Scopes:** `scopeFromFeed($query)` (where not null `source_type`), `scopeNative($query)` (where `source_type` is null or `EventSourceType::Manual`). Optional: `scopeFromCalendarFeed($query, CalendarFeed $feed)` if `calendar_feed_id` exists.
+- **File:** `app/Models/Task.php`
+- **Changes:** Add `source_type`, `source_id`, and `calendar_feed_id` to `$fillable`. Add cast for `source_type` => `TaskSourceType::class` (nullable). Add relation `belongsTo(CalendarFeed::class, 'calendar_feed_id')`.
+- **Scopes:** `scopeFromFeed($query)` (where not null `source_type`), `scopeNative($query)` (where `source_type` is null or `TaskSourceType::Manual`). Optional: `scopeFromCalendarFeed($query, CalendarFeed $feed)`.
 - **Attribute/accessor (optional):** `isFromExternalFeed(): bool` for use in policy or UI.
 
 ---
 
 ## Phase 2: ICS Parsing & Sync Services
 
-**Goal:** Fetch an ICS URL, parse VEVENTs, and upsert events without duplicating or logging as user actions.
+**Goal:** Fetch an ICS URL, parse VEVENTs, and upsert tasks without duplicating or logging as user actions.
 
 ### 2.1 Service: `IcsParserService`
 
 - **File:** `app/Services/IcsParserService.php`
 - **Responsibility:** Parse a raw ICS string and return a list of event-like arrays (or DTOs) for consumption by the sync service.
-- **Public method:** `parse(string $icsContent): array` — returns array of shapes with at least: `uid`, `summary`, `dtstart`, `dtend`, `location` (nullable), `description` (nullable), `all_day` (bool).
+- **Public method:** `parse(string $icsContent): array` — returns array of shapes with at least: `uid`, `summary`, `dtstart`, `dtend`, `location` (nullable), `description` (nullable), `all_day` (bool). Task has no `all_day` column; if needed for display, either ignore or document a separate attribute/column.
 - **Implementation options:**
   - Use a package (e.g. `eluceo/ical` or `spatie/icalendar-generator` for reading; or a dedicated ICS parser). Ensure the package can parse DTSTART/DTEND with timezone and VALUE=DATE for all-day.
   - Or implement a minimal parser (regex or line-by-line) for the subset of properties you need (UID, SUMMARY, DTSTART, DTEND, LOCATION, DESCRIPTION). Handle line folding (lines starting with space/tab continue previous line). Normalize dates to Carbon or DateTime for the sync layer.
@@ -134,17 +134,16 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
   - Parse: `$this->icsParserService->parse($body)`.
   - For each parsed item:
     - Resolve `user_id` from `$feed->user_id`.
-    - Upsert: `Event::query()->updateOrCreate(
-          ['user_id' => $user->id, 'source_type' => EventSourceType::Brightspace->value, 'source_id' => $vevent['uid']],
-          ['title' => $vevent['summary'], 'description' => $vevent['description'], 'start_datetime' => $vevent['dtstart'], 'end_datetime' => $vevent['dtend'], 'all_day' => $vevent['all_day'], 'location' => $vevent['location'] ?? null, 'status' => EventStatus::Scheduled, 'calendar_feed_id' => $feed->id]
-      )`. Do **not** call `ActivityLogRecorder`. Use `Event::updateOrCreate` directly (or a dedicated method on `EventService` that skips activity log).
+    - Upsert: `Task::query()->updateOrCreate(
+          ['user_id' => $user->id, 'source_type' => TaskSourceType::Brightspace->value, 'source_id' => $vevent['uid']],
+          ['title' => $vevent['summary'], 'description' => $vevent['description'], 'start_datetime' => $vevent['dtstart'], 'end_datetime' => $vevent['dtend'], 'calendar_feed_id' => $feed->id, 'status' => TaskStatus::ToDo, 'priority' => TaskPriority::Medium, ...]
+      )`. Omit or set null: `project_id`, `event_id`, recurrence. Do **not** call `ActivityLogRecorder`. Use `Task::updateOrCreate` directly (or a dedicated method on `TaskService` that skips activity log).
   - After successful sync: `$feed->update(['last_synced_at' => now()])`.
-- **Deletes policy:** Decide how to handle events that were previously synced but no longer appear in the feed (e.g. removed in Brightspace). Options: (A) Leave as-is; (B) Mark `status = cancelled`; (C) Delete. Document and implement one. Option (B) is often safest.
+- **Stale tasks:** Leave as-is. Tasks that were previously synced but no longer appear in the feed (e.g. removed in Brightspace) are not deleted or changed; they remain in the user's list until the user removes them.
 
-### 2.3 EventService: optional persistence helper for sync
+### 2.3 TaskService: optional persistence helper for sync
 
-- **File:** `app/Services/EventService.php`
-- **Optional:** Add `createOrUpdateEventFromFeed(User $user, array $attributes, EventSourceType $sourceType, string $sourceId, ?int $calendarFeedId = null): Event` that performs `Event::updateOrCreate(...)` with the given keys and **does not** call `activityLogRecorder`. Use this from `CalendarFeedSyncService` if you want all event persistence to go through the service for consistency (e.g. ensuring no recurrence/tags for feed events). Otherwise, calling `Event::updateOrCreate` in `CalendarFeedSyncService` is fine.
+- **Optional:** Add a method (e.g. on `TaskService` if one exists) that creates/updates a task from feed data without recording activity log. Use it from `CalendarFeedSyncService` for consistency (e.g. ensuring no recurrence/tags for feed tasks). Otherwise, calling `Task::updateOrCreate` in `CalendarFeedSyncService` is fine.
 
 ---
 
@@ -166,7 +165,7 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 - **Methods:**
   - `createFeed(User $user, array $attributes): CalendarFeed` — create `CalendarFeed` with `user_id`, `sync_enabled => true`. No activity log unless you add a dedicated “feed connected” log type.
   - `updateFeed(CalendarFeed $feed, array $attributes): CalendarFeed` — update name, sync_enabled, etc. Do not allow updating `feed_url` without validation (e.g. same host or re-validation).
-  - `deleteFeed(CalendarFeed $feed): bool` — delete feed. Optionally: set `sync_enabled = false` and delete or cancel events that have `calendar_feed_id = $feed->id` (or where `source_type` + `source_id` were only ever from this feed). Implement as per product decision.
+  - `deleteFeed(CalendarFeed $feed): bool` — delete feed. Optionally: leave tasks that have `calendar_feed_id = $feed->id` as-is, or soft-delete them; document the chosen behavior.
 
 ### 3.3 Action: `ConnectCalendarFeedAction`
 
@@ -186,7 +185,7 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 - **File:** `app/Actions/CalendarFeed/DisconnectCalendarFeedAction.php`
 - **Constructor:** Inject `CalendarFeedService`.
-- **Method:** `execute(CalendarFeed $feed, ?User $actor = null): bool` — call `$this->calendarFeedService->deleteFeed($feed)`. Implement inside service: delete feed and optionally clean up events (delete or set cancelled) that belong to this feed.
+- **Method:** `execute(CalendarFeed $feed, ?User $actor = null): bool` — call `$this->calendarFeedService->deleteFeed($feed)`. Implement inside service: delete feed and optionally clean up tasks that belong to this feed (leave as-is or soft-delete per product decision).
 
 ### 3.6 Trait: `HandlesCalendarFeeds` (Livewire Concern)
 
@@ -204,7 +203,7 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 ## Phase 4: Validation & Authorization
 
-**Goal:** Validate feed URL and name; ensure only the owner can manage feeds and optionally restrict editing of synced events.
+**Goal:** Validate feed URL and name; ensure only the owner can manage feeds and optionally restrict editing of synced tasks.
 
 ### 4.1 Validation: `CalendarFeedPayloadValidation`
 
@@ -223,10 +222,10 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 - **Methods:** `viewAny(User $user): bool`, `view(User $user, CalendarFeed $feed): bool` (owner only), `create(User $user): bool`, `update(User $user, CalendarFeed $feed): bool` (owner only), `delete(User $user, CalendarFeed $feed): bool` (owner only). Use `$feed->user_id === $user->id` for owner checks.
 - **Register:** Ensure `CalendarFeed` model is registered in `AuthServiceProvider` or the policy discovery picks it up (Laravel auto-discovers by convention).
 
-### 4.3 Event policy: optional guard for synced events
+### 4.3 Task policy: optional guard for synced tasks
 
-- **File:** `app/Policies/EventPolicy.php`
-- **Optional:** In `update` or `delete`, if you want to prevent editing/deleting synced events in the UI, add: if `$event->source_type !== null && $event->source_type !== EventSourceType::Manual`, return false (or a separate rule like “only owner can delete, but not if from feed”). Document the intended behavior.
+- **File:** `app/Policies/TaskPolicy.php`
+- **Optional:** In `update` or `delete`, if you want to prevent editing synced tasks in the UI: if `$task->source_type !== null && $task->source_type !== TaskSourceType::Manual`, return false for update (and optionally allow delete so the user can remove a synced task from their list). Document the intended behavior.
 
 ---
 
@@ -250,15 +249,15 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 ## Phase 6: Edge Cases & Cleanup
 
-**Goal:** Handle failures and optional cleanup of stale events.
+**Goal:** Handle failures and optional cleanup of stale tasks.
 
 ### 6.1 HTTP and parsing failures
 
-- In `CalendarFeedSyncService::sync`, catch HTTP exceptions and parsing exceptions; log and optionally set `last_synced_at` to null or leave unchanged. Do not delete existing events on fetch failure.
+- In `CalendarFeedSyncService::sync`, catch HTTP exceptions and parsing exceptions; log and optionally set `last_synced_at` to null or leave unchanged. Do not delete or change existing tasks on fetch failure.
 
-### 6.2 Stale events (removed from feed)
+### 6.2 Stale tasks (removed from feed)
 
-- Implement the chosen policy: leave as-is, mark cancelled, or delete. If “mark cancelled,” in the same sync pass after upserting, query events for this feed with `source_id` not in the current UID list and update `status = cancelled`. If “delete,” same pattern but delete (or soft delete) instead.
+- **Leave as-is.** Tasks that were previously synced but no longer appear in the feed are not deleted or changed; they remain in the user's list until the user removes them.
 
 ### 6.3 Feed URL secrecy
 
@@ -266,7 +265,7 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 
 ### 6.4 Idempotency
 
-- Sync is idempotent: same feed URL and same UIDs will update existing events. No duplicate events per user per external UID thanks to the unique index.
+- Sync is idempotent: same feed URL and same UIDs will update existing tasks. No duplicate tasks per user per external UID thanks to the unique index on `(user_id, source_type, source_id)` on `tasks`.
 
 ---
 
@@ -275,13 +274,13 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 | Layer | File | Phase |
 |-------|------|--------|
 | Migration | `database/migrations/*_create_calendar_feeds_table.php` | 1 |
-| Migration | `database/migrations/*_add_source_columns_to_events_table.php` | 1 |
-| Enum | `app/Enums/EventSourceType.php` | 1 |
+| Migration | `database/migrations/*_add_source_columns_to_tasks_table.php` | 1 |
+| Enum | `app/Enums/TaskSourceType.php` | 1 |
 | Model | `app/Models/CalendarFeed.php` | 1 |
-| Model | `app/Models/Event.php` (extend) | 1 |
+| Model | `app/Models/Task.php` (extend) | 1 |
 | Service | `app/Services/IcsParserService.php` | 2 |
 | Service | `app/Services/CalendarFeedSyncService.php` | 2 |
-| Service | `app/Services/EventService.php` (optional helper) | 2 |
+| Service | `app/Services/TaskService.php` (optional helper) | 2 |
 | Service | `app/Services/CalendarFeedService.php` | 3 |
 | DTO | `app/DataTransferObjects/CalendarFeed/CreateCalendarFeedDto.php` | 3 |
 | Action | `app/Actions/CalendarFeed/ConnectCalendarFeedAction.php` | 3 |
@@ -290,7 +289,7 @@ This document outlines the implementation plan for connecting Brightspace (D2L) 
 | Trait (Concern) | `app/Livewire/Concerns/HandlesCalendarFeeds.php` | 3 |
 | Validation | `app/Support/Validation/CalendarFeedPayloadValidation.php` | 4 |
 | Policy | `app/Policies/CalendarFeedPolicy.php` | 4 |
-| Policy | `app/Policies/EventPolicy.php` (optional guard) | 4 |
+| Policy | `app/Policies/TaskPolicy.php` (optional guard) | 4 |
 | Command | `app/Console/Commands/SyncCalendarFeedsCommand.php` | 5 |
 | Schedule | `routes/console.php` (register command) | 5 |
 
@@ -355,7 +354,7 @@ The flow below matches the existing workspace structure:
 - **Renders:** A single Flux modal: `<flux:modal name="connect-calendar-feed">` containing:
   - **Title:** e.g. “Connect Brightspace calendar.”
   - **Form:** Feed URL (required input, type `url` or `text`), placeholder “Paste your Brightspace calendar subscribe URL”; Name (optional text input), placeholder “e.g. All Courses”; Submit button “Connect.”
-  - **Optional:** “How do I get this link?” (collapsible or tooltip) with short steps: Brightspace → Calendar → Settings → enable feeds → Subscribe → copy the .ics URL.
+  - **Optional:** “How do I get this link?” (collapsible or tooltip) with short steps: Brightspace → Calendar → Settings → enable feeds → Subscribe → copy the .ics URL. Optionally add a line that synced items (assignments, quizzes, exams) will appear as tasks in the workspace list.
   - **List of connected feeds** (below or above the form): for each feed, show name (or “Brightspace”), last synced time, “Sync now” button, “Disconnect” button.
 - **State:** `$feedUrl`, `$feedName`; list of feeds (id, name, last_synced_at, etc.) loaded from backend.
 - **Backend:** Index uses **`HandlesCalendarFeeds`** trait; form submit and buttons call **index** via `$wire.connectCalendarFeed(payload)`, `$wire.syncCalendarFeed(feedId)`, `$wire.disconnectCalendarFeed(feedId)`; list data from `$wire.$call('loadCalendarFeeds')` when modal opens.
@@ -365,7 +364,7 @@ The flow below matches the existing workspace structure:
 
 **File:** `resources/views/pages/workspace/⚡index/index.blade.php`
 
-- In the **right column**, after `<x-workspace.upcoming />` (or after the sticky block that contains calendar + upcoming), add the **Flux modal** markup: `<flux:modal name="connect-calendar-feed">` with form and feed list. All `$wire` calls in the modal target the **index** (HandlesCalendarFeeds). Do not add a separate Livewire component. The calendar button opens the modal with `$flux.modal('connect-calendar-feed').show()`.’s
+- In the **right column**, after `<x-workspace.upcoming />` (or after the sticky block that contains calendar + upcoming), add the **Flux modal** markup: `<flux:modal name="connect-calendar-feed">` with form and feed list. All `$wire` calls in the modal target the **index** (HandlesCalendarFeeds). Do not add a separate Livewire component. The calendar button opens the modal with `$flux.modal('connect-calendar-feed').show()`.
 ---
 
 ### 4. Optional: “How do I get this link?” content
