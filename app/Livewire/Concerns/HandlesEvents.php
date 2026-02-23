@@ -454,6 +454,7 @@ trait HandlesEvents
     /**
      * Get events for the selected date for the authenticated user.
      * Uses batch recurrence expansion to avoid N+1 queries.
+     * When "search all items" is active, returns events across all dates (no date scope).
      */
     #[Computed]
     public function events(): Collection
@@ -470,15 +471,12 @@ trait HandlesEvents
             return collect();
         }
 
-        // Use cached parsed date if available, otherwise parse
-        $date = method_exists($this, 'getParsedSelectedDate')
-            ? $this->getParsedSelectedDate()
-            : Carbon::parse($this->selectedDate);
-
         $eventsPerPage = property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 10;
         $eventsPage = property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1;
         $visibleLimit = $eventsPerPage * $eventsPage;
         $queryLimit = $visibleLimit + 1;
+
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
 
         $eventQuery = Event::query()
             ->with([
@@ -495,19 +493,29 @@ trait HandlesEvents
             ->withCount('tasks')
             ->withCount('activityLogs')
             ->withRecentActivityLogs(5)
-            ->forUser($userId)
-            ->activeForDate($date);
+            ->forUser($userId);
 
-        if ($date->isToday()) {
-            $eventQuery->where(function (Builder $q): void {
-                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
-            });
+        if (! $searchAllItems) {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $eventQuery->activeForDate($date);
+
+            if ($date->isToday()) {
+                $eventQuery->where(function (Builder $q): void {
+                    $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+                });
+            }
         }
 
         if (method_exists($this, 'applyEventFilters')) {
             $this->applyEventFilters($eventQuery);
         } else {
             $eventQuery->notCancelled();
+        }
+
+        if (method_exists($this, 'applySearchToQuery')) {
+            $this->applySearchToQuery($eventQuery, 'title');
         }
 
         $events = $eventQuery
@@ -518,7 +526,14 @@ trait HandlesEvents
         $this->hasMoreEvents = $events->count() > $visibleLimit;
         $visibleEvents = $events->take($visibleLimit);
 
-        $result = $this->eventService->processRecurringEventsForDate($visibleEvents, $date);
+        if ($searchAllItems) {
+            $result = $visibleEvents;
+        } else {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $result = $this->eventService->processRecurringEventsForDate($visibleEvents, $date);
+        }
 
         if (method_exists($this, 'filterEventCollection')) {
             $result = $this->filterEventCollection($result);

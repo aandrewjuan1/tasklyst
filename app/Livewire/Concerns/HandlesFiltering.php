@@ -10,6 +10,7 @@ use App\Models\Event;
 use App\Models\Task;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
 
 trait HandlesFiltering
@@ -37,6 +38,13 @@ trait HandlesFiltering
 
     #[Url(as: 'recurring')]
     public ?string $filterRecurring = null;
+
+    #[Url(as: 'q')]
+    public ?string $searchQuery = null;
+
+    /** @var string 'selected_date' = search only items for the selected date; 'all_items' = search across all items */
+    #[Url(as: 'scope')]
+    public string $searchScope = 'selected_date';
 
     /** @var bool Whether user manually set item type; skip auto-sync override when both event and task filters are set */
     protected bool $userManuallySetItemType = false;
@@ -295,7 +303,68 @@ trait HandlesFiltering
             $this->{$property} = null;
         }
         $this->filterTagId = null;
+        $this->searchQuery = null;
+        $this->searchScope = 'selected_date';
         $this->refreshListAfterFilterChange();
+    }
+
+    /**
+     * Whether search should run across all items (no date filter). True only when scope is 'all_items' and there is a search query.
+     */
+    public function shouldSearchAllItems(): bool
+    {
+        return $this->searchScope === 'all_items' && $this->getTrimmedSearchQuery() !== null;
+    }
+
+    /**
+     * When search scope changes, refresh the list.
+     */
+    public function updatedSearchScope(?string $value): void
+    {
+        if ($value !== 'selected_date' && $value !== 'all_items') {
+            $this->searchScope = 'selected_date';
+        }
+        $this->refreshListAfterFilterChange();
+    }
+
+    /**
+     * When search query changes, refresh the list (reset pagination and remount).
+     */
+    public function updatedSearchQuery(?string $value): void
+    {
+        $trimmed = $value !== null ? trim($value) : '';
+        if ($trimmed === '') {
+            $this->searchQuery = null;
+        }
+        $this->refreshListAfterFilterChange();
+    }
+
+    /**
+     * Get trimmed search query for use in queries. Returns null when empty.
+     */
+    public function getTrimmedSearchQuery(): ?string
+    {
+        $q = $this->searchQuery !== null ? trim($this->searchQuery) : '';
+
+        return $q === '' ? null : $q;
+    }
+
+    /**
+     * Apply search query to an Eloquent query (LIKE on the given column).
+     * Escapes % and _ for safe LIKE matching. Limits length to avoid heavy queries.
+     */
+    public function applySearchToQuery(Builder $query, string $column): void
+    {
+        $search = $this->getTrimmedSearchQuery();
+        if ($search === null) {
+            return;
+        }
+        $search = Str::limit($search, 255, '');
+        if ($search === '') {
+            return;
+        }
+        $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search);
+        $query->where($column, 'like', '%'.$escaped.'%');
     }
 
     /**
@@ -321,6 +390,14 @@ trait HandlesFiltering
     }
 
     /**
+     * Check if search is active (non-empty trimmed query).
+     */
+    public function hasActiveSearch(): bool
+    {
+        return $this->getTrimmedSearchQuery() !== null;
+    }
+
+    /**
      * Get current filter state for the frontend.
      * Uses normalized values (null for "All") for display.
      *
@@ -337,6 +414,9 @@ trait HandlesFiltering
             'tagIds' => $this->filterTagIds ?? [],
             'recurring' => $this->normalizeFilterValue($this->filterRecurring),
             'hasActiveFilters' => $this->hasActiveFilters(),
+            'searchQuery' => $this->getTrimmedSearchQuery(),
+            'hasActiveSearch' => $this->hasActiveSearch(),
+            'searchScope' => $this->searchScope,
         ];
     }
 
