@@ -8,7 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-it('prevents updating external-source tasks while allowing delete for owner', function () {
+it('allows updating and deleting external-source tasks for owner', function () {
     $user = User::factory()->create();
 
     /** @var Task $task */
@@ -30,6 +30,6 @@ it('prevents updating external-source tasks while allowing delete for owner', fu
 
     $policy = new TaskPolicy;
 
-    expect($policy->update($user, $task))->toBeFalse();
+    expect($policy->update($user, $task))->toBeTrue();
     expect($policy->delete($user, $task))->toBeTrue();
 });

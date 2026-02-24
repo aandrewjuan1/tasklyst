@@ -64,6 +64,7 @@ class CalendarFeedSyncService
                 $uid = (string) $event['uid'];
                 $summary = $event['summary'] ?? null;
                 $description = $event['description'] ?? null;
+                $sourceUrl = $this->extractUrlFromDescription($description);
 
                 Task::query()->updateOrCreate(
                     [
@@ -76,6 +77,7 @@ class CalendarFeedSyncService
                         'description' => $description,
                         'start_datetime' => $event['dtstart'] ?? null,
                         'end_datetime' => $event['dtend'] ?? null,
+                        'source_url' => $sourceUrl,
                         'calendar_feed_id' => $feed->id,
                         'status' => TaskStatus::ToDo,
                         'priority' => TaskPriority::Medium,
@@ -128,5 +130,39 @@ class CalendarFeedSyncService
 
             return true;
         }));
+    }
+
+    private function extractUrlFromDescription(?string $description): ?string
+    {
+        if ($description === null || trim($description) === '') {
+            return null;
+        }
+
+        if (! preg_match_all('~https?://\S+~i', $description, $matches)) {
+            return null;
+        }
+
+        $candidates = $matches[0] ?? [];
+        if ($candidates === []) {
+            return null;
+        }
+
+        // Prefer Brightspace calendar "View event" links over other URLs (e.g. dropbox submission links).
+        $url = $candidates[0];
+        foreach ($candidates as $candidate) {
+            if (str_contains($candidate, '/d2l/le/calendar/') && str_contains($candidate, 'detailsview')) {
+                $url = $candidate;
+                break;
+            }
+        }
+
+        // Brightspace often encodes newlines as literal "\n" sequences inside DESCRIPTION.
+        // Treat those (and real newlines) as boundaries so we don't capture trailing labels like "View".
+        $parts = preg_split("/\\\\n|\r\n|\r|\n/", $url);
+        $url = $parts[0] ?? $url;
+
+        $url = rtrim($url, ".,);]>\"'");
+
+        return $url !== '' ? $url : null;
     }
 }

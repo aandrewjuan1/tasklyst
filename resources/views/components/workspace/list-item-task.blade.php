@@ -886,3 +886,25 @@
     </span>
 @endif
 
+@php
+    $sourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
+@endphp
+
+@if($sourceUrl !== null && $sourceUrl !== '')
+    @php
+        $isBrightspace = $item->source_type === \App\Enums\TaskSourceType::Brightspace;
+        $linkLabel = $isBrightspace ? __('Open in Brightspace') : __('Open link');
+    @endphp
+    <a
+        href="{{ $sourceUrl }}"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300 dark:hover:bg-blue-500/25"
+    >
+        <flux:icon name="link" class="size-3" />
+        <span class="truncate max-w-[160px]">
+            {{ $linkLabel }}
+        </span>
+    </a>
+@endif
+
