@@ -1038,8 +1038,17 @@
             ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
             ->values();
 
-        $items = $overdueItems->merge($dateItems)->values();
+        $allItems = $overdueItems->merge($dateItems)->values();
+
+        $effectiveItemsPerPage = $itemsPerPage > 0 ? $itemsPerPage : 10;
+        $effectiveItemsPage = $itemsPage > 0 ? $itemsPage : 1;
+        $maxVisibleItems = $effectiveItemsPerPage * $effectiveItemsPage;
+
+        $items = $allItems->take($maxVisibleItems);
         $totalItemsCount = $items->count();
+
+        $hasMoreFromCollections = $allItems->count() > $items->count();
+        $shouldShowLoadMore = $hasMoreItems || $hasMoreFromCollections;
 
         $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
         $hasActiveSearch = $filters['hasActiveSearch'] ?? false;
@@ -1182,7 +1191,7 @@
                         />
                     @endforeach
                 </div>
-                @if ($hasMoreItems)
+                @if ($shouldShowLoadMore)
                     <div
                         class="flex flex-col items-center justify-center py-4 text-[11px] text-muted-foreground/80"
                         x-data="{ loadingMore: false }"

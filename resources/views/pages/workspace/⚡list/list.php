@@ -17,6 +17,10 @@ new class extends Component
 
     public Collection $tags;
 
+    public int $itemsPage = 1;
+
+    public int $itemsPerPage = 10;
+
     /**
      * @var array<string, mixed>
      */

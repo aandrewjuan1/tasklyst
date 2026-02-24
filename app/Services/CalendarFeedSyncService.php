@@ -94,7 +94,8 @@ class CalendarFeedSyncService
      * import thousands of long‑past or far‑future items from feeds.
      *
      * Currently:
-     * - Skip events that ended before today.
+     * - Include events that ended within the last 6 months.
+     * - Skip events that ended more than 6 months ago.
      * - Skip events that start more than 1 year in the future.
      *
      * @param  array<int, array<string, mixed>>  $events
@@ -103,9 +104,10 @@ class CalendarFeedSyncService
     private function filterEventsWithinSyncWindow(array $events): array
     {
         $today = now()->startOfDay();
+        $pastLimit = $today->copy()->subMonths(6)->startOfDay();
         $futureLimit = $today->copy()->addYear()->endOfDay();
 
-        return array_values(array_filter($events, static function (array $event) use ($today, $futureLimit): bool {
+        return array_values(array_filter($events, static function (array $event) use ($pastLimit, $futureLimit): bool {
             $start = $event['dtstart'] ?? null;
             $end = $event['dtend'] ?? null;
 
@@ -116,7 +118,7 @@ class CalendarFeedSyncService
             $effectiveEnd = $end instanceof \Carbon\CarbonInterface ? $end : $start;
             $effectiveStart = $start instanceof \Carbon\CarbonInterface ? $start : $effectiveEnd;
 
-            if ($effectiveEnd instanceof \Carbon\CarbonInterface && $effectiveEnd->lt($today)) {
+            if ($effectiveEnd instanceof \Carbon\CarbonInterface && $effectiveEnd->lt($pastLimit)) {
                 return false;
             }
 
