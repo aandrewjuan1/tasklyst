@@ -28,6 +28,7 @@ BEGIN:VCALENDAR
 BEGIN:VEVENT
 UID:event-1@example.com
 SUMMARY:Quiz 1
+DESCRIPTION:View this quiz at https://brightspace.example.com/d2l/le/quiz/123
 DTSTART:20260301T090000Z
 DTEND:20260301T093000Z
 END:VEVENT
@@ -46,12 +47,55 @@ ICS;
 
     expect($task)->not->toBeNull();
     expect($task->title)->toBe('Quiz 1');
+    expect($task->source_url)->toBe('https://brightspace.example.com/d2l/le/quiz/123');
     expect($task->calendar_feed_id)->toBe($feed->id);
     expect($task->source_type)->toBe(TaskSourceType::Brightspace);
     expect($task->source_id)->toBe('event-1@example.com');
 
     $feed->refresh();
     expect($feed->last_synced_at)->not->toBeNull();
+});
+
+it('leaves source_url null when description has no URL', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $ics = <<<'ICS'
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:event-2@example.com
+SUMMARY:Assignment without link
+DESCRIPTION:Review the assignment instructions in Brightspace.
+DTSTART:20260302T090000Z
+DTEND:20260302T093000Z
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = new CalendarFeedSyncService(new IcsParserService);
+
+    $service->sync($feed);
+
+    /** @var Task $task */
+    $task = Task::query()
+        ->where('user_id', $user->id)
+        ->where('source_id', 'event-2@example.com')
+        ->first();
+
+    expect($task)->not->toBeNull();
+    expect($task->source_url)->toBeNull();
 });
 
 it('does not change tasks when http fails', function () {

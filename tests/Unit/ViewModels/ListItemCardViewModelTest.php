@@ -27,15 +27,41 @@ it('produces viewData with expected keys for a task', function () {
     $data = $vm->viewData();
 
     expect($data)->toHaveKeys([
-        'kind', 'title', 'description', 'type', 'deleteMethod', 'updatePropertyMethod',
+        'kind', 'title', 'description', 'sourceUrl', 'type', 'deleteMethod', 'updatePropertyMethod',
         'owner', 'hasCollaborators', 'currentUserIsOwner', 'showOwnerBadge',
         'canEdit', 'canEditTags', 'canEditDates', 'canEditRecurrence', 'canDelete',
         'focusModeDefaultHint', 'headerRecurrenceInitial', 'item', 'listFilterDate', 'filters', 'availableTags',
     ]);
     expect($data['kind'])->toBe('task');
     expect($data['title'])->toBe('Test Task');
+    expect($data['sourceUrl'])->toBeNull();
     expect($data['deleteMethod'])->toBe('deleteTask');
     expect($data['updatePropertyMethod'])->toBe('updateTaskProperty');
+});
+
+it('includes sourceUrl when task has a source_url', function () {
+    $this->actingAs($this->user);
+    $taskWithUrl = Task::factory()->for($this->user)->create([
+        'title' => 'Task with URL',
+        'source_url' => 'https://brightspace.example.com/item/123',
+    ]);
+
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $taskWithUrl,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    $data = $vm->viewData();
+    $config = $vm->alpineConfig();
+
+    expect($data['sourceUrl'])->toBe('https://brightspace.example.com/item/123');
+    expect($config['sourceUrl'])->toBe('https://brightspace.example.com/item/123');
 });
 
 it('produces alpineConfig with expected keys and no callables for a task', function () {

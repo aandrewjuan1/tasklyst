@@ -383,6 +383,7 @@ class Task extends Model
         'complexity',
         'source_type',
         'source_id',
+        'source_url',
         'duration',
         'start_datetime',
         'end_datetime',

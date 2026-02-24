@@ -3,7 +3,6 @@
 namespace App\Policies;
 
 use App\Enums\CollaborationPermission;
-use App\Enums\TaskSourceType;
 use App\Models\Task;
 use App\Models\User;
 
@@ -38,10 +37,6 @@ class TaskPolicy
      */
     public function update(User $user, Task $task): bool
     {
-        if ($task->source_type !== null && $task->source_type !== TaskSourceType::Manual) {
-            return false;
-        }
-
         return $this->isOwner($user, $task) || $this->hasEditPermission($user, $task);
     }
 
