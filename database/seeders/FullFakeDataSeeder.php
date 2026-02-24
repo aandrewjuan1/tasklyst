@@ -152,7 +152,7 @@ class FullFakeDataSeeder extends Seeder
                 'user_id' => $user->id,
                 'name' => $data['name'],
                 'description' => $data['description'],
-                'start_datetime' => fake()->optional(0.6)->dateTimeBetween('-2 weeks', '+1 month'),
+                'start_datetime' => fake()->optional(0.6)->dateTimeBetween('-2 weeks', now()),
                 'end_datetime' => fake()->optional(0.6)->dateTimeBetween('+1 week', '+3 months'),
             ]);
         }
@@ -171,7 +171,7 @@ class FullFakeDataSeeder extends Seeder
                 'user_id' => $user->id,
                 'title' => $data['title'],
                 'description' => $data['description'],
-                'start_datetime' => fake()->optional(0.8)->dateTimeBetween('-1 week', '+1 month'),
+                'start_datetime' => fake()->optional(0.8)->dateTimeBetween('-1 week', now()),
                 'end_datetime' => fake()->optional(0.8)->dateTimeBetween('+1 hour', '+2 months'),
                 'all_day' => $data['all_day'],
                 'status' => fake()->randomElement(EventStatus::cases()),
@@ -198,7 +198,7 @@ class FullFakeDataSeeder extends Seeder
                 'title' => $data['title'],
                 'description' => $data['description'],
                 'status' => fake()->randomElement(TaskStatus::cases()),
-                'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', '+2 weeks'),
+                'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', now()),
                 'end_datetime' => fake()->optional(0.6)->dateTimeBetween('+1 day', '+1 month'),
             ]);
         }
@@ -242,7 +242,7 @@ class FullFakeDataSeeder extends Seeder
     {
         $recurring = [];
         foreach (array_slice($events, 0, 3) as $event) {
-            $start = $event->start_datetime ?? now()->addDays(1);
+            $start = $event->start_datetime ?? now();
             $recurring[] = RecurringEvent::create([
                 'event_id' => $event->id,
                 'recurrence_type' => fake()->randomElement(EventRecurrenceType::cases()),
@@ -264,7 +264,7 @@ class FullFakeDataSeeder extends Seeder
     {
         $recurring = [];
         foreach (array_slice($tasks, 0, 3) as $task) {
-            $start = $task->start_datetime ?? now()->addDays(1);
+            $start = $task->start_datetime ?? now();
             $recurring[] = RecurringTask::create([
                 'task_id' => $task->id,
                 'recurrence_type' => fake()->randomElement(TaskRecurrenceType::cases()),

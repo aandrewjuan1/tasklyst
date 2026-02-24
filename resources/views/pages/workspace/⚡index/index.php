@@ -93,6 +93,14 @@ class extends Component
     public int $listRefresh = 0;
 
     /**
+     * Global item pagination for the workspace list (across tasks, events, projects).
+     * Controls how many combined item cards are visible in the list component.
+     */
+    public int $itemsPerPage = 10;
+
+    public int $itemsPage = 1;
+
+    /**
      * Optional list context: when set, task list shows only tasks in this project.
      * Authorized in HandlesTasks::tasks() before applying scope.
      */
@@ -387,6 +395,8 @@ class extends Component
         if (property_exists($this, 'projectsPage')) {
             $this->projectsPage = 1;
         }
+
+        $this->itemsPage = 1;
     }
 
     /**
@@ -428,6 +438,8 @@ class extends Component
         if (property_exists($this, 'projectsPage')) {
             $this->projectsPage++;
         }
+
+        $this->itemsPage++;
         $this->listRefresh++;
     }
 
