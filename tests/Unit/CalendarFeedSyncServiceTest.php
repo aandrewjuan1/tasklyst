@@ -47,6 +47,7 @@ ICS;
 
     expect($task)->not->toBeNull();
     expect($task->title)->toBe('Quiz 1');
+    expect($task->description)->toBeNull();
     expect($task->source_url)->toBe('https://brightspace.example.com/d2l/le/quiz/123');
     expect($task->calendar_feed_id)->toBe($feed->id);
     expect($task->source_type)->toBe(TaskSourceType::Brightspace);
@@ -54,6 +55,70 @@ ICS;
 
     $feed->refresh();
     expect($feed->last_synced_at)->not->toBeNull();
+});
+
+it('maps vevent dates without forcing a start date', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->addDays(3)->setTime(9, 0)->utc();
+    $end = $start->copy()->addHour();
+    $onlyDueEnd = now()->addDays(5)->setTime(12, 0)->utc();
+    $onlyDueStart = $onlyDueEnd->copy();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:with-start@example.com
+SUMMARY:Has start and end
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+BEGIN:VEVENT
+UID:only-due@example.com
+SUMMARY:Only due
+DTSTART:{$onlyDueStart->format('Ymd\\THis\\Z')}
+DTEND:{$onlyDueEnd->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = new CalendarFeedSyncService(new IcsParserService);
+
+    $service->sync($feed);
+
+    /** @var Task $taskWithStart */
+    $taskWithStart = Task::query()
+        ->where('user_id', $user->id)
+        ->where('source_id', 'with-start@example.com')
+        ->first();
+
+    /** @var Task $taskOnlyDue */
+    $taskOnlyDue = Task::query()
+        ->where('user_id', $user->id)
+        ->where('source_id', 'only-due@example.com')
+        ->first();
+
+    expect($taskWithStart)->not->toBeNull();
+    expect($taskWithStart->start_datetime)->not->toBeNull();
+    expect($taskWithStart->end_datetime)->not->toBeNull();
+    expect($taskWithStart->end_datetime->greaterThan($taskWithStart->start_datetime))->toBeTrue();
+
+    expect($taskOnlyDue)->not->toBeNull();
+    expect($taskOnlyDue->start_datetime)->toBeNull();
+    expect($taskOnlyDue->end_datetime)->not->toBeNull();
 });
 
 it('leaves source_url null when description has no URL', function () {

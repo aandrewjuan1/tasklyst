@@ -66,6 +66,23 @@ class CalendarFeedSyncService
                 $description = $event['description'] ?? null;
                 $sourceUrl = $this->extractUrlFromDescription($description);
 
+                $start = $event['dtstart'] ?? null;
+                $end = $event['dtend'] ?? null;
+
+                if (! $start instanceof \Carbon\CarbonInterface) {
+                    $start = null;
+                }
+
+                if (! $end instanceof \Carbon\CarbonInterface) {
+                    $end = null;
+                }
+
+                // When both start and end exist and are identical, treat this as a due-only item.
+                // Keep only the due date on the task to avoid duplicating the same datetime.
+                if ($start !== null && $end !== null && $start->equalTo($end)) {
+                    $start = null;
+                }
+
                 Task::query()->updateOrCreate(
                     [
                         'user_id' => $feed->user_id,
@@ -74,9 +91,8 @@ class CalendarFeedSyncService
                     ],
                     [
                         'title' => $summary ?: __('Untitled'),
-                        'description' => $description,
-                        'start_datetime' => $event['dtstart'] ?? null,
-                        'end_datetime' => $event['dtend'] ?? null,
+                        'start_datetime' => $start,
+                        'end_datetime' => $end,
                         'source_url' => $sourceUrl,
                         'calendar_feed_id' => $feed->id,
                         'status' => TaskStatus::ToDo,
