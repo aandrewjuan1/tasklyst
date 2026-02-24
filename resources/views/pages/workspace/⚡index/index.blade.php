@@ -65,9 +65,9 @@
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
-    <div class="flex w-full gap-6">
+    <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
-        <div class="w-full lg:w-4/5">
+        <div class="min-w-0">
             {{-- Real list - hidden during filter/date refresh --}}
             <div
                 wire:loading.remove
@@ -148,7 +148,7 @@
         </div>
 
         {{-- Right Side: Calendar (20%) --}}
-        <div class="hidden lg:block lg:w-1/5 lg:shrink-0">
+        <div class="hidden lg:block lg:min-w-[260px]">
             <div class="sticky top-6 space-y-3" data-focus-lock-viewport>
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
