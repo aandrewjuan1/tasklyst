@@ -438,6 +438,10 @@ export function listItemCard(config) {
         },
         shouldHideAfterPropertyUpdate(detail) {
             const { property, value, startDatetime: detailStart, endDatetime: detailEnd } = detail;
+            // Never hide task card when user marks task as done (match default no-filter behaviour)
+            if (this.kind === 'task' && property === 'status' && value === 'done') {
+                return false;
+            }
             const f = this.filters ?? {};
 
             if (['startDatetime', 'endDatetime'].includes(property)) {
@@ -472,7 +476,8 @@ export function listItemCard(config) {
 
             if (this.kind === 'task') {
                 if (f.taskPriority && property === 'priority' && value !== f.taskPriority) return true;
-                if (f.taskStatus && property === 'status' && value !== f.taskStatus) return true;
+                // Never hide when user marks task as done; keep card visible like default (no filter) behaviour
+                if (f.taskStatus && property === 'status' && value !== f.taskStatus && value !== 'done') return true;
                 if (f.taskComplexity && property === 'complexity' && value !== f.taskComplexity) return true;
             }
 
@@ -488,11 +493,6 @@ export function listItemCard(config) {
 
             if (f.recurring === 'recurring' && property === 'recurrence' && !value?.enabled) return true;
             if (f.recurring === 'oneTime' && property === 'recurrence' && value?.enabled) return true;
-
-            if (property === 'status') {
-                if (this.kind === 'task' && value === 'done') return true;
-                if (this.kind === 'event' && ['completed', 'cancelled'].includes(value)) return true;
-            }
 
             return false;
         },
