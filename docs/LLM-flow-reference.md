@@ -1,5 +1,30 @@
 # LLM Task, Event, and Project Management Integration Workflow
-## High-Level Reference Guide for TaskLyst Implementation
+## Implementation Plan — TaskLyst (Ollama + PrismPHP + Hermes 3 3B)
+
+This document is an **implementation plan**. The LLM assistant is not yet built; the following describes the intended design, conventions, and steps to implement it using **Ollama**, **PrismPHP** (`prism-php/prism`), and **Hermes 3 3B** for task prioritization and predictive scheduling.
+
+---
+
+## Tech Stack (Planned)
+
+| Layer | Choice | Purpose |
+|-------|--------|--------|
+| **LLM runtime** | [Ollama](https://ollama.ai) | Local inference, no API keys, data stays on-device |
+| **Model** | Hermes 3 3B (e.g. `hermes3:3b` in Ollama) | Small, fast, instruction-following; good for structured JSON and task/ scheduling reasoning |
+| **PHP integration** | [PrismPHP](https://prismphp.com) (`prism-php/prism` ^0.99) | Fluent Laravel-style API, structured output via schema, provider-agnostic |
+| **Backend** | Laravel 12 | Validation, auth, persistence, queues |
+| **UI** | Livewire + Flux | Chat surface and accept/modify/reject flows |
+
+**Why this stack:** Hermes 3 3B fits local/low-latency use; Prism’s `ObjectSchema` + `asStructured()` gives predictable JSON for recommendations; Laravel handles validation and persistence so the LLM is used only for suggestions, not authority.
+
+### Model limitations and what to expect (Hermes 3 3B)
+
+- **Good for:** Narrow, structured tasks (prioritization, scheduling suggestions, "what to do next"), short schema-bound output (e.g. ranked list + brief reasoning), and low-context prompts. The rest of this doc is designed around these strengths.
+- **Do not expect:** Deep multi-step reasoning, perfect consistency across runs, or reliable handling of subtle or rare edge cases. Output may occasionally be odd or inconsistent; the system should not depend on the model being right every time.
+- **Therefore:** User-in-the-loop (accept/modify/reject), validation and business rules in the backend, rule-based fallbacks when the LLM fails or is unsure, and logging of accept/modify/reject are all essential—and are already specified in the phases below.
+
+### Scope and known limitations
+- **Ollama concurrency:** Ollama serves **one request at a time** by default. If multiple users (or multiple tabs) use the LLM assistant simultaneously, requests queue and the last user may wait a long time (e.g. 3–5s per request × N users). For the thesis, **acknowledge this as a known limitation** in scope. In implementation: set a **reasonable timeout**; show a "Please wait…" or optional "Queue position" message; consider **Laravel queues** with a dedicated worker for LLM jobs so the Livewire component does not block the request. Document in the thesis that single-user or low-concurrency use is assumed unless you scale Ollama or switch to a multi-worker setup.
 
 ---
 
@@ -28,6 +53,110 @@ Backend Execution (Validation → Database Update)
     ↓
 Feedback Loop & Logging
 ```
+
+---
+
+## Backend vs Frontend: How This Document Is Organized
+
+This document is split into **backend** and **frontend** so you can see at a glance what runs on the server vs what the user sees.
+
+| | Scope | In this document |
+|---|--------|-------------------|
+| **Backend** | Intent classification, context preparation, system prompting, LLM inference, backend execution (validation, DB writes), logging, fallbacks, architecture | Data Model Alignment, Backend Architecture Alignment, **Phase 1** (Intent), **Phase 2** (Context), **Phase 3** (Prompts), **Phase 4** (Inference), **Phase 7** (Backend Execution), **Phase 8** (Logging), plus Fallback Strategy, Design Principles, Implementation Checklist (backend items), Common Pitfalls |
+| **Frontend** | Chat UI, displaying recommendations, Accept/Modify/Reject, modify form, streaming, chat session state | **Phase 5** (Structured Output Display) and **Phase 6** (User Validation & Action). All frontend plan content is collected in **[Frontend (Implementation Plan)](#frontend-implementation-plan)** at the end of this document. |
+
+**Backend-only reading path (for AI agents / implementers):** Read in order: [Backend quick reference](#backend-quick-reference-for-ai--implementers) → [Data Model Alignment](#data-model-alignment-tasks-events-projects) → [Backend Architecture Alignment](#backend-architecture-alignment) → [Phase 1](#phase-1-intent-classification) → [Phase 2](#phase-2-context-preparation) (or [Context and prompts summary](#context-and-prompts-summary-agent-reference) for a short version) → [Phase 3](#phase-3-system-prompting) → [Phase 4](#phase-4-llm-inference) → [Phase 7](#phase-7-backend-execution) → [Phase 8](#phase-8-feedback-loop--logging) → [Fallback Strategy](#fallback-strategy) → [Implementation Checklist](#implementation-checklist) (Backend section) → [Common Pitfalls](#common-pitfalls-to-avoid). Skip Phase 5–6 and [Frontend (Implementation Plan)](#frontend-implementation-plan) when working on backend only.
+
+In the body of the doc, Phase 5 and Phase 6 are summarized with a pointer to the full frontend section below.
+
+---
+
+## Backend quick reference (for AI / implementers)
+
+Use this as the single source of backend constraints and decisions. Details live in the linked sections.
+
+- **Entity ID:** Do **not** include `entity_id` in the LLM output schema. Hermes 3 3B can hallucinate IDs. The entity is known from Phase 2 context; resolve it server-side when applying the recommendation. See [Response Structure](#response-structure).
+- **Confidence:** Model-reported confidence is uncalibrated. Prefer **validation-based** confidence (required fields present? dates parse?) or document in UI as self-assessment. See [Confidence scores from 3B models (caveat)](#confidence-scores-from-3b-models-caveat).
+- **Token budget:** System prompt ~300–400 tokens; available context for user/context payload ~800–1200 tokens (not 1000–1500 raw). Cap Phase 2 context accordingly; verify with `$response->usage->promptTokens`. See [Token budget: system prompt included](#token-budget-system-prompt-included).
+- **PrismException / fallback:** On invalid JSON, timeout, or unreachable Ollama, run rule-based prioritization/scheduling; never expose raw errors. Centralize with e.g. `if (!$this->isValidRecommendation($dto)) return $this->fallbackPrioritization(...)`. See [Deterministic Fallback Layer (In-Depth)](#deterministic-fallback-layer-in-depth).
+- **Rule-based fallback rules:** Earlier due date → higher rank; overdue → highest; higher complexity → schedule earlier; schedule fallback = next available slot. Keep in e.g. `RuleBasedPrioritizationService` (testable). See [Deterministic Fallback Layer (In-Depth)](#deterministic-fallback-layer-in-depth).
+- **Intent:** Regex/keywords as fast path; when confidence &lt; threshold or no match, optional second-pass LLM classification (small Prism call). See [Intent classification: regex fast path + optional LLM fallback](#intent-classification-regex-fast-path--optional-llm-fallback).
+- **Readonly vs actionable:** `prioritize_events`, `prioritize_projects` (and optionally `prioritize_tasks` if display-only) have no DB write on Accept; schedule_* and adjust_* are actionable. See [Readonly vs actionable intents](#readonly-vs-actionable-intents).
+- **Config:** LLM model, timeout, max_tokens in `config/tasklyst.php`; use `config()`, not `env()`. See [Conventions to follow](#conventions-to-follow).
+- **DTOs:** Map `$response->structured` to recommendation DTOs (e.g. `TaskScheduleRecommendationDto::fromStructured()`); validate before use. See [Backend Architecture Alignment](#backend-architecture-alignment) and [Laravel conventions (implementation)](#laravel-conventions-implementation).
+- **Apply only after user action:** No DB updates from LLM output alone; apply only when user Accepts or confirms Modify. See [Separate AI From Authority (In-Depth)](#9-separate-ai-from-authority-in-depth).
+- **Audit:** When applying recommendations, record intent, entity_type, **entity_id from context** (not from LLM), user action (accept/modify/reject), and optionally reasoning in `activity_logs`. See [Laravel conventions (implementation)](#laravel-conventions-implementation).
+- **Recurring (Phase 1 minimum):** Include `is_recurring: bool` in context; system prompt must say do not recommend times that conflict with recurring instances. See [Context Compression and ContextBuilder (In-Depth)](#context-compression-and-contextbuilder-in-depth).
+- **Ollama:** One request at a time by default; document as known limitation; use timeout, "Please wait", and consider Laravel queues + dedicated worker. See [Scope and known limitations](#scope-and-known-limitations).
+
+---
+
+## Data Model Alignment (Tasks, Events, Projects)
+
+This LLM workflow is grounded in TaskLyst's current schema and Eloquent models. The tables and fields below match the existing database (`tasks`, `events`, `projects`, `recurring_tasks`, `recurring_events`, `activity_logs`). Backend placement (Services, Actions, DTOs) aligns with existing patterns—e.g. `TaskService`, `EventService`, `ProjectService`, `UpdateTaskPropertyAction`, `UpdateEventPropertyAction`, `UpdateProjectPropertyAction`, `ActivityLogRecorder`, and `App\DataTransferObjects\*`—so the LLM flow plugs in without bypassing them.
+
+- **Tasks (`tasks` table)**:
+  - `id`, `user_id`, `title`, `description`
+  - `status` (`App\Enums\TaskStatus`), `priority` (`App\Enums\TaskPriority`), `complexity`
+  - `duration` (integer minutes), `start_datetime`, `end_datetime`
+  - `project_id`, `event_id`, `calendar_feed_id`
+  - `source_type`, `source_id`, `source_url`, `completed_at`, `deleted_at`
+
+- **Events (`events` table)**:
+  - `id`, `user_id`, `title`, `description`
+  - `start_datetime`, `end_datetime`, `all_day` (boolean), `status` (`App\Enums\EventStatus`)
+  - Soft deletes via `deleted_at`
+
+- **Projects (`projects` table)**:
+  - `id`, `user_id`, `name`, `description`
+  - `start_datetime`, `end_datetime`, `deleted_at`
+
+- **Recurrence & Instances**:
+  - `recurring_tasks`, `task_instances`, `task_exceptions`
+  - `recurring_events`, `event_instances`, `event_exceptions`
+
+- **Logging & Analytics**:
+  - `activity_logs` captures `action` and structured `payload` JSON for LLM‑assisted decisions, including reasoning, confidence, and timing, giving you a durable audit trail.
+
+All JSON examples and field names below are written so they can map cleanly onto these tables and model properties.
+
+---
+
+## Backend Architecture Alignment
+
+TaskLyst’s backend follows **Services**, **Actions**, **DTOs**, **Support/Validation**, and **Livewire Concerns**. The LLM flow should plug into this stack rather than bypass it.
+
+### Existing patterns (summary)
+
+| Layer | Location | Role |
+|-------|----------|------|
+| **Services** | `App\Services\*Service` | Domain logic, `DB::transaction`, orchestration (e.g. `TaskService::createTask(User, array)`). Injected into Actions. |
+| **Actions** | `App\Actions\{Domain}\*Action` | Single-purpose `execute(...)`; inject Services (and optionally `ActivityLogRecorder`, validation). Return models or result DTOs. |
+| **DTOs** | `App\DataTransferObjects\{Domain}\*Dto` | Readonly input/output objects. Input DTOs: `fromValidated(array)` and `toServiceAttributes()` for Services. Result DTOs: e.g. `UpdateTaskPropertyResult::success()`. |
+| **Support/Validation** | `App\Support\Validation\*PayloadValidation` | `rules()` and `defaults()` for Livewire/form validation; no domain logic. |
+| **Livewire Concerns** | `App\Livewire\Concerns\Handles*` | Traits on Livewire components: inject Actions, validate with `*PayloadValidation`, build DTO from validated input, call `$action->execute(...)`. |
+
+### Where each LLM phase should live
+
+| Phase | Suggested placement | Notes |
+|-------|---------------------|--------|
+| **1. Intent classification** | `App\Services\LlmIntentClassificationService` or `App\Actions\Llm\ClassifyLlmIntentAction` | Stateless: input string → `{ intent, entity_type, confidence }`. No DB; regex/keywords. |
+| **2. Context preparation** | `App\Services\LlmContextService` (e.g. `buildContextForIntent(User, intent, entity_type, ?entityId)`) | Uses existing `TaskService`/`EventService`/`ProjectService` (or Eloquent) to load minimal data; returns structured array for the prompt. |
+| **3. System prompting** | Same service or `App\Services\LlmPromptService` | Returns system prompt string (or message array) per intent/entity. Can be methods like `getSystemPromptForTaskScheduling()`. |
+| **4. LLM inference** | `App\Services\LlmInferenceService` (or `PrismOllamaService`) | Wraps Prism: `using(Provider::Ollama, model)`, `withSchema()`, `withSystemPrompt()`, `withPrompt()`, `asStructured()`. Returns raw `$response->structured` array; catches `PrismException`. |
+| **5–6. Response + user validation** | **DTOs** for recommendations: e.g. `App\DataTransferObjects\Llm\TaskScheduleRecommendationDto` | `fromStructured(array $response->structured)`: validate keys/types/enums, throw or return nullable. Livewire shows recommendation and Accept/Modify/Reject. |
+| **7. Backend execution** | **Existing or new Actions** | “Apply recommendation” = call existing `UpdateTaskPropertyAction` / `UpdateEventPropertyAction` / `UpdateProjectPropertyAction` with validated values from the recommendation DTO (or from user-modified form). Optionally an `ApplyTaskScheduleRecommendationAction` that takes `TaskScheduleRecommendationDto` and calls `TaskService` / `UpdateTaskPropertyAction` under the hood. |
+| **8. Logging / audit** | Existing `ActivityLogRecorder` + `activity_logs` | From within the Action or Service that applies the recommendation: record that the change came from an LLM suggestion (e.g. payload with `reasoning`, `confidence`, `intent`). |
+
+### Conventions to follow
+
+- **Config**: Put LLM model, timeout, max_tokens in `config/tasklyst.php` and use `config()` in Services/Actions.
+- **Validation**: After Prism returns, validate `$response->structured` into a DTO (e.g. `TaskScheduleRecommendationDto::fromStructured($data)`). Use Laravel validation or a small `App\Support\Validation\LlmStructuredResponseValidation` (or rules inside the DTO) so invalid shapes are handled in one place.
+- **Authorization**: In the Action or Livewire concern that triggers “apply recommendation”, authorize the user against the task/event/project (same policies as today).
+- **Traits**: Add a Livewire concern (e.g. `HandlesLlmAssistant`) that injects the LLM Services/Actions, holds chat state, calls intent → context → inference, maps response to recommendation DTOs, and calls the apply Action when the user accepts (or passes modified values to the same Action). Reuse existing Concerns (HandlesTasks, HandlesEvents, HandlesProjects) for any existing update flows if the user chooses “Modify”.
+- **Queued inference**: If you run the LLM call in a job, the job should call the same `LlmInferenceService`; on completion it can broadcast or persist the result so the Livewire component can show it without blocking the request.
+
+This keeps the LLM behind the same Service/Action/DTO/Validation boundaries as the rest of the app and makes testing and rollout easier.
 
 ---
 
@@ -99,6 +228,18 @@ Before intent classification, detect which entity type the user is referring to:
 11. **general_query** - Doesn't match other categories
     - Fallback for unclear requests
 
+### Readonly vs actionable intents
+Events (and projects) do not have a "priority" field in the schema; "prioritize_events" and "prioritize_projects" produce a **display-only** ranked list in chat, with **no database write** on "Accept". The plan and UI must distinguish:
+
+| Intent type | Readonly (display only) | Actionable (has DB write on Accept) |
+|-------------|-------------------------|-------------------------------------|
+| **prioritize_events** | Yes — show ranked list only | No |
+| **prioritize_projects** | Yes — show ranked list only | No |
+| **prioritize_tasks** | Optional: display-only ranking, or write priority field if your schema supports it | Depends on schema |
+| **schedule_task**, **adjust_task_deadline**, **schedule_event**, **adjust_event_time**, **schedule_project**, **adjust_project_timeline** | No | Yes |
+
+- **Code and UI:** For readonly intents, do **not** show an "Accept" button that implies applying a change; show the recommendation (e.g. "Here's your suggested order") and optionally "Done" or "Ask something else". For actionable intents, show Accept / Modify / Reject and call the apply Action on Accept.
+
 ### Why This Step Matters
 - ✅ **Speed**: Instant decision (<10ms) vs. waiting for LLM
 - ✅ **Cost**: No token usage for simple operations
@@ -114,11 +255,15 @@ Before intent classification, detect which entity type the user is referring to:
 }
 ```
 
+### Intent classification: regex fast path + optional LLM fallback
+- **Fast path:** The keyword/regex classifier above is the primary path—no LLM, &lt;10ms, deterministic. Filipino students (and others) will code-switch (e.g. Tagalog/English), abbreviate, or phrase in ways regex may miss (e.g. "Ano gagawin ko bukas?" for prioritization).
+- **Fallback:** When **confidence &lt; threshold** or **no match found**, add an optional **second-pass LLM classification**: one small Prism call with (user message, short system prompt, small output schema). Output: `{ intent, entity_type }`. Token cost is minimal; you already have the infrastructure. Keep regex as the default; use LLM only when the fast path is uncertain.
+
 ### Success Criteria
-- Classification accuracy >90% on test cases
-- Entity type detection accuracy >85%
-- Confidence scores meaningful and calibrated
-- Fallback to `general_query` gracefully when uncertain
+- Classification accuracy &gt;90% on test cases (regex + optional LLM fallback)
+- Entity type detection accuracy &gt;85%
+- Confidence scores meaningful for routing (low confidence → LLM fallback or general_query)
+- Fallback to `general_query` or LLM second-pass when uncertain
 
 ---
 
@@ -133,6 +278,81 @@ Gather **only the necessary data** to help Hermes 3 make an informed decision. M
 3. **Inject**: include that structured context payload in the LLM request (alongside the system prompt and the user’s chat message).
 
 This ensures the LLM sees consistent fields (instead of ad-hoc text dumps), which improves parsing reliability and reduces hallucinations.
+
+### Context Compression and ContextBuilder (In-Depth)
+
+**Why it matters:** Hermes 3 (3B) has limited reasoning capacity and context window. If you send **60 tasks**, **6 months of history**, or **full analytics**, quality degrades: slower, noisier, and less reliable JSON. Small models perform better with **curated, minimal context**.
+
+**What NOT to send:**
+
+- All tasks in the backlog (e.g. 60+)
+- Long history (e.g. 6 months of completed items)
+- Full analytics or raw dumps
+- Every field on every entity (strip to what the intent needs)
+
+**What TO send:**
+
+- **Upcoming** tasks/events (e.g. due in next 7–14 days)
+- **Overdue** items (always relevant for prioritization)
+- **High-priority / high-complexity** items when relevant
+- A **strict cap** per entity type (e.g. 10–12 tasks, 5 projects with up to 10 tasks each)
+
+**Implementation pattern: ContextBuilder**
+
+Use a dedicated builder (e.g. on `LlmContextService`) that, per intent and entity type, **filters**, **sorts**, and **limits** before building the payload. Never pass a raw query result to the LLM.
+
+Example shape (conceptual; adapt to your `LlmContextService`):
+
+```php
+// Conceptual: build a minimal prioritization context for tasks
+public function buildPrioritizationContext(User $user): array
+{
+    $tasks = Task::query()
+        ->forUser($user->id)
+        ->whereNull('completed_at')           // pending only
+        ->orderBy('end_datetime')             // earlier due date first
+        ->limit(12)                           // hard cap
+        ->get()
+        ->map(fn (Task $t) => [
+            'id' => $t->id,
+            'title' => $t->title,
+            'end_datetime' => $t->end_datetime?->toIso8601String(),
+            'priority' => $t->priority?->value,
+            'complexity' => $t->complexity?->value,
+        ]);
+
+    return [
+        'current_time' => now()->toIso8601String(),
+        'tasks' => $tasks,
+    ];
+}
+```
+
+**Rules to apply in the builder:**
+
+- **Prioritization:** pending only; sort by due date (and optionally priority); take 10–12; include overdue at top.
+- **Scheduling:** only tasks/events relevant to the requested window; exclude completed/cancelled; cap counts.
+- **No long history:** only upcoming + overdue + minimal “recent” if needed for pattern (e.g. last 5 similar tasks), not months of data.
+
+- **Recurring (Phase 1 minimum):** Include **`is_recurring: bool`** (and optionally `recurring_rule` or instance info) in the context payload for each task/event. Recurring tasks appear in a student's list from day one; if the LLM ignores recurrence, its scheduling recommendations can conflict with existing recurring instances. In the **system prompt**, instruct the model **not to recommend times that conflict with recurring instances**. Full recurrence management can remain Phase 3.
+
+This **context compression** keeps the prompt small, improves reliability of structured output, and aligns with the token budgets already defined in this phase.
+
+### Token budget: system prompt included
+The plan often cites ~1000–1500 tokens for context, but the **system prompt** (role, steps, constraints, schema description) consumes **~300–400 tokens**. With Hermes 3 3B `num_ctx` 4096 and ~500 for the model reply, **available context for user/context payload is ~800–1200 tokens**. In each intent's budget table, account for "system prompt: ~300–400" and cap the context payload so total prompt stays within that. Verify during development with `$response->usage->promptTokens`.
+
+### Context and prompts summary (agent reference)
+
+Short reference for implementers and AI agents. Full detail: [Context Structure by Intent and Entity Type](#context-structure-by-intent-and-entity-type), [Context Filtering Rules](#context-filtering-rules), [Phase 3: System Prompting](#phase-3-system-prompting).
+
+| Intent / area | Context cap (payload) | System prompt |
+|---------------|------------------------|---------------|
+| Tasks (schedule, prioritize, adjust) | 5–12 tasks; ~700–1200 tokens | Intent-specific; ~300–400 tokens total. Keep short for 3B. |
+| Events (schedule, prioritize, adjust) | 5–10 events; ~800–1200 tokens | Intent-specific; ~300–400 tokens total. |
+| Projects (schedule, prioritize, adjust) | 3–5 projects, 5–10 tasks each; ~1000–1500 tokens | Intent-specific; ~300–400 tokens total. |
+| resolve_dependency | 3–5 entities; ~800 tokens | Cross-entity. |
+
+**Rules:** Filter pending/upcoming only; sort by due date; include `is_recurring` for tasks/events; no 60+ tasks or 6 months history. Use a ContextBuilder (e.g. on `LlmContextService`) to filter, sort, limit, then map to minimal fields.
 
 ### Context Structure by Intent and Entity Type
 
@@ -229,11 +449,11 @@ Maximum tokens: ~800
 ##### `schedule_project` Intent
 ```
 Required Data:
-- Project details (name, description, start_date, end_date)
+- Project details (name, description, start_datetime, end_datetime)
 - All tasks within project (limited to 10 most relevant)
 - Task dependencies within project
 - Project tags
-- Milestone tracking
+- Milestone tracking (derived from tasks or milestones column if added later)
 - User work capacity
 - Related events that might affect project timeline
 
@@ -245,7 +465,7 @@ Maximum tokens: ~1200
 ```
 Required Data:
 - All active projects (limited to 5 most relevant)
-- Each project: start_date, end_date, task count, completion rate
+- Each project: start_datetime, end_datetime, task count, completion rate
 - Tasks within each project (top 5 per project)
 - Project dependencies
 - User work capacity
@@ -259,7 +479,7 @@ Maximum tokens: ~1500
 ```
 Required Data:
 - Project being adjusted
-- Current start/end dates vs. requested dates
+- Current start/end datetimes vs. requested datetimes
 - All tasks within project (to recalculate deadlines)
 - Dependent projects
 - Related events affected by timeline change
@@ -322,13 +542,13 @@ Maximum tokens: ~800
 
 #### For Projects
 ✅ **Include:**
-- Active projects (within date range or no end_date)
+- Active projects (within date range or no end_datetime)
 - Tasks within project (limited to most relevant)
 - Project tags
 - Milestone information
 
 ❌ **Exclude:**
-- Completed projects (end_date in past, unless showing patterns)
+- Completed projects (end_datetime in past, unless showing patterns)
 - All tasks in project (limit to 10 most relevant)
 - Archive data
 
@@ -350,6 +570,9 @@ Maximum tokens: ~800
 
 ### Purpose
 Set up Hermes 3 to understand its role, constraints, and expected output format.
+
+### Prompt verbosity and length
+The system prompts in this section are structured but relatively long. **For a 3B model, shorter, more direct prompts often outperform verbose ones.** Consider A/B testing prompt length during development (e.g. a condensed version of the same role + steps) and keep the system prompt within the ~300–400 token budget noted in [Token budget: system prompt included](#token-budget-system-prompt-included).
 
 ### System Prompt Structure
 
@@ -445,9 +668,9 @@ Analysis steps:
 4. What milestones need to be hit?
 5. What is the user's work capacity?
 6. Are there events that affect the timeline?
-7. Suggest optimal start_date and end_date
+7. Suggest optimal start_datetime and end_datetime
 
-Output: JSON with suggested start_date, end_date, milestones, task_sequence, and reasoning
+Output: JSON with suggested start_datetime, end_datetime, milestones, task_sequence, and reasoning
 ```
 
 #### For Task Prioritization
@@ -535,71 +758,127 @@ Output: JSON with prioritized project list and reasoning
 ## Phase 4: LLM Inference
 
 ### Purpose
-Send minimal context + structured prompt to Hermes 3 and receive structured recommendations.
+Send minimal context + structured prompt to Hermes 3 via Ollama and receive structured recommendations. Use **PrismPHP** for all LLM calls so responses are constrained by schema and errors are handled consistently.
 
-### Implementation Note (PrismPHP Structured Output)
-If you implement the LLM call using PrismPHP, prefer **structured output with an explicit schema** (i.e., use Prism’s structured JSON mode + a schema) so the model is constrained to the expected shape. This should align with the same intent/entity schemas used in Phase 2 and validated by the response parser. In practice, this means using Prism's structured API (for example, `Prism::structured()->using(...)->schema(...)->asStructured()`) and **never trusting free‑form JSON** from the model without schema validation.
+### PrismPHP + Ollama Implementation
 
-### What Happens
-1. **Format Request**
-   - System prompt (role + analysis framework)
-   - User input (natural language request)
-   - Context (minimal, curated data from Phase 2)
+#### Configuration (Laravel)
+- In `config/prism.php` (or wherever Prism is configured), ensure Ollama is registered. Example env:
+  - `OLLAMA_URL` — default `http://localhost:11434/v1`
+- Prefer **config** for model name and timeouts (e.g. `config('tasklyst.llm.model', 'hermes3:3b')`, `config('tasklyst.llm.timeout', 45)`) so you can change them per environment without code changes.
 
-2. **Call Ollama/Hermes 3**
-   - Model: `hermes2:3.1b` or `hermes2:7b`
-   - Temperature: 0.3
-   - Max tokens: 500
-   - Timeout: 30 seconds
+#### Structured output (required)
+- **Always** use Prism’s structured API. Ollama does not have native JSON mode; Prism appends instructions so the model outputs JSON matching your schema. If the response is not valid JSON, Prism throws `Prism\Prism\Exceptions\PrismException`.
+- Root schema **must** be an `ObjectSchema` (per Prism/Ollama). Define one schema per intent/entity (e.g. task scheduling, task prioritization, event scheduling) so the model sees a clear, narrow shape.
+- After `asStructured()`, **validate** `$response->structured` in application code (e.g. Form Request or DTO) before persisting or showing to the user. Prism does not validate payloads against the schema yet.
 
-3. **Parse Response**
-   - Extract JSON from response (handle markdown code blocks if the model misbehaves)
-   - Validate against the intent/entity JSON schema (types + required fields)
-   - Handle parsing errors gracefully
+#### Example: task scheduling response schema (Prism)
+```php
+use Prism\Prism\Facades\Prism;
+use Prism\Prism\Enums\Provider;
+use Prism\Prism\Schema\ObjectSchema;
+use Prism\Prism\Schema\StringSchema;
+use Prism\Prism\Schema\NumberSchema;
+use Prism\Prism\Schema\ArraySchema;
 
-4. **Log Interaction**
-   - Tokens used
-   - Processing time
-   - Response quality indicator
-   - User ID + intent type + entity type
+// IMPORTANT: Do NOT include entity_id in the LLM output schema. Hermes 3 3B will
+// hallucinate IDs (wrong or belonging to other users). The entity being operated on
+// is known before the LLM call (you retrieved it in Phase 2). Pass the ID in context
+// and resolve it server-side. The LLM outputs only recommendations (dates, priority, reasoning).
+$taskScheduleSchema = new ObjectSchema(
+    name: 'task_schedule_recommendation',
+    description: 'Structured scheduling recommendation for a single task',
+    properties: [
+        new StringSchema('entity_type', 'Always "task"'),
+        new StringSchema('recommended_action', 'One-line action summary'),
+        new StringSchema('reasoning', 'Step-by-step reasoning'),
+        new NumberSchema('confidence', 'Self-reported 0-1; see doc on confidence calibration'),
+        new StringSchema('start_datetime', 'ISO 8601 datetime'),
+        new StringSchema('end_datetime', 'ISO 8601 datetime'),
+        new NumberSchema('duration', 'Duration in minutes'),
+        new StringSchema('priority', 'low|medium|high|urgent'),
+        new ArraySchema(
+            name: 'blockers',
+            description: 'List of blocker descriptions',
+            items: new StringSchema('item', 'Blocker description')
+        ),
+        // Skip alternative_options for Phase 1; add later once core flow is reliable.
+    ],
+    requiredFields: ['entity_type', 'recommended_action', 'reasoning']
+);
+
+$response = Prism::structured()
+    ->using(Provider::Ollama, config('tasklyst.llm.model', 'hermes3:3b'))
+    ->withSchema($taskScheduleSchema)
+    ->withSystemPrompt($intentSpecificSystemPrompt)
+    ->withPrompt($userMessage . "\n\nContext:\n" . $contextJson)
+    ->withClientOptions(['timeout' => (int) config('tasklyst.llm.timeout', 45)])
+    ->withProviderOptions([
+        'temperature' => 0.3,
+        'num_ctx' => 4096,
+    ])
+    ->withMaxTokens(500)
+    ->asStructured();
+```
+
+- Catch `PrismException`: log, then fall back to rule-based recommendation or a clear “Try again” message. Do not expose raw exception to the user.
+- Use `$response->structured` (array), `$response->usage->promptTokens` / `completionTokens` for logging and analytics.
+
+#### Ollama + Hermes 3 3B considerations
+- **Timeouts**: Local inference can be slow; set `withClientOptions(['timeout' => 45])` or higher so requests do not cut off mid-generation.
+- **No native JSON mode**: Rely on Prism’s prompt injection and schema; keep prompts and context small so the model is more likely to output valid JSON.
+- **Context size**: Hermes 3 3B has limited context (e.g. `num_ctx` 4096). The **system prompt** (role, analysis steps, constraints, output schema description) typically uses **~300–400 tokens**. With ~500 tokens reserved for the model's reply, **real available context for user data is ~800–1200 tokens**, not the full 1000–1500. Add "system prompt tokens: ~300–400" to your per-intent budget and **cap Phase 2 context** accordingly. During development, check actual usage with `$response->usage->promptTokens` and adjust.
+
+### What Happens (Summary)
+1. **Format request**: System prompt (role + analysis framework) + user message + minimal context (Phase 2).
+2. **Call**: `Prism::structured()->using(Provider::Ollama, model)->withSchema(...)->withSystemPrompt(...)->withPrompt(...)->asStructured()` with timeout and provider options.
+3. **Parse**: Use `$response->structured`; if Prism threw, use fallback (rule-based or retry).
+4. **Validate**: In Laravel, validate the structured array (required fields, types, enums) before use.
+5. **Log**: User ID, intent, entity type, tokens, duration, and optionally store reasoning in `activity_logs.payload` for audit.
 
 ### Inference Parameters
 
 | Parameter | Value | Why |
 |-----------|-------|-----|
-| Model | hermes2:3.1b | Lightweight, fast, local |
-| Temperature | 0.3 | Consistent, deterministic |
-| Top K | 20 | Prevent random outputs |
-| Max Tokens | 500 | Avoid rambling |
-| Timeout | 30s | Prevent hanging |
+| Model | `hermes3:3b` (Ollama tag) | Hermes 3 3B, local, instruction-following |
+| Temperature | 0.3 | Consistent, low-randomness output |
+| num_ctx | 4096 | Enough for prompt + context; avoid overload |
+| Max tokens | 500 | Short, focused recommendations |
+| Timeout | 45s (configurable) | Ollama can be slow; avoid premature disconnect |
+
+### Laravel conventions (implementation)
+- **Config**: Store `tasklyst.llm.model`, `tasklyst.llm.timeout`, and optionally `tasklyst.llm.max_tokens` in a dedicated config file (e.g. `config/tasklyst.php`) and use `config()`, not `env()`, in application code.
+- **Services / Actions / DTOs**: Put the Prism call in a **Service** (e.g. `LlmInferenceService`); map `$response->structured` into a **DTO** (e.g. `TaskScheduleRecommendationDto::fromStructured()`); use **Actions** to apply recommendations (see [Backend Architecture Alignment](#backend-architecture-alignment)).
+- **Validation**: Use a **Form Request** (or Livewire rules) for chat input. After Prism returns, validate `$response->structured` into the recommendation DTO (required keys, types, enums) before calling apply Actions.
+- **Authorization**: Apply Laravel policies so only the authenticated user (or collaborators) can trigger LLM actions on their tasks/events/projects.
+- **Optional queue**: For a better UX, consider dispatching a **job** (`ShouldQueue`) that runs the Prism call and then broadcasts or stores the result; the UI can show “Thinking…” and then update when the job completes. Keep the job idempotent and use a timeout consistent with `withClientOptions`.
+- **Audit**: Use the existing `ActivityLogRecorder` and `activity_logs` when applying recommendations (intent, entity_type, entity_id from context—not from LLM—user action accept/modify/reject) and, where useful, store the model’s reasoning in `activity_logs` (e.g. `payload.reasoning`) for transparency and debugging.
 
 ### Response Structure
-Hermes 3 should always return structured JSON with entity type support:
+Hermes 3 should always return structured JSON with entity type support (shapes below match the Prism `ObjectSchema` you define per intent):
 
-#### For Tasks
+**Entity ID is never in LLM output.** The task/event/project being operated on is determined in Phase 2 (context) and passed into the request. After the LLM returns, the server uses that known entity ID when applying the recommendation. This prevents the model from hallucinating or returning another user's ID.
+
+#### For Tasks (entity_id resolved server-side from context)
 ```json
 {
   "entity_type": "task",
-  "entity_id": 123,
   "recommended_action": "string",
   "reasoning": "Step 1: ... Step 2: ... Step 3: ...",
   "confidence": 0.85,
-  "scheduled_date": "2025-12-10",
-  "scheduled_time": "09:00",
-  "estimated_duration": 120,
-  "priority_score": 92,
-  "blockers": ["issue 1", "issue 2"],
-  "alternative_options": [
-    { "option": "...", "tradeoff": "..." }
-  ]
+  "start_datetime": "2025-12-10T09:00:00",
+  "end_datetime": "2025-12-10T11:00:00",
+  "duration": 120,
+  "priority": "high",
+  "blockers": ["issue 1", "issue 2"]
 }
 ```
+Phase 1: omit `alternative_options`; add in a later phase once core flow is reliable.
 
-#### For Events
+#### For Events (entity_id resolved server-side from context)
 ```json
 {
   "entity_type": "event",
-  "entity_id": 456,
   "recommended_action": "string",
   "reasoning": "Step 1: ... Step 2: ... Step 3: ...",
   "confidence": 0.85,
@@ -609,105 +888,72 @@ Hermes 3 should always return structured JSON with entity type support:
   "all_day": false,
   "location": "Conference Room A",
   "recurring_pattern": null,
-  "conflicts": ["event 789"],
-  "alternative_options": [
-    { "option": "...", "tradeoff": "..." }
-  ]
+  "conflicts": ["event 789"]
 }
 ```
 
-#### For Projects
+#### For Projects (entity_id resolved server-side from context)
 ```json
 {
   "entity_type": "project",
-  "entity_id": 789,
   "recommended_action": "string",
   "reasoning": "Step 1: ... Step 2: ... Step 3: ...",
   "confidence": 0.85,
-  "start_date": "2025-12-01",
-  "end_date": "2026-01-15",
+  "start_datetime": "2025-12-01T00:00:00",
+  "end_datetime": "2026-01-15T23:59:59",
   "milestones": [
     { "name": "Phase 1 Complete", "date": "2025-12-15" }
   ],
   "task_sequence": [123, 124, 125],
-  "blockers": ["task 123"],
-  "alternative_options": [
-    { "option": "...", "tradeoff": "..." }
-  ]
+  "blockers": ["task 123"]
 }
 ```
 
 ### Error Handling
-- If JSON parsing fails → Use fallback recommendation
-- If response times out → Show cached previous result
-- If Ollama is down → Activate rule-based fallback
-- If confidence <0.6 → Flag for human review
+- **PrismException** (invalid JSON or provider error): Log, then use rule-based fallback or ask the user to rephrase; never expose stack traces.
+- **Timeout**: Increase `withClientOptions(['timeout' => ...])` if needed; show “Taking longer than usual…” and consider a queued job for long-running inference.
+- **Ollama unreachable**: Catch connection errors, activate rule-based prioritization/scheduling, and optionally notify that the assistant is unavailable.
+- **Low confidence** (e.g. &lt;0.6): Still show the recommendation but surface a “Low confidence” indicator and encourage the user to review or modify.
 
 ### Success Criteria
 - Response always valid JSON
 - Processing time <3-5 seconds
 - Reasoning includes concrete facts (not vague)
 - All required fields present
-- Confidence score provided
+- Confidence: either from schema (document as uncalibrated) or derived from validation (preferred)
+
+### Confidence scores from 3B models (caveat)
+- Hermes 3 3B (and most small LLMs) do **not** reliably calibrate their own confidence. Using model-reported confidence to drive UI can mislead. Prefer **validation-based confidence** for thesis prototypes: e.g. did all required fields come back? Did dates parse? Use that for logging and optional UI; treat accept/modify/reject rate as a **finding**, not a success threshold.
 
 ---
 
-## Phase 5: Structured Output Display
+## Phase 5: Structured Output Display (Frontend)
 
-### Purpose
-Show the user **both the recommendation AND the reasoning** in a transparent, understandable format, rendered directly in the chatbot interface (with clear action buttons for Accept / Modify / Reject).
+Display and chat UI: see **[Frontend (Implementation Plan)](#frontend-implementation-plan)** below.
 
-### Display Components
+<!-- Full Phase 5 content moved to Frontend (Implementation Plan) at end of document. -->
 
-#### Primary Recommendation
-- Clear visual hierarchy
-- Entity-specific key metrics at top:
-  - **Tasks**: date, time, priority, duration
-  - **Events**: start/end datetime, timezone, location, all-day indicator, recurring pattern
-  - **Projects**: start/end dates, milestone dates, task count, progress indicators
-- Color coding for urgency/confidence
-- Not overwhelming with information
+## Phase 6: User Validation & Action (Frontend)
 
-#### Reasoning Section
-- Show step-by-step logic
-- Reference concrete facts from context
-- Explain tradeoffs considered
-- Format: "Step 1: X. Step 2: Y. Step 3: Z."
+User validation, Accept/Modify/Reject, and modify-flow: see **[Frontend (Implementation Plan)](#frontend-implementation-plan)** below.
 
-#### Blockers/Dependencies
-- List items blocking this entity (tasks, events, or projects)
-- Current status of blockers
-- Estimated completion time
-- Cross-entity blockers (e.g., event blocking task)
-- Yellow/red warning colors
+---
 
-#### Smart Suggestions
-- 2-3 actionable recommendations
-- Based on LLM's analysis
-- Entity-specific examples:
-  - Tasks: "Schedule this Tuesday morning for best results"
-  - Events: "Move to Thursday 2pm to avoid conflicts"
-  - Projects: "Start next week to align with team availability"
-- Format: Bullet points with checkmarks
+*Frontend detail below is also collected in **[Frontend (Implementation Plan)](#frontend-implementation-plan)** at the end of this document.*
 
-#### Confidence Indicator
-- 0-100 score
-- Visual representation (bar, color)
-- Interpretation guide ("Very confident", "Moderate", etc.)
+Livewire 4’s **[wire:stream](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses)** directive lets you stream content to the page before the request finishes. It’s a good fit for the chatbot interface:
 
-### Layout Principles
-- ✅ Information hierarchy (most important first)
-- ✅ Visual separations between sections
-- ✅ Color coding for quick scanning
-- ✅ Mobile-friendly responsive design
-- ✅ Clear call-to-action buttons
+- **Streaming assistant text:** If the LLM response is streamed (e.g. Ollama streaming via Prism’s streaming API), use `$this->stream(to: 'answer', content: $partial)` in a callback and target a `<p wire:stream="answer">` (or similar) in the chat. The assistant message then appears progressively. By default content is **appended**; use `replace: true` to replace (e.g. for a single “thinking” line).
+- **Structured output flow:** When using **structured** output (Prism `asStructured()`), you typically receive one full JSON payload. You can still use `wire:stream` to stream status lines (e.g. “Analyzing your tasks…”, “Checking deadlines…”) while the request runs, then replace that area with the final recommendation card when the response is parsed.
+- **Implementation:** In the Livewire component that handles the chat (e.g. using `HandlesLlmAssistant`), call the intent/context/inference pipeline; if the inference step supports streaming, pass a callback that calls `$this->stream(to: 'target', content: $partial)`. Render the stream target in the chat message area with `wire:stream="target"`. See the [Livewire docs – Streaming chat-bot responses](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses) for the full ChatBot example.
+- **Note:** `wire:stream` is [not compatible with Laravel Octane](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses). If you run the app under Octane, either avoid streaming or use an alternative (e.g. poll for result after a queued job).
 
-### User Feedback Elements
-- **Accept** button (green, primary action)
-- **Modify** button (grey, secondary)
-- **Reject/Try Again** button (subtle)
-- Show processing state ("Generating...", spinner)
-- Show success state ("Scheduled!", checkmark)
+### Chat session and multi-turn state
+Hermes 3 has **no memory**—each Prism call is stateless. If the user says "can you push that back a day?", the model has no idea what "that" refers to without prior chat context.
+
+- **Store conversation history:** Use a `chat_sessions` table (or `activity_logs` with a `session_id`) so each request can load the current session's messages.
+- **Pass last N turns into the LLM:** On each call, pass the **last N message pairs** (user + assistant) into Prism, e.g. via `withMessages(...)` (or equivalent in your prompt builder), so the model sees the recent dialogue. **Cap history at 3–5 turns** to keep token usage predictable and within the ~800–1200 context budget.
+- **Implementation:** In `HandlesLlmAssistant` (or the Livewire component), load the session's last N messages, format them into the prompt or Prism message list, then append the current user message. After the LLM responds, persist both user and assistant messages to the session before returning.
 
 ### Success Criteria
 - User understands recommendation at a glance
@@ -762,7 +1008,7 @@ If user modifies recommendation:
 7. Proceed to backend execution with modified values
 
 #### For Projects:
-1. User sees input fields for: start_date, end_date, milestone dates
+1. User sees input fields for: start_datetime, end_datetime, milestone dates
 2. User changes one or more values
 3. Modified values override LLM suggestion
 4. Display updated recommendation
@@ -796,7 +1042,7 @@ Before any database change:
 1. **Syntax Validation**
    - **Tasks**: Dates valid format, times within work hours, durations reasonable (>0, <12 hours typically) — all computed and verified in backend code, not by the LLM
    - **Events**: DateTime valid format, timezone valid, end_datetime > start_datetime — overlaps and gaps are calculated in backend code only
-   - **Projects**: Dates valid format, end_date >= start_date — any roll‑up timeline math is done in backend code
+   - **Projects**: DateTime fields valid format, end_datetime >= start_datetime — any roll‑up timeline math is done in backend code
 
 2. **Business Logic Validation**
    - **Tasks**: No scheduling conflicts with events or other tasks, dependencies met, user capacity not exceeded, deadline respected — conflicts and capacity checks are fully deterministic rules, not delegated to the LLM
@@ -818,7 +1064,7 @@ Before any database change:
 #### For Tasks:
 1. **Validate** recommendation against rules
 2. **Update** task in database:
-   - start_date, end_date
+   - start_datetime, end_datetime
    - duration (minutes)
    - priority (enum: low, medium, high, urgent)
    - status (to_do → doing, or to_do → done)
@@ -856,7 +1102,7 @@ Before any database change:
 #### For Projects:
 1. **Validate** recommendation against rules
 2. **Update** project in database:
-   - start_date, end_date
+   - start_datetime, end_datetime
    - llm_reasoning (store for audit trail)
 
 3. **Cascade Updates**
@@ -891,8 +1137,8 @@ Before any database change:
   "entity": {
     "id": 123,
     "title": "...",
-    "start_date": "2025-12-10",
-    "end_date": "2025-12-10",
+    "start_datetime": "2025-12-10T09:00:00",
+    "end_datetime": "2025-12-10T11:00:00",
     "duration": 120,
     "priority": "high",
     "status": "doing"
@@ -930,8 +1176,8 @@ Before any database change:
   "entity": {
     "id": 789,
     "name": "...",
-    "start_date": "2025-12-01",
-    "end_date": "2026-01-15"
+    "start_datetime": "2025-12-01T00:00:00",
+    "end_datetime": "2026-01-15T23:59:59"
   },
   "cascade_updates": {
     "tasks_updated": 15,
@@ -1101,6 +1347,56 @@ Rule-based fallback logic:
 
 ---
 
+### Deterministic Fallback Layer (In-Depth)
+
+**Why it matters:** The AI can fail (invalid JSON, Ollama crash, model stall, timeout). Without a fallback, the feature breaks. A **deterministic fallback layer** keeps the system reliable, defensible for evaluation (e.g. ISO reliability), and thesis-defensible.
+
+**When to trigger fallback:**
+
+| Condition | Action |
+|-----------|--------|
+| `PrismException` (invalid JSON or provider error) | Run rule-based path; do not expose error to user |
+| Ollama unreachable / connection failure | Run rule-based path; optionally show "Assistant unavailable" |
+| Request timeout (no response within configured limit) | Run rule-based path or show "Try again" |
+| `$response->structured` fails validation (missing keys, wrong types) | Run rule-based path |
+| Confidence below threshold (e.g. &lt;0.6) | Still show recommendation but surface "Low confidence" and encourage review; optionally offer rule-based alternative |
+
+**Implementation pattern:** Centralize the decision so the UI and pipeline always get either a valid recommendation or a fallback result—never a raw exception.
+
+```php
+// Pseudocode: in LlmInferenceService or the action that orchestrates the flow
+public function getRecommendation(User $user, string $intent, array $context): RecommendationResult
+{
+    try {
+        $response = Prism::structured()->using(...)->withSchema(...)->withPrompt(...)->asStructured();
+        $dto = TaskScheduleRecommendationDto::fromStructured($response->structured);
+        if (!$this->isValidRecommendation($dto)) {
+            return $this->fallbackPrioritization($user, $intent, $context);
+        }
+        return RecommendationResult::fromDto($dto);
+    } catch (PrismException $e) {
+        Log::warning('LLM inference failed, using fallback', ['error' => $e->getMessage()]);
+        return $this->fallbackPrioritization($user, $intent, $context);
+    }
+}
+```
+
+**Rule-based fallback rules (prioritization):**
+
+- **Earlier due date** → higher priority score (closer deadline = higher rank).
+- **Higher complexity** (or “urgent” priority) → schedule earlier when suggesting slots.
+- **Overdue tasks** → highest priority; always appear first in fallback ordering.
+- **Schedule fallback:** suggest next available slot by work hours / existing events; no AI, just gap-finding.
+
+Keep these rules in a dedicated class (e.g. `RuleBasedPrioritizationService` or methods on `LlmContextService`) so they are testable and reusable. This makes the system **reliable**, **ISO-aligned (reliability dimension)**, and **technically defensible** in a thesis or review.
+
+**Checklist (see also Implementation Checklist → Phase 4):**
+
+- Implement the deterministic fallback layer in the orchestrator (e.g. `if (!$this->isValidRecommendation($dto)) return $this->fallbackPrioritization(...)`).
+- Implement rule-based fallback (e.g. `RuleBasedPrioritizationService`): earlier due date = higher rank, overdue = highest, higher complexity = earlier in schedule; keep testable and reusable.
+
+---
+
 ## Key Design Principles
 
 ### 1. Progressive Disclosure
@@ -1143,29 +1439,75 @@ Rule-based fallback logic:
 - Store reasoning
 - Enable continuous improvement
 
+### 9. Separate AI From Authority (In-Depth)
+
+**Rule to enforce everywhere (backend and UI):** The AI **never** has authority to change data on its own. It can only **suggest**. The user must explicitly **Accept**, **Modify**, or **Reject** before any task/event/project is updated.
+
+**What the AI must NOT do:**
+
+- Automatically reschedule tasks
+- Change deadlines without user confirmation
+- Modify priorities silently
+- Create, update, or delete any entity without a user action on a recommendation
+
+**What the user must do:**
+
+- **Accept** — apply the recommendation as-is (one explicit action, e.g. button click)
+- **Modify** — adjust the suggestion (e.g. change date/time) then confirm; the applied values are the user’s, not the model’s
+- **Reject** — discard the recommendation and optionally try again or cancel
+
+**Enforcement:**
+
+- **Backend:** No code path may update tasks/events/projects based solely on LLM output. Updates may only run after an explicit “apply” step (e.g. the action triggered by Accept or Modify), with the same validation and policies as non-LLM flows.
+- **UI:** Do not auto-apply recommendations after a timeout or “suggested” state. Always show Accept/Modify/Reject; only apply when the user chooses Accept or confirms Modify.
+
+**Why this matters for your thesis:**
+
+- **Over-reliance risk** — users stay in control; the system does not act on their behalf without consent.
+- **Ethical safeguards** — recommendations are clearly presented as suggestions, not decisions.
+- **Bias mitigation** — any model bias is limited to suggestions; final decisions are human.
+- **Defensibility** — you can state clearly that “AI suggests, user decides,” which strengthens the thesis and evaluation (e.g. ISO usability/dependability).
+
 ---
 
 ## Implementation Checklist
 
-### Phase 1: Intent Classification
+Use the [Backend quick reference](#backend-quick-reference-for-ai--implementers) for a compact list of constraints. Below: **Backend** (Phases 1–4, 7–8, Architecture, Testing) then **Frontend** (Phases 5–6).
+
+### Backend
+
+#### Architecture (Services, Actions, DTOs, Traits)
+Align with the [Backend Architecture Alignment](#backend-architecture-alignment) section so the LLM flow uses the same patterns as the rest of the app:
+- [ ] **Intent**: `App\Services\LlmIntentClassificationService` or `App\Actions\Llm\ClassifyLlmIntentAction` (no DB; returns intent + entity_type + confidence)
+- [ ] **Context**: `App\Services\LlmContextService` with methods that use existing Task/Event/Project services or Eloquent to build minimal context payloads
+- [ ] **Prompts**: Same service or `App\Services\LlmPromptService` for system prompts per intent/entity
+- [ ] **Inference**: `App\Services\LlmInferenceService` wrapping Prism (Ollama, schema, asStructured, PrismException handling)
+- [ ] **DTOs**: `App\DataTransferObjects\Llm\*RecommendationDto` (e.g. `TaskScheduleRecommendationDto::fromStructured(array)`) to validate and type the LLM response before use
+- [ ] **Apply**: Reuse `UpdateTaskPropertyAction` / `UpdateEventPropertyAction` / `UpdateProjectPropertyAction` with values from the recommendation DTO, or add `ApplyTaskScheduleRecommendationAction` etc. that call existing services
+- [ ] **Livewire**: `App\Livewire\Concerns\HandlesLlmAssistant` trait that injects the above services/actions, manages chat state, and calls apply actions when the user accepts (or modify flow via existing HandlesTasks/HandlesEvents/HandlesProjects)
+- [ ] **Validation**: `App\Support\Validation\LlmStructuredResponseValidation` or validation inside recommendation DTOs for `$response->structured`
+- [ ] **Audit**: Use existing `ActivityLogRecorder` and `activity_logs` when applying LLM recommendations (payload: reasoning, confidence, intent). See [Backend quick reference](#backend-quick-reference-for-ai--implementers) (entity_id from context).
+
+#### Phase 1: Intent Classification
 - [ ] Define regex patterns for each intent and entity type
 - [ ] Implement entity detection (task/event/project)
 - [ ] Test classification accuracy >90%
 - [ ] Test entity detection accuracy >85%
 - [ ] Implement confidence scoring
-- [ ] Add fallback to `general_query`
+- [ ] Add fallback to `general_query`. See [Intent classification: regex + LLM fallback](#intent-classification-regex-fast-path--optional-llm-fallback).
 
-### Phase 2: Context Preparation
+#### Phase 2: Context Preparation
 - [ ] Design context schema per intent type and entity type
+- [ ] Implement **context compression** via a ContextBuilder (e.g. on `LlmContextService`): filter (e.g. pending only), sort (e.g. by due date), limit (e.g. 10–12 tasks); never send 60+ tasks or 6 months of history (see [Context Compression and ContextBuilder](#context-compression-and-contextbuilder-in-depth))
 - [ ] Implement data filtering:
-  - Tasks: max 10 tasks
+  - Tasks: max 10–12 tasks
   - Events: max 10 events
   - Projects: max 5 projects with 5-10 tasks each
 - [ ] Set token budget (~1000-1500 max)
 - [ ] Add caching for user preferences
-- [ ] Implement cross-entity context (events for tasks, tasks for projects)
+- [ ] Implement cross-entity context (events for tasks, tasks for projects). See [Context and prompts summary](#context-and-prompts-summary-agent-reference) and [Token budget](#token-budget-system-prompt-included).
 
-### Phase 3: System Prompting
+#### Phase 3: System Prompting
 - [ ] Write intent-specific and entity-specific system prompts
   - [ ] Task scheduling prompts
   - [ ] Event scheduling prompts
@@ -1173,15 +1515,15 @@ Rule-based fallback logic:
   - [ ] Prioritization prompts (all entity types)
 - [ ] Test with Hermes 3 locally
 - [ ] Tune temperature (0.3 recommended)
-- [ ] Validate JSON output format (with entity_type)
+- [ ] Validate JSON output format (with entity_type). Keep prompts short for 3B; see [Prompt verbosity](#prompt-verbosity-and-length).
 
-### Phase 4: LLM Inference
-- [ ] Setup Ollama client
-- [ ] Implement error handling
-- [ ] Add request logging (with entity_type)
-- [ ] Setup performance monitoring per entity type
-- [ ] Use Prism (or equivalent) structured output mode with explicit JSON schema per intent/entity
-- [ ] Reject or fallback on any response that fails schema validation (never silently accept malformed JSON)
+#### Phase 4: LLM Inference (PrismPHP + Ollama)
+- [ ] Configure Ollama in Prism (`OLLAMA_URL`) and optional `config/tasklyst.php` (model, timeout, max_tokens)
+- [ ] Define one `ObjectSchema` per intent/entity (task schedule, task prioritize, event schedule, etc.) using Prism schema types; **do not include `entity_id` in the output schema**—resolve entity server-side from context (see [Response Structure](#response-structure)).
+- [ ] Use `Prism::structured()->using(Provider::Ollama, model)->withSchema(...)->withSystemPrompt(...)->withPrompt(...)->withClientOptions(['timeout' => ...])->asStructured()`
+- [ ] Catch `PrismException` and fall back to rule-based recommendation or “Try again”; never expose raw errors
+- [ ] Validate `$response->structured` in application code (required keys, types, enums) before use
+- [ ] Log requests/responses (user_id, intent, entity_type, tokens, duration) and optionally store reasoning in `activity_logs.payload`
 
 ### Testing “Golden Paths” (End‑to‑End)
 - [ ] Define at least 2–3 **canonical scenarios** per core intent (e.g., `schedule_task`, `prioritize_tasks`, `schedule_event`)
@@ -1192,17 +1534,23 @@ Rule-based fallback logic:
   - [ ] Expected backend validation behavior and final database changes
 - [ ] Automate these as end‑to‑end tests so future changes to prompts, schemas, or context preparation cannot silently break the pipeline
 
-### Phase 5: Display Layer
+### Frontend
+
+#### Phase 5: Display Layer
+Full plan: [Frontend (Implementation Plan)](#frontend-implementation-plan).
 - [ ] Design recommendation card UI (entity-specific)
 - [ ] Implement reasoning display
 - [ ] Add blocker alerts (cross-entity aware)
 - [ ] Create action buttons
+- [ ] Consider Livewire 4 `wire:stream` for chat: stream assistant text or status updates (see [Phase 5 – Chat UI and streaming](#chat-ui-and-streaming-livewire-4-wirestream)); skip if using Octane.
+- [ ] **Chat session / multi-turn:** Store conversation in `chat_sessions` (or `activity_logs` with session_id); pass last 3–5 message pairs to Prism so the model can resolve "that", "it", etc. (see [Chat session and multi-turn state](#chat-session-and-multi-turn-state)).
+- [ ] **Readonly intents:** For `prioritize_events` and `prioritize_projects` (and any display-only intent), do not show an "Accept" button; show the ranked recommendation only (see [Readonly vs actionable intents](#readonly-vs-actionable-intents)).
 - [ ] Entity-specific metrics display:
   - [ ] Tasks: date, time, priority, duration
   - [ ] Events: datetime, timezone, location, all-day, recurring
   - [ ] Projects: timeline, milestones, task count, progress
 
-### Phase 6: User Validation
+#### Phase 6: User Validation
 - [ ] Build accept/modify/reject buttons
 - [ ] Implement modify form (entity-specific fields):
   - [ ] Tasks: date, time, duration, priority
@@ -1211,7 +1559,8 @@ Rule-based fallback logic:
 - [ ] Add cross-entity conflict detection
 - [ ] Show real-time updates
 
-### Phase 7: Backend Execution
+#### Phase 7: Backend Execution
+See [Phase 7: Backend Execution](#phase-7-backend-execution) in the body for full validation and execution steps.
 - [ ] Validation layer (entity-specific rules):
   - [ ] Tasks: dates, times, durations, conflicts
   - [ ] Events: DateTime, timezone, overlaps, conflicts
@@ -1222,9 +1571,9 @@ Rule-based fallback logic:
   - [ ] Tasks: update dependent tasks, project progress
   - [ ] Events: update recurring patterns, related tasks
   - [ ] Projects: update task deadlines, related events
-- [ ] Audit logging (with entity_type)
+- [ ] Audit logging (with entity_type). See [Backend quick reference](#backend-quick-reference-for-ai--implementers) (apply only after user action).
 
-### Phase 8: Analytics
+#### Phase 8: Analytics
 - [ ] Log all interactions (with entity_type)
 - [ ] Track acceptance rates per entity type
 - [ ] Monitor token usage per entity type
@@ -1235,8 +1584,13 @@ Rule-based fallback logic:
 
 ## Common Pitfalls to Avoid
 
-❌ **Don't:** Send all 100 tasks/events/projects to LLM
-✅ **Do:** Send 5-10 most relevant entities per type
+See [Backend quick reference](#backend-quick-reference-for-ai--implementers) for the canonical list of backend constraints. Summary:
+
+❌ **Don't:** Put `entity_id` in the LLM output schema. ✅ **Do:** Resolve entity from context server-side. (See [Response Structure](#response-structure).)
+
+❌ **Don't:** Rely on model-reported confidence for critical UI decisions. ✅ **Do:** Use validation-based confidence or document as uncalibrated. (See [Confidence scores from 3B models (caveat)](#confidence-scores-from-3b-models-caveat).)
+
+❌ **Don't:** Send all 100 tasks/events/projects to LLM. ✅ **Do:** Send 5–10 most relevant per type (see [Context and prompts summary](#context-and-prompts-summary-agent-reference)).
 
 ❌ **Don't:** Use free-form LLM responses
 ✅ **Do:** Force structured JSON output with entity_type
@@ -1250,8 +1604,7 @@ Rule-based fallback logic:
 ❌ **Don't:** Call LLM for every input
 ✅ **Do:** Classify first (intent + entity), route intelligently
 
-❌ **Don't:** Ignore LLM failures
-✅ **Do:** Implement fallback rules
+❌ **Don't:** Ignore LLM failures. ✅ **Do:** Implement fallback rules. (See [Deterministic Fallback Layer](#deterministic-fallback-layer-in-depth).)
 
 ❌ **Don't:** Use high temperature (>0.7)
 ✅ **Do:** Use temperature 0.3 for consistency
@@ -1268,36 +1621,34 @@ Rule-based fallback logic:
 ❌ **Don't:** Forget recurring patterns
 ✅ **Do:** Handle recurring_tasks and recurring_events properly
 
+❌ **Don't:** Call Ollama without Prism structured output
+✅ **Do:** Use `Prism::structured()->withSchema(ObjectSchema)->asStructured()` so responses are parseable and PrismException is thrown on invalid JSON
+
+❌ **Don't:** Ignore PrismException or expose it to the user
+✅ **Do:** Catch it, log it, and fall back to rule-based recommendation or a friendly “Try again” message
+
 ---
 
 ## Success Metrics
 
-### User Experience
-- Workflow completes in <5 seconds
-- Recommendation is understood immediately
-- User satisfaction >80% (accept rate >80%)
-- Mobile-friendly, no scroll needed
+**Framing for thesis and evaluation:** The metrics below should be treated as **aspirational targets or research questions**, not hard success criteria. For a 3B local model in a first prototype, thresholds like "accept rate &gt;80%" or "conflict detection &gt;95%" are unrealistic—if the panel evaluates against them and finds e.g. 65% accept rate, it can look like failure even when the system is genuinely useful. For **ISO/IEC 25010** and thesis defense, tie evaluation to what you can actually measure and report as findings.
 
-### System Performance
-- Intent classification: <10ms
-- Context prep: <150ms
-- LLM inference: <3s (acceptable)
-- Total: <4 seconds
+### Measurable (thesis and ISO)
+- **Response time:** End-to-end workflow time (intent → display); target &lt;5s, log actual.
+- **JSON validity rate:** % of LLM responses that pass schema validation; log and report.
+- **Task/event creation success after AI suggestion:** Did the user accept or modify and then succeed? Log accept/modify/reject; report as **findings**, not pass/fail thresholds.
+- **User-reported satisfaction:** e.g. Likert scale after using the assistant; suitable for thesis and quality-in-use.
 
-### LLM Quality
-- Output is valid JSON 99%+ of time
-- Reasoning is transparent and logical
-- Confidence scores are calibrated
-- Accuracy improves over time (feedback loop)
+### Aspirational (research questions, not gates)
+- User satisfaction and accept rate (log and analyze; do not set a single "pass" threshold).
+- Intent classification accuracy, entity detection accuracy (improve over time; report as findings).
+- Task completion rate, scheduling efficiency, time saved (aspirational; report what you observe).
 
-### Business Metrics
-- User task completion rate +30%
-- User event scheduling efficiency +40%
-- Project timeline accuracy +25%
-- Time spent scheduling -70% (across all entity types)
-- Error rate in scheduling -50%
-- Cross-entity conflict detection accuracy >95%
-- Users adopt feature within first week
+### System Performance (targets)
+- Intent classification: &lt;10ms
+- Context prep: &lt;150ms
+- LLM inference: &lt;3–5s (acceptable for local 3B)
+- Total: &lt;5 seconds
 
 ---
 
@@ -1343,17 +1694,60 @@ Rule-based fallback logic:
 
 ---
 
+## Frontend (Implementation Plan)
+
+All frontend plan content is collected here. The interface is a **chatbot** (Livewire + Flux). Phases 5 and 6 in the pipeline refer to this section.
+
+### Phase 5: Structured Output Display
+
+**Purpose:** Show the user both the recommendation and the reasoning in a transparent format in the chatbot, with clear Accept / Modify / Reject actions.
+
+**Display components:**
+- **Primary recommendation:** Clear hierarchy; entity-specific metrics (tasks: date, time, priority, duration; events: start/end, timezone, location, all-day, recurring; projects: dates, milestones, task count); color for urgency/confidence.
+- **Reasoning:** Step-by-step logic, concrete facts, tradeoffs; format "Step 1: … Step 2: …".
+- **Blockers/dependencies:** List blockers, status, cross-entity blockers; yellow/red as needed.
+- **Smart suggestions:** 2–3 actionable bullets from LLM analysis.
+- **Confidence indicator:** Either omit (use validation-based confidence) or show model self-assessment with a note that it is not calibrated (see Confidence caveat elsewhere in doc).
+
+**Layout:** Information hierarchy, visual separation, color coding, mobile-friendly, clear CTAs.
+
+**User feedback:** Accept (green), Modify (grey), Reject (subtle); processing state ("Generating…"), success state ("Scheduled!").
+
+**Chat UI and streaming (Livewire 4 `wire:stream`):** Use Livewire 4 [wire:stream](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses) for streaming assistant text or status lines; with structured output you can stream status then show the final recommendation card. Not compatible with Laravel Octane—use poll or skip streaming if using Octane.
+
+**Chat session and multi-turn:** Hermes has no memory. Store history in `chat_sessions` (or `activity_logs` with session_id); pass last 3–5 message pairs into Prism; in `HandlesLlmAssistant`, load last N messages, append current message, persist user + assistant after response.
+
+**Success criteria:** User understands at a glance; reasoning transparent; clear action options; design builds trust.
+
+### Phase 6: User Validation & Action
+
+**Purpose:** User reviews the recommendation and chooses accept, modify, or reject.
+
+**User actions:**
+- **Accept:** Click Accept → proceed to Phase 7 (Backend Execution).
+- **Modify:** Adjust date/time/priority etc.; user input overrides LLM; proceed to Phase 7 with modified values.
+- **Reject:** Try Again or Cancel; back to input; can start over from Phase 1.
+
+**Modification workflow (by entity):**
+- **Tasks:** Inputs for date, time, duration, priority; show updated recommendation; warn on conflicts; then Phase 7.
+- **Events:** Inputs for start_datetime, end_datetime, timezone, all_day, location, recurring_pattern; warn on conflicts; if recurring, show implications; then Phase 7.
+- **Projects:** Inputs for start/end, milestone dates; warn on impact to tasks/events; show cascade on task deadlines; then Phase 7.
+
+**Why it matters:** User control, safety, trust, feedback, flexibility. Success: user understands recommendation, has clear accept/modify/reject options, smooth modify flow, changes reflected immediately.
+
+---
+
 ## Reference Links & Resources
 
-### Local LLM
-- Ollama: https://ollama.ai
-- Hermes 2 Model: huggingface.co/NousResearch/Hermes-2-Pro
-- LocalAI Alternative: https://localai.io
+### LLM stack (this plan)
+- **Ollama**: https://ollama.ai — run `hermes3:3b` (or your chosen tag) locally.
+- **PrismPHP**: https://prismphp.com — Laravel LLM integration; use [Ollama provider](https://prismphp.com/providers/ollama.html), [Schemas](https://prismphp.com/core-concepts/schemas.html), [Structured output](https://prism.echolabs.dev/core-concepts/structured-output.html).
+- **Hermes 3**: e.g. NousResearch Hermes 3 3B; pull in Ollama with the model tag you use (e.g. `hermes3:3b`).
 
 ### Frameworks
 - Laravel 12: https://laravel.com/docs/12.x
-- Livewire 3: https://livewire.laravel.com/docs/3.x
-- PrismPHP: https://prismphp.com (advanced, optional)
+- Livewire 4: https://livewire.laravel.com/docs (match your app version)
+- PrismPHP: https://prismphp.com — required for this implementation plan.
 
 ### Prompt Engineering
 - Anthropic Prompt Guide: https://docs.anthropic.com/claude/reference/prompt-engineering
