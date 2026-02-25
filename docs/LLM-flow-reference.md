@@ -1646,6 +1646,76 @@ All frontend plan content is collected here. The interface is a **chatbot** (Liv
 
 **Chat UI and streaming (Livewire 4 `wire:stream`):** Use Livewire 4 [wire:stream](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses) for streaming assistant text or status lines; with structured output you can stream status then show the final recommendation card. Not compatible with Laravel Octane—use poll or skip streaming if using Octane.
 
+#### Workspace placement: bottom dock assistant (TaskLyst workspace)
+
+In the main workspace page (`resources/views/pages/workspace/⚡index/index.blade.php`), the chatbot should live in a **bottom dock** that sits across the width of the workspace and can slide up over the main content:
+
+- **Placement**
+  - Dock is anchored to the bottom of the workspace, above any global app chrome.
+  - Closed state: a thin bar with a button (e.g. "Assistant") visible at the bottom edge.
+  - Open state: the dock expands to ~30–40% of viewport height on desktop (resizable if desired) and overlays the list / kanban / time‑grid view without being tied to any specific card.
+  - Mobile: the dock becomes a bottom sheet, occupying most of the height when open, with a clear close/drag handle.
+
+- **Why this placement**
+  - Keeps the assistant **independent of any single view**: the same dock works for list, future kanban, and future time‑grid modes.
+  - Allows the user to **see both** recommendations and their tasks/events/projects at once by adjusting the dock height.
+  - Fits naturally into the existing workspace layout without overloading `list-item-card` or other per‑item components.
+
+#### In-dock UI components
+
+Inside the bottom dock, the chat UI is composed of small, focused subcomponents:
+
+- **Header strip**
+  - Title: short label such as "Workspace Assistant".
+  - Context chips: show what the assistant is using (e.g. `Today`, `Filters: High priority`, `Scope: Tasks`), derived from the same Livewire state as the workspace list.
+  - Session controls: "New session" / "Clear chat", plus a collapse/expand control for the dock itself.
+
+- **Conversation timeline**
+  - Message bubbles for user and assistant, with timestamps.
+  - A subtle label per assistant answer indicating whether the underlying intent is **readonly** (e.g. `prioritize_events`) or **actionable** (e.g. `schedule_task`), so the user knows if Accept will cause changes.
+  - Optional "Show reasoning" toggle per assistant message that expands to show the model’s step‑by‑step rationale or the raw structured JSON summary.
+
+- **Recommendation cards**
+  - **Task prioritization card** (`prioritize_tasks`):
+    - Ranked list of tasks with title, status badge, priority badge, and due date chip.
+    - Per‑item actions: **Accept**, **Modify**, **Reject**.
+  - **Scheduling / adjustment card** (`schedule_*`, `adjust_*` intents):
+    - For each affected item, show a concise card with the proposed new date/time and a one‑line "change preview" (e.g. `End date → Fri, Mar 6 · 17:00`).
+    - Aggregate view that lists all pending changes within a single recommendation.
+  - **Readonly recommendation card** (`prioritize_events`, `prioritize_projects`):
+    - Ranked list of events or projects with no DB‑writing actions; instead show "Done" / "Ask something else" buttons.
+
+- **Inline Modify panel**
+  - When the user clicks **Modify** on a recommendation card, show a compact form beneath that card:
+    - Tasks: date/time pickers, duration selector, and (optionally) priority selector, prefilled from the LLM output.
+    - Events: start/end datetime pickers, all‑day toggle, and (optional) location/timezone controls.
+    - Projects: start/end date pickers and key milestone dates if applicable.
+  - The form reuses existing TaskLyst validation rules; on submit it calls the same backend apply Action but with the user‑edited values.
+
+- **Context controls bar**
+  - Scope chips such as `Today`, `Next 7 days`, `This week`, `Overdue only` that influence which items are included in Phase 2 context.
+  - Entity chips such as `Tasks`, `Events`, `Projects` that mirror the workspace filters and make explicit what the assistant is looking at.
+  - Optional toggle like "Use current workspace filters" that locks the assistant scope to whatever filters/search are active in the workspace.
+
+- **Input area**
+  - Multiline textarea with:
+    - Send button and keyboard hint (`Enter` to send, `Shift+Enter` for newline).
+    - Disabled state while a request is inflight (with an inline "Thinking…" indicator).
+  - Prompt shortcut chips for common flows:
+    - "Plan my day from today’s tasks"
+    - "Prioritize overdue items"
+    - "Suggest a schedule for this project"
+
+- **Status and feedback strip**
+  - Small, inline status line in the most recent assistant bubble: "Analyzing tasks…", "Checking deadlines…", etc., wired to `wire:stream` or queued job progress where possible.
+  - Mode badges such as `AI suggestion` vs `Deterministic plan` so users know when the fallback rules (non‑LLM) were used instead of Hermes.
+  - Processing / success states for actions: "Applying changes…" and "Changes applied" when Accept or Modify triggers Phase 7.
+
+- **Error and timeout banner**
+  - When the LLM call fails or times out, show a single inline banner in the timeline:
+    - Human‑readable message (e.g. "The assistant is unavailable right now; here is a simple rule‑based plan instead.") plus a close button.
+    - If a deterministic fallback was used, clearly label the resulting recommendation card as such, while still allowing Accept/Modify/Reject.
+
 **Chat session and multi-turn:** Hermes has no memory. Store history in `chat_sessions` (or `activity_logs` with session_id); pass last 3–5 message pairs into Prism; in `HandlesLlmAssistant`, load last N messages, append current message, persist user + assistant after response.
 
 **Success criteria:** User understands at a glance; reasoning transparent; clear action options; design builds trust.
