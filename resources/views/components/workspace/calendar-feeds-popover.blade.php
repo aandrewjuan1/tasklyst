@@ -204,10 +204,11 @@
         <button
             x-ref="button"
             type="button"
+            :disabled="open"
             @click="toggle()"
             aria-haspopup="true"
             :aria-expanded="open"
-            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out hover:bg-muted/70 hover:text-foreground"
+            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out hover:bg-muted/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-70"
         >
             <flux:icon name="arrow-path" class="size-3.5" />
             <span>{{ __('Sync with Brightspace calendar') }}</span>
@@ -268,6 +269,7 @@
                         autocomplete="off"
                         placeholder="https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=…"
                         class="w-full"
+                        @keydown.enter.prevent="connectFeed()"
                     />
                     <p class="text-[10px] text-muted-foreground/80">
                         {{ __('Use the Brightspace “Subscribe” URL for your All Courses calendar.') }}
@@ -285,6 +287,7 @@
                         autocomplete="off"
                         placeholder="{{ __('e.g. Brightspace – All Courses') }}"
                         class="w-full"
+                        @keydown.enter.prevent="connectFeed()"
                     />
                 </div>
 
@@ -359,27 +362,27 @@
                                 </div>
                                 <div class="flex shrink-0 flex-col items-end gap-1">
                                     <div class="flex items-center gap-1.5">
-                                        <flux:button
-                                            type="button"
-                                            size="xs"
-                                            variant="outline"
-                                            icon="arrow-path"
-                                            x-bind:disabled="syncingIds?.has(feed.id)"
-                                            @click="syncFeed(feed.id)"
-                                        >
-                                            <span x-text="syncingIds?.has(feed.id) ? '{{ __('Syncing…') }}' : '{{ __('Sync now') }}'"></span>
-                                        </flux:button>
-                                        <flux:button
-                                            type="button"
-                                            size="xs"
-                                            variant="ghost"
-                                            icon="trash"
-                                            class="text-red-600 hover:text-red-600 hover:bg-red-500/10 dark:text-red-400"
-                                            x-bind:disabled="disconnectingIds?.has(feed.id)"
-                                            @click="disconnectFeed(feed.id)"
-                                        >
-                                            <span x-text="disconnectingIds?.has(feed.id) ? '{{ __('Removing…') }}' : '{{ __('Disconnect') }}'"></span>
-                                        </flux:button>
+                                        <flux:tooltip content="{{ __('Sync again') }}">
+                                            <flux:button
+                                                type="button"
+                                                size="xs"
+                                                variant="outline"
+                                                icon="arrow-path"
+                                                x-bind:disabled="syncingIds?.has(feed.id)"
+                                                @click="syncFeed(feed.id)"
+                                            />
+                                        </flux:tooltip>
+                                        <flux:tooltip content="{{ __('Disconnect this calendar') }}">
+                                            <flux:button
+                                                type="button"
+                                                size="xs"
+                                                variant="ghost"
+                                                icon="link-slash"
+                                                class="text-red-600 hover:text-red-600 hover:bg-red-500/10 dark:text-red-400"
+                                                x-bind:disabled="disconnectingIds?.has(feed.id)"
+                                                @click="disconnectFeed(feed.id)"
+                                            />
+                                        </flux:tooltip>
                                     </div>
                                 </div>
                             </li>
