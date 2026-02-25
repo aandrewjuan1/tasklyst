@@ -58,3 +58,25 @@ test('clearAllFilters clears search query', function (): void {
         ->call('clearAllFilters')
         ->assertSet('searchQuery', null);
 });
+
+test('search query with exact title shows only matching task', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'ExactMatchTitle',
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'OtherTask',
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('searchQuery', 'ExactMatchTitle')
+        ->assertSee('ExactMatchTitle')
+        ->assertDontSee('OtherTask');
+});

@@ -135,9 +135,16 @@
                                     $timeLabel = $primaryDate
                                         ? $primaryDate->translatedFormat('M j · H:i')
                                         : __('No time');
+
+                                    $searchLabel = $item->title ?? $item->name ?? __('Untitled');
                                 @endphp
 
-                                <li class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5">
+                                <li
+                                    wire:click="$set('searchQuery', @js($searchLabel))"
+                                    class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 cursor-pointer hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    role="button"
+                                    tabindex="0"
+                                >
                                     <div class="mt-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {{ $accentClass }}">
                                         <div class="flex items-center gap-1">
                                             <flux:icon name="{{ $iconName }}" class="size-3" />
