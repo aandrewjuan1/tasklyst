@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
@@ -83,6 +84,8 @@ class CalendarFeedSyncService
                     $start = null;
                 }
 
+                $isExam = $this->isExamEvent($summary, $description);
+
                 Task::query()->updateOrCreate(
                     [
                         'user_id' => $feed->user_id,
@@ -96,7 +99,8 @@ class CalendarFeedSyncService
                         'source_url' => $sourceUrl,
                         'calendar_feed_id' => $feed->id,
                         'status' => TaskStatus::ToDo,
-                        'priority' => TaskPriority::Medium,
+                        'priority' => $isExam ? TaskPriority::High : TaskPriority::Medium,
+                        'complexity' => $isExam ? TaskComplexity::Complex : TaskComplexity::Moderate,
                         'project_id' => null,
                         'event_id' => null,
                     ]
@@ -146,6 +150,18 @@ class CalendarFeedSyncService
 
             return true;
         }));
+    }
+
+    /**
+     * Whether the VEVENT is exam-related (Brightspace): "EXAM" or "exam" in summary or description.
+     */
+    private function isExamEvent(?string $summary, ?string $description): bool
+    {
+        $keyword = 'exam';
+        $summaryLower = $summary !== null ? strtolower($summary) : '';
+        $descriptionLower = $description !== null ? strtolower($description) : '';
+
+        return str_contains($summaryLower, $keyword) || str_contains($descriptionLower, $keyword);
     }
 
     private function extractUrlFromDescription(?string $description): ?string
