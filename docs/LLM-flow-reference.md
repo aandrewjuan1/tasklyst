@@ -81,7 +81,7 @@ Use this as the single source of backend constraints and decisions. Details live
 - **PrismException / fallback:** On invalid JSON, timeout, or unreachable Ollama, run rule-based prioritization/scheduling; never expose raw errors. Centralize with e.g. `if (!$this->isValidRecommendation($dto)) return $this->fallbackPrioritization(...)`. See [Deterministic Fallback Layer (In-Depth)](#deterministic-fallback-layer-in-depth).
 - **Rule-based fallback rules:** Earlier due date → higher rank; overdue → highest; higher complexity → schedule earlier; schedule fallback = next available slot. Keep in e.g. `RuleBasedPrioritizationService` (testable). See [Deterministic Fallback Layer (In-Depth)](#deterministic-fallback-layer-in-depth).
 - **Intent:** Regex/keywords as fast path; when confidence &lt; threshold or no match, optional second-pass LLM classification (small Prism call). See [Intent classification: regex fast path + optional LLM fallback](#intent-classification-regex-fast-path--optional-llm-fallback).
-- **Readonly vs actionable:** `prioritize_events`, `prioritize_projects` (and optionally `prioritize_tasks` if display-only) have no DB write on Accept; schedule_* and adjust_* are actionable. See [Readonly vs actionable intents](#readonly-vs-actionable-intents).
+- **Readonly vs actionable:** `prioritize_events` and `prioritize_projects` have no DB write on Accept; `prioritize_tasks` and all schedule_* / adjust_* intents are actionable (can write priority or timing on Accept). See [Readonly vs actionable intents](#readonly-vs-actionable-intents).
 - **Config:** LLM model, timeout, max_tokens in `config/tasklyst.php`; use `config()`, not `env()`. See [Conventions to follow](#conventions-to-follow).
 - **DTOs:** Map `$response->structured` to recommendation DTOs (e.g. `TaskScheduleRecommendationDto::fromStructured()`); validate before use. See [Backend Architecture Alignment](#backend-architecture-alignment) and [Laravel conventions (implementation)](#laravel-conventions-implementation).
 - **Apply only after user action:** No DB updates from LLM output alone; apply only when user Accepts or confirms Modify. See [Separate AI From Authority (In-Depth)](#9-separate-ai-from-authority-in-depth).
@@ -235,7 +235,7 @@ Events (and projects) do not have a "priority" field in the schema; "prioritize_
 |-------------|-------------------------|-------------------------------------|
 | **prioritize_events** | Yes — show ranked list only | No |
 | **prioritize_projects** | Yes — show ranked list only | No |
-| **prioritize_tasks** | Optional: display-only ranking, or write priority field if your schema supports it | Depends on schema |
+| **prioritize_tasks** | No | Yes — write task priority on Accept (use TaskPriority enum) |
 | **schedule_task**, **adjust_task_deadline**, **schedule_event**, **adjust_event_time**, **schedule_project**, **adjust_project_timeline** | No | Yes |
 
 - **Code and UI:** For readonly intents, do **not** show an "Accept" button that implies applying a change; show the recommendation (e.g. "Here's your suggested order") and optionally "Done" or "Ask something else". For actionable intents, show Accept / Modify / Reject and call the apply Action on Accept.
@@ -349,7 +349,7 @@ Short reference for implementers and AI agents. Full detail: [Context Structure 
 |---------------|------------------------|---------------|
 | Tasks (schedule, prioritize, adjust) | 5–12 tasks; ~700–1200 tokens | Intent-specific; ~300–400 tokens total. Keep short for 3B. |
 | Events (schedule, prioritize, adjust) | 5–10 events; ~800–1200 tokens | Intent-specific; ~300–400 tokens total. |
-| Projects (schedule, prioritize, adjust) | 3–5 projects, 5–10 tasks each; ~1000–1500 tokens | Intent-specific; ~300–400 tokens total. |
+| Projects (schedule, prioritize, adjust) | 3–5 projects, 5–10 tasks each; ~800–1100 tokens | Intent-specific; ~300–400 tokens total. |
 | resolve_dependency | 3–5 entities; ~800 tokens | Cross-entity. |
 
 **Rules:** Filter pending/upcoming only; sort by due date; include `is_recurring` for tasks/events; no 60+ tasks or 6 months history. Use a ContextBuilder (e.g. on `LlmContextService`) to filter, sort, limit, then map to minimal fields.
@@ -472,7 +472,7 @@ Required Data:
 - Current date/time context
 
 Maximum: 5 projects with 5 tasks each
-Maximum tokens: ~1500
+Maximum tokens: ~800-1100
 ```
 
 ##### `adjust_project_timeline` Intent
@@ -670,7 +670,7 @@ Analysis steps:
 6. Are there events that affect the timeline?
 7. Suggest optimal start_datetime and end_datetime
 
-Output: JSON with suggested start_datetime, end_datetime, milestones, task_sequence, and reasoning
+Output: JSON with suggested start_datetime, end_datetime, milestones, and reasoning
 ```
 
 #### For Task Prioritization
@@ -904,8 +904,7 @@ Phase 1: omit `alternative_options`; add in a later phase once core flow is reli
   "milestones": [
     { "name": "Phase 1 Complete", "date": "2025-12-15" }
   ],
-  "task_sequence": [123, 124, 125],
-  "blockers": ["task 123"]
+  "blockers": ["Phase 1 dependencies not completed"]
 }
 ```
 
@@ -960,74 +959,6 @@ Hermes 3 has **no memory**—each Prism call is stateless. If the user says "can
 - Reasoning is transparent and not magical
 - User has clear action options
 - Design builds trust, not confusion
-
----
-
-## Phase 6: User Validation & Action
-
-### Purpose
-User reviews the recommendation and decides to accept, modify, or reject it.
-
-### User Actions
-
-#### Option 1: Accept
-- User clicks "✅ Accept" button
-- Proceeds to Phase 7 (Backend Execution)
-- No modification needed
-
-#### Option 2: Modify
-- User adjusts parameters (date, time, priority)
-- LLM recommendation is overridden
-- User's input takes precedence
-- Still proceeds to Phase 7 with modified values
-
-#### Option 3: Reject
-- User clicks "Try Again" or "Cancel"
-- Reverts to input form
-- Can enter new request or modify input
-- Starts workflow over from Phase 1
-
-### Modification Workflow
-If user modifies recommendation:
-
-#### For Tasks:
-1. User sees input fields for: date, time, duration, priority
-2. User changes one or more values
-3. Modified values override LLM suggestion
-4. Display updated recommendation
-5. Show warning if modification creates conflicts with events or other tasks
-6. Proceed to backend execution with modified values
-
-#### For Events:
-1. User sees input fields for: start_datetime, end_datetime, timezone, all_day, location, recurring_pattern
-2. User changes one or more values
-3. Modified values override LLM suggestion
-4. Display updated recommendation
-5. Show warning if modification creates conflicts with other events or tasks
-6. If recurring event, show implications for all instances
-7. Proceed to backend execution with modified values
-
-#### For Projects:
-1. User sees input fields for: start_datetime, end_datetime, milestone dates
-2. User changes one or more values
-3. Modified values override LLM suggestion
-4. Display updated recommendation
-5. Show warning if modification affects project tasks or related events
-6. Show cascade impact on task deadlines
-7. Proceed to backend execution with modified values
-
-### Why This Step Matters
-- ✅ **User Control**: LLM is assistant, not dictator
-- ✅ **Safety**: Prevents automatic bad decisions
-- ✅ **Trust**: User sees and approves changes
-- ✅ **Feedback**: User modifications inform future improvements
-- ✅ **Flexibility**: Humans catch edge cases LLM misses
-
-### Success Criteria
-- User understands the recommendation
-- User has clear options (accept/modify/reject)
-- Modification flow is smooth and intuitive
-- Changes are reflected immediately
 
 ---
 
@@ -1289,7 +1220,7 @@ User Input
 │
 ├─ OllamaService
 │  ├─ System Prompt (intent + entity-specific)
-│  ├─ Context (capped at ~1000-1500 tokens)
+│  ├─ Context (capped at ~800-1200 tokens)
 │  └─ Hermes 3 Inference (temp 0.3, max 500 tokens)
 │
 ├─ Response Parser
