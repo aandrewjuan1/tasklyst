@@ -73,4 +73,9 @@ class User extends Authenticatable
     {
         return $this->hasOne(PomodoroSetting::class);
     }
+
+    public function assistantThreads(): HasMany
+    {
+        return $this->hasMany(AssistantThread::class);
+    }
 }
