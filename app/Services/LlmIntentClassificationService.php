@@ -1,0 +1,166 @@
+<?php
+
+namespace App\Services;
+
+use App\DataTransferObjects\Llm\LlmIntentClassificationResult;
+use App\Enums\LlmEntityType;
+use App\Enums\LlmIntent;
+
+class LlmIntentClassificationService
+{
+    private const ENTITY_TASK = ['task', 'todo', 'work item', 'action item', 'tasks', 'todos'];
+
+    private const ENTITY_EVENT = ['event', 'meeting', 'appointment', 'calendar', 'schedule', 'events', 'meetings'];
+
+    private const ENTITY_PROJECT = ['project', 'initiative', 'milestone', 'deliverable', 'projects'];
+
+    private const INTENT_RESOLVE_DEPENDENCY = ['blocked', 'waiting', 'depends', 'after', 'blocking', 'dependency'];
+
+    private const INTENT_ADJUST = ['extend', 'move', 'delay', 'push', 'earlier', 'reschedule', 'change time', 'shift', 'timeline', 'postpone', 'push back'];
+
+    private const INTENT_SCHEDULE = ['finish', 'by', 'deadline', 'schedule', 'when', 'book', 'set up', 'plan', 'start', 'slot', 'time'];
+
+    private const INTENT_PRIORITIZE = ['priority', 'prioritize', 'important', 'urgent', 'rank', 'order', 'focus', 'first', 'next', 'today'];
+
+    public function classify(string $userMessage): LlmIntentClassificationResult
+    {
+        $normalized = $this->normalize($userMessage);
+        $entityType = $this->detectEntityType($normalized);
+        $intent = $this->detectIntent($normalized, $entityType);
+
+        $confidence = $this->computeConfidence($normalized, $intent, $entityType);
+
+        return new LlmIntentClassificationResult($intent, $entityType, $confidence);
+    }
+
+    private function normalize(string $message): string
+    {
+        $trimmed = trim($message);
+        $lower = mb_strtolower($trimmed);
+
+        return preg_replace('/\s+/', ' ', $lower) ?? $lower;
+    }
+
+    private function detectEntityType(string $normalized): LlmEntityType
+    {
+        $taskScore = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+        $eventScore = $this->countKeywordHits($normalized, self::ENTITY_EVENT);
+        $projectScore = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+
+        if ($projectScore > $taskScore && $projectScore >= $eventScore) {
+            return LlmEntityType::Project;
+        }
+        if ($eventScore > $taskScore && $eventScore >= $projectScore) {
+            return LlmEntityType::Event;
+        }
+        if ($taskScore > 0 || $eventScore > 0 || $projectScore > 0) {
+            if ($taskScore >= $eventScore && $taskScore >= $projectScore) {
+                return LlmEntityType::Task;
+            }
+        }
+
+        return LlmEntityType::Task;
+    }
+
+    private function detectIntent(string $normalized, LlmEntityType $entityType): LlmIntent
+    {
+        if ($this->hasAnyKeyword($normalized, self::INTENT_RESOLVE_DEPENDENCY)) {
+            return LlmIntent::ResolveDependency;
+        }
+
+        $hasAdjust = $this->hasAnyKeyword($normalized, self::INTENT_ADJUST);
+        $hasSchedule = $this->hasAnyKeyword($normalized, self::INTENT_SCHEDULE);
+        $hasPrioritize = $this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE);
+
+        if ($hasAdjust) {
+            return match ($entityType) {
+                LlmEntityType::Task => LlmIntent::AdjustTaskDeadline,
+                LlmEntityType::Event => LlmIntent::AdjustEventTime,
+                LlmEntityType::Project => LlmIntent::AdjustProjectTimeline,
+            };
+        }
+
+        if ($hasSchedule) {
+            return match ($entityType) {
+                LlmEntityType::Task => LlmIntent::ScheduleTask,
+                LlmEntityType::Event => LlmIntent::ScheduleEvent,
+                LlmEntityType::Project => LlmIntent::ScheduleProject,
+            };
+        }
+
+        if ($hasPrioritize) {
+            return match ($entityType) {
+                LlmEntityType::Task => LlmIntent::PrioritizeTasks,
+                LlmEntityType::Event => LlmIntent::PrioritizeEvents,
+                LlmEntityType::Project => LlmIntent::PrioritizeProjects,
+            };
+        }
+
+        return LlmIntent::GeneralQuery;
+    }
+
+    private function computeConfidence(string $normalized, LlmIntent $intent, LlmEntityType $entityType): float
+    {
+        if ($intent === LlmIntent::GeneralQuery) {
+            return 0.5;
+        }
+
+        $entityKeywords = match ($entityType) {
+            LlmEntityType::Task => self::ENTITY_TASK,
+            LlmEntityType::Event => self::ENTITY_EVENT,
+            LlmEntityType::Project => self::ENTITY_PROJECT,
+        };
+        $entityHits = $this->countKeywordHits($normalized, $entityKeywords);
+        $intentKeywords = $this->getIntentKeywords($intent);
+        $intentHits = $this->countKeywordHits($normalized, $intentKeywords);
+
+        $base = 0.5;
+        $entityScore = min(0.25, $entityHits * 0.1);
+        $intentScore = min(0.25, $intentHits * 0.15);
+
+        return min(1.0, round($base + $entityScore + $intentScore, 2));
+    }
+
+    /**
+     * @param  array<int, string>  $keywords
+     */
+    private function hasAnyKeyword(string $normalized, array $keywords): bool
+    {
+        foreach ($keywords as $keyword) {
+            if (str_contains($normalized, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, string>  $keywords
+     */
+    private function countKeywordHits(string $normalized, array $keywords): int
+    {
+        $count = 0;
+        foreach ($keywords as $keyword) {
+            if (str_contains($normalized, $keyword)) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function getIntentKeywords(LlmIntent $intent): array
+    {
+        return match ($intent) {
+            LlmIntent::ResolveDependency => self::INTENT_RESOLVE_DEPENDENCY,
+            LlmIntent::AdjustTaskDeadline, LlmIntent::AdjustEventTime, LlmIntent::AdjustProjectTimeline => self::INTENT_ADJUST,
+            LlmIntent::ScheduleTask, LlmIntent::ScheduleEvent, LlmIntent::ScheduleProject => self::INTENT_SCHEDULE,
+            LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects => self::INTENT_PRIORITIZE,
+            LlmIntent::GeneralQuery => [],
+        };
+    }
+}
