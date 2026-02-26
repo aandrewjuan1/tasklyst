@@ -65,6 +65,7 @@ class CalendarFeedSyncService
                 $uid = (string) $event['uid'];
                 $summary = $event['summary'] ?? null;
                 $description = $event['description'] ?? null;
+                $location = $event['location'] ?? null;
                 $sourceUrl = $this->extractUrlFromDescription($description);
 
                 $start = $event['dtstart'] ?? null;
@@ -85,6 +86,28 @@ class CalendarFeedSyncService
                 }
 
                 $isExam = $this->isExamEvent($summary, $description);
+                $teacherName = null;
+                $subjectName = null;
+
+                if (is_string($location) && trim($location) !== '') {
+                    $location = trim($location);
+
+                    // Brightspace locations commonly look like "TEACHER_Subject Name (Section)".
+                    $parts = explode('_', $location, 2);
+                    if (count($parts) === 2) {
+                        $maybeTeacher = trim($parts[0]);
+                        $maybeSubject = trim($parts[1]);
+
+                        if ($maybeTeacher !== '' && $maybeSubject !== '') {
+                            $teacherName = $maybeTeacher;
+                            $subjectName = $maybeSubject;
+                        }
+                    }
+
+                    if ($subjectName === null) {
+                        $subjectName = $location;
+                    }
+                }
 
                 Task::query()->updateOrCreate(
                     [
@@ -94,6 +117,9 @@ class CalendarFeedSyncService
                     ],
                     [
                         'title' => $summary ?: __('Untitled'),
+                        'description' => null,
+                        'teacher_name' => $teacherName,
+                        'subject_name' => $subjectName,
                         'start_datetime' => $start,
                         'end_datetime' => $end,
                         'source_url' => $sourceUrl,
