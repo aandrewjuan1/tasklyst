@@ -15,6 +15,8 @@ return [
         'model' => env('TASKLYST_LLM_MODEL', 'hermes3:3b'),
         'timeout' => (int) env('TASKLYST_LLM_TIMEOUT', 45),
         'max_tokens' => (int) env('TASKLYST_LLM_MAX_TOKENS', 500),
+        'use_queue' => (bool) env('TASKLYST_LLM_USE_QUEUE', false),
+        'queue' => env('TASKLYST_LLM_QUEUE', 'llm'),
     ],
 
     /*

@@ -2,6 +2,7 @@
 
 namespace App\Actions\Llm;
 
+use App\Jobs\Llm\RunLlmInferenceJob;
 use App\Models\AssistantMessage;
 use App\Models\User;
 use App\Services\Llm\RecommendationDisplayBuilder;
@@ -19,11 +20,25 @@ class ProcessAssistantMessageAction
     public function execute(User $user, string $userMessage, ?int $threadId = null): AssistantMessage
     {
         $thread = $this->getOrCreateThread->execute($user, $threadId);
-        $this->appendMessage->execute($thread, 'user', $userMessage);
+        $userMessageModel = $this->appendMessage->execute($thread, 'user', $userMessage);
 
         $classification = $this->classifyIntent->execute($userMessage);
         $intent = $classification->intent;
         $entityType = $classification->entityType;
+
+        $useQueue = (bool) config('tasklyst.llm.use_queue', false);
+
+        if ($useQueue) {
+            RunLlmInferenceJob::dispatch(
+                userId: $user->id,
+                threadId: $thread->id,
+                userMessage: $userMessage,
+                intent: $intent->value,
+                entityType: $entityType->value
+            );
+
+            return $userMessageModel;
+        }
 
         $inferenceResult = $this->runInference->execute(
             $user,
