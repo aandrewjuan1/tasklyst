@@ -5,6 +5,10 @@ use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 
 beforeEach(function (): void {
+    config([
+        'tasklyst.intent.use_llm_fallback' => false,
+    ]);
+
     $this->action = app(ClassifyLlmIntentAction::class);
 });
 
