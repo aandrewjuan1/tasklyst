@@ -48,6 +48,8 @@ ICS;
     expect($task)->not->toBeNull();
     expect($task->title)->toBe('Quiz 1');
     expect($task->description)->toBeNull();
+    expect($task->teacher_name)->toBeNull();
+    expect($task->subject_name)->toBeNull();
     expect($task->source_url)->toBe('https://brightspace.example.com/d2l/le/quiz/123');
     expect($task->calendar_feed_id)->toBe($feed->id);
     expect($task->source_type)->toBe(TaskSourceType::Brightspace);
@@ -79,12 +81,14 @@ BEGIN:VCALENDAR
 BEGIN:VEVENT
 UID:with-start@example.com
 SUMMARY:Has start and end
+LOCATION:BCPAN_ALGORITHMS AND COMPLEXITY (UCOS 2-1)
 DTSTART:{$start->format('Ymd\\THis\\Z')}
 DTEND:{$end->format('Ymd\\THis\\Z')}
 END:VEVENT
 BEGIN:VEVENT
 UID:only-due@example.com
 SUMMARY:Only due
+LOCATION:Emilio Aguinaldo College
 DTSTART:{$onlyDueStart->format('Ymd\\THis\\Z')}
 DTEND:{$onlyDueEnd->format('Ymd\\THis\\Z')}
 END:VEVENT
@@ -115,10 +119,16 @@ ICS;
     expect($taskWithStart->start_datetime)->not->toBeNull();
     expect($taskWithStart->end_datetime)->not->toBeNull();
     expect($taskWithStart->end_datetime->greaterThan($taskWithStart->start_datetime))->toBeTrue();
+    expect($taskWithStart->description)->toBeNull();
+    expect($taskWithStart->teacher_name)->toBe('BCPAN');
+    expect($taskWithStart->subject_name)->toBe('ALGORITHMS AND COMPLEXITY (UCOS 2-1)');
 
     expect($taskOnlyDue)->not->toBeNull();
     expect($taskOnlyDue->start_datetime)->toBeNull();
     expect($taskOnlyDue->end_datetime)->not->toBeNull();
+    expect($taskOnlyDue->description)->toBeNull();
+    expect($taskOnlyDue->teacher_name)->toBeNull();
+    expect($taskOnlyDue->subject_name)->toBe('Emilio Aguinaldo College');
 });
 
 it('leaves source_url null when description has no URL', function () {

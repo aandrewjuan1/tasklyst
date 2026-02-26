@@ -378,6 +378,8 @@ class Task extends Model
         'user_id',
         'title',
         'description',
+        'teacher_name',
+        'subject_name',
         'status',
         'priority',
         'complexity',
