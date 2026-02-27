@@ -10,6 +10,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
+use Illuminate\Support\Str;
 
 class ContextBuilder
 {
@@ -71,7 +72,7 @@ class ContextBuilder
         $tasksPayload = $tasks->map(fn (Task $t) => [
             'id' => $t->id,
             'title' => $t->title,
-            'description' => $t->description ? substr($t->description, 0, 200) : null,
+            'description' => $this->limitText($t->description, 200),
             'status' => $t->status?->value,
             'priority' => $t->priority?->value,
             'complexity' => $t->complexity?->value,
@@ -80,7 +81,7 @@ class ContextBuilder
             'end_datetime' => $t->end_datetime?->toIso8601String(),
             'project_id' => $t->project_id,
             'event_id' => $t->event_id,
-            'is_recurring' => $t->relationLoaded('recurringTask') ? $t->recurringTask !== null : (bool) $t->recurringTask?->exists(),
+            'is_recurring' => $this->isTaskRecurring($t),
         ])->values()->all();
 
         return [
@@ -111,12 +112,12 @@ class ContextBuilder
         $eventsPayload = $events->map(fn (Event $e) => [
             'id' => $e->id,
             'title' => $e->title,
-            'description' => $e->description ? substr($e->description, 0, 200) : null,
+            'description' => $this->limitText($e->description, 200),
             'start_datetime' => $e->start_datetime?->toIso8601String(),
             'end_datetime' => $e->end_datetime?->toIso8601String(),
             'all_day' => $e->all_day,
             'status' => $e->status?->value,
-            'is_recurring' => $e->relationLoaded('recurringEvent') ? $e->recurringEvent !== null : (bool) $e->recurringEvent?->exists(),
+            'is_recurring' => $this->isEventRecurring($e),
         ])->values()->all();
 
         return [
@@ -155,7 +156,7 @@ class ContextBuilder
             return [
                 'id' => $p->id,
                 'name' => $p->name,
-                'description' => $p->description ? substr($p->description, 0, 200) : null,
+                'description' => $this->limitText($p->description, 200),
                 'start_datetime' => $p->start_datetime?->toIso8601String(),
                 'end_datetime' => $p->end_datetime?->toIso8601String(),
                 'tasks' => $tasks->map(fn (Task $t) => [
@@ -163,7 +164,7 @@ class ContextBuilder
                     'title' => $t->title,
                     'end_datetime' => $t->end_datetime?->toIso8601String(),
                     'priority' => $t->priority?->value,
-                    'is_recurring' => (bool) $t->recurringTask?->exists(),
+                    'is_recurring' => $this->isTaskRecurring($t),
                 ])->values()->all(),
             ];
         })->values()->all();
@@ -195,7 +196,7 @@ class ContextBuilder
             'title' => $t->title,
             'end_datetime' => $t->end_datetime?->toIso8601String(),
             'status' => $t->status?->value,
-            'is_recurring' => (bool) $t->recurringTask?->exists(),
+            'is_recurring' => $this->isTaskRecurring($t),
         ])->values()->all();
 
         $events = Event::query()
@@ -213,7 +214,7 @@ class ContextBuilder
             'title' => $e->title,
             'start_datetime' => $e->start_datetime?->toIso8601String(),
             'end_datetime' => $e->end_datetime?->toIso8601String(),
-            'is_recurring' => (bool) $e->recurringEvent?->exists(),
+            'is_recurring' => $this->isEventRecurring($e),
         ])->values()->all();
 
         return [
@@ -250,46 +251,50 @@ class ContextBuilder
     private function enforceTokenAwareness(array $payload): array
     {
         $maxTokens = config('tasklyst.context.max_tokens', 1200);
-        $payload = $this->trimPayloadToTokenCap($payload, $maxTokens);
+        $payload = $this->shrinkPayloadToTokenCap($payload, $maxTokens);
 
-        $json = json_encode($payload);
-        $estimatedTokens = (int) (strlen($json ?? '') / 4);
-
-        if ($estimatedTokens <= $maxTokens) {
+        if ($this->estimateTokens($payload) <= $maxTokens) {
             return $payload;
         }
 
         $payload = $this->truncateLongTextInPayload($payload, 80);
-        $json = json_encode($payload);
-        $estimatedTokens = (int) (strlen($json ?? '') / 4);
-
-        if ($estimatedTokens <= $maxTokens) {
+        if ($this->estimateTokens($payload) <= $maxTokens) {
             return $payload;
         }
 
         $payload = $this->truncateLongTextInPayload($payload, 40);
+        if ($this->estimateTokens($payload) <= $maxTokens) {
+            return $payload;
+        }
 
-        return $payload;
+        unset($payload['conversation_history']);
+        if ($this->estimateTokens($payload) <= $maxTokens) {
+            return $payload;
+        }
+
+        return [
+            'current_time' => $payload['current_time'] ?? now()->toIso8601String(),
+        ];
     }
 
     /**
-     * Trim conversation_history to reduce token count when over cap.
+     * Shrink conversation_history (oldest first) until under cap.
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    private function trimPayloadToTokenCap(array $payload, int $maxTokens): array
+    private function shrinkPayloadToTokenCap(array $payload, int $maxTokens): array
     {
-        $json = json_encode($payload);
-        $estimatedTokens = (int) (strlen($json ?? '') / 4);
-
-        if ($estimatedTokens <= $maxTokens) {
+        if ($this->estimateTokens($payload) <= $maxTokens) {
             return $payload;
         }
 
-        if (isset($payload['conversation_history']) && count($payload['conversation_history']) > 0) {
-            $drop = min(count($payload['conversation_history']), (int) ceil(($estimatedTokens - $maxTokens) / 100));
-            $payload['conversation_history'] = array_slice($payload['conversation_history'], $drop);
+        if (! isset($payload['conversation_history']) || ! is_array($payload['conversation_history'])) {
+            return $payload;
+        }
+
+        while ($payload['conversation_history'] !== [] && $this->estimateTokens($payload) > $maxTokens) {
+            $payload['conversation_history'] = array_slice($payload['conversation_history'], 1);
         }
 
         return $payload;
@@ -306,11 +311,58 @@ class ContextBuilder
         foreach ($payload as $key => $value) {
             if (is_array($value)) {
                 $payload[$key] = $this->truncateLongTextInPayload($value, $maxLength);
-            } elseif (is_string($value) && in_array($key, ['description', 'content'], true) && strlen($value) > $maxLength) {
-                $payload[$key] = substr($value, 0, $maxLength);
+            } elseif (is_string($value) && in_array($key, ['description', 'content'], true) && Str::length($value) > $maxLength) {
+                $payload[$key] = Str::substr($value, 0, $maxLength);
             }
         }
 
         return $payload;
+    }
+
+    private function isTaskRecurring(Task $task): bool
+    {
+        if ($task->relationLoaded('recurringTask')) {
+            return $task->recurringTask !== null;
+        }
+
+        return $task->recurringTask()->exists();
+    }
+
+    private function isEventRecurring(Event $event): bool
+    {
+        if ($event->relationLoaded('recurringEvent')) {
+            return $event->recurringEvent !== null;
+        }
+
+        return $event->recurringEvent()->exists();
+    }
+
+    private function limitText(?string $text, int $maxLength): ?string
+    {
+        if ($text === null) {
+            return null;
+        }
+
+        $text = trim($text);
+        if ($text === '') {
+            return null;
+        }
+
+        return Str::limit($text, $maxLength, '');
+    }
+
+    /**
+     * Estimate prompt tokens for the JSON-encoded payload.
+     * Uses a simple heuristic: ~4 characters per token.
+     */
+    private function estimateTokens(array $payload): int
+    {
+        try {
+            $json = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        } catch (\JsonException) {
+            return PHP_INT_MAX;
+        }
+
+        return (int) (strlen($json) / 4);
     }
 }

@@ -27,3 +27,9 @@ test('generic intents get generic recommendation schema', function (): void {
 
     expect($schema->name)->toBe('recommendation');
 });
+
+test('resolve_dependency gets dependency_resolution schema', function (): void {
+    $schema = $this->factory->schemaForIntent(LlmIntent::ResolveDependency);
+
+    expect($schema->name)->toBe('dependency_resolution');
+});

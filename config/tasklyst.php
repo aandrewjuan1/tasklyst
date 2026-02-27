@@ -15,6 +15,8 @@ return [
         'model' => env('TASKLYST_LLM_MODEL', 'hermes3:3b'),
         'timeout' => (int) env('TASKLYST_LLM_TIMEOUT', 45),
         'max_tokens' => (int) env('TASKLYST_LLM_MAX_TOKENS', 500),
+        'temperature' => (float) env('TASKLYST_LLM_TEMPERATURE', 0.3),
+        'num_ctx' => (int) env('TASKLYST_LLM_NUM_CTX', 4096),
         'queue' => env('TASKLYST_LLM_QUEUE', 'llm'),
     ],
 

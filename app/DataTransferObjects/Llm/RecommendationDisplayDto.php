@@ -18,6 +18,7 @@ final readonly class RecommendationDisplayDto
         public string $reasoning,
         public float $validationConfidence,
         public bool $usedFallback,
+        public ?string $fallbackReason = null,
         /** @var array<string, mixed> Entity-specific fields: ranked_tasks, start_datetime, end_datetime, priority, blockers, etc. */
         public array $structured = [],
     ) {}
@@ -31,6 +32,7 @@ final readonly class RecommendationDisplayDto
             'reasoning' => $this->reasoning,
             'validation_confidence' => $this->validationConfidence,
             'used_fallback' => $this->usedFallback,
+            'fallback_reason' => $this->fallbackReason,
             'structured' => $this->structured,
         ];
     }
@@ -44,6 +46,7 @@ final readonly class RecommendationDisplayDto
             reasoning: (string) ($data['reasoning'] ?? ''),
             validationConfidence: (float) ($data['validation_confidence'] ?? 0),
             usedFallback: (bool) ($data['used_fallback'] ?? false),
+            fallbackReason: $data['fallback_reason'] ?? null,
             structured: (array) ($data['structured'] ?? []),
         );
     }

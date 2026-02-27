@@ -33,6 +33,7 @@ class RecommendationDisplayBuilder
             reasoning: $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.'),
             validationConfidence: $validationScore,
             usedFallback: $result->usedFallback,
+            fallbackReason: $result->fallbackReason,
             structured: $displayStructured,
         );
     }
@@ -58,6 +59,12 @@ class RecommendationDisplayBuilder
             $ranked = $structured['ranked_tasks'] ?? $structured['ranked_events'] ?? $structured['ranked_projects'] ?? null;
             $checks++;
             $passed += is_array($ranked) && count($ranked) > 0 ? 1 : 0;
+        }
+
+        if ($intent === LlmIntent::ResolveDependency) {
+            $steps = $structured['next_steps'] ?? null;
+            $checks++;
+            $passed += is_array($steps) && count($steps) >= 2 ? 1 : 0;
         }
 
         if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
@@ -123,7 +130,7 @@ class RecommendationDisplayBuilder
     {
         $out = [];
 
-        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers'];
+        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps'];
         foreach ($allowedKeys as $key) {
             if (array_key_exists($key, $structured) && $structured[$key] !== null) {
                 $out[$key] = $structured[$key];

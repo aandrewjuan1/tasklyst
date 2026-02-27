@@ -24,6 +24,9 @@ test('run inference returns structured result when ollama is reachable and prism
                 'entity_type' => 'task',
                 'recommended_action' => 'Schedule for Friday 2pm',
                 'reasoning' => 'Based on deadline and availability.',
+                'start_datetime' => now()->next('Friday')->setTime(14, 0)->toIso8601String(),
+                'end_datetime' => now()->next('Friday')->setTime(15, 0)->toIso8601String(),
+                'priority' => 'high',
             ])
             ->withUsage(new Usage(100, 50)),
     ]);

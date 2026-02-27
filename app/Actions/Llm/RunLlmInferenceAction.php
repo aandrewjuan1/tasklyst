@@ -33,7 +33,12 @@ class RunLlmInferenceAction
         $promptResult = $this->getSystemPrompt->execute($intent);
 
         if (! $this->healthCheck->isReachable()) {
-            $result = $this->inferenceService->fallbackOnly($intent, $promptResult->version, $user);
+            $result = $this->inferenceService->fallbackOnly(
+                intent: $intent,
+                promptVersion: $promptResult->version,
+                user: $user,
+                fallbackReason: 'health_unreachable',
+            );
 
             $this->interactionLogger->logInference(
                 user: $user,
