@@ -168,7 +168,4 @@
         </div>
     </div>
 
-    @auth
-        <livewire:workspace.assistant-dock />
-    @endauth
 </section>

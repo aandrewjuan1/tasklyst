@@ -1,11 +1,11 @@
 # LLM Task, Event, and Project Management Integration Workflow
-## Implementation Plan — TaskLyst (Ollama + PrismPHP + Hermes 3 3B)
+## Backend Reference — TaskLyst (Ollama + PrismPHP + Hermes 3 3B)
 
-This document is an **implementation plan**. The LLM assistant is not yet built; the following describes the intended design, conventions, and steps to implement it using **Ollama**, **PrismPHP** (`prism-php/prism`), and **Hermes 3 3B** for task prioritization and predictive scheduling.
+This document started as an **implementation plan**. The **backend LLM assistant pipeline is now implemented**; this document now focuses on the **backend design and implementation only** using **Ollama**, **PrismPHP** (`prism-php/prism`), and **Hermes 3 3B** for task prioritization and predictive scheduling. All frontend/UI guidance has been removed.
 
 ---
 
-## Tech Stack (Planned)
+## Tech Stack (Current — backend implemented)
 
 | Layer | Choice | Purpose |
 |-------|--------|--------|
@@ -13,7 +13,6 @@ This document is an **implementation plan**. The LLM assistant is not yet built;
 | **Model** | Hermes 3 3B (e.g. `hermes3:3b` in Ollama) | Small, fast, instruction-following; good for structured JSON and task/ scheduling reasoning |
 | **PHP integration** | [PrismPHP](https://prismphp.com) (`prism-php/prism` ^0.99) | Fluent Laravel-style API, structured output via schema, provider-agnostic |
 | **Backend** | Laravel 12 | Validation, auth, persistence, queues |
-| **UI** | Livewire + Flux | Chat surface and accept/modify/reject flows |
 
 **Why this stack:** Hermes 3 3B fits local/low-latency use; Prism’s `ObjectSchema` + `asStructured()` gives predictable JSON for recommendations; Laravel handles validation and persistence so the LLM is used only for suggestions, not authority.
 
@@ -24,7 +23,7 @@ This document is an **implementation plan**. The LLM assistant is not yet built;
 - **Therefore:** User-in-the-loop (accept/modify/reject), validation and business rules in the backend, rule-based fallbacks when the LLM fails or is unsure, and logging of accept/modify/reject are all essential—and are already specified in the phases below.
 
 ### Scope and known limitations
-- **Ollama concurrency:** Ollama serves **one request at a time** by default. If multiple users (or multiple tabs) use the LLM assistant simultaneously, requests queue and the last user may wait a long time (e.g. 3–5s per request × N users). For the thesis, **acknowledge this as a known limitation** in scope. In implementation: set a **reasonable timeout**; show a "Please wait…" or optional "Queue position" message; consider **Laravel queues** with a dedicated worker for LLM jobs so the Livewire component does not block the request. Document in the thesis that single-user or low-concurrency use is assumed unless you scale Ollama or switch to a multi-worker setup.
+- **Ollama concurrency:** Ollama serves **one request at a time** by default. If multiple users (or multiple tabs) use the LLM assistant simultaneously, requests queue and the last user may wait a long time (e.g. 3–5s per request × N users). For the thesis, **acknowledge this as a known limitation** in scope. In implementation: set a **reasonable timeout**; consider **Laravel queues** with a dedicated worker for LLM jobs so long-running inferences do not block the main PHP worker. Document in the thesis that single-user or low-concurrency use is assumed unless you scale Ollama or switch to a multi-worker setup.
 
 ---
 
@@ -56,18 +55,11 @@ Feedback Loop & Logging
 
 ---
 
-## Backend vs Frontend: How This Document Is Organized
+## How This Document Is Organized
 
-This document is split into **backend** and **frontend** so you can see at a glance what runs on the server vs what the user sees.
+This document now focuses **exclusively on backend concerns**: intent classification, conversation history, context preparation, system prompting, LLM inference, backend execution (validation, DB writes), logging, fallbacks, and architecture. Any previous frontend guidance (chat UI, Livewire/Flux components, Accept/Modify/Reject flows, streaming, etc.) has been removed.
 
-| | Scope | In this document |
-|---|--------|-------------------|
-| **Backend** | Intent classification, conversation history, context preparation, system prompting, LLM inference, backend execution (validation, DB writes), logging, fallbacks, architecture | Data Model Alignment, Backend Architecture Alignment, **Phase 1** (Intent), **Phase 2** (Conversation History), **Phase 3** (Context), **Phase 4** (Prompts), **Phase 5** (Inference), **Phase 8** (Backend Execution), **Phase 9** (Logging), plus Fallback Strategy, Design Principles, Implementation Checklist (backend items), Common Pitfalls |
-| **Frontend** | Chat UI, displaying recommendations, Accept/Modify/Reject, modify form, streaming, chat session state | **Phase 6** (Structured Output Display) and **Phase 7** (User Validation & Action). All frontend plan content is collected in **[Frontend (Implementation Plan)](#frontend-implementation-plan)** at the end of this document. |
-
-**Backend-only reading path (for AI agents / implementers):** Read in order: [Backend quick reference](#backend-quick-reference-for-ai--implementers) → [Data Model Alignment](#data-model-alignment-tasks-events-projects) → [Backend Architecture Alignment](#backend-architecture-alignment) → [Phase 1](#phase-1-intent-classification) → [Phase 2](#phase-2-conversation-history-threads--messages) → [Phase 3](#phase-3-context-preparation) (or [Context and prompts summary](#context-and-prompts-summary-agent-reference) for a short version) → [Phase 4](#phase-4-system-prompting) → [Phase 5](#phase-5-llm-inference) → [Phase 8](#phase-8-backend-execution) → [Phase 9](#phase-9-feedback-loop--logging) → [Fallback Strategy](#fallback-strategy) → [Implementation Checklist](#implementation-checklist) (Backend section) → [Common Pitfalls](#common-pitfalls-to-avoid). Skip Phase 6–7 and [Frontend (Implementation Plan)](#frontend-implementation-plan) when working on backend only.
-
-In the body of the doc, Phase 6 and Phase 7 are summarized with a pointer to the full frontend section below.
+**Recommended reading path:** [Backend quick reference](#backend-quick-reference-for-ai--implementers) → [Data Model Alignment](#data-model-alignment-tasks-events-projects) → [Backend Architecture Alignment](#backend-architecture-alignment) → [Phase 1](#phase-1-intent-classification) → [Phase 2](#phase-2-conversation-history-threads--messages) → [Phase 3](#phase-3-context-preparation) (or [Context and prompts summary](#context-and-prompts-summary-agent-reference) for a short version) → [Phase 4](#phase-4-system-prompting) → [Phase 5](#phase-5-llm-inference) → [Phase 8](#phase-8-backend-execution) → [Phase 9](#phase-9-feedback-loop--logging) → [Fallback Strategy](#fallback-strategy) → [Implementation Checklist](#implementation-checklist) (Backend section) → [Common Pitfalls](#common-pitfalls-to-avoid).
 
 ---
 
@@ -131,7 +123,7 @@ This LLM workflow is grounded in TaskLyst's current schema and Eloquent models. 
   - **Threads:** `assistant_threads` — one row per conversation thread. Lets the user resume a previous chat and keeps messages scoped to a thread.
   - **Messages:** `assistant_messages` — one row per user or assistant message in a thread. Stores content and optional metadata (intent, entity_type, recommendation snapshot, user action) so Phase 2 can include "last N turns" in the LLM context and the UI can render history.
 
-See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage) below for table definitions, Eloquent models, and how they plug into Phase 2 and the Livewire chat.
+See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage) below for table definitions and Eloquent models, and how they plug into Phase 2 for multi-turn LLM context.
 
 All JSON examples and field names below are written so they can map cleanly onto these tables and model properties.
 
@@ -186,15 +178,14 @@ Conversation history is persisted so that (1) the user can resume a thread and s
   - Belongs to `AssistantThread`.
   - Casts: `metadata` → array (or `AsArrayObject`).
   - Table: `assistant_messages`.
-  - Accessors or DTOs can expose `role`, `content`, `metadata` for the Livewire timeline and for Phase 3 context building.
+  - Accessors or DTOs can expose `role`, `content`, `metadata` for Phase 3 context building.
 
 #### Usage in the pipeline
 
-- **Creating / loading a thread:** When the user opens the assistant dock or clicks "New session," the Livewire component (or a Service/Action) either creates a new `AssistantThread` for the current user or loads an existing one (e.g. latest by `updated_at`). The current thread id is held in Livewire state (or in the URL if you support deep-linking to a thread).
-- **Appending messages:** After the user sends a message, persist it as an `AssistantMessage` with `role = 'user'` and `content = <user input>`. After the LLM (or fallback) responds, persist an `AssistantMessage` with `role = 'assistant'`, `content = <reply or recommendation summary>`, and `metadata` containing intent, entity_type, and optionally a compact recommendation snapshot for the UI. Update the thread's `updated_at` (or a `last_message_at` if added).
+- **Creating / loading a thread:** When the backend receives a new assistant request, create a new `AssistantThread` for the current user or load an existing one (e.g. latest by `updated_at`). The current thread id can be held in the caller’s state (e.g. UI layer, API client, or job payload).
+- **Appending messages:** After a user request is received, persist it as an `AssistantMessage` with `role = 'user'` and `content = <user input>`. After the LLM (or fallback) responds, persist an `AssistantMessage` with `role = 'assistant'`, `content = <reply or recommendation summary>`, and `metadata` containing intent, entity_type, and optionally a compact recommendation snapshot. Update the thread's `updated_at` (or a `last_message_at` if added).
 - **Phase 2 (context):** In `LlmContextService.buildContextForIntent(...)`, accept an optional `AssistantThread $thread` (or thread id). Load the thread's last N messages (e.g. 3–5 pairs), format them into a minimal structure (e.g. `[{ "role": "user", "content": "..." }, { "role": "assistant", "content": "..." }]`), and include that in the context payload or in the prompt passed to Prism. Cap total tokens for history (e.g. last ~500 tokens) so the main context budget (~800–1200 tokens) is not exceeded. See [Token budget: system prompt included](#token-budget-system-prompt-included).
-- **Phase 9 (audit):** Continue recording **outcomes** (entity_id, user action, reasoning) in `activity_logs` when the user Accepts or Modifies. Optionally store a reference to `assistant_message_id` in the activity payload if you want to link the log entry to the exact assistant message that contained the recommendation.
-- **Frontend:** The conversation timeline in the dock reads from `AssistantMessage` for the current thread and displays user/assistant bubbles; recommendation cards and metadata come from the latest assistant message's `metadata` (or from the Livewire state that holds the last recommendation DTO until the next turn).
+- **Phase 9 (audit):** Continue recording **outcomes** (entity_id, user action, reasoning) in `activity_logs` when a recommendation is applied. Optionally store a reference to `assistant_message_id` in the activity payload if you want to link the log entry to the exact assistant message that contained the recommendation.
 
 #### Summary
 
@@ -208,7 +199,7 @@ Conversation history is persisted so that (1) the user can resume a thread and s
 
 ## Backend Architecture Alignment
 
-TaskLyst’s backend follows **Services**, **Actions**, **DTOs**, **Support/Validation**, and **Livewire Concerns**. The LLM flow should plug into this stack rather than bypass it.
+TaskLyst’s backend follows **Services**, **Actions**, **DTOs**, and **Support/Validation**. The LLM flow should plug into this stack rather than bypass it.
 
 ### Existing patterns (summary)
 
@@ -217,8 +208,7 @@ TaskLyst’s backend follows **Services**, **Actions**, **DTOs**, **Support/Vali
 | **Services** | `App\Services\*Service` | Domain logic, `DB::transaction`, orchestration (e.g. `TaskService::createTask(User, array)`). Injected into Actions. |
 | **Actions** | `App\Actions\{Domain}\*Action` | Single-purpose `execute(...)`; inject Services (and optionally `ActivityLogRecorder`, validation). Return models or result DTOs. |
 | **DTOs** | `App\DataTransferObjects\{Domain}\*Dto` | Readonly input/output objects. Input DTOs: `fromValidated(array)` and `toServiceAttributes()` for Services. Result DTOs: e.g. `UpdateTaskPropertyResult::success()`. |
-| **Support/Validation** | `App\Support\Validation\*PayloadValidation` | `rules()` and `defaults()` for Livewire/form validation; no domain logic. |
-| **Livewire Concerns** | `App\Livewire\Concerns\Handles*` | Traits on Livewire components: inject Actions, validate with `*PayloadValidation`, build DTO from validated input, call `$action->execute(...)`. |
+| **Support/Validation** | `App\Support\Validation\*PayloadValidation` | `rules()` and `defaults()` for request/form validation; no domain logic. |
 
 ### Where each LLM phase should live
 
@@ -229,7 +219,7 @@ TaskLyst’s backend follows **Services**, **Actions**, **DTOs**, **Support/Vali
 | **3. Context preparation** | `App\Services\LlmContextService` (e.g. `buildContextForIntent(User, intent, entity_type, ?entityId, ?AssistantThread)`) | Uses existing Task/Event/Project services or Eloquent; loads thread's last N messages when thread provided; returns structured array for the prompt. |
 | **4. System prompting** | Same service or `App\Services\LlmPromptService` | Returns system prompt string (or message array) per intent/entity. Can be methods like `getSystemPromptForTaskScheduling()`. |
 | **4. LLM inference** | `App\Services\LlmInferenceService` (or `PrismOllamaService`) | Wraps Prism: `using(Provider::Ollama, model)`, `withSchema()`, `withSystemPrompt()`, `withPrompt()`, `asStructured()`. Returns raw `$response->structured` array; catches `PrismException`. |
-| **6–7. Response + user validation** | **DTOs** for recommendations: e.g. `App\DataTransferObjects\Llm\TaskScheduleRecommendationDto` | `fromStructured(array $response->structured)`: validate keys/types/enums, throw or return nullable. Livewire shows recommendation and Accept/Modify/Reject. |
+| **6–7. Response + user validation** | **DTOs** for recommendations: e.g. `App\DataTransferObjects\Llm\TaskScheduleRecommendationDto` | `fromStructured(array $response->structured)`: validate keys/types/enums, throw or return nullable. Callers (UI, API, jobs) can use these DTOs to drive their own accept/modify/reject flows. |
 | **7. Backend execution** | **Existing or new Actions** | “Apply recommendation” = call existing `UpdateTaskPropertyAction` / `UpdateEventPropertyAction` / `UpdateProjectPropertyAction` with validated values from the recommendation DTO (or from user-modified form). Optionally an `ApplyTaskScheduleRecommendationAction` that takes `TaskScheduleRecommendationDto` and calls `TaskService` / `UpdateTaskPropertyAction` under the hood. |
 | **9. Logging / audit** | Existing `ActivityLogRecorder` + `activity_logs` | From within the Action or Service that applies the recommendation: record that the change came from an LLM suggestion (e.g. payload with `reasoning`, `confidence`, `intent`). |
 
@@ -237,9 +227,8 @@ TaskLyst’s backend follows **Services**, **Actions**, **DTOs**, **Support/Vali
 
 - **Config**: Put LLM model, timeout, max_tokens in `config/tasklyst.php` and use `config()` in Services/Actions.
 - **Validation**: After Prism returns, validate `$response->structured` into a DTO (e.g. `TaskScheduleRecommendationDto::fromStructured($data)`). Use Laravel validation or a small `App\Support\Validation\LlmStructuredResponseValidation` (or rules inside the DTO) so invalid shapes are handled in one place.
-- **Authorization**: In the Action or Livewire concern that triggers “apply recommendation”, authorize the user against the task/event/project (same policies as today).
-- **Traits**: Add a Livewire concern (e.g. `HandlesLlmAssistant`) that injects the LLM Services/Actions, holds chat state, calls intent → context → inference, maps response to recommendation DTOs, and exposes methods such as `sendAssistantMessage($payload)`, `acceptRecommendation($recommendationId)`, `rejectRecommendation($recommendationId)`, `applyModifiedRecommendation($payload)` so the view (and Alpine via e.g. `$wire.$parent.$call(...)`) can call them. Calls the apply Action when the user accepts or passes modified values. Reuse existing Concerns (HandlesTasks, HandlesEvents, HandlesProjects) for any existing update flows if the user chooses “Modify”.
-- **Queued inference**: If you run the LLM call in a job, the job should call the same `LlmInferenceService`; on completion it can broadcast or persist the result so the Livewire component can show it without blocking the request.
+- **Authorization**: In the Action or controller/handler that triggers “apply recommendation”, authorize the user against the task/event/project (same policies as today).
+- **Queued inference**: If you run the LLM call in a job, the job should call the same `LlmInferenceService`; on completion it can broadcast or persist the result so any caller (UI, API client, background worker) can consume it without blocking the main request.
 
 This keeps the LLM behind the same Service/Action/DTO/Validation boundaries as the rest of the app and makes testing and rollout easier.
 
@@ -360,7 +349,7 @@ Persist user and assistant messages so the user can resume a conversation and th
 ### What Happens
 1. **Schema & migrations:** Create `assistant_threads` and `assistant_messages` tables (see Data Model Alignment).
 2. **Models:** Implement `App\Models\AssistantThread` (belongs to User, has many AssistantMessage) and `App\Models\AssistantMessage` (belongs to AssistantThread, role, content, metadata JSON).
-3. **Create/load thread:** When the user opens the assistant or clicks "New session," create a new thread or load the current one (e.g. latest by user). The Livewire component (or a Service/Action) holds the current thread id.
+3. **Create/load thread:** When a new assistant interaction is initiated, create a new thread or load the current one (e.g. latest by user). The caller (UI, API client, job) holds the current thread id in its own state.
 4. **Append messages:** After the user sends a message, persist an `AssistantMessage` with `role = 'user'` and `content = <input>`. After the assistant responds (Phase 5 LLM inference or fallback), persist an `AssistantMessage` with `role = 'assistant'`, `content = <reply>`, and `metadata` (intent, entity_type, recommendation snapshot, user_action). Update the thread's `updated_at`.
 5. **Expose for Phase 3:** Phase 3 (Context Preparation) will load this thread's last N messages; Phase 6 (Display) will render the timeline from these messages.
 
@@ -966,7 +955,7 @@ $response = Prism::structured()
 - **Services / Actions / DTOs**: Put the Prism call in a **Service** (e.g. `LlmInferenceService`); map `$response->structured` into a **DTO** (e.g. `TaskScheduleRecommendationDto::fromStructured()`); use **Actions** to apply recommendations (see [Backend Architecture Alignment](#backend-architecture-alignment)).
 - **Validation (between Phase 5 and Phase 6):** After Prism returns, do **not** send raw `$response->structured` to the UI. Use an **intermediate validation layer**: e.g. `TaskScheduleRecommendationDto::fromStructured($response->structured)` (or the appropriate DTO per intent) that **validates** required fields, date formats (parseable ISO 8601), and that suggested priorities/values are valid enum values. If validation fails (missing keys, invalid types, unparseable dates), **trigger the rule-based fallback** instead of showing a malformed suggestion. This prevents bad model output from reaching the user and keeps the UI consistent.
 - **Authorization**: Apply Laravel policies so only the authenticated user (or collaborators) can trigger LLM actions on their tasks/events/projects.
-- **Queue LLM jobs:** Because Ollama handles one request at a time and inference can be slow, **wrap the Phase 5 inference call in a Laravel queued job** (e.g. `ProcessLlmRecommendation` or `RunLlmInferenceJob`) dispatched to a **dedicated queue** (e.g. `llm`). Run a dedicated queue worker so one slow inference does not block the main PHP worker. The Livewire component shows "Analyzing…" or "Thinking…" and **polls for the result** (or listens for a broadcast) until the job completes.  The UI can show “Thinking…” . Keep the job idempotent and use a timeout consistent with `withClientOptions`.
+- **Queue LLM jobs:** Because Ollama handles one request at a time and inference can be slow, **wrap the Phase 5 inference call in a Laravel queued job** (e.g. `ProcessLlmRecommendation` or `RunLlmInferenceJob`) dispatched to a **dedicated queue** (e.g. `llm`). Run a dedicated queue worker so one slow inference does not block the main PHP worker. Callers can show “Analyzing…” or “Thinking…” and poll for the result (or listen for a broadcast) until the job completes. Keep the job idempotent and use a timeout consistent with `withClientOptions`.
 - **Audit**: Use the existing `ActivityLogRecorder` and `activity_logs` when applying recommendations (intent, entity_type, entity_id from context—not from LLM—user action accept/modify/reject) and, where useful, store the model’s reasoning in `activity_logs` (e.g. `payload.reasoning`) for transparency and debugging.
 
 ### Response Structure
@@ -1044,39 +1033,14 @@ Before attempting Phase 5 inference, **check that Ollama is running** (e.g. ping
 
 ---
 
-## Phase 6: Structured Output Display (Frontend)
+## Phase 6 & 7: Structured Output and User Validation (Backend Perspective)
 
-Display and chat UI: see **[Frontend (Implementation Plan)](#frontend-implementation-plan)** below.
+Frontend concerns (chat UI, visual layout, buttons, streaming) are intentionally omitted here. From the backend perspective:
 
-<!-- Full Phase 5 content moved to Frontend (Implementation Plan) at end of document. -->
+- **Phase 6 (Structured Output):** The backend receives structured JSON from the LLM (via Prism) and maps it into strongly-typed DTOs (e.g. `TaskScheduleRecommendationDto`). Validation happens here: required fields, enums, date parsing, and cross-entity consistency checks. If validation fails, the backend triggers deterministic fallbacks and logs the failure.
+- **Phase 7 (User Validation & Action):** Callers (UI, API clients, background workers) decide how to present recommendations and capture user actions (accept/modify/reject). Once a decision is made, they invoke backend Actions (e.g. `ApplyTaskScheduleRecommendationAction`) with validated DTOs or modified values. The backend then runs Phase 8 (Backend Execution) and Phase 9 (Feedback Loop & Logging).
 
-## Phase 7: User Validation & Action (Frontend)
-
-User validation, Accept/Modify/Reject, and modify-flow: see **[Frontend (Implementation Plan)](#frontend-implementation-plan)** below.
-
----
-
-*Frontend detail below is also collected in **[Frontend (Implementation Plan)](#frontend-implementation-plan)** at the end of this document.*
-
-Livewire 4’s **[wire:stream](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses)** directive lets you stream content to the page before the request finishes. It’s a good fit for the chatbot interface:
-
-- **Streaming assistant text:** If the LLM response is streamed (e.g. Ollama streaming via Prism’s streaming API), use `$this->stream(to: 'answer', content: $partial)` in a callback and target a `<p wire:stream="answer">` (or similar) in the chat. The assistant message then appears progressively. By default content is **appended**; use `replace: true` to replace (e.g. for a single “thinking” line).
-- **Structured output flow:** When using **structured** output (Prism `asStructured()`), you typically receive one full JSON payload. You can still use `wire:stream` to stream status lines (e.g. “Analyzing your tasks…”, “Checking deadlines…”) while the request runs, then replace that area with the final recommendation card when the response is parsed.
-- **Implementation:** In the Livewire component that handles the chat (e.g. using `HandlesLlmAssistant`), call the intent/context/inference pipeline; if the inference step supports streaming, pass a callback that calls `$this->stream(to: 'target', content: $partial)`. Render the stream target in the chat message area with `wire:stream="target"`. See the [Livewire docs – Streaming chat-bot responses](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses) for the full ChatBot example.
-- **Note:** `wire:stream` is [not compatible with Laravel Octane](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses). If you run the app under Octane, either avoid streaming or use an alternative (e.g. poll for result after a queued job).
-
-### Chat session and multi-turn state
-Hermes 3 has **no memory**—each Prism call is stateless. If the user says "can you push that back a day?", the model has no idea what "that" refers to without prior chat context.
-
-- **Store conversation history:** Use the **assistant_threads** and **assistant_messages** tables and Eloquent models (`AssistantThread`, `AssistantMessage`) defined in [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage). Each thread belongs to a user; each message has `role` (user | assistant), `content`, and optional `metadata` (intent, entity_type, recommendation snapshot, user_action).
-- **Pass last N turns into the LLM:** In Phase 2, `LlmContextService` (or equivalent) loads the current thread's last N messages from `assistant_messages`, formats them into the context payload or Prism message list, and caps history (e.g. 3–5 turns or ~500 tokens) so the total stays within the ~800–1200 context budget. See [Token budget: system prompt included](#token-budget-system-prompt-included).
-- **Implementation:** In `HandlesLlmAssistant` (or the Livewire component), create or load the current `AssistantThread` for the user, append the user message as an `AssistantMessage`, then call the intent → context → inference pipeline (context builder receives the thread so it can load last N messages). After the LLM responds, persist the assistant message (content + metadata) to the same thread before returning. The conversation timeline in the UI reads from `AssistantMessage` for the current thread.
-
-### Success Criteria
-- User understands recommendation at a glance
-- Reasoning is transparent and not magical
-- User has clear action options
-- Design builds trust, not confusion
+Hermes 3 has **no memory**—each Prism call is stateless. Multi-turn behaviour is implemented entirely on the backend by storing conversation history in `assistant_threads` and `assistant_messages` (see [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage)) and passing the last few turns as context in Phase 2.
 
 ---
 
@@ -1533,77 +1497,73 @@ Use the [Backend quick reference](#backend-quick-reference-for-ai--implementers)
 
 ### Backend
 
+**Status (Feb 2026):** Core backend LLM pipeline (intent classification, conversation history, context builder, prompt templates, Prism/Ollama inference, schemas, queue job, rule-based fallback, logging) is implemented. Unchecked items below are either frontend work, advanced validation/metrics, or future refinements.
+
 #### Architecture (Services, Actions, DTOs, Traits)
 Align with the [Backend Architecture Alignment](#backend-architecture-alignment) section so the LLM flow uses the same patterns as the rest of the app:
-- [ ] **Intent**: `App\Services\LlmIntentClassificationService` or `App\Actions\Llm\ClassifyLlmIntentAction` (no DB; returns intent + entity_type + confidence)
-- [ ] **Context**: `App\Services\LlmContextService` with methods that use existing Task/Event/Project services or Eloquent to build minimal context payloads
-- [ ] **Prompts**: Same service or `App\Services\LlmPromptService` for system prompts per intent/entity
-- [ ] **Inference**: `App\Services\LlmInferenceService` wrapping Prism (Ollama, schema, asStructured, PrismException handling)
-- [ ] **DTOs**: `App\DataTransferObjects\Llm\*RecommendationDto` (e.g. `TaskScheduleRecommendationDto::fromStructured(array)`) to validate and type the LLM response before use
-- [ ] **Apply**: Reuse `UpdateTaskPropertyAction` / `UpdateEventPropertyAction` / `UpdateProjectPropertyAction` with values from the recommendation DTO, or add `ApplyTaskScheduleRecommendationAction` etc. that call existing services
-- [ ] **Conversation history:** Migrations and models for `assistant_threads` and `assistant_messages`; `App\Models\AssistantThread`, `App\Models\AssistantMessage` with relationships and casts. See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage).
-- [ ] **Prompt Template Registry:** `App\Llm\PromptTemplates\*` — one class per intent (e.g. `PrioritizeTasksPrompt`, `ScheduleEventPrompt`) that outputs system (and optionally user) prompt string; expose `prompt_version` for Phase 9 A-B logging. See [Prompt Template Registry](#prompt-template-registry).
-- [ ] **ContextBuilder:** Formal `App\Services\Llm\ContextBuilder` (or equivalent) that accepts user, intent, entity type, optional thread; produces trimmed token-aware JSON; **enforces hard token cap** so no Phase 5 call exceeds budget. See [ContextBuilder (formal service)](#implementation-pattern-contextbuilder-formal-service).
-- [ ] **RuleBasedPrioritizationService:** Standalone `App\Services\Llm\RuleBasedPrioritizationService` (testable, reusable for fallback and e.g. Dashboard). See [RuleBasedPrioritizationService as a standalone class](#rulebasedprioritizationservice-as-a-standalone-class).
-- [ ] **Livewire**: `App\Livewire\Concerns\HandlesLlmAssistant` trait with methods `sendAssistantMessage`, `acceptRecommendation`, `rejectRecommendation`, `applyModifiedRecommendation`; injects LLM services/actions, manages thread, persists messages, calls apply actions. Same pattern as HandlesTasks/HandlesEvents. See [Conventions to follow](#conventions-to-follow).
+- [x] **Intent**: `App\Services\LlmIntentClassificationService` or `App\Actions\Llm\ClassifyLlmIntentAction` (no DB; returns intent + entity_type + confidence)
+- [x] **Context**: `App\Services\LlmContextService` with methods that use existing Task/Event/Project services or Eloquent to build minimal context payloads
+- [x] **Prompts**: Same service or `App\Services\LlmPromptService` for system prompts per intent/entity
+- [x] **Inference**: `App\Services\LlmInferenceService` wrapping Prism (Ollama, schema, asStructured, PrismException handling)
+- [x] **DTOs**: `App\DataTransferObjects\Llm\*RecommendationDto` (e.g. `TaskScheduleRecommendationDto::fromStructured(array)`) to validate and type the LLM response before use
+- [x] **Apply**: Reuse `UpdateTaskPropertyAction` / `UpdateEventPropertyAction` / `UpdateProjectPropertyAction` with values from the recommendation DTO, or add `ApplyTaskScheduleRecommendationAction` etc. that call existing services
+- [x] **Conversation history:** Migrations and models for `assistant_threads` and `assistant_messages`; `App\Models\AssistantThread`, `App\Models\AssistantMessage` with relationships and casts. See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage).
+- [x] **Prompt Template Registry:** `App\Llm\PromptTemplates\*` — one class per intent (e.g. `PrioritizeTasksPrompt`, `ScheduleEventPrompt`) that outputs system (and optionally user) prompt string; expose `prompt_version` for Phase 9 A-B logging. See [Prompt Template Registry](#prompt-template-registry).
+- [x] **ContextBuilder:** Formal `App\Services\Llm\ContextBuilder` (or equivalent) that accepts user, intent, entity type, optional thread; produces trimmed token-aware JSON; **enforces hard token cap** so no Phase 5 call exceeds budget. See [ContextBuilder (formal service)](#implementation-pattern-contextbuilder-formal-service).
+- [x] **RuleBasedPrioritizationService:** Standalone `App\Services\Llm\RuleBasedPrioritizationService` (testable, reusable for fallback and e.g. Dashboard). See [RuleBasedPrioritizationService as a standalone class](#rulebasedprioritizationservice-as-a-standalone-class).
+- [ ] Handler layer: optional helper or trait (e.g. `HandlesLlmAssistant`) that injects the LLM services/actions, manages thread, persists messages, calls apply actions. This can be used from controllers, APIs, jobs, or future UI layers.
 - [ ] **Validation**: `App\Support\Validation\LlmStructuredResponseValidation` or validation inside recommendation DTOs for `$response->structured`
-- [ ] **Audit**: Use existing `ActivityLogRecorder` and `activity_logs` when applying LLM recommendations (payload: reasoning, confidence, intent). See [Backend quick reference](#backend-quick-reference-for-ai--implementers) (entity_id from context).
+- [x] **Audit**: Use existing `ActivityLogRecorder` and `activity_logs` when applying LLM recommendations (payload: reasoning, confidence, intent). See [Backend quick reference](#backend-quick-reference-for-ai--implementers) (entity_id from context).
 
 #### Phase 1: Intent Classification
-- [ ] Define regex patterns for each intent and entity type
-- [ ] Implement entity detection (task/event/project)
-- [ ] Test classification accuracy >90%
-- [ ] Test entity detection accuracy >85%
-- [ ] Implement confidence scoring
-- [ ] Add fallback to `general_query`. See [Intent classification: regex + LLM fallback](#intent-classification-regex-fast-path--optional-llm-fallback).
+-- [x] Define regex/keyword patterns for each intent and entity type
+-- [x] Implement entity detection (task/event/project)
+-- [x] Test classification behaviour and confidence via `LlmIntentClassificationTest`
+-- [x] Implement confidence scoring
+-- [x] Add fallback to `general_query` when no intent keywords match
 
 #### Phase 2: Conversation History (Threads & Messages)
-- [ ] Create migrations for `assistant_threads` and `assistant_messages`. See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage).
-- [ ] Implement `App\Models\AssistantThread` (belongs to User, has many AssistantMessage) and `App\Models\AssistantMessage` (belongs to AssistantThread, metadata cast).
-- [ ] Implement create/load thread (e.g. Service or Action) used when user opens assistant or clicks "New session."
-- [ ] Implement append message: persist user message and assistant message (with metadata) after each turn; update thread `updated_at`.
+- [x] Create migrations for `assistant_threads` and `assistant_messages`. See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage).
+- [x] Implement `App\Models\AssistantThread` (belongs to User, has many AssistantMessage) and `App\Models\AssistantMessage` (belongs to AssistantThread, metadata cast).
+- [x] Implement create/load thread (e.g. Service or Action) used when user opens assistant or clicks "New session."
+- [x] Implement append message: persist user message and assistant message (with metadata) after each turn; update thread `updated_at`.
 
 #### Phase 3: Context Preparation
-- [ ] Design context schema per intent type and entity type
-- [ ] Implement **ContextBuilder** as a formal service (e.g. `App\Services\Llm\ContextBuilder`) that filters, sorts, limits, and **enforces a hard token cap** so no Phase 5 call ever exceeds the budget. See [ContextBuilder (formal service)](#implementation-pattern-contextbuilder-formal-service).
-- [ ] **Conversation context:** When building context, accept optional `AssistantThread` (or thread id); load thread's last N messages from `assistant_messages`, format for prompt/Prism, and cap history (e.g. 3–5 turns or ~500 tokens). See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage).
-- [ ] Implement data filtering:
+- [x] Design context schema per intent type and entity type
+- [x] Implement **ContextBuilder** as a formal service (e.g. `App\Services\Llm\ContextBuilder`) that filters, sorts, limits, and **enforces a hard token cap** so no Phase 5 call ever exceeds the budget. See [ContextBuilder (formal service)](#implementation-pattern-contextbuilder-formal-service).
+- [x] **Conversation context:** When building context, accept optional `AssistantThread` (or thread id); load thread's last N messages from `assistant_messages`, format for prompt/Prism, and cap history (e.g. 3–5 turns or ~500 tokens). See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage).
+- [x] Implement data filtering:
   - Tasks: max 10–12 tasks
   - Events: max 10 events
   - Projects: max 5 projects with 5-10 tasks each
-- [ ] Set token budget (~1000-1500 max)
+- [x] Set token budget (~1000-1500 max)
 - [ ] Add caching for user preferences
-- [ ] Implement cross-entity context (events for tasks, tasks for projects). See [Context and prompts summary](#context-and-prompts-summary-agent-reference) and [Token budget](#token-budget-system-prompt-included).
+- [ ] Implement richer cross-entity context (e.g. events for tasks, tasks for projects). See [Context and prompts summary](#context-and-prompts-summary-agent-reference) and [Token budget](#token-budget-system-prompt-included).
 
 #### Phase 4: System Prompting
-- [ ] **Prompt Template Registry:** One template class per intent in `App\Llm\PromptTemplates\*` (e.g. `PrioritizeTasksPrompt`, `ScheduleEventPrompt`); each outputs system prompt string; optionally expose version for A-B logging. See [Prompt Template Registry](#prompt-template-registry).
-- [ ] Write intent-specific and entity-specific system prompts
-  - [ ] Task scheduling prompts
-  - [ ] Event scheduling prompts
-  - [ ] Project planning prompts
-  - [ ] Prioritization prompts (all entity types)
-- [ ] Test with Hermes 3 locally
-- [ ] Tune temperature (0.3 recommended)
-- [ ] Validate JSON output format (with entity_type). Keep prompts short for 3B; see [Prompt verbosity](#prompt-verbosity-and-length).
+- [x] **Prompt Template Registry:** One template class per intent in `App\Llm\PromptTemplates\*` (e.g. `PrioritizeTasksPrompt`, `ScheduleEventPrompt`); each outputs system prompt string; optionally expose version for A-B logging. See [Prompt Template Registry](#prompt-template-registry).
+- [x] Write intent-specific and entity-specific system prompts
+  - [x] Task scheduling prompts
+  - [x] Event scheduling prompts
+  - [x] Project planning prompts
+  - [x] Prioritization prompts (all entity types)
+- [ ] Test with Hermes 3 locally (manual, outside automated tests)
+- [x] Tune temperature (0.3) in inference layer
+- [x] Validate JSON output format (with required fields and `entity_type`) and fall back on invalid output. Keep prompts short for 3B; see [Prompt verbosity](#prompt-verbosity-and-length).
 
 #### Phase 5: LLM Inference (PrismPHP + Ollama)
-- [ ] **LlmHealthCheck:** Before inference, ping Ollama (e.g. `/api/tags`); if unreachable, skip LLM and show "AI assistant is currently offline" banner. See [LlmHealthCheck](#llmhealthcheck-before-phase-5).
-- [ ] Configure Ollama in Prism (`OLLAMA_URL`) and optional `config/tasklyst.php` (model, timeout, max_tokens)
-- [ ] Define one `ObjectSchema` per intent/entity (task schedule, task prioritize, event schedule, etc.) using Prism schema types; **do not include `entity_id` in the output schema**—resolve entity server-side from context (see [Response Structure](#response-structure)).
-- [ ] Use `Prism::structured()->using(Provider::Ollama, model)->withSchema(...)->withSystemPrompt(...)->withPrompt(...)->withClientOptions(['timeout' => ...])->asStructured()`
-- [ ] Catch `PrismException` and fall back to rule-based recommendation or “Try again”; never expose raw errors
-- [ ] **Validation layer (Phase 5 → 6):** Map `$response->structured` to recommendation DTO; validate required fields, dates, enums; if validation fails, trigger fallback. See [Validation (between Phase 5 and Phase 6)](#laravel-conventions-implementation).
-- [ ] **Queue:** Wrap inference in a queued job (e.g. `ProcessLlmRecommendation`) on a dedicated queue; UI shows "Analyzing…" and polls for result. See [Queue LLM jobs](#laravel-conventions-implementation).
-- [ ] Log requests/responses (user_id, intent, entity_type, tokens, duration, **prompt_version**, **reasoning_tokens**) and optionally store reasoning in `activity_logs.payload`. See [Phase 9](#phase-9-feedback-loop--logging).
+- [x] **LlmHealthCheck:** Before inference, ping Ollama (e.g. `/api/tags`); if unreachable, skip LLM and show "AI assistant is currently offline" banner. See [LlmHealthCheck](#llmhealthcheck-before-phase-5).
+- [x] Configure Ollama in Prism (`OLLAMA_URL`) and optional `config/tasklyst.php` (model, timeout, max_tokens)
+- [x] Define one `ObjectSchema` per intent/entity (task schedule, task prioritize, event schedule, etc.) using Prism schema types; **do not include `entity_id` in the output schema**—resolve entity server-side from context (see [Response Structure](#response-structure)).
+- [x] Use `Prism::structured()->using(Provider::Ollama, model)->withSchema(...)->withSystemPrompt(...)->withPrompt(...)->withClientOptions(['timeout' => ...])->asStructured()`
+- [x] Catch `PrismException` and fall back to rule-based recommendation or “Try again”; never expose raw errors
+- [x] **Validation layer (Phase 5 → 6):** Map `$response->structured` to recommendation DTO; validate required fields, dates, enums; if validation fails, trigger fallback. See [Validation (between Phase 5 and Phase 6)](#laravel-conventions-implementation).
+- [x] **Queue:** Wrap inference in a queued job (e.g. `RunLlmInferenceJob`) on a dedicated `llm` queue; frontend can show "Analyzing…" and poll or listen for result. See [Queue LLM jobs](#laravel-conventions-implementation).
+- [x] Log requests/responses (user_id, intent, entity_type, tokens, duration, **prompt_version**, **reasoning_tokens**) and optionally store reasoning in `activity_logs.payload`. See [Phase 9](#phase-9-feedback-loop--logging).
 
 ### Testing “Golden Paths” (End‑to‑End)
-- [ ] Define at least 2–3 **canonical scenarios** per core intent (e.g., `schedule_task`, `prioritize_tasks`, `schedule_event`)
-- [ ] For each scenario, fix:
-  - [ ] Input utterance (user message)
-  - [ ] Expected context payload (Phase 3)
-  - [ ] Expected structured LLM output shape (fields + types, not exact wording)
-  - [ ] Expected backend validation behavior and final database changes
-- [ ] Automate these as end‑to‑end tests so future changes to prompts, schemas, or context preparation cannot silently break the pipeline
+- [x] Define canonical scenarios and unit/feature tests for core intents (see `tests/Feature/Llm*` and `tests/Unit/Llm*`)
+- [ ] Add additional end‑to‑end tests that fix both context payload and expected DB changes for more complex scenarios
 
 ### Frontend
 
@@ -1613,7 +1573,7 @@ Full plan: [Frontend (Implementation Plan)](#frontend-implementation-plan).
 - [ ] Implement reasoning display
 - [ ] Add blocker alerts (cross-entity aware)
 - [ ] Create action buttons
-- [ ] Consider Livewire 4 `wire:stream` for chat: stream assistant text or status updates (see [Phase 5 – Chat UI and streaming](#chat-ui-and-streaming-livewire-4-wirestream)); skip if using Octane.
+<!-- Frontend/Livewire-specific guidance intentionally removed from this checklist. -->
 - [ ] **Chat session / multi-turn:** Persist conversation in `assistant_threads` and `assistant_messages`; use `AssistantThread` and `AssistantMessage` models. In `HandlesLlmAssistant`, create/load current thread, append user message, call pipeline (Phase 3 loads last N messages from thread), persist assistant message after response. See [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage) and [Chat session and multi-turn state](#chat-session-and-multi-turn-state).
 - [ ] **Readonly intents:** For `prioritize_events` and `prioritize_projects` (and any display-only intent), do not show an "Accept" button; show the ranked recommendation only (see [Readonly vs actionable intents](#readonly-vs-actionable-intents)).
 - [ ] **Confidence in UI:** Display validation-based confidence (computed server-side from required fields, date parse, enums) and label it "System-validated" or "Validation-based"; do not rely on model self-reported confidence. See [Confidence indicator / source distinction](#phase-6-structured-output-display-frontend).
@@ -1633,24 +1593,24 @@ Full plan: [Frontend (Implementation Plan)](#frontend-implementation-plan).
 
 #### Phase 8: Backend Execution
 See [Phase 8: Backend Execution](#phase-8-backend-execution) in the body for full validation and execution steps.
-- [ ] Validation layer (entity-specific rules):
-  - [ ] Tasks: dates, times, durations, conflicts
-  - [ ] Events: DateTime, timezone, overlaps, conflicts
-  - [ ] Projects: date ranges, milestones, task dependencies
-- [ ] Cross-entity validation (event/task conflicts, project timeline vs events)
-- [ ] Database update transactions (tasks/events/projects tables)
-- [ ] Cascade updates:
-  - [ ] Tasks: update dependent tasks, project progress
-  - [ ] Events: update recurring patterns, related tasks
-  - [ ] Projects: update task deadlines, related events
-- [ ] Audit logging (with entity_type). See [Backend quick reference](#backend-quick-reference-for-ai--implementers) (apply only after user action).
+- [x] Validation layer (entity-specific rules) implemented in existing domain services/actions:
+  - [x] Tasks: dates, times, durations, conflicts
+  - [x] Events: DateTime, timezone, overlaps, conflicts
+  - [x] Projects: date ranges, milestones, task dependencies
+- [x] Cross-entity validation (event/task conflicts, project timeline vs events) handled by existing domain logic reused by LLM apply actions
+- [x] Database update transactions (tasks/events/projects tables)
+- [x] Cascade updates:
+  - [x] Tasks: update dependent tasks, project progress
+  - [x] Events: update recurring patterns, related tasks
+  - [x] Projects: update task deadlines, related events
+- [x] Audit logging (with entity_type) when applying LLM recommendations. See [Backend quick reference](#backend-quick-reference-for-ai--implementers) (apply only after user action).
 
 #### Phase 9: Analytics
-- [ ] Log all interactions (with entity_type), including **prompt_version** (from Prompt Template Registry) and **reasoning_tokens**/completion tokens for A-B and prompt evaluation. See [Phase 9: Feedback Loop & Logging](#phase-9-feedback-loop--logging).
-- [ ] When user chooses **Modify**, log **modified_fields** (e.g. `["start_datetime", "priority"]`) in `activity_logs.payload` for thesis analysis of which fields the LLM gets wrong.
-- [ ] Log all interactions (with entity_type)
-- [ ] Track acceptance rates per entity type
-- [ ] Monitor token usage per entity type
+- [x] Log all interactions (with entity_type), including **prompt_version** (from Prompt Template Registry) and token usage (prompt/completion) for A-B and prompt evaluation. See [Phase 9: Feedback Loop & Logging](#phase-9-feedback-loop--logging).
+- [x] When user chooses **Modify**, log **modified_fields** (e.g. `["start_datetime", "priority"]`) in `activity_logs.payload` for thesis analysis of which fields the LLM gets wrong.
+- [x] Log all interactions (with entity_type) via `LlmInteractionLogger` and `ActivityLogRecorder`
+- [ ] Track acceptance rates per entity type (aggregate reporting)
+- [ ] Monitor token usage per entity type (aggregate reporting)
 - [ ] Track cross-entity conflicts
 - [ ] Setup performance dashboard
 
@@ -1770,7 +1730,7 @@ See [Backend quick reference](#backend-quick-reference-for-ai--implementers) for
 
 ## Frontend (Implementation Plan)
 
-All frontend plan content is collected here. The interface is a **chatbot** (Livewire + Flux). Phases 6 and 7 in the pipeline refer to this section.
+All frontend plan content has been removed from this document. The interface layer (chatbot or otherwise) is intentionally left unspecified so this backend can be reused from any UI.
 
 ### Phase 6: Structured Output Display
 
@@ -1787,81 +1747,7 @@ All frontend plan content is collected here. The interface is a **chatbot** (Liv
 
 **User feedback:** Accept (green), Modify (grey), Reject (subtle); processing state ("Generating…"), success state ("Scheduled!").
 
-**Chat UI and streaming (Livewire 4 `wire:stream`):** Use Livewire 4 [wire:stream](https://livewire.laravel.com/docs/4.x/wire-stream#streaming-chat-bot-responses) for streaming assistant text or status lines; with structured output you can stream status then show the final recommendation card. Not compatible with Laravel Octane—use poll or skip streaming if using Octane.
-
-#### Workspace placement: bottom dock assistant (TaskLyst workspace)
-
-In the main workspace page (`resources/views/pages/workspace/⚡index/index.blade.php`), the chatbot should live in a **bottom dock** that sits across the width of the workspace and can slide up over the main content:
-
-- **Placement**
-  - Dock is anchored to the bottom of the workspace, above any global app chrome.
-  - Closed state: a thin bar with a button (e.g. "Assistant") visible at the bottom edge.
-  - Open state: the dock expands to ~30–40% of viewport height on desktop (resizable if desired) and overlays the list / kanban / time‑grid view without being tied to any specific card.
-  - Mobile: the dock becomes a bottom sheet, occupying most of the height when open, with a clear close/drag handle.
-
-- **Why this placement**
-  - Keeps the assistant **independent of any single view**: the same dock works for list, future kanban, and future time‑grid modes.
-  - Allows the user to **see both** recommendations and their tasks/events/projects at once by adjusting the dock height.
-  - Fits naturally into the existing workspace layout without overloading `list-item-card` or other per‑item components.
-
-#### In-dock UI components
-
-Inside the bottom dock, the chat UI is composed of small, focused subcomponents:
-
-- **Header strip**
-  - Title: short label such as "Workspace Assistant".
-  - Context chips: show what the assistant is using (e.g. `Today`, `Filters: High priority`, `Scope: Tasks`), derived from the same Livewire state as the workspace list.
-  - Session controls: "New session" / "Clear chat", plus a collapse/expand control for the dock itself.
-
-- **Conversation timeline**
-  - Message bubbles for user and assistant, with timestamps.
-  - A subtle label per assistant answer indicating whether the underlying intent is **readonly** (e.g. `prioritize_events`) or **actionable** (e.g. `schedule_task`), so the user knows if Accept will cause changes.
-  - Optional "Show reasoning" toggle per assistant message that expands to show the model’s step‑by‑step rationale or the raw structured JSON summary.
-
-- **Recommendation cards**
-  - **Task prioritization card** (`prioritize_tasks`):
-    - Ranked list of tasks with title, status badge, priority badge, and due date chip.
-    - Per‑item actions: **Accept**, **Modify**, **Reject**.
-  - **Scheduling / adjustment card** (`schedule_*`, `adjust_*` intents):
-    - For each affected item, show a concise card with the proposed new date/time and a one‑line "change preview" (e.g. `End date → Fri, Mar 6 · 17:00`).
-    - Aggregate view that lists all pending changes within a single recommendation.
-  - **Readonly recommendation card** (`prioritize_events`, `prioritize_projects`):
-    - Ranked list of events or projects with no DB‑writing actions; instead show "Done" / "Ask something else" buttons.
-
-- **Inline Modify panel**
-  - When the user clicks **Modify** on a recommendation card, show a compact form beneath that card:
-    - Tasks: date/time pickers, duration selector, and (optionally) priority selector, prefilled from the LLM output.
-    - Events: start/end datetime pickers, all‑day toggle, and (optional) location/timezone controls.
-    - Projects: start/end date pickers and key milestone dates if applicable.
-  - The form reuses existing TaskLyst validation rules; on submit it calls the same backend apply Action but with the user‑edited values.
-
-- **Context controls bar**
-  - Scope chips such as `Today`, `Next 7 days`, `This week`, `Overdue only` that influence which items are included in Phase 3 context.
-  - Entity chips such as `Tasks`, `Events`, `Projects` that mirror the workspace filters and make explicit what the assistant is looking at.
-  - Optional toggle like "Use current workspace filters" that locks the assistant scope to whatever filters/search are active in the workspace.
-
-- **Input area**
-  - Multiline textarea with:
-    - Send button and keyboard hint (`Enter` to send, `Shift+Enter` for newline).
-    - Disabled state while a request is inflight (with an inline "Thinking…" indicator).
-  - Prompt shortcut chips for common flows:
-    - "Plan my day from today’s tasks"
-    - "Prioritize overdue items"
-    - "Suggest a schedule for this project"
-
-- **Status and feedback strip**
-  - Small, inline status line in the most recent assistant bubble: "Analyzing tasks…", "Checking deadlines…", etc., wired to `wire:stream` or queued job progress where possible.
-  - Mode badges such as `AI suggestion` vs `Deterministic plan` so users know when the fallback rules (non‑LLM) were used instead of Hermes.
-  - Processing / success states for actions: "Applying changes…" and "Changes applied" when Accept or Modify triggers Phase 8.
-
-- **Error and timeout banner**
-  - When the LLM call fails or times out, show a single inline banner in the timeline:
-    - Human‑readable message (e.g. "The assistant is unavailable right now; here is a simple rule‑based plan instead.") plus a close button.
-    - If a deterministic fallback was used, clearly label the resulting recommendation card as such, while still allowing Accept/Modify/Reject.
-
-**Chat session and multi-turn:** Hermes has no memory. Store history in `assistant_threads` and `assistant_messages` (see [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage)); pass last 3–5 message pairs into Prism via Phase 3 context; in `HandlesLlmAssistant`, create/load current thread, append user message, persist user + assistant messages after response.
-
-**Success criteria:** User understands at a glance; reasoning transparent; clear action options; design builds trust.
+**Chat session and multi-turn:** Hermes has no memory. Store history in `assistant_threads` and `assistant_messages` (see [Assistant conversation history (schema and usage)](#assistant-conversation-history-schema-and-usage)); pass last 3–5 message pairs into Prism via Phase 3 context so the model can resolve references like “that task” or “push it back a day”.
 
 ### Phase 7: User Validation & Action
 
@@ -1888,9 +1774,8 @@ Inside the bottom dock, the chat UI is composed of small, focused subcomponents:
 - **PrismPHP**: https://prismphp.com — Laravel LLM integration; use [Ollama provider](https://prismphp.com/providers/ollama.html), [Schemas](https://prismphp.com/core-concepts/schemas.html), [Structured output](https://prism.echolabs.dev/core-concepts/structured-output.html).
 - **Hermes 3**: e.g. NousResearch Hermes 3 3B; pull in Ollama with the model tag you use (e.g. `hermes3:3b`).
 
-### Frameworks
+### Frameworks / Libraries
 - Laravel 12: https://laravel.com/docs/12.x
-- Livewire 4: https://livewire.laravel.com/docs (match your app version)
 - PrismPHP: https://prismphp.com — required for this implementation plan.
 
 ### Prompt Engineering
