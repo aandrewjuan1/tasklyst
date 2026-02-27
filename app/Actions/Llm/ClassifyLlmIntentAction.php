@@ -8,40 +8,58 @@ use App\Enums\LlmIntent;
 use App\Services\LlmIntentClassificationService;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
-use Prism\Prism\Exceptions\PrismException;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Schema\ObjectSchema;
 use Prism\Prism\Schema\StringSchema;
+use Throwable;
 
 class ClassifyLlmIntentAction
 {
     public function __construct(
-        private LlmIntentClassificationService $classificationService
+        private LlmIntentClassificationService $classificationService,
     ) {}
 
     public function execute(string $userMessage): LlmIntentClassificationResult
     {
-        $result = $this->classificationService->classify($userMessage);
+        $regexResult = $this->classificationService->classify($userMessage);
 
-        $threshold = config('tasklyst.intent.confidence_threshold', 0.7);
-        $useLlmFallback = config('tasklyst.intent.use_llm_fallback', true);
+        $useLlmFallback = (bool) config('tasklyst.intent.use_llm_fallback', true);
 
-        if ($useLlmFallback && $result->confidence < $threshold) {
-            return $this->classifyWithLlmFallback($userMessage, $result);
-        }
-
-        return $result;
-    }
-
-    private function classifyWithLlmFallback(string $userMessage, LlmIntentClassificationResult $regexResult): LlmIntentClassificationResult
-    {
-        $fallback = $this->performLlmClassification($userMessage);
-
-        if ($fallback === null) {
+        if (! $useLlmFallback) {
             return $regexResult;
         }
 
-        return $fallback;
+        $threshold = (float) config('tasklyst.intent.confidence_threshold', 0.7);
+
+        if ($regexResult->confidence >= $threshold) {
+            return $regexResult;
+        }
+
+        // Regex was uncertain — try LLM fallback
+        $llmResult = $this->performLlmClassification($userMessage);
+
+        if ($llmResult === null) {
+            Log::info('LLM classification fallback returned null, using regex result', [
+                'regex_intent' => $regexResult->intent->value,
+                'regex_entity_type' => $regexResult->entityType->value,
+                'regex_confidence' => $regexResult->confidence,
+            ]);
+
+            return $regexResult;
+        }
+
+        // Log divergence between regex and LLM for evaluation/tuning
+        if ($llmResult->intent !== $regexResult->intent || $llmResult->entityType !== $regexResult->entityType) {
+            Log::info('LLM classification overrides regex result', [
+                'regex_intent' => $regexResult->intent->value,
+                'regex_entity_type' => $regexResult->entityType->value,
+                'regex_confidence' => $regexResult->confidence,
+                'llm_intent' => $llmResult->intent->value,
+                'llm_entity_type' => $llmResult->entityType->value,
+            ]);
+        }
+
+        return $llmResult;
     }
 
     /**
@@ -51,19 +69,52 @@ class ClassifyLlmIntentAction
     {
         $schema = new ObjectSchema(
             name: 'intent_classification',
-            description: 'LLM intent classification fallback for TaskLyst assistant',
+            description: 'Classifies a student task management query into intent and entity type',
             properties: [
-                new StringSchema('intent', 'Intent name, e.g. schedule_task, prioritize_tasks'),
-                new StringSchema('entity_type', 'Entity type: task, event, or project'),
+                new StringSchema(
+                    name: 'intent',
+                    description: 'One of the exact intent values listed in the system prompt',
+                ),
+                new StringSchema(
+                    name: 'entity_type',
+                    description: 'One of: task, event, project',
+                ),
+                new StringSchema(
+                    name: 'confidence',
+                    description: 'Your confidence from 0.0 to 1.0 as a decimal string, e.g. "0.85"',
+                ),
             ],
-            requiredFields: ['intent', 'entity_type']
+            requiredFields: ['intent', 'entity_type', 'confidence'],
         );
 
-        $systemPrompt = 'You classify a single user message into an intent and entity_type for a task management assistant. '
-            .'Valid intents: schedule_task, schedule_event, schedule_project, prioritize_tasks, prioritize_events, prioritize_projects, '
-            .'resolve_dependency, adjust_task_deadline, adjust_event_time, adjust_project_timeline, general_query. '
-            .'Valid entity_type values: task, event, project. '
-            .'Respond with JSON only, matching the schema.';
+        $intents = implode(', ', array_column(LlmIntent::cases(), 'value'));
+        $entityTypes = implode(', ', array_column(LlmEntityType::cases(), 'value'));
+
+        $systemPrompt = <<<PROMPT
+You are a query classifier for TaskLyst, a student task management assistant.
+
+Your job is to classify a single user message into one intent and one entity_type.
+
+Valid intents (use the exact value):
+{$intents}
+
+Valid entity_type values (use the exact value):
+{$entityTypes}
+
+Classification rules:
+- Use "general_query" only when the message is clearly NOT about tasks, events, or projects.
+- Prefer specificity: "schedule_task" over "general_query" when uncertain.
+- Match entity_type to the dominant subject of the message.
+- If no clear entity is mentioned, default entity_type to "task".
+
+Examples:
+"What should I work on today?" → intent: prioritize_tasks, entity_type: task, confidence: 0.92
+"Move my project deadline to Friday" → intent: adjust_project_timeline, entity_type: project, confidence: 0.95
+"Help me plan my study sessions for exams" → intent: schedule_task, entity_type: task, confidence: 0.88
+"What is the capital of France?" → intent: general_query, entity_type: task, confidence: 0.98
+
+Respond ONLY with the JSON object. Do not explain.
+PROMPT;
 
         try {
             $response = Prism::structured()
@@ -72,13 +123,13 @@ class ClassifyLlmIntentAction
                 ->withSystemPrompt($systemPrompt)
                 ->withPrompt($userMessage)
                 ->withClientOptions([
-                    'timeout' => (int) config('tasklyst.llm.timeout', 15),
+                    'timeout' => (int) config('tasklyst.llm.classification_timeout', 10),
                 ])
                 ->withProviderOptions([
-                    'temperature' => 0.1,
-                    'num_ctx' => 2048,
+                    'temperature' => 0.0, // deterministic for classification
+                    'num_ctx' => 512, // classification needs very little context
                 ])
-                ->withMaxTokens(64)
+                ->withMaxTokens(48) // intent + entity_type + confidence fits in ~20 tokens
                 ->asStructured();
 
             $structured = $response->structured;
@@ -87,25 +138,30 @@ class ClassifyLlmIntentAction
                 return null;
             }
 
-            $intentValue = (string) ($structured['intent'] ?? '');
-            $entityTypeValue = (string) ($structured['entity_type'] ?? '');
-
-            $intent = LlmIntent::tryFrom($intentValue);
-            $entityType = LlmEntityType::tryFrom($entityTypeValue);
+            $intent = LlmIntent::tryFrom((string) ($structured['intent'] ?? ''));
+            $entityType = LlmEntityType::tryFrom((string) ($structured['entity_type'] ?? ''));
 
             if ($intent === null || $entityType === null) {
+                Log::warning('LLM returned unrecognized intent or entity_type', [
+                    'raw_intent' => $structured['intent'] ?? null,
+                    'raw_entity_type' => $structured['entity_type'] ?? null,
+                ]);
+
                 return null;
             }
 
-            // Fallback classification is used only when regex is uncertain; treat as high confidence.
+            // Parse confidence from LLM rather than hardcoding 0.9
+            $confidence = min(1.0, max(0.0, (float) ($structured['confidence'] ?? 0.75)));
+
             return new LlmIntentClassificationResult(
                 intent: $intent,
                 entityType: $entityType,
-                confidence: 0.9
+                confidence: $confidence,
             );
-        } catch (PrismException $e) {
-            Log::warning('LLM fallback intent classification failed', [
-                'message' => $e->getMessage(),
+        } catch (Throwable $e) {
+            Log::warning('LLM intent classification failed', [
+                'error' => $e->getMessage(),
+                'class' => $e::class,
             ]);
 
             return null;

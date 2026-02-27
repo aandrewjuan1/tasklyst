@@ -244,6 +244,17 @@ Determine what the user is trying to do **without calling the LLM**. This is the
 - Processing: Lightweight regex pattern matching + keyword detection for both intent and entity type
 - Output: Intent type + entity type + confidence score
 
+### Domain relevance guardrail (pre‑LLM)
+Before running intent classification or calling the LLM, a lightweight **domain relevance guardrail** checks whether the user's message is clearly about **tasks, events, projects, or student planning**.
+
+- If the query is obviously off‑topic (for example, a pure general‑knowledge question like "Who is the current president of the Philippines?" with no planning context), the backend short‑circuits:
+  - The user message is still appended to the conversation history.
+  - A static, friendly assistant reply explains that the assistant is focused on student tasks, events, projects, and planning, and suggests example questions.
+  - No LLM inference (and no intent‑classification LLM fallback) is invoked.
+- If the query is ambiguous or lightly related, it still flows through as a `general_query` and is handled by the regular pipeline.
+
+Implementation: `App\Services\Llm\QueryRelevanceService` is called from `ProcessAssistantMessageAction` with a feature flag `tasklyst.guardrails.relevance_enabled` (see `config/tasklyst.php`). When enabled, it acts as an early safeguard while keeping the rest of the pipeline unchanged.
+
 ### Entity Detection
 Before intent classification, detect which entity type the user is referring to:
 
