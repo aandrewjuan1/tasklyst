@@ -48,6 +48,7 @@ class LlmInteractionLogger
                 'prompt_tokens' => $inferenceResult->promptTokens,
                 'completion_tokens' => $inferenceResult->completionTokens,
                 'used_fallback' => $inferenceResult->usedFallback,
+                'fallback_reason' => $inferenceResult->fallbackReason,
                 'duration_ms' => $durationMs,
                 'llm_reachable' => $llmReachable,
                 'context_size' => $contextJson !== false ? strlen($contextJson) : null,

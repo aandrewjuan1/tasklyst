@@ -101,3 +101,28 @@ test('build fills default content when recommended action or reasoning empty', f
     expect($dto->recommendedAction)->not->toBeEmpty()
         ->and($dto->reasoning)->not->toBeEmpty();
 });
+
+test('build includes next_steps for resolve_dependency', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'task',
+            'recommended_action' => 'Start with the blocker first.',
+            'reasoning' => 'Unblocks everything else.',
+            'next_steps' => [
+                'Email your tutor for feedback.',
+                'Update the outline based on feedback.',
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 100,
+        completionTokens: 50,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ResolveDependency, LlmEntityType::Task);
+
+    expect($dto->structured)->toHaveKey('next_steps')
+        ->and($dto->structured['next_steps'])->toHaveCount(2)
+        ->and($dto->validationConfidence)->toBeGreaterThan(0.5);
+});

@@ -2,8 +2,15 @@
 
 namespace App\Services;
 
+use App\DataTransferObjects\Llm\EventPrioritizationRecommendationDto;
+use App\DataTransferObjects\Llm\EventScheduleRecommendationDto;
 use App\DataTransferObjects\Llm\LlmInferenceResult;
 use App\DataTransferObjects\Llm\LlmSystemPromptResult;
+use App\DataTransferObjects\Llm\ProjectPrioritizationRecommendationDto;
+use App\DataTransferObjects\Llm\ProjectScheduleRecommendationDto;
+use App\DataTransferObjects\Llm\ResolveDependencyRecommendationDto;
+use App\DataTransferObjects\Llm\TaskPrioritizationRecommendationDto;
+use App\DataTransferObjects\Llm\TaskScheduleRecommendationDto;
 use App\Enums\LlmIntent;
 use App\Models\User;
 use App\Services\Llm\LlmSchemaFactory;
@@ -23,9 +30,13 @@ class LlmInferenceService
     /**
      * Return a fallback result without calling the LLM (e.g. when Ollama is unreachable).
      */
-    public function fallbackOnly(LlmIntent $intent, string $promptVersion, ?User $user = null): LlmInferenceResult
-    {
-        return $this->fallbackResult($intent, $promptVersion, $user);
+    public function fallbackOnly(
+        LlmIntent $intent,
+        string $promptVersion,
+        ?User $user = null,
+        ?string $fallbackReason = null
+    ): LlmInferenceResult {
+        return $this->fallbackResult($intent, $promptVersion, $user, $fallbackReason);
     }
 
     /**
@@ -39,57 +50,142 @@ class LlmInferenceService
         LlmSystemPromptResult $promptResult,
         ?User $user = null,
     ): LlmInferenceResult {
-        try {
-            $schema = $this->schemaFactory->schemaForIntent($intent);
-            $response = Prism::structured()
-                ->using(Provider::Ollama, config('tasklyst.llm.model', 'hermes3:3b'))
-                ->withSchema($schema)
-                ->withSystemPrompt($systemPrompt)
-                ->withPrompt($userPrompt)
-                ->withClientOptions([
-                    'timeout' => (int) config('tasklyst.llm.timeout', 30),
-                ])
-                ->withProviderOptions([
-                    'temperature' => 0.3,
-                    'num_ctx' => 4096,
-                ])
-                ->withMaxTokens((int) config('tasklyst.llm.max_tokens', 500))
-                ->asStructured();
+        $schema = $this->schemaFactory->schemaForIntent($intent);
+        $model = config('tasklyst.llm.model', 'hermes3:3b');
 
-            $structured = $response->structured;
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            try {
+                $response = Prism::structured()
+                    ->using(Provider::Ollama, $model)
+                    ->withSchema($schema)
+                    ->withSystemPrompt($systemPrompt)
+                    ->withPrompt($userPrompt)
+                    ->withClientOptions([
+                        'timeout' => (int) config('tasklyst.llm.timeout', 30),
+                    ])
+                    ->withProviderOptions([
+                        'temperature' => (float) config('tasklyst.llm.temperature', 0.3),
+                        'num_ctx' => (int) config('tasklyst.llm.num_ctx', 4096),
+                    ])
+                    ->withMaxTokens((int) config('tasklyst.llm.max_tokens', 500))
+                    ->asStructured();
 
-            if ($structured === null || ! $this->isValidStructured($structured)) {
-                return $this->fallbackResult($intent, $promptResult->version, $user);
+                $structured = $response->structured;
+
+                if ($structured === null
+                    || ! $this->isValidStructured($intent, $structured)
+                    || ! $this->passesIntentSpecificValidation($intent, $structured)
+                ) {
+                    Log::warning('LLM returned invalid structured payload, using fallback', [
+                        'intent' => $intent->value,
+                        'prompt_version' => $promptResult->version,
+                        'model' => $model,
+                        'user_id' => $user?->id,
+                    ]);
+
+                    return $this->fallbackResult($intent, $promptResult->version, $user, 'invalid_structured');
+                }
+
+                return new LlmInferenceResult(
+                    structured: $structured,
+                    promptVersion: $promptResult->version,
+                    promptTokens: $response->usage->promptTokens,
+                    completionTokens: $response->usage->completionTokens,
+                    usedFallback: false,
+                    fallbackReason: null,
+                );
+            } catch (PrismException $e) {
+                Log::warning('LLM inference failed, will '.($attempt === 0 ? 'retry' : 'use fallback'), [
+                    'intent' => $intent->value,
+                    'prompt_version' => $promptResult->version,
+                    'model' => $model,
+                    'user_id' => $user?->id,
+                    'attempt' => $attempt + 1,
+                    'message' => $e->getMessage(),
+                ]);
+
+                if ($attempt === 0) {
+                    continue;
+                }
+
+                return $this->fallbackResult($intent, $promptResult->version, $user, 'prism_exception');
             }
-
-            return new LlmInferenceResult(
-                structured: $structured,
-                promptVersion: $promptResult->version,
-                promptTokens: $response->usage->promptTokens,
-                completionTokens: $response->usage->completionTokens,
-                usedFallback: false,
-            );
-        } catch (PrismException $e) {
-            Log::warning('LLM inference failed, using fallback', [
-                'intent' => $intent->value,
-                'message' => $e->getMessage(),
-            ]);
-
-            return $this->fallbackResult($intent, $promptResult->version, $user);
         }
+
+        return $this->fallbackResult($intent, $promptResult->version, $user, 'unknown_error');
     }
 
-    private function isValidStructured(array $structured): bool
+    private function isValidStructured(LlmIntent $intent, array $structured): bool
     {
-        return isset(
+        if (! isset(
             $structured['entity_type'],
             $structured['recommended_action'],
             $structured['reasoning']
-        );
+        )) {
+            return false;
+        }
+
+        if (! is_string($structured['entity_type'])
+            || ! is_string($structured['recommended_action'])
+            || ! is_string($structured['reasoning'])
+        ) {
+            return false;
+        }
+
+        if (isset($structured['confidence'])
+            && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+        ) {
+            return false;
+        }
+
+        $expectedEntityType = match ($intent) {
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::PrioritizeTasks => 'task',
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::PrioritizeEvents => 'event',
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+            LlmIntent::PrioritizeProjects => 'project',
+            default => null,
+        };
+
+        if ($expectedEntityType !== null && $structured['entity_type'] !== $expectedEntityType) {
+            return false;
+        }
+
+        return true;
     }
 
-    private function fallbackResult(LlmIntent $intent, string $promptVersion, ?User $user): LlmInferenceResult
+    /**
+     * Run additional per-intent validation using DTOs where available.
+     *
+     * @param  array<string, mixed>  $structured
+     */
+    private function passesIntentSpecificValidation(LlmIntent $intent, array $structured): bool
     {
+        return match ($intent) {
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline => TaskScheduleRecommendationDto::fromStructured($structured) !== null,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime => EventScheduleRecommendationDto::fromStructured($structured) !== null,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline => ProjectScheduleRecommendationDto::fromStructured($structured) !== null,
+            LlmIntent::PrioritizeTasks => TaskPrioritizationRecommendationDto::fromStructured($structured) !== null,
+            LlmIntent::PrioritizeEvents => EventPrioritizationRecommendationDto::fromStructured($structured) !== null,
+            LlmIntent::PrioritizeProjects => ProjectPrioritizationRecommendationDto::fromStructured($structured) !== null,
+            LlmIntent::ResolveDependency => ResolveDependencyRecommendationDto::fromStructured($structured) !== null,
+            default => true,
+        };
+    }
+
+    private function fallbackResult(
+        LlmIntent $intent,
+        string $promptVersion,
+        ?User $user,
+        ?string $fallbackReason
+    ): LlmInferenceResult {
         $structured = $this->buildFallbackStructured($intent, $user);
 
         return new LlmInferenceResult(
@@ -98,6 +194,7 @@ class LlmInferenceService
             promptTokens: 0,
             completionTokens: 0,
             usedFallback: true,
+            fallbackReason: $fallbackReason,
         );
     }
 

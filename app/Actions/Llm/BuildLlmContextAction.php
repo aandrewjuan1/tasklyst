@@ -6,12 +6,12 @@ use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use App\Models\AssistantThread;
 use App\Models\User;
-use App\Services\LlmContextService;
+use App\Services\Llm\ContextBuilder;
 
 class BuildLlmContextAction
 {
     public function __construct(
-        private LlmContextService $contextService
+        private ContextBuilder $contextBuilder
     ) {}
 
     /**
@@ -24,6 +24,6 @@ class BuildLlmContextAction
         ?int $entityId = null,
         ?AssistantThread $thread = null
     ): array {
-        return $this->contextService->buildContextForIntent($user, $intent, $entityType, $entityId, $thread);
+        return $this->contextBuilder->build($user, $intent, $entityType, $entityId, $thread);
     }
 }
