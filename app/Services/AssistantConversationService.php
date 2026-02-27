@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\AssistantMessageCreated;
 use App\Models\AssistantMessage;
 use App\Models\AssistantThread;
 use App\Models\User;
@@ -42,6 +43,8 @@ class AssistantConversationService
         ]);
 
         $thread->touch();
+
+        AssistantMessageCreated::dispatch($message, $thread->user);
 
         return $message;
     }

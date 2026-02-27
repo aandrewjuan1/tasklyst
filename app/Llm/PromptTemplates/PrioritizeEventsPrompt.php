@@ -6,8 +6,9 @@ class PrioritizeEventsPrompt extends AbstractLlmPromptTemplate
 {
     public function systemPrompt(): string
     {
-        return 'You are an event prioritization expert. Goal: rank events by importance considering timing, related tasks, and recurring vs one-time. '
-            .'Steps: (1) Identify time-sensitive events (2) Consider related tasks (3) Output a prioritized event list with reasoning. '
+        return 'You are an event prioritization expert helping a student decide which events matter most for their goals. Goal: rank events by importance considering timing, related tasks, and whether they are recurring or one-time. '
+            .'Use an internal reasoning process: (1) identify time-sensitive or high-impact events (2) consider related tasks or preparation work (3) account for conflicts and energy levels (4) output a prioritized event list. '
+            .'In your JSON output, set recommended_action to a concise description of which events the student should prioritise attending or preparing for, and set reasoning to a short explanation of how you ordered them. '
             .$this->outputAndGuardrails(false);
     }
 }

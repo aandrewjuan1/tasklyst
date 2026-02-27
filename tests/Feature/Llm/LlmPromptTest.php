@@ -27,7 +27,7 @@ test('returns correct prompt per intent', function (LlmIntent $intent): void {
     $result = $this->action->execute($intent);
 
     expect($result->systemPrompt)->toBeString()
-        ->and($result->version)->toBe('v1.0');
+        ->and($result->version)->toBe('v1.1');
 })->with([
     LlmIntent::ScheduleEvent,
     LlmIntent::PrioritizeTasks,
@@ -38,7 +38,7 @@ test('returns correct prompt per intent', function (LlmIntent $intent): void {
 test('general query intent returns fallback prompt', function (): void {
     $result = $this->action->execute(LlmIntent::GeneralQuery);
 
-    expect($result->systemPrompt)->toContain('helpful')
+    expect($result->systemPrompt)->toContain('TaskLyst Assistant')
         ->and($result->systemPrompt)->toContain('task');
 });
 
@@ -52,5 +52,5 @@ test('each intent returns unique prompt content', function (): void {
 test('template exposes version for phase 9 logging', function (): void {
     $template = app(ScheduleTaskPrompt::class);
 
-    expect($template->version())->toBe('v1.0');
+    expect($template->version())->toBe('v1.1');
 });

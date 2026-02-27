@@ -15,7 +15,6 @@ return [
         'model' => env('TASKLYST_LLM_MODEL', 'hermes3:3b'),
         'timeout' => (int) env('TASKLYST_LLM_TIMEOUT', 45),
         'max_tokens' => (int) env('TASKLYST_LLM_MAX_TOKENS', 500),
-        'use_queue' => (bool) env('TASKLYST_LLM_USE_QUEUE', false),
         'queue' => env('TASKLYST_LLM_QUEUE', 'llm'),
     ],
 
@@ -31,6 +30,18 @@ return [
     'intent' => [
         'confidence_threshold' => (float) env('TASKLYST_INTENT_CONFIDENCE_THRESHOLD', 0.7),
         'use_llm_fallback' => env('TASKLYST_INTENT_LLM_FALLBACK', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Guardrails
+    |--------------------------------------------------------------------------
+    |
+    | Lightweight, pre-LLM safeguards for the TaskLyst assistant.
+    |
+    */
+    'guardrails' => [
+        'relevance_enabled' => (bool) env('TASKLYST_GUARDRAILS_RELEVANCE_ENABLED', true),
     ],
 
     /*

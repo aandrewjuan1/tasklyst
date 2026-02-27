@@ -5,11 +5,7 @@ use App\Jobs\Llm\RunLlmInferenceJob;
 use App\Models\User;
 use Illuminate\Support\Facades\Bus;
 
-it('dispatches RunLlmInferenceJob when LLM queue is enabled', function (): void {
-    config([
-        'tasklyst.llm.use_queue' => true,
-    ]);
-
+it('always dispatches RunLlmInferenceJob for LLM inference', function (): void {
     Bus::fake();
 
     $user = User::factory()->create();
