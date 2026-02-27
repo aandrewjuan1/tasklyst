@@ -84,9 +84,11 @@ class ApplyTaskScheduleRecommendationAction
                 'from' => null,
                 'to' => [
                     'intent' => $intent->value,
+                    'entity_type' => 'task',
                     'user_action' => $userAction,
                     'reasoning' => $recommendation->reasoning,
                     'changes' => $changes,
+                    'modified_fields' => array_keys($changes),
                 ],
             ]
         );

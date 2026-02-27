@@ -84,9 +84,11 @@ class ApplyProjectScheduleRecommendationAction
                 'from' => null,
                 'to' => [
                     'intent' => $intent->value,
+                    'entity_type' => 'project',
                     'user_action' => $userAction,
                     'reasoning' => $recommendation->reasoning,
                     'changes' => $changes,
+                    'modified_fields' => array_keys($changes),
                 ],
             ]
         );

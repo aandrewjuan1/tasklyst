@@ -8,6 +8,7 @@ use App\Enums\LlmIntent;
 use App\Models\AssistantThread;
 use App\Models\User;
 use App\Services\Llm\LlmHealthCheck;
+use App\Services\Llm\LlmInteractionLogger;
 use App\Services\LlmInferenceService;
 use Illuminate\Support\Str;
 
@@ -18,6 +19,7 @@ class RunLlmInferenceAction
         private BuildLlmContextAction $buildContext,
         private LlmInferenceService $inferenceService,
         private LlmHealthCheck $healthCheck,
+        private LlmInteractionLogger $interactionLogger,
     ) {}
 
     public function execute(
@@ -28,24 +30,53 @@ class RunLlmInferenceAction
         ?int $entityId = null,
         ?AssistantThread $thread = null,
     ): LlmInferenceResult {
-        if (! $this->healthCheck->isReachable()) {
-            $promptResult = $this->getSystemPrompt->execute($intent);
+        $promptResult = $this->getSystemPrompt->execute($intent);
 
-            return $this->inferenceService->fallbackOnly($intent, $promptResult->version, $user);
+        if (! $this->healthCheck->isReachable()) {
+            $result = $this->inferenceService->fallbackOnly($intent, $promptResult->version, $user);
+
+            $this->interactionLogger->logInference(
+                user: $user,
+                intent: $intent,
+                entityType: $entityType,
+                promptResult: $promptResult,
+                inferenceResult: $result,
+                context: [],
+                durationMs: 0,
+                llmReachable: false,
+            );
+
+            return $result;
         }
 
-        $promptResult = $this->getSystemPrompt->execute($intent);
         $context = $this->buildContext->execute($user, $intent, $entityType, $entityId, $thread);
 
         $contextJson = json_encode($context, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $userPrompt = Str::limit($userMessage, 2000)."\n\nContext:\n".$contextJson;
 
-        return $this->inferenceService->infer(
+        $startedAt = microtime(true);
+
+        $result = $this->inferenceService->infer(
             systemPrompt: $promptResult->systemPrompt,
             userPrompt: $userPrompt,
             intent: $intent,
             promptResult: $promptResult,
             user: $user,
         );
+
+        $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
+
+        $this->interactionLogger->logInference(
+            user: $user,
+            intent: $intent,
+            entityType: $entityType,
+            promptResult: $promptResult,
+            inferenceResult: $result,
+            context: $context,
+            durationMs: $durationMs,
+            llmReachable: true,
+        );
+
+        return $result;
     }
 }
