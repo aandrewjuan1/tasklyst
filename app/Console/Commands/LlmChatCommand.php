@@ -93,12 +93,12 @@ class LlmChatCommand extends Command
             }
 
             $this->info('Assistant:');
-            $this->line('[queued] Waiting for the background job to reply...');
+            $this->line('Processing (this may take up to 90 seconds)...');
 
             $assistantMessage = $this->waitForAssistantReply($thread->id, $resultMessage->id);
 
             if ($assistantMessage === null) {
-                $this->line('[no reply yet] Make sure a queue worker is running (e.g. `php artisan queue:work`).');
+                $this->line('No reply yet. If this persists, ensure a queue worker is running: php artisan queue:work --queue=llm,default');
                 $this->newLine();
 
                 continue;
@@ -160,7 +160,9 @@ class LlmChatCommand extends Command
 
     private function waitForAssistantReply(int $threadId, int $afterMessageId): ?\App\Models\AssistantMessage
     {
-        $timeoutSeconds = (int) config('tasklyst.llm.timeout', 45) + 30;
+        $llmTimeout = (int) config('tasklyst.llm.timeout', 25);
+        $maxAttempts = max(1, (int) config('tasklyst.llm.max_attempts', 1));
+        $timeoutSeconds = ($llmTimeout * $maxAttempts) + 30;
         $startedAt = time();
 
         while ((time() - $startedAt) < $timeoutSeconds) {

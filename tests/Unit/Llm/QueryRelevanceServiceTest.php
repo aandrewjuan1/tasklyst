@@ -28,3 +28,19 @@ it('treats short vague non-domain phrases as off-topic', function (): void {
     expect($service->isRelevant('girlfriend problems'))->toBeFalse()
         ->and($service->isRelevant('burnout'))->toBeFalse();
 });
+
+it('identifies social closings and polite phrases', function (): void {
+    /** @var QueryRelevanceService $service */
+    $service = app(QueryRelevanceService::class);
+
+    expect($service->isSocialClosing('thank you'))->toBeTrue()
+        ->and($service->isSocialClosing('thanks'))->toBeTrue()
+        ->and($service->isSocialClosing('bye'))->toBeTrue()
+        ->and($service->isSocialClosing('goodbye'))->toBeTrue()
+        ->and($service->isSocialClosing('okay thank you'))->toBeTrue()
+        ->and($service->isSocialClosing('hahaha'))->toBeTrue()
+        ->and($service->isSocialClosing('got it'))->toBeTrue()
+        ->and($service->isSocialClosing('thank you so much'))->toBeTrue()
+        ->and($service->isSocialClosing('schedule my task'))->toBeFalse()
+        ->and($service->isSocialClosing(''))->toBeFalse();
+});

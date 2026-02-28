@@ -60,6 +60,20 @@ class QueryRelevanceService
     ];
 
     /**
+     * Polite/social closings — always allow and respond with a friendly message.
+     * These bypass the relevance guardrail entirely.
+     */
+    private const SOCIAL_CLOSINGS = [
+        'thank you', 'thanks', 'thank you!', 'thanks!', 'thx',
+        'bye', 'goodbye', 'good bye', 'see you', 'see ya',
+        'catch you later', 'talk later', 'talk to you later',
+        'okay thank you', 'ok thank you', 'okay thanks', 'ok thanks',
+        'haha', 'hahaha', 'lol', 'hehe',
+        'got it', 'sounds good', 'perfect', 'awesome',
+        'have a good one', 'take care', 'cheers',
+    ];
+
+    /**
      * General-knowledge prefixes that signal off-topic queries.
      * No trailing spaces — the check appends its own space.
      */
@@ -86,6 +100,23 @@ class QueryRelevanceService
         'how to cook', 'movie recommendation',
         'sports score', 'weather in',
     ];
+
+    public function isSocialClosing(string $userMessage): bool
+    {
+        $normalized = $this->normalize($userMessage);
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (self::SOCIAL_CLOSINGS as $phrase) {
+            if ($normalized === $phrase || str_starts_with($normalized, $phrase.' ')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public function isRelevant(string $userMessage): bool
     {

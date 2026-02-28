@@ -2,11 +2,38 @@
 
 use App\Actions\Llm\ProcessAssistantMessageAction;
 use App\Actions\Llm\RunLlmInferenceAction;
+use App\Jobs\Llm\RunLlmInferenceJob;
 use App\Models\AssistantMessage;
 use App\Models\User;
+use Illuminate\Support\Facades\Bus;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
+});
+
+test('social closings receive a friendly reply without LLM inference', function (): void {
+    Bus::fake();
+
+    config([
+        'tasklyst.guardrails.relevance_enabled' => true,
+    ]);
+
+    /** @var ProcessAssistantMessageAction $action */
+    $action = app(ProcessAssistantMessageAction::class);
+
+    $assistantMessage = $action->execute($this->user, 'okay thank you', null);
+
+    expect($assistantMessage)->toBeInstanceOf(AssistantMessage::class)
+        ->and($assistantMessage->role)->toBe('assistant')
+        ->and($assistantMessage->content)->toContain('You\'re welcome')
+        ->and($assistantMessage->content)->toContain('Good luck');
+
+    $meta = $assistantMessage->metadata;
+
+    expect($meta)->toHaveKey('recommendation_snapshot')
+        ->and($meta['recommendation_snapshot']['reasoning'])->toBe('social_closing');
+
+    Bus::assertNotDispatched(RunLlmInferenceJob::class);
 });
 
 test('off-topic queries receive a guardrail deflection without LLM inference', function (): void {

@@ -23,6 +23,21 @@ class ProcessAssistantMessageAction
         $thread = $this->getOrCreateThread->execute($user, $threadId);
         $userMessageModel = $this->appendMessage->execute($thread, 'user', $userMessage);
 
+        if ($this->queryRelevance->isSocialClosing($userMessage)) {
+            $content = __('You\'re welcome! Good luck with your tasks and have a productive day. Feel free to come back anytime you need help with your schedule or priorities.');
+
+            $metadata = [
+                'intent' => LlmIntent::GeneralQuery->value,
+                'entity_type' => LlmEntityType::Task->value,
+                'recommendation_snapshot' => [
+                    'used_guardrail' => true,
+                    'reasoning' => 'social_closing',
+                ],
+            ];
+
+            return $this->appendMessage->execute($thread, 'assistant', $content, $metadata);
+        }
+
         $relevanceEnabled = (bool) config('tasklyst.guardrails.relevance_enabled', true);
 
         if ($relevanceEnabled && ! $this->queryRelevance->isRelevant($userMessage)) {
@@ -40,7 +55,7 @@ class ProcessAssistantMessageAction
             return $this->appendMessage->execute($thread, 'assistant', $content, $metadata);
         }
 
-        $classification = $this->classifyIntent->execute($userMessage);
+        $classification = $this->classifyIntent->execute($userMessage, $thread);
         $intent = $classification->intent;
         $entityType = $classification->entityType;
 

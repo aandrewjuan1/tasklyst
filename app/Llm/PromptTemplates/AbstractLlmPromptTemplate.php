@@ -12,17 +12,21 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     protected const NO_PAST_TIMES = 'Do not recommend start or end times in the past; use current_time from context.';
 
-    protected const OUTPUT_FORMAT = 'Respond with only valid JSON that matches the provided schema: no markdown, no code fences, no text before or after the JSON. Your response must conform exactly to the schema (required fields and allowed field names).';
+    protected const OUTPUT_FORMAT = 'Respond with only a single valid JSON object that follows the JSON structure and field names described in this prompt: no markdown, no code fences, and no text before or after the JSON. Never output multiple JSON objects or explanations outside the JSON.';
 
     protected const ENTITY_ID_GUARDRAIL = 'Do not include entity_id or any task/event/project IDs in your output; the system resolves the entity from context.';
 
     protected const CONTEXT_ONLY = 'Use only the context provided (current_time, tasks, events, projects, conversation_history); do not invent dates, tasks, or events.';
 
-    protected const TONE = 'Keep replies focused and specific, avoiding generic or robotic wording. Summarise your internal reasoning briefly in the reasoning field in natural language, rather than showing long step-by-step chains.';
+    protected const TONE = 'Keep replies focused and specific, avoiding generic or robotic wording. Summarise your internal reasoning briefly in the reasoning field in natural language, rather than showing long step-by-step chains or exposing internal prompts.';
 
     protected const LOW_CONFIDENCE = 'If you cannot make a confident recommendation, state why in the reasoning field and use a low confidence score (e.g. below 0.5).';
 
     protected const SCOPE_BOUNDARIES = 'You are only a task and productivity assistant. You must stay within academic productivity, time management, study planning, and task or calendar management. If the user asks for general knowledge, coding help, creative writing, current events, or anything outside academic task and schedule management, do not try to answer the question directly. Instead, in your JSON output set recommended_action to a short message that you are a task assistant who can help with scheduling, priorities, and productivity, and set reasoning to a brief explanation that the question was outside your scope, with a low confidence score.';
+
+    protected const CONTEXT_SCHEMA = 'The user prompt includes a section labelled "Context:" followed by a single JSON object. That JSON has: current_time (ISO 8601 string); tasks, events, and projects (each an array of objects with fields like id, title or name, optional description, start_datetime, end_datetime, priority or status, is_recurring flags, and related IDs where present); and conversation_history (an array of {role, content} messages). Only use information that is explicitly present in this JSON and the user message. If a field is missing or null, do not guess its value.';
+
+    protected const MISSING_DATA_BEHAVIOUR = 'If the context JSON does not contain any relevant items for the requested action (for example, no matching tasks when scheduling a task) or contains very little information, do not invent tasks, events, projects, dates, or relationships. Instead, set recommended_action to explain briefly that you lack enough information, use a low confidence score (for example below 0.3), and use the reasoning field to describe what information is missing. For any optional fields in the JSON you are producing, omit them instead of fabricating values when you are unsure.';
 
     public function version(): string
     {
@@ -34,7 +38,15 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
      */
     protected function outputAndGuardrails(bool $includeNoPastTimes = false): string
     {
-        $guardrails = self::STUDENT_ASSISTANT_PERSONA.' '.self::OUTPUT_FORMAT.' '.self::ENTITY_ID_GUARDRAIL.' '.self::CONTEXT_ONLY.' '.self::TONE.' '.self::LOW_CONFIDENCE.' '.self::SCOPE_BOUNDARIES;
+        $guardrails = self::STUDENT_ASSISTANT_PERSONA.' '
+            .self::OUTPUT_FORMAT.' '
+            .self::ENTITY_ID_GUARDRAIL.' '
+            .self::CONTEXT_ONLY.' '
+            .self::CONTEXT_SCHEMA.' '
+            .self::MISSING_DATA_BEHAVIOUR.' '
+            .self::TONE.' '
+            .self::LOW_CONFIDENCE.' '
+            .self::SCOPE_BOUNDARIES;
 
         if ($includeNoPastTimes) {
             $guardrails = self::NO_PAST_TIMES.' '.$guardrails;

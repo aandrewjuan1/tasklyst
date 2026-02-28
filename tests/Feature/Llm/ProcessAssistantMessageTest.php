@@ -20,7 +20,7 @@ test('process assistant message appends user message and dispatches an inference
     mock(ClassifyLlmIntentAction::class, function ($mock): void {
         $mock->shouldReceive('execute')
             ->once()
-            ->with('Prioritize my tasks')
+            ->with('Prioritize my tasks', \Mockery::type(AssistantThread::class))
             ->andReturn(new LlmIntentClassificationResult(
                 LlmIntent::PrioritizeTasks,
                 LlmEntityType::Task,
