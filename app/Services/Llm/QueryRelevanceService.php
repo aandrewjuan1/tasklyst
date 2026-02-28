@@ -2,6 +2,8 @@
 
 namespace App\Services\Llm;
 
+use Illuminate\Support\Facades\Config;
+
 class QueryRelevanceService
 {
     /**
@@ -49,6 +51,22 @@ class QueryRelevanceService
         'get started',
         'show me how',
         'help with',
+    ];
+
+    /**
+     * Single words that make a short query coherent (not gibberish + keyword).
+     * Used to reject e.g. "wdangoaiwnoda tasks" while allowing "my tasks", "what tasks".
+     */
+    private const SENSIBLE_SINGLE_WORDS = [
+        'my', 'the', 'a', 'an', 'what', 'which', 'how', 'when', 'where', 'today', 'week', 'day',
+        'list', 'show', 'add', 'create', 'help', 'me', 'need', 'want', 'get', 'do', 'have', 'this',
+        'that', 'all', 'first', 'next', 'some', 'any', 'for', 'with', 'about', 'from', 'to', 'in',
+        'on', 'at', 'by', 'please', 'can', 'could', 'should', 'would', 'will', 'focus', 'work',
+        'plan', 'study', 'finish', 'start', 'task', 'tasks', 'todo', 'todos', 'assignment',
+        'homework', 'project', 'projects', 'deadline', 'schedule', 'calendar', 'exam', 'exams',
+        'quiz', 'event', 'events', 'meeting', 'meetings', 'priority', 'prioritize', 'organize',
+        'remind', 'plan', 'overdue', 'upcoming', 'backlog', 'workload', 'productivity', 'break',
+        'time', 'report', 'presentation', 'thesis', 'lecture', 'submission', 'submit',
     ];
 
     /**
@@ -157,40 +175,98 @@ class QueryRelevanceService
             return true;
         }
 
-        // 1. Hard deny — off-topic phrases take priority
+        // 1. Hard deny — blocklisted terms (e.g. offensive + "tasks" to bypass) → ask user to rephrase
+        if ($this->containsBlocklistedTerm($normalized)) {
+            return false;
+        }
+
+        // 2. Hard deny — off-topic phrases take priority
         if ($this->containsOffTopicPhrase($normalized)) {
             return false;
         }
 
-        // 2. Always allow greetings
+        // 3. Always allow greetings
         if ($this->matchesGreeting($normalized)) {
             return true;
         }
 
-        // 3. Allow if domain keyword found (with word boundary check)
+        // 4. Short message with only one "sensible" word (e.g. gibberish + "tasks") → not relevant
+        $wordCount = str_word_count($normalized);
+        if ($wordCount >= 2 && $wordCount <= 4 && $this->containsDomainKeyword($normalized)) {
+            if ($this->countSensibleWords($normalized) < 2) {
+                return false;
+            }
+        }
+
+        // 5. Allow if domain keyword found (with word boundary check)
         if ($this->containsDomainKeyword($normalized)) {
             return true;
         }
 
-        // 4. Deny known general-knowledge question patterns
+        // 6. Deny known general-knowledge question patterns
         if ($this->looksLikeGeneralKnowledgeQuestion($normalized)) {
             return false;
         }
 
-        // 4.5. Allow assistance requests (short follow-ups like "okay help me", "help me")
+        // 6.5. Allow assistance requests (short follow-ups like "okay help me", "help me")
         if ($this->containsAssistanceRequest($normalized)) {
             return true;
         }
 
-        // 5. Short vague messages with no domain signal → off-topic
-        $wordCount = str_word_count($normalized);
-
+        // 7. Short vague messages with no domain signal → off-topic
         if ($wordCount <= 3) {
             return false;
         }
 
-        // 6. Longer ambiguous messages → allow; let downstream prompts and guardrails steer
+        // 8. Longer ambiguous messages → allow; let downstream prompts and guardrails steer
         return true;
+    }
+
+    /**
+     * Count how many tokens in the message are "sensible" (common or domain words).
+     * Used to reject "gibberish + keyword" short messages like "wdangoaiwnoda tasks".
+     */
+    private function countSensibleWords(string $normalized): int
+    {
+        $tokens = preg_split('/\s+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
+        if ($tokens === false || $tokens === []) {
+            return 0;
+        }
+
+        $sensible = array_map('mb_strtolower', self::SENSIBLE_SINGLE_WORDS);
+        $count = 0;
+        foreach ($tokens as $token) {
+            $lower = mb_strtolower($token);
+            if (in_array($lower, $sensible, true)) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * True if the message contains any guardrail blocklist term (word boundary).
+     * Used to block bypass attempts like "tanginamo tasks" so the user gets "please rephrase" instead of inference.
+     */
+    private function containsBlocklistedTerm(string $normalized): bool
+    {
+        $blocklist = Config::get('tasklyst.guardrails.relevance_blocklist', []);
+
+        if (! is_array($blocklist) || $blocklist === []) {
+            return false;
+        }
+
+        foreach ($blocklist as $term) {
+            if (! is_string($term) || trim($term) === '') {
+                continue;
+            }
+            if ($this->wordBoundaryMatch($normalized, trim(mb_strtolower($term)))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function normalize(string $message): string

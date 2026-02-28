@@ -45,6 +45,11 @@ return [
     */
     'guardrails' => [
         'relevance_enabled' => (bool) env('TASKLYST_GUARDRAILS_RELEVANCE_ENABLED', true),
+        'relevance_blocklist' => [
+            'tanginamo',
+            // Terms that force "please rephrase" even when combined with domain keywords (e.g. "tanginamo tasks").
+            // Add more via config merge or a dedicated config file if needed.
+        ],
     ],
 
     /*

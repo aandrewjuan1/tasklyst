@@ -110,8 +110,9 @@ Valid entity_type values (use the exact value):
 {$entityTypes}
 
 Classification rules:
-- Use "general_query" only when the message is clearly NOT about tasks, events, or projects.
-- Prefer specificity: "schedule_task" over "general_query" when uncertain.
+- Use "general_query" when the message asks which task, event, or project to delete or remove (e.g. "what task should I delete?", "which one can I drop?"). Do not use prioritize_* for these; the answer is a single recommendation, not a priority order.
+- Use "general_query" when the message is clearly NOT about tasks, events, or projects.
+- Prefer specificity: "schedule_task" over "general_query" when uncertain (except for delete/remove questions above).
 - Match entity_type to the dominant subject of the message.
 - If no clear entity is mentioned, default entity_type to "task".
 - If the message clearly asks about times, dates, or scheduling, prefer a schedule_* intent over general_query.
@@ -120,6 +121,7 @@ Classification rules:
 
 Examples:
 "What should I work on today?" → intent: prioritize_tasks, entity_type: task, confidence: 0.92
+"If I can delete 1 task, what task should I delete?" → intent: general_query, entity_type: task, confidence: 0.9
 "Move my project deadline to Friday" → intent: adjust_project_timeline, entity_type: project, confidence: 0.95
 "Help me plan my study sessions for exams" → intent: schedule_task, entity_type: task, confidence: 0.88
 "What is the capital of France?" → intent: general_query, entity_type: task, confidence: 0.98
