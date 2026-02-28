@@ -35,6 +35,24 @@ it('treats short vague non-domain phrases as off-topic', function (): void {
         ->and($service->isRelevant('burnout'))->toBeFalse();
 });
 
+it('treats blocklisted terms as off-topic even when combined with domain keywords', function (): void {
+    /** @var QueryRelevanceService $service */
+    $service = app(QueryRelevanceService::class);
+
+    expect($service->isRelevant('tanginamo'))->toBeFalse()
+        ->and($service->isRelevant('tanginamo tasks'))->toBeFalse();
+});
+
+it('treats short gibberish plus domain keyword as off-topic', function (): void {
+    /** @var QueryRelevanceService $service */
+    $service = app(QueryRelevanceService::class);
+
+    expect($service->isRelevant('wdangoaiwnoda tasks'))->toBeFalse()
+        ->and($service->isRelevant('xyz tasks'))->toBeFalse()
+        ->and($service->isRelevant('my tasks'))->toBeTrue()
+        ->and($service->isRelevant('what tasks should i do'))->toBeTrue();
+});
+
 it('identifies social closings and polite phrases', function (): void {
     /** @var QueryRelevanceService $service */
     $service = app(QueryRelevanceService::class);

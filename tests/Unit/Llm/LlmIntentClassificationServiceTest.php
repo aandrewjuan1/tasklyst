@@ -44,3 +44,13 @@ it('classifies what to attend first as event prioritisation', function (): void 
     expect($result->intent)->toBe(LlmIntent::PrioritizeEvents)
         ->and($result->entityType)->toBe(LlmEntityType::Event);
 });
+
+it('classifies which task to delete or remove as general_query', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('if I can delete 1 task, what task should I delete?');
+
+    expect($result->intent)->toBe(LlmIntent::GeneralQuery)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});

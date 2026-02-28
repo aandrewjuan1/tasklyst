@@ -125,10 +125,17 @@ class LlmIntentClassificationService
         return LlmEntityType::Task;
     }
 
+    private const INTENT_DELETE_OR_REMOVE = ['delete', 'remove', 'drop', 'get rid of'];
+
     private function detectIntent(string $normalized, LlmEntityType $entityType): LlmIntent
     {
         if ($this->hasAnyKeyword($normalized, self::INTENT_RESOLVE_DEPENDENCY)) {
             return LlmIntent::ResolveDependency;
+        }
+
+        if ($this->hasAnyKeyword($normalized, self::INTENT_DELETE_OR_REMOVE)
+            && $this->hasAnyKeyword($normalized, ['which', 'what', 'should i', 'can i'])) {
+            return LlmIntent::GeneralQuery;
         }
 
         $hasAdjust = $this->hasAnyKeyword($normalized, self::INTENT_ADJUST);
