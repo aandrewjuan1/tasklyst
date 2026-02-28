@@ -17,6 +17,11 @@ class RunLlmInferenceJob implements ShouldQueue
     use Queueable;
 
     /**
+     * The number of seconds the job can run before timing out.
+     */
+    public int $timeout;
+
+    /**
      * Create a new job instance.
      */
     public function __construct(
@@ -27,6 +32,10 @@ class RunLlmInferenceJob implements ShouldQueue
         public string $entityType
     ) {
         $this->onQueue(config('tasklyst.llm.queue', 'llm'));
+
+        $llmTimeout = (int) config('tasklyst.llm.timeout', 25);
+        $maxAttempts = max(1, (int) config('tasklyst.llm.max_attempts', 1));
+        $this->timeout = ($llmTimeout * $maxAttempts) + 15;
     }
 
     /**

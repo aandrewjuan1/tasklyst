@@ -5,6 +5,7 @@ namespace App\Actions\Llm;
 use App\DataTransferObjects\Llm\LlmIntentClassificationResult;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Models\AssistantThread;
 use App\Services\LlmIntentClassificationService;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
@@ -19,7 +20,7 @@ class ClassifyLlmIntentAction
         private LlmIntentClassificationService $classificationService,
     ) {}
 
-    public function execute(string $userMessage): LlmIntentClassificationResult
+    public function execute(string $userMessage, ?AssistantThread $thread = null): LlmIntentClassificationResult
     {
         $regexResult = $this->classificationService->classify($userMessage);
 
@@ -35,8 +36,13 @@ class ClassifyLlmIntentAction
             return $regexResult;
         }
 
-        // Regex was uncertain — try LLM fallback
-        $llmResult = $this->performLlmClassification($userMessage);
+        // Regex was uncertain — try LLM fallback for non-trivial messages
+        $minLengthForFallback = 3;
+        if (mb_strlen(trim($userMessage)) < $minLengthForFallback) {
+            return $regexResult;
+        }
+
+        $llmResult = $this->performLlmClassification($userMessage, $thread);
 
         if ($llmResult === null) {
             Log::info('LLM classification fallback returned null, using regex result', [
@@ -64,8 +70,10 @@ class ClassifyLlmIntentAction
 
     /**
      * Perform a small Prism structured call to classify intent/entity when regex confidence is low.
+     * When thread is provided, includes conversation history so follow-ups (e.g. "how about in events?")
+     * can be correctly inferred from context.
      */
-    protected function performLlmClassification(string $userMessage): ?LlmIntentClassificationResult
+    protected function performLlmClassification(string $userMessage, ?AssistantThread $thread = null): ?LlmIntentClassificationResult
     {
         $schema = new ObjectSchema(
             name: 'intent_classification',
@@ -106,6 +114,9 @@ Classification rules:
 - Prefer specificity: "schedule_task" over "general_query" when uncertain.
 - Match entity_type to the dominant subject of the message.
 - If no clear entity is mentioned, default entity_type to "task".
+- If the message clearly asks about times, dates, or scheduling, prefer a schedule_* intent over general_query.
+- If the message is very vague but you must choose, still pick the single best intent and entity_type, but set confidence below 0.4.
+- When conversation history is provided: treat follow-ups like "how about in events?" or "same for projects?" as carrying over the previous intent. E.g. if the user asked "what to do first?" (prioritize_tasks) and then "how about in events?", classify intent as prioritize_events.
 
 Examples:
 "What should I work on today?" → intent: prioritize_tasks, entity_type: task, confidence: 0.92
@@ -116,18 +127,20 @@ Examples:
 Respond ONLY with the JSON object. Do not explain.
 PROMPT;
 
+        $prompt = $this->buildClassificationPrompt($userMessage, $thread);
+
         try {
             $response = Prism::structured()
                 ->using(Provider::Ollama, config('tasklyst.llm.model', 'hermes3:3b'))
                 ->withSchema($schema)
                 ->withSystemPrompt($systemPrompt)
-                ->withPrompt($userMessage)
+                ->withPrompt($prompt)
                 ->withClientOptions([
                     'timeout' => (int) config('tasklyst.llm.classification_timeout', 10),
                 ])
                 ->withProviderOptions([
                     'temperature' => 0.0, // deterministic for classification
-                    'num_ctx' => 512, // classification needs very little context
+                    'num_ctx' => 1024, // allow conversation history for follow-up disambiguation
                 ])
                 ->withMaxTokens(48) // intent + entity_type + confidence fits in ~20 tokens
                 ->asStructured();
@@ -166,5 +179,33 @@ PROMPT;
 
             return null;
         }
+    }
+
+    private function buildClassificationPrompt(string $userMessage, ?AssistantThread $thread): string
+    {
+        if ($thread === null) {
+            return $userMessage;
+        }
+
+        $limit = (int) config('tasklyst.context.conversation_history_limit', 5);
+        $messages = $thread->lastMessages($limit);
+
+        if ($messages->isEmpty()) {
+            return $userMessage;
+        }
+
+        $lines = [];
+        foreach ($messages as $m) {
+            $role = $m->role === 'user' ? 'user' : 'assistant';
+            $content = mb_substr($m->content, 0, 200);
+            if (mb_strlen($m->content) > 200) {
+                $content .= '...';
+            }
+            $lines[] = "- {$role}: {$content}";
+        }
+
+        $history = implode("\n", $lines);
+
+        return "Conversation so far:\n{$history}\n\nCurrent message to classify: {$userMessage}";
     }
 }

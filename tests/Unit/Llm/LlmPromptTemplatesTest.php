@@ -19,7 +19,7 @@ it('includes guardrails and student persona in prompts', function (): void {
 
         expect($prompt)
             ->toContain('You are TaskLyst Assistant, a warm, encouraging productivity coach embedded in a student task management system.')
-            ->and($prompt)->toContain('Respond with only valid JSON that matches the provided schema')
+            ->and($prompt)->toContain('Respond with only a single valid JSON object that follows the JSON structure and field names described in this prompt')
             ->and($prompt)->toContain('Use only the context provided')
             ->and($prompt)->toContain('If you cannot make a confident recommendation');
     }

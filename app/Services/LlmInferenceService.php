@@ -52,7 +52,9 @@ class LlmInferenceService
         $model = config('tasklyst.llm.model', 'hermes3:3b');
         $ollamaUrl = rtrim((string) config('prism.providers.ollama.url', 'http://127.0.0.1:11434'), '/');
 
-        for ($attempt = 0; $attempt < 2; $attempt++) {
+        $maxAttempts = max(1, (int) config('tasklyst.llm.max_attempts', 1));
+
+        for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
             try {
                 $timeout = (int) config('tasklyst.llm.timeout', 30);
                 $temperature = (float) config('tasklyst.llm.temperature', 0.3);
@@ -125,6 +127,10 @@ class LlmInferenceService
                 }
 
                 if (! is_array($structured)) {
+                    $structured = $this->tryRepairTruncatedJson($content);
+                }
+
+                if (! is_array($structured)) {
                     Log::warning('LLM HTTP response content was not valid JSON, using fallback', [
                         'intent' => $intent->value,
                         'prompt_version' => $promptResult->version,
@@ -184,6 +190,39 @@ class LlmInferenceService
         }
 
         return $this->fallbackResult($intent, $promptResult->version, $user, 'unknown_error');
+    }
+
+    /**
+     * Attempt to repair truncated JSON from the LLM by appending closing brackets.
+     * Returns the decoded array if repair succeeds, null otherwise.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function tryRepairTruncatedJson(string $content): ?array
+    {
+        $start = strpos($content, '{');
+        if ($start === false) {
+            return null;
+        }
+
+        $base = substr($content, $start);
+        $openBraces = substr_count($base, '{') - substr_count($base, '}');
+        $openBrackets = substr_count($base, '[') - substr_count($base, ']');
+
+        if ($openBraces <= 0 && $openBrackets <= 0) {
+            return null;
+        }
+
+        $suffixes = ['}]}', ']}', '}', ']'];
+        foreach ($suffixes as $suffix) {
+            $repaired = $base.$suffix;
+            $decoded = json_decode($repaired, true);
+            if (is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
     }
 
     /**

@@ -8,19 +8,81 @@ use App\Enums\LlmIntent;
 
 class LlmIntentClassificationService
 {
-    private const ENTITY_TASK = ['task', 'todo', 'work item', 'action item', 'tasks', 'todos'];
+    private const ENTITY_TASK = [
+        'task',
+        'todo',
+        'work item',
+        'action item',
+        'tasks',
+        'todos',
+        'assignment',
+        'homework',
+        'essay',
+        'paper',
+        'study session',
+        'revision',
+    ];
 
-    private const ENTITY_EVENT = ['event', 'meeting', 'appointment', 'calendar', 'schedule', 'events', 'meetings'];
+    private const ENTITY_EVENT = [
+        'event',
+        'meeting',
+        'appointment',
+        'calendar',
+        'schedule',
+        'events',
+        'meetings',
+        'class',
+        'lecture',
+        'exam',
+        'quiz',
+        'test',
+    ];
 
-    private const ENTITY_PROJECT = ['project', 'initiative', 'milestone', 'deliverable', 'projects'];
+    private const ENTITY_PROJECT = [
+        'project',
+        'initiative',
+        'milestone',
+        'deliverable',
+        'projects',
+        'thesis',
+        'capstone',
+    ];
 
     private const INTENT_RESOLVE_DEPENDENCY = ['blocked', 'waiting', 'depends', 'after', 'blocking', 'dependency'];
 
     private const INTENT_ADJUST = ['extend', 'move', 'delay', 'push', 'earlier', 'reschedule', 'change time', 'shift', 'timeline', 'postpone', 'push back'];
 
-    private const INTENT_SCHEDULE = ['finish', 'by', 'deadline', 'schedule', 'when', 'book', 'set up', 'plan', 'start', 'slot', 'time'];
+    private const INTENT_SCHEDULE = [
+        'finish',
+        'by',
+        'deadline',
+        'schedule',
+        'when',
+        'book',
+        'set up',
+        'plan',
+        'start',
+        'slot',
+        'time',
+        'organize',
+        'planning',
+    ];
 
-    private const INTENT_PRIORITIZE = ['priority', 'prioritize', 'important', 'urgent', 'rank', 'order', 'focus', 'first', 'next', 'today'];
+    private const INTENT_PRIORITIZE = [
+        'priority',
+        'prioritize',
+        'important',
+        'urgent',
+        'rank',
+        'order',
+        'focus',
+        'first',
+        'next',
+        'today',
+        'attend',
+        'how about',
+        'what about',
+    ];
 
     public function classify(string $userMessage): LlmIntentClassificationResult
     {
@@ -37,8 +99,9 @@ class LlmIntentClassificationService
     {
         $trimmed = trim($message);
         $lower = mb_strtolower($trimmed);
+        $withoutPunctuation = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $lower) ?? $lower;
 
-        return preg_replace('/\s+/', ' ', $lower) ?? $lower;
+        return preg_replace('/\s+/', ' ', $withoutPunctuation) ?? $withoutPunctuation;
     }
 
     private function detectEntityType(string $normalized): LlmEntityType
@@ -105,6 +168,9 @@ class LlmIntentClassificationService
             return 0.5;
         }
 
+        $tokens = $normalized === '' ? [] : explode(' ', $normalized);
+        $tokenCount = count($tokens);
+
         $entityKeywords = match ($entityType) {
             LlmEntityType::Task => self::ENTITY_TASK,
             LlmEntityType::Event => self::ENTITY_EVENT,
@@ -114,11 +180,30 @@ class LlmIntentClassificationService
         $intentKeywords = $this->getIntentKeywords($intent);
         $intentHits = $this->countKeywordHits($normalized, $intentKeywords);
 
-        $base = 0.5;
-        $entityScore = min(0.25, $entityHits * 0.1);
-        $intentScore = min(0.25, $intentHits * 0.15);
+        $base = 0.35;
+        $entityScore = min(0.35, $entityHits * 0.1);
+        $intentScore = min(0.3, $intentHits * 0.15);
 
-        return min(1.0, round($base + $entityScore + $intentScore, 2));
+        $score = $base + $entityScore + $intentScore;
+
+        // Penalise conflicting intent signals (e.g. both schedule and adjust language present).
+        $adjustHits = $this->countKeywordHits($normalized, self::INTENT_ADJUST);
+        $scheduleHits = $this->countKeywordHits($normalized, self::INTENT_SCHEDULE);
+        $prioritizeHits = $this->countKeywordHits($normalized, self::INTENT_PRIORITIZE);
+        $intentGroupsWithHits = count(array_filter([$adjustHits, $scheduleHits, $prioritizeHits], static fn (int $hits): bool => $hits > 0));
+
+        if ($intentGroupsWithHits > 1) {
+            $score -= 0.1;
+        }
+
+        // Downweight extremely short messages, which tend to be more ambiguous.
+        if ($tokenCount > 0 && $tokenCount < 3) {
+            $score -= 0.15;
+        }
+
+        $score = max(0.0, min(1.0, $score));
+
+        return round($score, 2);
     }
 
     /**
@@ -126,8 +211,14 @@ class LlmIntentClassificationService
      */
     private function hasAnyKeyword(string $normalized, array $keywords): bool
     {
+        $tokens = $normalized === '' ? [] : explode(' ', $normalized);
+
         foreach ($keywords as $keyword) {
-            if (str_contains($normalized, $keyword)) {
+            if (str_contains($keyword, ' ')) {
+                if (str_contains($normalized, $keyword)) {
+                    return true;
+                }
+            } elseif (in_array($keyword, $tokens, true)) {
                 return true;
             }
         }
@@ -141,8 +232,14 @@ class LlmIntentClassificationService
     private function countKeywordHits(string $normalized, array $keywords): int
     {
         $count = 0;
+        $tokens = $normalized === '' ? [] : explode(' ', $normalized);
+
         foreach ($keywords as $keyword) {
-            if (str_contains($normalized, $keyword)) {
+            if (str_contains($keyword, ' ')) {
+                if (str_contains($normalized, $keyword)) {
+                    $count++;
+                }
+            } elseif (in_array($keyword, $tokens, true)) {
                 $count++;
             }
         }

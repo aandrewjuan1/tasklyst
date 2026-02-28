@@ -11,7 +11,7 @@ class TestableClassifyLlmIntentAction extends ClassifyLlmIntentAction
 {
     public ?LlmIntentClassificationResult $fallbackResult = null;
 
-    protected function performLlmClassification(string $userMessage): ?LlmIntentClassificationResult
+    protected function performLlmClassification(string $userMessage, ?\App\Models\AssistantThread $thread = null): ?LlmIntentClassificationResult
     {
         return $this->fallbackResult;
     }
