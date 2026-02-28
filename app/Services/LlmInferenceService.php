@@ -143,6 +143,7 @@ class LlmInferenceService
                     return $this->fallbackResult($intent, $promptResult->version, $user, 'invalid_structured');
                 }
 
+                $structured = $this->trimStructuredKeys($structured);
                 $structured = $this->normalizeStructuredForIntent($intent, $structured);
 
                 if ($structured === null
@@ -223,6 +224,28 @@ class LlmInferenceService
         }
 
         return null;
+    }
+
+    /**
+     * Recursively trim whitespace from array keys. Some LLMs (e.g. Ollama) return
+     * JSON with leading/trailing spaces in key names, which breaks validation.
+     *
+     * @param  array<string, mixed>  $arr
+     * @return array<string, mixed>
+     */
+    private function trimStructuredKeys(array $arr): array
+    {
+        $out = [];
+        foreach ($arr as $k => $v) {
+            $key = is_string($k) ? trim($k) : $k;
+            $out[$key] = is_array($v)
+                ? (array_is_list($v)
+                    ? array_map(fn ($item) => is_array($item) ? $this->trimStructuredKeys($item) : $item, $v)
+                    : $this->trimStructuredKeys($v))
+                : $v;
+        }
+
+        return $out;
     }
 
     /**

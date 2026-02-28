@@ -1,10 +1,13 @@
 <?php
 
 use App\Actions\Llm\RunLlmInferenceAction;
+use App\DataTransferObjects\Llm\LlmSystemPromptResult;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use App\Models\User;
 use App\Services\Llm\LlmHealthCheck;
+use App\Services\LlmInferenceService;
+use Illuminate\Support\Facades\Http;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
@@ -88,6 +91,36 @@ test('prioritize_tasks fallback includes rule-based ranked tasks when user provi
     expect($result->usedFallback)->toBeTrue()
         ->and($result->structured)->toHaveKey('entity_type')
         ->and($result->structured['entity_type'])->toBe('task');
+});
+
+test('inference accepts LLM response with leading spaces in JSON keys and trims them', function (): void {
+    $contentWithSpacedKeys = '{" entity_type":"task"," recommended_action":"Focus on Write chapter 1."," reasoning":"Soonest deadline."," ranked_tasks":[{" rank":1," title":"Write chapter 1"},{" rank":2," title":"Get contractor quotes"," end_datetime":"2026-03-16T23:59:56+08:00"}]}';
+    $ollamaUrl = rtrim((string) config('prism.providers.ollama.url', 'http://127.0.0.1:11434'), '/');
+
+    Http::fake([
+        $ollamaUrl.'/api/chat' => Http::response([
+            'message' => ['content' => $contentWithSpacedKeys],
+            'prompt_eval_count' => 10,
+            'eval_count' => 20,
+        ], 200),
+    ]);
+
+    $promptResult = new LlmSystemPromptResult(systemPrompt: 'You are a helpful assistant.', version: 'v1.1');
+    $service = app(LlmInferenceService::class);
+    $result = $service->infer(
+        'You are a helpful assistant.',
+        'Prioritize my tasks.',
+        LlmIntent::PrioritizeTasks,
+        $promptResult,
+        $this->user
+    );
+
+    expect($result->usedFallback)->toBeFalse()
+        ->and($result->structured)->toHaveKeys(['entity_type', 'recommended_action', 'reasoning', 'ranked_tasks'])
+        ->and($result->structured['entity_type'])->toBe('task')
+        ->and($result->structured['ranked_tasks'])->toHaveCount(2)
+        ->and($result->structured['ranked_tasks'][0])->toHaveKeys(['rank', 'title'])
+        ->and($result->structured['ranked_tasks'][0]['title'])->toBe('Write chapter 1');
 });
 
 test('inference result toArray returns expected keys', function (): void {
