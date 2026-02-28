@@ -160,7 +160,7 @@ class LlmChatCommand extends Command
 
     private function waitForAssistantReply(int $threadId, int $afterMessageId): ?\App\Models\AssistantMessage
     {
-        $timeoutSeconds = 20;
+        $timeoutSeconds = (int) config('tasklyst.llm.timeout', 45) + 30;
         $startedAt = time();
 
         while ((time() - $startedAt) < $timeoutSeconds) {
