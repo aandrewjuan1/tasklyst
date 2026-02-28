@@ -10,7 +10,13 @@ it('treats task and planning queries as relevant', function (): void {
         ->and($service->isRelevant('Help me plan my study session for the calculus exam next week'))->toBeTrue()
         ->and($service->isRelevant('What tasks should I focus on today?'))->toBeTrue()
         ->and($service->isRelevant('Hi'))->toBeTrue()
-        ->and($service->isRelevant('Hello, I need help planning my week'))->toBeTrue();
+        ->and($service->isRelevant('Hello, I need help planning my week'))->toBeTrue()
+        ->and($service->isRelevant('okay help me'))->toBeTrue()
+        ->and($service->isRelevant('help me'))->toBeTrue()
+        ->and($service->isRelevant('go ahead'))->toBeTrue()
+        ->and($service->isRelevant('what next'))->toBeTrue()
+        ->and($service->isRelevant('how can i focus'))->toBeTrue()
+        ->and($service->isRelevant('i need to get organized'))->toBeTrue();
 });
 
 it('treats clearly general knowledge questions as off-topic', function (): void {
@@ -41,6 +47,8 @@ it('identifies social closings and polite phrases', function (): void {
         ->and($service->isSocialClosing('hahaha'))->toBeTrue()
         ->and($service->isSocialClosing('got it'))->toBeTrue()
         ->and($service->isSocialClosing('thank you so much'))->toBeTrue()
+        ->and($service->isSocialClosing('that works'))->toBeTrue()
+        ->and($service->isSocialClosing('all good'))->toBeTrue()
         ->and($service->isSocialClosing('schedule my task'))->toBeFalse()
         ->and($service->isSocialClosing(''))->toBeFalse();
 });

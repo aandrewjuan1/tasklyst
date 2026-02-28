@@ -9,6 +9,7 @@ class QueryRelevanceService
      */
     private const GREETINGS = [
         'hi', 'hello', 'hey', 'help',
+        'sure', 'ok', 'okay',
     ];
 
     /**
@@ -18,9 +19,36 @@ class QueryRelevanceService
         'hi',
         'hello',
         'hey',
+        'help',
         'can you help',
         'could you help',
         'i need help',
+        'i want help',
+        'i need to',
+        'i want to',
+        'help with',
+    ];
+
+    /**
+     * Assistance request phrases — allow if message CONTAINS these (catches follow-ups like "okay help me").
+     */
+    private const ASSISTANCE_REQUESTS = [
+        'help me',
+        'please help',
+        'okay help',
+        'yes help',
+        'yeah help',
+        'help please',
+        'sure help',
+        'alright help',
+        'go ahead',
+        'continue',
+        'what next',
+        "what's next",
+        'next step',
+        'get started',
+        'show me how',
+        'help with',
     ];
 
     /**
@@ -57,6 +85,8 @@ class QueryRelevanceService
         'this week', 'plan my day', 'plan my week',
         'what should i', 'what do i', 'help me finish',
         'help me start', 'when should i',
+        'how do i', 'how can i', 'what can i',
+        'focus on', 'next step', 'get started',
     ];
 
     /**
@@ -69,8 +99,9 @@ class QueryRelevanceService
         'catch you later', 'talk later', 'talk to you later',
         'okay thank you', 'ok thank you', 'okay thanks', 'ok thanks',
         'haha', 'hahaha', 'lol', 'hehe',
-        'got it', 'sounds good', 'perfect', 'awesome',
+        'got it', 'sounds good', 'perfect', 'awesome', 'cool',
         'have a good one', 'take care', 'cheers',
+        'that works', 'works for me', 'all good',
     ];
 
     /**
@@ -146,6 +177,11 @@ class QueryRelevanceService
             return false;
         }
 
+        // 4.5. Allow assistance requests (short follow-ups like "okay help me", "help me")
+        if ($this->containsAssistanceRequest($normalized)) {
+            return true;
+        }
+
         // 5. Short vague messages with no domain signal → off-topic
         $wordCount = str_word_count($normalized);
 
@@ -209,6 +245,17 @@ class QueryRelevanceService
                 str_starts_with($normalized, $prefix.' ') ||
                 $normalized === $prefix
             ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function containsAssistanceRequest(string $normalized): bool
+    {
+        foreach (self::ASSISTANCE_REQUESTS as $phrase) {
+            if (str_contains($normalized, $phrase)) {
                 return true;
             }
         }
