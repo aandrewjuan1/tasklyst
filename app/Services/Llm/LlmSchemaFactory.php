@@ -39,8 +39,8 @@ class LlmSchemaFactory
             description: 'Structured recommendation for a task (schedule or adjust)',
             properties: [
                 new StringSchema('entity_type', 'Always "task"'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Step-by-step reasoning'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new StringSchema('start_datetime', 'ISO 8601 datetime'),
                 new StringSchema('end_datetime', 'ISO 8601 datetime'),
@@ -63,8 +63,8 @@ class LlmSchemaFactory
             description: 'Structured recommendation for an event',
             properties: [
                 new StringSchema('entity_type', 'Always "event"'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Step-by-step reasoning'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new StringSchema('start_datetime', 'ISO 8601 datetime'),
                 new StringSchema('end_datetime', 'ISO 8601 datetime'),
@@ -82,8 +82,8 @@ class LlmSchemaFactory
             description: 'Structured recommendation for a project timeline',
             properties: [
                 new StringSchema('entity_type', 'Always "project"'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Step-by-step reasoning'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new StringSchema('start_datetime', 'ISO 8601 datetime'),
                 new StringSchema('end_datetime', 'ISO 8601 datetime'),
@@ -96,12 +96,26 @@ class LlmSchemaFactory
     {
         return new ObjectSchema(
             name: 'recommendation',
-            description: 'Structured recommendation (prioritization or general)',
+            description: 'Structured recommendation (prioritization or general). Use listed_items when the user asks for a list or filter.',
             properties: [
                 new StringSchema('entity_type', 'task|event|project'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Step-by-step reasoning'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
+                new ArraySchema(
+                    name: 'listed_items',
+                    description: 'Optional: when user asks for a list or filter (e.g. tasks with low priority, no due date), list matching items from context',
+                    items: new ObjectSchema(
+                        name: 'listed_item',
+                        description: 'One matching item; use exact title from context',
+                        properties: [
+                            new StringSchema('title', 'Item title'),
+                            new StringSchema('priority', 'Optional: low|medium|high|urgent'),
+                            new StringSchema('end_datetime', 'Optional: ISO 8601'),
+                        ],
+                        requiredFields: ['title']
+                    )
+                ),
             ],
             requiredFields: ['entity_type', 'recommended_action', 'reasoning']
         );
@@ -124,8 +138,8 @@ class LlmSchemaFactory
             description: 'Structured prioritization for tasks',
             properties: [
                 new StringSchema('entity_type', 'Always "task"'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Short explanation of ordering'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of ordering (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_tasks',
@@ -153,8 +167,8 @@ class LlmSchemaFactory
             description: 'Structured prioritization for events',
             properties: [
                 new StringSchema('entity_type', 'Always "event"'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Short explanation of ordering'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of ordering (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_events',
@@ -183,8 +197,8 @@ class LlmSchemaFactory
             description: 'Structured prioritization for projects',
             properties: [
                 new StringSchema('entity_type', 'Always "project"'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Short explanation of ordering'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of ordering (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_projects',
@@ -212,8 +226,8 @@ class LlmSchemaFactory
             description: 'Structured plan to resolve blockers across tasks, events, and projects',
             properties: [
                 new StringSchema('entity_type', 'task|event|project'),
-                new StringSchema('recommended_action', 'One-line action summary'),
-                new StringSchema('reasoning', 'Short explanation of why this order will unblock progress'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why this order will unblock progress (2-4 sentences)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'next_steps',

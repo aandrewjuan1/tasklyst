@@ -142,8 +142,8 @@ class CalendarFeedSyncService
      * import thousands of long‑past or far‑future items from feeds.
      *
      * Currently:
-     * - Include events that ended within the last 6 months.
-     * - Skip events that ended more than 6 months ago.
+     * - Include events that ended within the last 1 month (e.g. if today is Feb 25, limit is Jan 25).
+     * - Skip events that ended more than 1 month ago.
      * - Skip events that start more than 1 year in the future.
      *
      * @param  array<int, array<string, mixed>>  $events
@@ -152,7 +152,7 @@ class CalendarFeedSyncService
     private function filterEventsWithinSyncWindow(array $events): array
     {
         $today = now()->startOfDay();
-        $pastLimit = $today->copy()->subMonths(6)->startOfDay();
+        $pastLimit = $today->copy()->subMonth()->startOfDay();
         $futureLimit = $today->copy()->addYear()->endOfDay();
 
         return array_values(array_filter($events, static function (array $event) use ($pastLimit, $futureLimit): bool {

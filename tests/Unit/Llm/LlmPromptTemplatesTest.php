@@ -18,9 +18,10 @@ it('includes guardrails and student persona in prompts', function (): void {
         $prompt = $result->systemPrompt;
 
         expect($prompt)
-            ->toContain('You are TaskLyst Assistant, a warm, encouraging productivity coach embedded in a student task management system.')
-            ->and($prompt)->toContain('Respond with only a single valid JSON object that follows the JSON structure and field names described in this prompt')
-            ->and($prompt)->toContain('Use only the context provided')
-            ->and($prompt)->toContain('If you cannot make a confident recommendation');
+            ->toContain('You are TaskLyst Assistant, a student productivity coach')
+            ->and($prompt)->toContain('Respond with only a single JSON object')
+            ->and($prompt)->toContain('Start with {')
+            ->and($prompt)->toContain('Use only that and the user message')
+            ->and($prompt)->toContain('confidence below 0.5');
     }
 });

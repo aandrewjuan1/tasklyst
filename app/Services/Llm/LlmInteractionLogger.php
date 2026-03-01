@@ -34,28 +34,35 @@ class LlmInteractionLogger
         array $context,
         int $durationMs,
         bool $llmReachable,
+        ?string $traceId = null,
     ): void {
         $contextJson = json_encode($context);
+
+        $payload = [
+            'intent' => $intent->value,
+            'entity_type' => $entityType->value,
+            'prompt_version' => $promptResult->version,
+            'prompt_tokens' => $inferenceResult->promptTokens,
+            'completion_tokens' => $inferenceResult->completionTokens,
+            'used_fallback' => $inferenceResult->usedFallback,
+            'fallback_reason' => $inferenceResult->fallbackReason,
+            'duration_ms' => $durationMs,
+            'llm_reachable' => $llmReachable,
+            'context_size' => $contextJson !== false ? strlen($contextJson) : null,
+            'context_preview' => $contextJson !== false
+                ? mb_substr($contextJson, 0, 1000)
+                : null,
+        ];
+
+        if ($traceId !== null) {
+            $payload['trace_id'] = $traceId;
+        }
 
         $this->activityLogRecorder->record(
             $user,
             $user,
             ActivityLogAction::LlmInteraction,
-            [
-                'intent' => $intent->value,
-                'entity_type' => $entityType->value,
-                'prompt_version' => $promptResult->version,
-                'prompt_tokens' => $inferenceResult->promptTokens,
-                'completion_tokens' => $inferenceResult->completionTokens,
-                'used_fallback' => $inferenceResult->usedFallback,
-                'fallback_reason' => $inferenceResult->fallbackReason,
-                'duration_ms' => $durationMs,
-                'llm_reachable' => $llmReachable,
-                'context_size' => $contextJson !== false ? strlen($contextJson) : null,
-                'context_preview' => $contextJson !== false
-                    ? mb_substr($contextJson, 0, 1000)
-                    : null,
-            ]
+            $payload
         );
     }
 }

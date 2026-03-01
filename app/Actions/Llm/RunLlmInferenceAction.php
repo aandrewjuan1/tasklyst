@@ -29,6 +29,7 @@ class RunLlmInferenceAction
         LlmEntityType $entityType,
         ?int $entityId = null,
         ?AssistantThread $thread = null,
+        ?string $traceId = null,
     ): LlmInferenceResult {
         $promptResult = $this->getSystemPrompt->execute($intent);
 
@@ -49,6 +50,7 @@ class RunLlmInferenceAction
                 context: [],
                 durationMs: 0,
                 llmReachable: false,
+                traceId: $traceId,
             );
 
             return $result;
@@ -80,6 +82,7 @@ class RunLlmInferenceAction
             context: $context,
             durationMs: $durationMs,
             llmReachable: true,
+            traceId: $traceId,
         );
 
         return $result;

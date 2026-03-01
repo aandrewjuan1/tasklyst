@@ -18,8 +18,10 @@ class LlmHealthCheck
             $base = substr($base, 0, -3);
         }
 
+        $timeout = (int) config('tasklyst.llm.health_check_timeout', 3);
+
         try {
-            $response = Http::timeout(3)->get($base.'/api/tags');
+            $response = Http::timeout($timeout)->get($base.'/api/tags');
 
             return $response->successful();
         } catch (\Throwable) {

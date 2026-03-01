@@ -16,8 +16,9 @@ use App\Models\User;
 use App\Services\Llm\LlmSchemaFactory;
 use App\Services\Llm\RuleBasedPrioritizationService;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Prism\Prism\Enums\Provider;
+use Prism\Prism\Facades\Prism;
 
 class LlmInferenceService
 {
@@ -50,94 +51,37 @@ class LlmInferenceService
         ?User $user = null,
     ): LlmInferenceResult {
         $model = config('tasklyst.llm.model', 'hermes3:3b');
-        $ollamaUrl = rtrim((string) config('prism.providers.ollama.url', 'http://127.0.0.1:11434'), '/');
-
         $maxAttempts = max(1, (int) config('tasklyst.llm.max_attempts', 1));
+
+        $schema = $this->schemaFactory->schemaForIntent($intent);
+        $timeout = (int) config('tasklyst.llm.timeout', 60);
+        $temperature = (float) config('tasklyst.llm.temperature', 0.3);
+        $numCtx = (int) config('tasklyst.llm.num_ctx', 4096);
+        $maxTokens = (int) config('tasklyst.llm.max_tokens', 700);
 
         for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
             try {
-                $timeout = (int) config('tasklyst.llm.timeout', 30);
-                $temperature = (float) config('tasklyst.llm.temperature', 0.3);
-                $numCtx = (int) config('tasklyst.llm.num_ctx', 4096);
-                $maxTokens = (int) config('tasklyst.llm.max_tokens', 500);
-
-                $payload = [
-                    'model' => $model,
-                    'messages' => [
-                        ['role' => 'system', 'content' => $systemPrompt],
-                        ['role' => 'user', 'content' => $userPrompt],
-                    ],
-                    'stream' => false,
-                    'format' => 'json',
-                    'options' => [
+                $response = Prism::structured()
+                    ->using(Provider::Ollama, $model)
+                    ->withSchema($schema)
+                    ->withSystemPrompt($systemPrompt)
+                    ->withPrompt($userPrompt)
+                    ->withClientOptions(['timeout' => $timeout])
+                    ->withProviderOptions([
                         'temperature' => $temperature,
                         'num_ctx' => $numCtx,
-                        'num_predict' => $maxTokens,
-                    ],
-                ];
+                    ])
+                    ->withMaxTokens($maxTokens)
+                    ->asStructured();
 
-                /** @var \Illuminate\Http\Client\Response $httpResponse */
-                $httpResponse = Http::timeout($timeout)
-                    ->post($ollamaUrl.'/api/chat', $payload);
+                $structured = $response->structured;
 
-                $httpResponse->throw();
-
-                $body = $httpResponse->json();
-
-                if (! is_array($body)) {
-                    Log::warning('LLM HTTP response was not JSON object, using fallback', [
+                if (! is_array($structured)) {
+                    Log::warning('Prism structured response had no structured data, using fallback', [
                         'intent' => $intent->value,
                         'prompt_version' => $promptResult->version,
                         'model' => $model,
                         'user_id' => $user?->id,
-                        'body_type' => get_debug_type($body),
-                    ]);
-
-                    return $this->fallbackResult($intent, $promptResult->version, $user, 'invalid_structured');
-                }
-
-                $content = (string) ($body['message']['content'] ?? '');
-
-                if (trim($content) === '') {
-                    Log::warning('LLM HTTP response had empty message content, using fallback', [
-                        'intent' => $intent->value,
-                        'prompt_version' => $promptResult->version,
-                        'model' => $model,
-                        'user_id' => $user?->id,
-                        'body_preview' => mb_substr(json_encode($body), 0, 500),
-                    ]);
-
-                    return $this->fallbackResult($intent, $promptResult->version, $user, 'invalid_structured');
-                }
-
-                $structured = json_decode($content, true);
-
-                if (! is_array($structured)) {
-                    $start = strpos($content, '{');
-                    $end = strrpos($content, '}');
-
-                    if ($start !== false && $end !== false && $end > $start) {
-                        $candidate = substr($content, $start, $end - $start + 1);
-                        $decodedCandidate = json_decode($candidate, true);
-
-                        if (is_array($decodedCandidate)) {
-                            $structured = $decodedCandidate;
-                        }
-                    }
-                }
-
-                if (! is_array($structured)) {
-                    $structured = $this->tryRepairTruncatedJson($content);
-                }
-
-                if (! is_array($structured)) {
-                    Log::warning('LLM HTTP response content was not valid JSON, using fallback', [
-                        'intent' => $intent->value,
-                        'prompt_version' => $promptResult->version,
-                        'model' => $model,
-                        'user_id' => $user?->id,
-                        'content_preview' => mb_substr($content, 0, 500),
-                        'body_preview' => mb_substr(json_encode($body), 0, 500),
                     ]);
 
                     return $this->fallbackResult($intent, $promptResult->version, $user, 'invalid_structured');
@@ -146,8 +90,7 @@ class LlmInferenceService
                 $structured = $this->trimStructuredKeys($structured);
                 $structured = $this->normalizeStructuredForIntent($intent, $structured);
 
-                if ($structured === null
-                    || ! $this->isValidStructured($intent, $structured)
+                if (! $this->isValidStructured($intent, $structured)
                     || ! $this->passesIntentSpecificValidation($intent, $structured)
                 ) {
                     Log::warning('LLM returned invalid structured payload, using fallback', [
@@ -164,8 +107,8 @@ class LlmInferenceService
                 return new LlmInferenceResult(
                     structured: $structured,
                     promptVersion: $promptResult->version,
-                    promptTokens: (int) ($body['prompt_eval_count'] ?? 0),
-                    completionTokens: (int) ($body['eval_count'] ?? 0),
+                    promptTokens: $response->usage->promptTokens,
+                    completionTokens: $response->usage->completionTokens,
                     usedFallback: false,
                     fallbackReason: null,
                 );
@@ -182,7 +125,12 @@ class LlmInferenceService
                     'message' => $e->getMessage(),
                 ]);
 
-                if ($attempt === 0) {
+                if ($attempt < $maxAttempts - 1) {
+                    $delaySeconds = (int) config('tasklyst.llm.retry_delay_seconds', 2);
+                    if ($delaySeconds > 0) {
+                        sleep($delaySeconds);
+                    }
+
                     continue;
                 }
 
@@ -191,39 +139,6 @@ class LlmInferenceService
         }
 
         return $this->fallbackResult($intent, $promptResult->version, $user, 'unknown_error');
-    }
-
-    /**
-     * Attempt to repair truncated JSON from the LLM by appending closing brackets.
-     * Returns the decoded array if repair succeeds, null otherwise.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function tryRepairTruncatedJson(string $content): ?array
-    {
-        $start = strpos($content, '{');
-        if ($start === false) {
-            return null;
-        }
-
-        $base = substr($content, $start);
-        $openBraces = substr_count($base, '{') - substr_count($base, '}');
-        $openBrackets = substr_count($base, '[') - substr_count($base, ']');
-
-        if ($openBraces <= 0 && $openBrackets <= 0) {
-            return null;
-        }
-
-        $suffixes = ['}]}', ']}', '}', ']'];
-        foreach ($suffixes as $suffix) {
-            $repaired = $base.$suffix;
-            $decoded = json_decode($repaired, true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-        }
-
-        return null;
     }
 
     /**

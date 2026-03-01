@@ -20,7 +20,7 @@ test('process assistant message appends user message and dispatches an inference
     mock(ClassifyLlmIntentAction::class, function ($mock): void {
         $mock->shouldReceive('execute')
             ->once()
-            ->with('Prioritize my tasks', \Mockery::type(AssistantThread::class))
+            ->with('Prioritize my tasks', \Mockery::type(AssistantThread::class), \Mockery::type('string'))
             ->andReturn(new LlmIntentClassificationResult(
                 LlmIntent::PrioritizeTasks,
                 LlmEntityType::Task,
@@ -60,9 +60,9 @@ test('process assistant message uses existing thread when thread id provided', f
         'tasklyst.guardrails.relevance_enabled' => false,
     ]);
 
-    mock(ClassifyLlmIntentAction::class)->shouldReceive('execute')->andReturn(
-        new LlmIntentClassificationResult(LlmIntent::GeneralQuery, LlmEntityType::Task, 0.8)
-    );
+    mock(ClassifyLlmIntentAction::class)->shouldReceive('execute')
+        ->with(\Mockery::type('string'), \Mockery::type(AssistantThread::class), \Mockery::type('string'))
+        ->andReturn(new LlmIntentClassificationResult(LlmIntent::GeneralQuery, LlmEntityType::Task, 0.8));
 
     $action = app(ProcessAssistantMessageAction::class);
     $userMessage = $action->execute($user, 'Help me', $thread->id);
