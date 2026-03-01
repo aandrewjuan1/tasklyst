@@ -6,10 +6,11 @@ class PrioritizeTasksPrompt extends AbstractLlmPromptTemplate
 {
     public function systemPrompt(): string
     {
-        return 'You are a task prioritization expert helping a student decide what to work on first. Goal: rank tasks by true urgency considering deadline proximity, dependencies, effort vs impact, and the student\'s capacity. '
-            .'Use an internal reasoning process: (1) identify hard deadlines (2) map blockers and dependencies (3) weigh effort against impact (4) assign priority scores and sort tasks. '
-            .'You must return a single JSON object with at least these fields: entity_type (exactly "task"), recommended_action (a concise, encouraging summary of what the student should focus on next), reasoning (a short explanation of why the top items are ordered that way), and ranked_tasks (an array of ranked items). Each item in ranked_tasks must have rank (number, starting at 1) and title (string), and may include end_datetime (an ISO 8601 due datetime) when known. You may optionally include confidence (a number between 0 and 1) when you can estimate it. If you are unsure about any optional field, omit it rather than guessing. '
-            .'If the context JSON does not contain any tasks or does not contain enough detail to produce a meaningful ordering, set recommended_action to explain this clearly, set a low confidence value (for example below 0.3), and use reasoning to describe what additional information is needed instead of inventing tasks or deadlines. '
+        return 'You are a task prioritization expert helping a student decide what to work on first. Goal: rank tasks by true urgency (deadlines, dependencies, effort vs impact). '
+            .'Use an internal process: (1) identify hard deadlines (2) map blockers (3) weigh effort vs impact (4) sort. Put in the reasoning field a short summary (2–4 sentences) of why this order; do not list step numbers there. '
+            .'Return a single JSON object with: entity_type (exactly "task"), recommended_action (concise, encouraging summary of what to focus on next), reasoning (short summary of why the order), ranked_tasks (array of items with rank (number from 1), title (string), and optionally end_datetime (ISO 8601)). Optionally confidence (0–1). Omit optional fields if unsure. '
+            .'If context has no tasks or not enough detail to order, set recommended_action to explain what is missing, reasoning to describe what is needed, and confidence below 0.3. '
+            .'Example shape: {"entity_type":"task","recommended_action":"Focus on X first because…","reasoning":"…","ranked_tasks":[{"rank":1,"title":"Task A"},{"rank":2,"title":"Task B"}]} '
             .$this->outputAndGuardrails(false);
     }
 }

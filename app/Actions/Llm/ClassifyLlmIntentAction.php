@@ -20,25 +20,31 @@ class ClassifyLlmIntentAction
         private LlmIntentClassificationService $classificationService,
     ) {}
 
-    public function execute(string $userMessage, ?AssistantThread $thread = null): LlmIntentClassificationResult
+    public function execute(string $userMessage, ?AssistantThread $thread = null, ?string $traceId = null): LlmIntentClassificationResult
     {
         $regexResult = $this->classificationService->classify($userMessage);
 
         $useLlmFallback = (bool) config('tasklyst.intent.use_llm_fallback', true);
 
         if (! $useLlmFallback) {
+            $this->logClassificationPath('regex_used', $regexResult, $traceId);
+
             return $regexResult;
         }
 
         $threshold = (float) config('tasklyst.intent.confidence_threshold', 0.7);
 
         if ($regexResult->confidence >= $threshold) {
+            $this->logClassificationPath('regex_used', $regexResult, $traceId);
+
             return $regexResult;
         }
 
         // Regex was uncertain — try LLM fallback for non-trivial messages
         $minLengthForFallback = 3;
         if (mb_strlen(trim($userMessage)) < $minLengthForFallback) {
+            $this->logClassificationPath('regex_used', $regexResult, $traceId);
+
             return $regexResult;
         }
 
@@ -49,7 +55,9 @@ class ClassifyLlmIntentAction
                 'regex_intent' => $regexResult->intent->value,
                 'regex_entity_type' => $regexResult->entityType->value,
                 'regex_confidence' => $regexResult->confidence,
+                'trace_id' => $traceId,
             ]);
+            $this->logClassificationPath('regex_used', $regexResult, $traceId);
 
             return $regexResult;
         }
@@ -62,10 +70,24 @@ class ClassifyLlmIntentAction
                 'regex_confidence' => $regexResult->confidence,
                 'llm_intent' => $llmResult->intent->value,
                 'llm_entity_type' => $llmResult->entityType->value,
+                'trace_id' => $traceId,
             ]);
         }
 
+        $this->logClassificationPath('llm_fallback', $llmResult, $traceId);
+
         return $llmResult;
+    }
+
+    private function logClassificationPath(string $path, LlmIntentClassificationResult $result, ?string $traceId): void
+    {
+        Log::info('LLM intent classification', [
+            'classification_path' => $path,
+            'intent' => $result->intent->value,
+            'entity_type' => $result->entityType->value,
+            'confidence' => $result->confidence,
+            'trace_id' => $traceId,
+        ]);
     }
 
     /**
@@ -111,7 +133,7 @@ Valid entity_type values (use the exact value):
 
 Classification rules:
 - Use "general_query" when the message asks which task, event, or project to delete or remove (e.g. "what task should I delete?", "which one can I drop?"). Do not use prioritize_* for these; the answer is a single recommendation, not a priority order.
-- Use "general_query" when the message is clearly NOT about tasks, events, or projects.
+- Use "general_query" when the message is clearly NOT about tasks, events, or projects. For off-topic or non-planning questions (e.g. general knowledge, coding, trivia), use general_query and entity_type "task" (default).
 - Prefer specificity: "schedule_task" over "general_query" when uncertain (except for delete/remove questions above).
 - Match entity_type to the dominant subject of the message.
 - If no clear entity is mentioned, default entity_type to "task".
@@ -131,6 +153,8 @@ PROMPT;
 
         $prompt = $this->buildClassificationPrompt($userMessage, $thread);
 
+        $classificationTimeout = (int) config('tasklyst.llm.classification_timeout', 10);
+
         try {
             $response = Prism::structured()
                 ->using(Provider::Ollama, config('tasklyst.llm.model', 'hermes3:3b'))
@@ -138,7 +162,7 @@ PROMPT;
                 ->withSystemPrompt($systemPrompt)
                 ->withPrompt($prompt)
                 ->withClientOptions([
-                    'timeout' => (int) config('tasklyst.llm.classification_timeout', 10),
+                    'timeout' => $classificationTimeout,
                 ])
                 ->withProviderOptions([
                     'temperature' => 0.0, // deterministic for classification
@@ -174,7 +198,9 @@ PROMPT;
                 confidence: $confidence,
             );
         } catch (Throwable $e) {
-            Log::warning('LLM intent classification failed', [
+            $reason = str_contains(mb_strtolower($e->getMessage()), 'timeout') ? 'timeout' : 'exception';
+            Log::warning('LLM intent classification failed, using regex result', [
+                'reason' => $reason,
                 'error' => $e->getMessage(),
                 'class' => $e::class,
             ]);

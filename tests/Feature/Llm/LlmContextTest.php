@@ -94,7 +94,13 @@ test('build context for prioritize_projects includes projects with tasks', funct
         ->and($context['projects'][0]['tasks'])->toBeArray();
 });
 
-test('general_query returns minimal context with conversation_history', function (): void {
+test('general_query with entity task includes tasks so LLM is aware of user items', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'Overview task',
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+
     $context = $this->action->execute(
         $this->user,
         LlmIntent::GeneralQuery,
@@ -103,8 +109,10 @@ test('general_query returns minimal context with conversation_history', function
         null
     );
 
-    expect($context)->toHaveKeys(['current_time', 'conversation_history'])
-        ->and($context)->not->toHaveKey('tasks');
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['tasks'])->toHaveCount(1)
+        ->and($context['tasks'][0]['title'])->toBe('Overview task');
 });
 
 test('context includes conversation history when thread provided', function (): void {

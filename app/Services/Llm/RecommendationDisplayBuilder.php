@@ -24,13 +24,19 @@ class RecommendationDisplayBuilder
         $recommendedAction = (string) ($structured['recommended_action'] ?? '');
         $reasoning = (string) ($structured['reasoning'] ?? '');
 
+        $actionForDisplay = $recommendedAction !== '' ? $recommendedAction : __('No specific action suggested.');
+        $reasoningForDisplay = $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.');
+
+        $listedItems = isset($structured['listed_items']) && is_array($structured['listed_items']) ? $structured['listed_items'] : null;
+        $message = $this->buildMessageWithOptionalList($actionForDisplay, $reasoningForDisplay, $listedItems);
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
 
         return new RecommendationDisplayDto(
             intent: $intent,
             entityType: $entityType,
-            recommendedAction: $recommendedAction !== '' ? $recommendedAction : __('No specific action suggested.'),
-            reasoning: $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.'),
+            recommendedAction: $actionForDisplay,
+            reasoning: $reasoningForDisplay,
+            message: $message,
             validationConfidence: $validationScore,
             usedFallback: $result->usedFallback,
             fallbackReason: $result->fallbackReason,
@@ -109,6 +115,63 @@ class RecommendationDisplayBuilder
         return round($passed / $checks, 2);
     }
 
+    /**
+     * Build reply: optional summary, optional list (when LLM returns listed_items), optional reasoning.
+     * Flexible format so list-style answers (e.g. "tasks with low priority", "tasks with no due date") are shown as a list.
+     *
+     * @param  array<int, array{title: string, priority?: string, end_datetime?: string}>|null  $listedItems
+     */
+    private function buildMessageWithOptionalList(string $recommendedAction, string $reasoning, ?array $listedItems): string
+    {
+        $action = trim($recommendedAction);
+        $reason = trim($reasoning);
+
+        if ($action === '' && $reason === '' && empty($listedItems)) {
+            return __('No specific action suggested. The assistant could not provide detailed reasoning.');
+        }
+
+        $parts = [];
+
+        if ($action !== '') {
+            $parts[] = $action;
+        }
+
+        if (! empty($listedItems)) {
+            $lines = [];
+            foreach ($listedItems as $item) {
+                $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+                if ($title !== '') {
+                    $suffix = [];
+                    if (! empty($item['priority']) && is_string($item['priority'])) {
+                        $suffix[] = $item['priority'];
+                    }
+                    if (! empty($item['end_datetime']) && is_string($item['end_datetime'])) {
+                        $suffix[] = $item['end_datetime'];
+                    }
+                    $lines[] = '• '.$title.($suffix !== [] ? ' ('.implode(', ', $suffix).')' : '');
+                }
+            }
+            if ($lines !== []) {
+                $parts[] = implode("\n", $lines);
+            }
+        }
+
+        if ($reason !== '') {
+            $parts[] = $reason;
+        }
+
+        return implode("\n\n", $parts);
+    }
+
+    /**
+     * Build reply as two paragraphs: recommendation first, then reasoning.
+     * No hardcoded connector so the LLM's own wording stays natural.
+     */
+    private function buildCombinedMessage(string $recommendedAction, string $reasoning): string
+    {
+        return $this->buildMessageWithOptionalList($recommendedAction, $reasoning, null);
+    }
+
     private function parseDateTime(mixed $value): ?Carbon
     {
         if (! is_string($value) && ! is_numeric($value)) {
@@ -130,7 +193,7 @@ class RecommendationDisplayBuilder
     {
         $out = [];
 
-        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps'];
+        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'listed_items', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps'];
         foreach ($allowedKeys as $key) {
             if (array_key_exists($key, $structured) && $structured[$key] !== null) {
                 $out[$key] = $structured[$key];

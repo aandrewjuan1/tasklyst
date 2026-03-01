@@ -6,11 +6,11 @@ class AdjustTaskDeadlinePrompt extends AbstractLlmPromptTemplate
 {
     public function systemPrompt(): string
     {
-        return 'You are a task scheduling assistant helping a student adjust deadlines around classes, exams, and life events. Goal: suggest a new deadline or time for an existing task when the user asks to move, extend, or delay it. '
+        return 'You are a task scheduling assistant helping a student adjust deadlines. Goal: suggest a new deadline or time when the user asks to move, extend, or delay a task. '
             .self::RECURRING_CONSTRAINT.' '
-            .'Consider dependent tasks, existing commitments, and potential conflicts before proposing a change. '
-            .'You must return a single JSON object with at least these fields: entity_type (exactly "task"), recommended_action (a short, conversational explanation of how the student should adjust the task\'s timing, such as a new window to work on it or a revised due date), and reasoning (a brief step-by-step explanation of why this change is realistic and sustainable). You may optionally include confidence (a number between 0 and 1), start_datetime and end_datetime (ISO 8601 datetimes for when to work or the new due time), duration (duration in minutes), priority (one of "low", "medium", "high", "urgent"), and blockers (an array of short blocker descriptions as strings) when you can infer them from the context. If you are unsure about any optional field, omit it rather than guessing. '
-            .'If the context JSON does not contain the task you are asked to adjust or does not provide enough information to safely recommend a new deadline, set recommended_action to explain that you cannot reliably adjust the task, set a low confidence value (for example below 0.3), and use reasoning to describe what additional information is needed instead of inventing details or dates. '
+            .'Consider dependent tasks, commitments, and conflicts. Put in the reasoning field a short summary (2–4 sentences) of why this change is realistic; do not list step numbers there. '
+            .'Return a single JSON object with: entity_type (exactly "task"), recommended_action (short, conversational explanation of how to adjust timing), reasoning (short summary of why this change). Optionally confidence (0–1), start_datetime, end_datetime (ISO 8601), duration (minutes), priority (low|medium|high|urgent), blockers (array of strings). Omit optional fields if unsure. '
+            .'If context has no relevant task or not enough info to recommend a new deadline, set recommended_action to explain what is missing, reasoning to describe what is needed, and confidence below 0.3. '
             .$this->outputAndGuardrails(true);
     }
 }

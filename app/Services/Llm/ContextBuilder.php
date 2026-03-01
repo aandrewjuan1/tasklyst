@@ -25,12 +25,6 @@ class ContextBuilder
             'current_time' => now()->toIso8601String(),
         ];
 
-        if ($intent === LlmIntent::GeneralQuery) {
-            $payload['conversation_history'] = $this->buildConversationHistory($thread);
-
-            return $this->enforceTokenAwareness($payload);
-        }
-
         $entityPayload = match ($entityType) {
             LlmEntityType::Task => $this->buildTaskContext($user, $intent, $entityId),
             LlmEntityType::Event => $this->buildEventContext($user, $intent, $entityId),
@@ -53,7 +47,11 @@ class ContextBuilder
      */
     private function buildTaskContext(User $user, LlmIntent $intent, ?int $entityId): array
     {
-        $limit = $intent === LlmIntent::AdjustTaskDeadline ? 5 : config('tasklyst.context.task_limit', 12);
+        $limit = match (true) {
+            $intent === LlmIntent::AdjustTaskDeadline => 5,
+            $intent === LlmIntent::GeneralQuery => config('tasklyst.context.general_query_task_limit', 8),
+            default => config('tasklyst.context.task_limit', 12),
+        };
 
         $query = Task::query()
             ->forUser($user->id)
@@ -94,7 +92,11 @@ class ContextBuilder
      */
     private function buildEventContext(User $user, LlmIntent $intent, ?int $entityId): array
     {
-        $limit = in_array($intent, [LlmIntent::AdjustEventTime], true) ? 5 : config('tasklyst.context.event_limit', 10);
+        $limit = match (true) {
+            $intent === LlmIntent::AdjustEventTime => 5,
+            $intent === LlmIntent::GeneralQuery => config('tasklyst.context.general_query_event_limit', 6),
+            default => config('tasklyst.context.event_limit', 10),
+        };
 
         $query = Event::query()
             ->forUser($user->id)
@@ -130,8 +132,12 @@ class ContextBuilder
      */
     private function buildProjectContext(User $user, LlmIntent $intent, ?int $entityId): array
     {
-        $projectLimit = config('tasklyst.context.project_limit', 5);
-        $tasksPerProject = config('tasklyst.context.project_tasks_limit', 10);
+        $projectLimit = $intent === LlmIntent::GeneralQuery
+            ? config('tasklyst.context.general_query_project_limit', 3)
+            : config('tasklyst.context.project_limit', 5);
+        $tasksPerProject = $intent === LlmIntent::GeneralQuery
+            ? config('tasklyst.context.general_query_project_tasks_limit', 5)
+            : config('tasklyst.context.project_tasks_limit', 10);
 
         $query = Project::query()
             ->forUser($user->id)
@@ -233,42 +239,47 @@ class ContextBuilder
         }
 
         $limit = config('tasklyst.context.conversation_history_limit', 5);
+        $maxChars = (int) config('tasklyst.context.conversation_history_message_max_chars', 200);
         $messages = $thread->lastMessages($limit);
 
         return $messages->map(fn ($m) => [
             'role' => $m->role,
-            'content' => $m->content,
+            'content' => $this->limitText($m->content, $maxChars) ?? '',
         ])->values()->all();
     }
 
     /**
-     * Ensure payload stays within token budget. Simple heuristic: ~4 chars per token.
-     * Trims conversation_history first; if still over cap, truncates long text fields.
+     * Ensure payload stays within token budget. Uses a safety margin so total prompt
+     * (system + user + context) fits. Trims conversation_history first; then
+     * truncates long text; finally strips to minimal context if still over cap.
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
     private function enforceTokenAwareness(array $payload): array
     {
-        $maxTokens = config('tasklyst.context.max_tokens', 1200);
-        $payload = $this->shrinkPayloadToTokenCap($payload, $maxTokens);
+        $maxTokens = (int) config('tasklyst.context.max_tokens', 1200);
+        $ratio = (float) config('tasklyst.context.safety_margin_ratio', 0.9);
+        $cap = (int) floor($maxTokens * $ratio);
 
-        if ($this->estimateTokens($payload) <= $maxTokens) {
+        $payload = $this->shrinkPayloadToTokenCap($payload, $cap);
+
+        if ($this->estimateTokens($payload) <= $cap) {
             return $payload;
         }
 
         $payload = $this->truncateLongTextInPayload($payload, 80);
-        if ($this->estimateTokens($payload) <= $maxTokens) {
+        if ($this->estimateTokens($payload) <= $cap) {
             return $payload;
         }
 
         $payload = $this->truncateLongTextInPayload($payload, 40);
-        if ($this->estimateTokens($payload) <= $maxTokens) {
+        if ($this->estimateTokens($payload) <= $cap) {
             return $payload;
         }
 
         unset($payload['conversation_history']);
-        if ($this->estimateTokens($payload) <= $maxTokens) {
+        if ($this->estimateTokens($payload) <= $cap) {
             return $payload;
         }
 
@@ -278,7 +289,8 @@ class ContextBuilder
     }
 
     /**
-     * Shrink conversation_history (oldest first) until under cap.
+     * Shrink conversation_history (oldest first) until under cap. Guarantees
+     * returned payload is at or under maxTokens (or no history left to remove).
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>

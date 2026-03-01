@@ -66,6 +66,8 @@ class LlmIntentClassificationService
         'time',
         'organize',
         'planning',
+        'due',
+        'remind',
     ];
 
     private const INTENT_PRIORITIZE = [
@@ -82,6 +84,10 @@ class LlmIntentClassificationService
         'attend',
         'how about',
         'what about',
+        'help',
+        'help me',
+        'assist',
+        'support',
     ];
 
     public function classify(string $userMessage): LlmIntentClassificationResult
@@ -127,6 +133,9 @@ class LlmIntentClassificationService
 
     private const INTENT_DELETE_OR_REMOVE = ['delete', 'remove', 'drop', 'get rid of'];
 
+    /** Phrases that ask for a list/filter (e.g. "tasks with low priority", "no due date") → general_query so LLM can use listed_items. */
+    private const INTENT_LIST_OR_FILTER = ['low prio', 'low priority', 'no due date', 'no due dates', 'without due date', 'without deadline', 'that have no due', 'with no due date', 'that has no due', 'has no due date', 'list the tasks', 'which tasks have', 'which events have'];
+
     private function detectIntent(string $normalized, LlmEntityType $entityType): LlmIntent
     {
         if ($this->hasAnyKeyword($normalized, self::INTENT_RESOLVE_DEPENDENCY)) {
@@ -135,6 +144,10 @@ class LlmIntentClassificationService
 
         if ($this->hasAnyKeyword($normalized, self::INTENT_DELETE_OR_REMOVE)
             && $this->hasAnyKeyword($normalized, ['which', 'what', 'should i', 'can i'])) {
+            return LlmIntent::GeneralQuery;
+        }
+
+        if ($this->hasAnyKeyword($normalized, self::INTENT_LIST_OR_FILTER)) {
             return LlmIntent::GeneralQuery;
         }
 
@@ -206,6 +219,11 @@ class LlmIntentClassificationService
         // Downweight extremely short messages, which tend to be more ambiguous.
         if ($tokenCount > 0 && $tokenCount < 3) {
             $score -= 0.15;
+        }
+
+        // When both entity and intent keywords clearly match, ensure high confidence so LLM fallback is not triggered.
+        if ($entityHits >= 1 && $intentHits >= 1 && $score >= 0.5) {
+            $score = max($score, 0.85);
         }
 
         $score = max(0.0, min(1.0, $score));

@@ -29,13 +29,15 @@ class RunLlmInferenceJob implements ShouldQueue
         public int $threadId,
         public string $userMessage,
         public string $intent,
-        public string $entityType
+        public string $entityType,
+        public ?string $traceId = null
     ) {
         $this->onQueue(config('tasklyst.llm.queue', 'llm'));
 
-        $llmTimeout = (int) config('tasklyst.llm.timeout', 25);
+        $llmTimeout = (int) config('tasklyst.llm.timeout', 60);
         $maxAttempts = max(1, (int) config('tasklyst.llm.max_attempts', 1));
-        $this->timeout = ($llmTimeout * $maxAttempts) + 15;
+        $retryDelay = (int) config('tasklyst.llm.retry_delay_seconds', 2);
+        $this->timeout = ($llmTimeout * $maxAttempts) + ($retryDelay * max(0, $maxAttempts - 1)) + 15;
     }
 
     /**
@@ -70,7 +72,8 @@ class RunLlmInferenceJob implements ShouldQueue
             intent: $intent,
             entityType: $entityType,
             entityId: null,
-            thread: $thread
+            thread: $thread,
+            traceId: $this->traceId
         );
 
         $display = $displayBuilder->build($inferenceResult, $intent, $entityType);
@@ -81,6 +84,6 @@ class RunLlmInferenceJob implements ShouldQueue
             'recommendation_snapshot' => $display->toArray(),
         ];
 
-        $appendMessage->execute($thread, 'assistant', $display->recommendedAction, $metadata);
+        $appendMessage->execute($thread, 'assistant', $display->message, $metadata);
     }
 }

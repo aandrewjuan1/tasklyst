@@ -110,17 +110,8 @@ class LlmChatCommand extends Command
             $snapshot = $metadata['recommendation_snapshot'] ?? null;
 
             if (is_array($snapshot) && $snapshot !== []) {
-                $reasoning = $snapshot['reasoning'] ?? null;
-
-                if (is_string($reasoning) && $reasoning !== '') {
-                    $this->newLine();
-                    $this->line('Reasoning:');
-                    $this->line($reasoning);
-                }
-
                 $this->newLine();
-                $this->comment('Recommendation snapshot (backend view):');
-                $this->line(json_encode($snapshot, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                $this->displayStructuredResponse($snapshot);
             }
 
             $this->newLine();
@@ -156,6 +147,98 @@ class LlmChatCommand extends Command
         }
 
         return $user;
+    }
+
+    /**
+     * Display backend structured response (intent, entity, confidence, structured payload) for testing.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function displayStructuredResponse(array $snapshot): void
+    {
+        $this->comment('--- Backend structured response ---');
+
+        $intent = $snapshot['intent'] ?? null;
+        $entityType = $snapshot['entity_type'] ?? null;
+        if ($intent !== null || $entityType !== null) {
+            $this->line(sprintf('  Intent: %s  |  Entity type: %s', $intent ?? '—', $entityType ?? '—'));
+        }
+
+        $validationConfidence = $snapshot['validation_confidence'] ?? null;
+        if ($validationConfidence !== null) {
+            $this->line(sprintf('  Validation confidence: %s', is_numeric($validationConfidence) ? round((float) $validationConfidence, 2) : $validationConfidence));
+        }
+
+        $usedFallback = $snapshot['used_fallback'] ?? false;
+        $fallbackReason = $snapshot['fallback_reason'] ?? null;
+        $this->line(sprintf('  Used fallback: %s%s', $usedFallback ? 'yes' : 'no', $fallbackReason ? ' ('.$fallbackReason.')' : ''));
+
+        $structured = $snapshot['structured'] ?? [];
+        if (is_array($structured) && $structured !== []) {
+            $this->newLine();
+            $this->line('  <fg=gray>Structured payload:</>');
+            $json = json_encode($structured, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            foreach (explode("\n", $json) as $line) {
+                $this->line('    '.$line);
+            }
+        }
+
+        $rankedTasks = $snapshot['structured']['ranked_tasks'] ?? null;
+        $rankedEvents = $snapshot['structured']['ranked_events'] ?? null;
+        $rankedProjects = $snapshot['structured']['ranked_projects'] ?? null;
+        if (is_array($rankedTasks) && $rankedTasks !== []) {
+            $this->newLine();
+            $this->line('  <fg=gray>Ranked tasks:</>');
+            foreach ($rankedTasks as $item) {
+                $rank = $item['rank'] ?? '?';
+                $title = $item['title'] ?? '';
+                $end = $item['end_datetime'] ?? '';
+                $this->line(sprintf('    #%s %s %s', $rank, $title, $end ? '('.$end.')' : ''));
+            }
+        }
+        if (is_array($rankedEvents) && $rankedEvents !== []) {
+            $this->newLine();
+            $this->line('  <fg=gray>Ranked events:</>');
+            foreach ($rankedEvents as $item) {
+                $rank = $item['rank'] ?? '?';
+                $title = $item['title'] ?? '';
+                $this->line(sprintf('    #%s %s', $rank, $title));
+            }
+        }
+        if (is_array($rankedProjects) && $rankedProjects !== []) {
+            $this->newLine();
+            $this->line('  <fg=gray>Ranked projects:</>');
+            foreach ($rankedProjects as $item) {
+                $rank = $item['rank'] ?? '?';
+                $name = $item['name'] ?? '';
+                $this->line(sprintf('    #%s %s', $rank, $name));
+            }
+        }
+
+        $listedItems = $snapshot['structured']['listed_items'] ?? null;
+        if (is_array($listedItems) && $listedItems !== []) {
+            $this->newLine();
+            $this->line('  <fg=gray>Listed items (filter/list response):</>');
+            foreach ($listedItems as $item) {
+                $title = $item['title'] ?? '';
+                $priority = $item['priority'] ?? null;
+                $end = $item['end_datetime'] ?? null;
+                $extra = array_filter([$priority, $end], fn ($v) => $v !== null && $v !== '');
+                $this->line('    • '.$title.($extra !== [] ? ' ('.implode(', ', $extra).')' : ''));
+            }
+        }
+
+        $recommendedAction = $snapshot['recommended_action'] ?? null;
+        $reasoning = $snapshot['reasoning'] ?? null;
+        if ($recommendedAction !== null && $recommendedAction !== '' && $this->output->isVerbose()) {
+            $this->newLine();
+            $this->line('  <fg=gray>recommended_action (raw):</> '.$recommendedAction);
+        }
+        if ($reasoning !== null && $reasoning !== '' && $this->output->isVerbose()) {
+            $this->line('  <fg=gray>reasoning (raw):</> '.$reasoning);
+        }
+
+        $this->comment('-----------------------------------');
     }
 
     private function waitForAssistantReply(int $threadId, int $afterMessageId): ?\App\Models\AssistantMessage
