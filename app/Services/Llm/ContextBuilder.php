@@ -12,8 +12,331 @@ use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Str;
 
+/**
+ * Builds intent-conditioned context payloads for the LLM.
+ *
+ * Context contract: we send only the entity type and fields needed for the
+ * classified intent. Schedule/adjust intents get time + description + IDs for
+ * conflict checks; prioritize intents get a slimmer set (id, title, end_datetime,
+ * priority, is_recurring, status for tasks; no description/complexity). GeneralQuery
+ * gets the full payload so the model can answer list/filter questions (e.g. tasks
+ * with no due date, low priority). Description max length is configurable (slim
+ * for prioritize, full for others). See docs/llm-context-layer-enhancement-plan.md.
+ */
 class ContextBuilder
 {
+    private const DESCRIPTION_MAX_CHARS_SLIM = 80;
+
+    private const DESCRIPTION_MAX_CHARS_FULL = 200;
+
+    /**
+     * Task field keys for full context (GeneralQuery, list/filter).
+     *
+     * @var list<string>
+     */
+    private const TASK_FIELDS_FULL = [
+        'id', 'title', 'description', 'status', 'priority', 'complexity',
+        'duration', 'start_datetime', 'end_datetime', 'project_id', 'event_id', 'is_recurring',
+    ];
+
+    /**
+     * Task field keys for schedule/adjust intents (time slots, blockers).
+     *
+     * @var list<string>
+     */
+    private const TASK_FIELDS_SCHEDULE_ADJUST = [
+        'id', 'title', 'description', 'status', 'priority', 'end_datetime',
+        'duration', 'start_datetime', 'is_recurring', 'project_id', 'event_id',
+    ];
+
+    /**
+     * Task field keys for prioritize intents (ranking only).
+     *
+     * @var list<string>
+     */
+    private const TASK_FIELDS_PRIORITIZE = [
+        'id', 'title', 'end_datetime', 'priority', 'is_recurring', 'status',
+    ];
+
+    /**
+     * Event field keys for full context.
+     *
+     * @var list<string>
+     */
+    private const EVENT_FIELDS_FULL = [
+        'id', 'title', 'description', 'start_datetime', 'end_datetime',
+        'all_day', 'status', 'is_recurring',
+    ];
+
+    /**
+     * Event field keys for schedule/adjust intents.
+     *
+     * @var list<string>
+     */
+    private const EVENT_FIELDS_SCHEDULE_ADJUST = [
+        'id', 'title', 'description', 'start_datetime', 'end_datetime',
+        'all_day', 'status', 'is_recurring',
+    ];
+
+    /**
+     * Event field keys for prioritize intents.
+     *
+     * @var list<string>
+     */
+    private const EVENT_FIELDS_PRIORITIZE = [
+        'id', 'title', 'start_datetime', 'end_datetime', 'is_recurring',
+    ];
+
+    /**
+     * Project top-level field keys for full context.
+     *
+     * @var list<string>
+     */
+    private const PROJECT_FIELDS_FULL = [
+        'id', 'name', 'description', 'start_datetime', 'end_datetime', 'tasks',
+    ];
+
+    /**
+     * Project top-level field keys for prioritize (name + tasks only).
+     *
+     * @var list<string>
+     */
+    private const PROJECT_FIELDS_PRIORITIZE = [
+        'id', 'name', 'tasks',
+    ];
+
+    /**
+     * Nested task field keys inside a project (full).
+     *
+     * @var list<string>
+     */
+    private const PROJECT_TASK_FIELDS_FULL = [
+        'id', 'title', 'end_datetime', 'priority', 'is_recurring',
+    ];
+
+    /**
+     * Nested task field keys inside a project (prioritize only).
+     *
+     * @var list<string>
+     */
+    private const PROJECT_TASK_FIELDS_PRIORITIZE = [
+        'id', 'title', 'end_datetime', 'priority',
+    ];
+
+    /**
+     * @return list<string>
+     */
+    private function taskFieldsForIntent(LlmIntent $intent): array
+    {
+        return match ($intent) {
+            LlmIntent::PrioritizeTasks => self::TASK_FIELDS_PRIORITIZE,
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline => self::TASK_FIELDS_SCHEDULE_ADJUST,
+            default => self::TASK_FIELDS_FULL,
+        };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function eventFieldsForIntent(LlmIntent $intent): array
+    {
+        return match ($intent) {
+            LlmIntent::PrioritizeEvents => self::EVENT_FIELDS_PRIORITIZE,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime => self::EVENT_FIELDS_SCHEDULE_ADJUST,
+            default => self::EVENT_FIELDS_FULL,
+        };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function projectFieldsForIntent(LlmIntent $intent): array
+    {
+        return match ($intent) {
+            LlmIntent::PrioritizeProjects => self::PROJECT_FIELDS_PRIORITIZE,
+            default => self::PROJECT_FIELDS_FULL,
+        };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function projectTaskFieldsForIntent(LlmIntent $intent): array
+    {
+        return match ($intent) {
+            LlmIntent::PrioritizeProjects => self::PROJECT_TASK_FIELDS_PRIORITIZE,
+            default => self::PROJECT_TASK_FIELDS_FULL,
+        };
+    }
+
+    private function descriptionMaxCharsForIntent(LlmIntent $intent): int
+    {
+        $slim = (int) config('tasklyst.context.description_max_chars_slim', self::DESCRIPTION_MAX_CHARS_SLIM);
+        $full = (int) config('tasklyst.context.description_max_chars_full', self::DESCRIPTION_MAX_CHARS_FULL);
+
+        return match ($intent) {
+            LlmIntent::PrioritizeTasks,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::PrioritizeProjects => $slim,
+            default => $full,
+        };
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function taskPayloadItem(Task $task, LlmIntent $intent): array
+    {
+        $fields = $this->taskFieldsForIntent($intent);
+        $maxDesc = $this->descriptionMaxCharsForIntent($intent);
+        $out = [];
+
+        if (in_array('id', $fields, true)) {
+            $out['id'] = $task->id;
+        }
+        if (in_array('title', $fields, true)) {
+            $out['title'] = $task->title;
+        }
+        if (in_array('description', $fields, true)) {
+            $out['description'] = $this->limitText($task->description, $maxDesc);
+        }
+        if (in_array('status', $fields, true)) {
+            $out['status'] = $task->status?->value;
+        }
+        if (in_array('priority', $fields, true)) {
+            $out['priority'] = $task->priority?->value;
+        }
+        if (in_array('complexity', $fields, true)) {
+            $out['complexity'] = $task->complexity?->value;
+        }
+        if (in_array('duration', $fields, true)) {
+            $out['duration'] = $task->duration;
+        }
+        if (in_array('start_datetime', $fields, true)) {
+            $out['start_datetime'] = $task->start_datetime?->toIso8601String();
+        }
+        if (in_array('end_datetime', $fields, true)) {
+            $out['end_datetime'] = $task->end_datetime?->toIso8601String();
+        }
+        if (in_array('project_id', $fields, true)) {
+            $out['project_id'] = $task->project_id;
+        }
+        if (in_array('event_id', $fields, true)) {
+            $out['event_id'] = $task->event_id;
+        }
+        if (in_array('is_recurring', $fields, true)) {
+            $out['is_recurring'] = $this->isTaskRecurring($task);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function eventPayloadItem(Event $event, LlmIntent $intent): array
+    {
+        $fields = $this->eventFieldsForIntent($intent);
+        $maxDesc = $this->descriptionMaxCharsForIntent($intent);
+        $out = [];
+
+        if (in_array('id', $fields, true)) {
+            $out['id'] = $event->id;
+        }
+        if (in_array('title', $fields, true)) {
+            $out['title'] = $event->title;
+        }
+        if (in_array('description', $fields, true)) {
+            $out['description'] = $this->limitText($event->description, $maxDesc);
+        }
+        if (in_array('start_datetime', $fields, true)) {
+            $out['start_datetime'] = $event->start_datetime?->toIso8601String();
+        }
+        if (in_array('end_datetime', $fields, true)) {
+            $out['end_datetime'] = $event->end_datetime?->toIso8601String();
+        }
+        if (in_array('all_day', $fields, true)) {
+            $out['all_day'] = $event->all_day;
+        }
+        if (in_array('status', $fields, true)) {
+            $out['status'] = $event->status?->value;
+        }
+        if (in_array('is_recurring', $fields, true)) {
+            $out['is_recurring'] = $this->isEventRecurring($event);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function projectTaskPayloadItem(Task $task, LlmIntent $intent): array
+    {
+        $fields = $this->projectTaskFieldsForIntent($intent);
+        $out = [];
+
+        if (in_array('id', $fields, true)) {
+            $out['id'] = $task->id;
+        }
+        if (in_array('title', $fields, true)) {
+            $out['title'] = $task->title;
+        }
+        if (in_array('end_datetime', $fields, true)) {
+            $out['end_datetime'] = $task->end_datetime?->toIso8601String();
+        }
+        if (in_array('priority', $fields, true)) {
+            $out['priority'] = $task->priority?->value;
+        }
+        if (in_array('is_recurring', $fields, true)) {
+            $out['is_recurring'] = $this->isTaskRecurring($task);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function projectPayloadItem(Project $project, User $user, LlmIntent $intent, int $tasksPerProject): array
+    {
+        $fields = $this->projectFieldsForIntent($intent);
+        $maxDesc = $this->descriptionMaxCharsForIntent($intent);
+        $out = [];
+
+        if (in_array('id', $fields, true)) {
+            $out['id'] = $project->id;
+        }
+        if (in_array('name', $fields, true)) {
+            $out['name'] = $project->name;
+        }
+        if (in_array('description', $fields, true)) {
+            $out['description'] = $this->limitText($project->description, $maxDesc);
+        }
+        if (in_array('start_datetime', $fields, true)) {
+            $out['start_datetime'] = $project->start_datetime?->toIso8601String();
+        }
+        if (in_array('end_datetime', $fields, true)) {
+            $out['end_datetime'] = $project->end_datetime?->toIso8601String();
+        }
+        if (in_array('tasks', $fields, true)) {
+            $tasks = $project->tasks()
+                ->forUser($user->id)
+                ->incomplete()
+                ->with('recurringTask')
+                ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('end_datetime')
+                ->limit($tasksPerProject)
+                ->get();
+
+            $out['tasks'] = $tasks->map(fn (Task $t) => $this->projectTaskPayloadItem($t, $intent))->values()->all();
+        }
+
+        return $out;
+    }
+
     public function build(
         User $user,
         LlmIntent $intent,
@@ -67,20 +390,7 @@ class ContextBuilder
 
         $tasks = $query->limit($limit)->get();
 
-        $tasksPayload = $tasks->map(fn (Task $t) => [
-            'id' => $t->id,
-            'title' => $t->title,
-            'description' => $this->limitText($t->description, 200),
-            'status' => $t->status?->value,
-            'priority' => $t->priority?->value,
-            'complexity' => $t->complexity?->value,
-            'duration' => $t->duration,
-            'start_datetime' => $t->start_datetime?->toIso8601String(),
-            'end_datetime' => $t->end_datetime?->toIso8601String(),
-            'project_id' => $t->project_id,
-            'event_id' => $t->event_id,
-            'is_recurring' => $this->isTaskRecurring($t),
-        ])->values()->all();
+        $tasksPayload = $tasks->map(fn (Task $t) => $this->taskPayloadItem($t, $intent))->values()->all();
 
         return [
             'tasks' => $tasksPayload,
@@ -111,16 +421,7 @@ class ContextBuilder
 
         $events = $query->limit($limit)->get();
 
-        $eventsPayload = $events->map(fn (Event $e) => [
-            'id' => $e->id,
-            'title' => $e->title,
-            'description' => $this->limitText($e->description, 200),
-            'start_datetime' => $e->start_datetime?->toIso8601String(),
-            'end_datetime' => $e->end_datetime?->toIso8601String(),
-            'all_day' => $e->all_day,
-            'status' => $e->status?->value,
-            'is_recurring' => $this->isEventRecurring($e),
-        ])->values()->all();
+        $eventsPayload = $events->map(fn (Event $e) => $this->eventPayloadItem($e, $intent))->values()->all();
 
         return [
             'events' => $eventsPayload,
@@ -149,31 +450,7 @@ class ContextBuilder
 
         $projects = $query->limit($projectLimit * 2)->get()->take($projectLimit);
 
-        $projectsPayload = $projects->map(function (Project $p) use ($user, $tasksPerProject): array {
-            $tasks = $p->tasks()
-                ->forUser($user->id)
-                ->incomplete()
-                ->with('recurringTask')
-                ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('end_datetime')
-                ->limit($tasksPerProject)
-                ->get();
-
-            return [
-                'id' => $p->id,
-                'name' => $p->name,
-                'description' => $this->limitText($p->description, 200),
-                'start_datetime' => $p->start_datetime?->toIso8601String(),
-                'end_datetime' => $p->end_datetime?->toIso8601String(),
-                'tasks' => $tasks->map(fn (Task $t) => [
-                    'id' => $t->id,
-                    'title' => $t->title,
-                    'end_datetime' => $t->end_datetime?->toIso8601String(),
-                    'priority' => $t->priority?->value,
-                    'is_recurring' => $this->isTaskRecurring($t),
-                ])->values()->all(),
-            ];
-        })->values()->all();
+        $projectsPayload = $projects->map(fn (Project $p) => $this->projectPayloadItem($p, $user, $intent, $tasksPerProject))->values()->all();
 
         return [
             'projects' => $projectsPayload,

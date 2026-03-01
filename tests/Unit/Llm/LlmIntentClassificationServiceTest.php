@@ -54,3 +54,15 @@ it('classifies which task to delete or remove as general_query', function (): vo
     expect($result->intent)->toBe(LlmIntent::GeneralQuery)
         ->and($result->entityType)->toBe(LlmEntityType::Task);
 });
+
+it('classifies meta or complaint questions about the assistant as general_query', function (string $message): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify($message);
+
+    expect($result->intent)->toBe(LlmIntent::GeneralQuery);
+})->with([
+    'why did you not answer' => ['why did you not answer it the first time? are you hallucinating?'],
+    'too complex too hard' => ['when the query is too complex its too hard for you?'],
+]);

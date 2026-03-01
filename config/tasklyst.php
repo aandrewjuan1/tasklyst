@@ -28,18 +28,37 @@ return [
     |   TASKLYST_CONTEXT_PROJECT_LIMIT, TASKLYST_CONTEXT_PROJECT_TASKS_LIMIT,
     |   TASKLYST_CONTEXT_CONVERSATION_HISTORY_LIMIT,
     |   TASKLYST_CONTEXT_CONVERSATION_HISTORY_MESSAGE_MAX_CHARS,
+    |   TASKLYST_CONTEXT_DESCRIPTION_MAX_CHARS_SLIM, TASKLYST_CONTEXT_DESCRIPTION_MAX_CHARS_FULL,
     |   TASKLYST_CONTEXT_RESOLVE_DEPENDENCY_LIMIT,
     |   TASKLYST_CONTEXT_GENERAL_QUERY_TASK_LIMIT, _EVENT_LIMIT, _PROJECT_LIMIT, _PROJECT_TASKS_LIMIT
+    |   TASKLYST_FAKE_DATA_LEVEL (easy | realistic | nightmare) for FullFakeDataSeeder.
     |
     */
+
+    /*
+    |--------------------------------------------------------------------------
+    | Fake data level (FullFakeDataSeeder)
+    |--------------------------------------------------------------------------
+    |
+    | Controls how much messy/edge-case data is seeded for LLM stress-testing.
+    | easy: mostly clean data. realistic: mix of clean, messy, conflicting,
+    | incomplete. nightmare: more duplicates, nulls, overlaps, impossible tasks.
+    |
+    */
+    'fake_data_level' => env('TASKLYST_FAKE_DATA_LEVEL', 'realistic'),
 
     /*
     |--------------------------------------------------------------------------
     | LLM (TaskLyst assistant) configuration
     |--------------------------------------------------------------------------
     |
-    | Model, timeout, and token limits for Prism/Ollama inference. Used by
-    | LlmInferenceService and optional intent-classification fallback.
+    | Tuned for Hermes 3 3B (NousResearch/Hermes-3-Llama-3.2-3B) via Ollama
+    | (model name: hermes3:3b). Prism sends system + user messages; Ollama
+    | applies the model's ChatML template. Structured output uses Ollama's
+    | "format" (JSON schema); prompts are aligned with Hermes 3 JSON mode.
+    |
+    | num_ctx: keep within model context (e.g. 4096 for 3B); context payload
+    | is capped separately so system + context + user fit.
     |
     */
     'llm' => [
@@ -99,16 +118,19 @@ return [
     | Context preparation (Phase 3)
     |--------------------------------------------------------------------------
     |
-    | Limits and token budget for LLM context payload. System prompt uses
-    | ~300-400 tokens; keep context payload within max_tokens so total
-    | prompt stays within model context window. Target cap uses a safety
-    | margin (e.g. 0.9) so total prompt fits reliably.
+    | Limits and token budget for LLM context payload. Tuned for Hermes 3 3B:
+    | system prompt ~300-400 tokens; context within max_tokens so system +
+    | context + user message fit in num_ctx (e.g. 4096). Safety margin keeps
+    | total prompt under the cap.
     |
     */
     'context' => [
         'max_tokens' => (int) env('TASKLYST_CONTEXT_MAX_TOKENS', 1200),
         // Target context at 90% of max_tokens to leave room for system + user message.
         'safety_margin_ratio' => (float) env('TASKLYST_CONTEXT_SAFETY_MARGIN_RATIO', 0.9),
+        // Max characters for description fields; slim used for prioritize intents, full for schedule/adjust/general.
+        'description_max_chars_slim' => (int) env('TASKLYST_CONTEXT_DESCRIPTION_MAX_CHARS_SLIM', 80),
+        'description_max_chars_full' => (int) env('TASKLYST_CONTEXT_DESCRIPTION_MAX_CHARS_FULL', 200),
         'task_limit' => (int) env('TASKLYST_CONTEXT_TASK_LIMIT', 12),
         'event_limit' => (int) env('TASKLYST_CONTEXT_EVENT_LIMIT', 10),
         'project_limit' => (int) env('TASKLYST_CONTEXT_PROJECT_LIMIT', 5),
