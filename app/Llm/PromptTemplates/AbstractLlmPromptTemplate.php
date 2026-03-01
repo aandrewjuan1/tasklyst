@@ -6,6 +6,9 @@ use App\Llm\Contracts\LlmPromptTemplate;
 
 abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 {
+    /** Hermes 3 JSON mode: model was trained with this opening (see Hermes-3-Llama-3.2-3B model card). */
+    protected const HERMES_JSON_OPENING = 'You are a helpful assistant that answers in JSON.';
+
     protected const RECURRING_CONSTRAINT = 'Do not recommend times that conflict with recurring tasks or events.';
 
     protected const NO_PAST_TIMES = 'Do not recommend start or end times in the past; use current_time from context.';
@@ -15,8 +18,8 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     protected const ENTITY_ID_GUARDRAIL = 'Never include entity_id or task/event/project IDs in your output; the system resolves the entity from context.';
 
-    /** Critical: use only context; if missing, say so. */
-    protected const CONTEXT_AND_MISSING = 'The user prompt has "Context:" with JSON (current_time, tasks, events, projects, conversation_history). Use only that and the user message. Every title, name, and date in your output must appear in that context; ranked or listed items must come from context only. If context lacks relevant data, set recommended_action to explain what is missing, reasoning to describe what is needed, confidence below 0.3, and omit optional fields.';
+    /** Critical: use only context; if missing, say so. Ranked/listed from entity arrays only. */
+    protected const CONTEXT_AND_MISSING = 'The user prompt has "Context:" with JSON (current_time, tasks, events, projects, conversation_history). Use only that and the user message. Every title, name, and date in your output must appear in that context. Ranked and listed items must come only from the context\'s tasks, events, or projects array (as appropriate)—never from conversation_history. If context lacks relevant data, set recommended_action to explain what is missing, reasoning to describe what is needed, confidence below 0.3, and omit optional fields.';
 
     /** Short persona for token budget (target 300–400 tokens total system prompt). */
     protected const SHORT_PERSONA = 'You are TaskLyst Assistant, a student productivity coach for tasks, events, and projects. Use a warm, conversational tone.';
@@ -34,12 +37,12 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
     }
 
     /**
-     * Shared guardrails: critical rules first (output format, no IDs, context), then short persona and boundaries.
+     * Shared guardrails: Hermes 3 JSON opening first, then output format, no IDs, context, persona, boundaries.
      * Order and brevity target ~300–400 token system prompt so more context fits.
      */
     protected function outputAndGuardrails(bool $includeNoPastTimes = false): string
     {
-        $critical = self::OUTPUT_FORMAT.' '.self::ENTITY_ID_GUARDRAIL.' '.self::CONTEXT_AND_MISSING;
+        $critical = self::HERMES_JSON_OPENING.' '.self::OUTPUT_FORMAT.' '.self::ENTITY_ID_GUARDRAIL.' '.self::CONTEXT_AND_MISSING;
 
         if ($includeNoPastTimes) {
             $critical = self::NO_PAST_TIMES.' '.$critical;

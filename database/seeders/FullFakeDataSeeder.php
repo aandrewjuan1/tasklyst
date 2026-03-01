@@ -6,6 +6,8 @@ use App\Enums\ActivityLogAction;
 use App\Enums\CollaborationPermission;
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
+use App\Enums\TaskComplexity;
+use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\Collaboration;
@@ -24,17 +26,26 @@ use App\Models\TaskInstance;
 use App\Models\User;
 use App\Services\ActivityLogRecorder;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Carbon;
 
 class FullFakeDataSeeder extends Seeder
 {
     private const TARGET_EMAIL = 'andrew.juan.cvt@eac.edu.ph';
 
+    private const LEVEL_EASY = 'easy';
+
+    private const LEVEL_REALISTIC = 'realistic';
+
+    private const LEVEL_NIGHTMARE = 'nightmare';
+
     /** @var array<int, array{name: string, description: string|null}> */
     private const PROJECTS = [
-        ['name' => 'Thesis Project', 'description' => 'Final year thesis writing and defense prep'],
         ['name' => 'Website Redesign', 'description' => 'Client site overhaul and content refresh'],
+        ['name' => 'Capstone / Thesis', 'description' => 'Final year thesis writing and defense prep'],
+        ['name' => 'Notes cleanup', 'description' => 'Organize and archive old notes'],
+        ['name' => 'Migration (legacy)', 'description' => 'Legacy system migration, high complexity'],
+        ['name' => 'App redesign', 'description' => 'Mobile app UI overhaul, 3 months'],
         ['name' => 'Home Renovation', 'description' => 'Kitchen and bathroom updates'],
-        ['name' => 'Learn Spanish', 'description' => 'Duolingo and conversation practice'],
         ['name' => 'Fitness Challenge', 'description' => '30-day workout streak'],
     ];
 
@@ -50,8 +61,12 @@ class FullFakeDataSeeder extends Seeder
         ['title' => 'Gym class', 'description' => 'Spin at 6pm', 'all_day' => false],
     ];
 
+    /** Clean: clear title, optional description. */
     /** @var array<int, array{title: string, description: string|null}> */
-    private const STANDALONE_TASKS = [
+    private const TASKS_CLEAN = [
+        ['title' => 'Finish report', 'description' => '2h, due tomorrow'],
+        ['title' => 'Send email', 'description' => '15m, today'],
+        ['title' => 'Prepare slides', 'description' => '1h, Friday'],
         ['title' => 'Wash dishes', 'description' => null],
         ['title' => 'Take out trash', 'description' => null],
         ['title' => 'Water plants', 'description' => null],
@@ -60,11 +75,26 @@ class FullFakeDataSeeder extends Seeder
         ['title' => 'Call grandma', 'description' => null],
     ];
 
+    /** Messy / vague titles or minimal description. */
+    /** @var array<int, array{title: string, description: string|null}> */
+    private const TASKS_MESSY = [
+        ['title' => 'Fix stuff', 'description' => null],
+        ['title' => 'Work on project', 'description' => null],
+        ['title' => 'Do the thing', 'description' => null],
+        ['title' => 'Important task', 'description' => null],
+        ['title' => 'Project thing', 'description' => null],
+    ];
+
+    /** Duplicate title for conflicting-priority scenarios. */
+    private const TASK_TITLE_DUPLICATE = 'Submit proposal';
+
     /** @var array<int, string> */
     private const PROJECT_TASK_TITLES = [
         'Write chapter 1',
         'Design homepage mockup',
         'Get contractor quotes',
+        'Review migration plan',
+        'Create wireframes',
     ];
 
     /** @var array<int, string> */
@@ -93,6 +123,8 @@ class FullFakeDataSeeder extends Seeder
         'Cancelled for this week',
     ];
 
+    private string $level = self::LEVEL_REALISTIC;
+
     public function run(): void
     {
         $user = User::where('email', self::TARGET_EMAIL)->first();
@@ -102,6 +134,11 @@ class FullFakeDataSeeder extends Seeder
                 'Seed user not found. Ensure a user with email '.self::TARGET_EMAIL.' exists (e.g. sign up first).'
             );
         }
+
+        $level = config('tasklyst.fake_data_level', self::LEVEL_REALISTIC);
+        $this->level = in_array($level, [self::LEVEL_EASY, self::LEVEL_REALISTIC, self::LEVEL_NIGHTMARE], true)
+            ? $level
+            : self::LEVEL_REALISTIC;
 
         $recorder = app(ActivityLogRecorder::class);
 
@@ -148,12 +185,27 @@ class FullFakeDataSeeder extends Seeder
     {
         $projects = [];
         foreach (self::PROJECTS as $i => $data) {
+            $startDatetime = fake()->optional(0.6)->dateTimeBetween('-2 weeks', now());
+            $endDatetime = null;
+
+            if ($this->level === self::LEVEL_EASY) {
+                $endDatetime = fake()->optional(0.6)->dateTimeBetween('+1 week', '+3 months');
+            } else {
+                if ($i === 0) {
+                    $endDatetime = fake()->dateTimeBetween('-2 weeks', '-1 day');
+                } elseif ($i === 1) {
+                    $endDatetime = null;
+                } else {
+                    $endDatetime = fake()->optional(0.7)->dateTimeBetween('+1 week', '+3 months');
+                }
+            }
+
             $projects[] = Project::factory()->create([
                 'user_id' => $user->id,
                 'name' => $data['name'],
                 'description' => $data['description'],
-                'start_datetime' => fake()->optional(0.6)->dateTimeBetween('-2 weeks', now()),
-                'end_datetime' => fake()->optional(0.6)->dateTimeBetween('+1 week', '+3 months'),
+                'start_datetime' => $startDatetime,
+                'end_datetime' => $endDatetime,
             ]);
         }
 
@@ -166,15 +218,39 @@ class FullFakeDataSeeder extends Seeder
     private function createEvents(User $user): array
     {
         $events = [];
+        $baseDate = Carbon::today();
         foreach (self::EVENTS as $data) {
+            $start = fake()->optional(0.8)->dateTimeBetween('-1 week', now());
+            $end = fake()->optional(0.8)->dateTimeBetween('+1 hour', '+2 months');
             $events[] = Event::factory()->create([
                 'user_id' => $user->id,
                 'title' => $data['title'],
                 'description' => $data['description'],
-                'start_datetime' => fake()->optional(0.8)->dateTimeBetween('-1 week', now()),
-                'end_datetime' => fake()->optional(0.8)->dateTimeBetween('+1 hour', '+2 months'),
+                'start_datetime' => $start,
+                'end_datetime' => $end,
                 'all_day' => $data['all_day'],
                 'status' => fake()->randomElement(EventStatus::cases()),
+            ]);
+        }
+
+        if ($this->level === self::LEVEL_REALISTIC || $this->level === self::LEVEL_NIGHTMARE) {
+            $events[] = Event::factory()->create([
+                'user_id' => $user->id,
+                'title' => 'Meeting 13:00–14:00',
+                'description' => 'Sprint planning',
+                'start_datetime' => $baseDate->copy()->setTime(13, 0),
+                'end_datetime' => $baseDate->copy()->setTime(14, 0),
+                'all_day' => false,
+                'status' => EventStatus::Scheduled,
+            ]);
+            $events[] = Event::factory()->create([
+                'user_id' => $user->id,
+                'title' => 'Call 13:30–14:30',
+                'description' => 'Client call',
+                'start_datetime' => $baseDate->copy()->setTime(13, 30),
+                'end_datetime' => $baseDate->copy()->setTime(14, 30),
+                'all_day' => false,
+                'status' => EventStatus::Scheduled,
             ]);
         }
 
@@ -189,17 +265,21 @@ class FullFakeDataSeeder extends Seeder
     private function createTasks(User $user, array $projects, array $events): array
     {
         $tasks = [];
+        $standaloneSpecs = $this->buildStandaloneTaskSpecs();
 
-        foreach (self::STANDALONE_TASKS as $data) {
+        foreach ($standaloneSpecs as $spec) {
             $tasks[] = Task::factory()->create([
                 'user_id' => $user->id,
                 'project_id' => null,
                 'event_id' => null,
-                'title' => $data['title'],
-                'description' => $data['description'],
+                'title' => $spec['title'],
+                'description' => $spec['description'],
                 'status' => fake()->randomElement(TaskStatus::cases()),
-                'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', now()),
-                'end_datetime' => fake()->optional(0.6)->dateTimeBetween('+1 day', '+1 month'),
+                'priority' => $spec['priority'],
+                'complexity' => $spec['complexity'],
+                'duration' => $spec['duration'],
+                'start_datetime' => $spec['start_datetime'],
+                'end_datetime' => $spec['end_datetime'],
             ]);
         }
 
@@ -212,6 +292,9 @@ class FullFakeDataSeeder extends Seeder
                 'title' => $title,
                 'description' => null,
                 'status' => fake()->randomElement(TaskStatus::cases()),
+                'priority' => fake()->randomElement(TaskPriority::cases()),
+                'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                'duration' => fake()->optional(0.6)->numberBetween(15, 240),
                 'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', '+2 weeks'),
                 'end_datetime' => fake()->optional(0.6)->dateTimeBetween('+1 day', '+1 month'),
             ]);
@@ -226,12 +309,116 @@ class FullFakeDataSeeder extends Seeder
                 'title' => $title,
                 'description' => null,
                 'status' => fake()->randomElement(TaskStatus::cases()),
+                'priority' => fake()->randomElement(TaskPriority::cases()),
+                'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                'duration' => fake()->optional(0.5)->numberBetween(15, 120),
                 'start_datetime' => $event->start_datetime?->copy(),
                 'end_datetime' => $event->end_datetime?->copy() ?? fake()->dateTimeBetween('+1 hour', '+1 week'),
             ]);
         }
 
         return $tasks;
+    }
+
+    /**
+     * Build standalone task specs (title, description, priority, complexity, duration, times) by level.
+     *
+     * @return array<int, array{title: string, description: string|null, priority: TaskPriority, complexity: TaskComplexity, duration: int|null, start_datetime: \DateTimeInterface|null, end_datetime: \DateTimeInterface|null}>
+     */
+    private function buildStandaloneTaskSpecs(): array
+    {
+        $specs = [];
+        $now = Carbon::now();
+
+        if ($this->level === self::LEVEL_EASY) {
+            foreach (array_slice(self::TASKS_CLEAN, 0, 6) as $data) {
+                $specs[] = [
+                    'title' => $data['title'],
+                    'description' => $data['description'],
+                    'priority' => fake()->randomElement(TaskPriority::cases()),
+                    'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                    'duration' => fake()->numberBetween(15, 240),
+                    'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', 'now'),
+                    'end_datetime' => fake()->dateTimeBetween('+1 day', '+1 month'),
+                ];
+            }
+
+            return $specs;
+        }
+
+        $cleanCount = (int) round(6 * 0.4);
+        $messyCount = (int) round(6 * 0.30);
+        $conflictingCount = (int) round(6 * 0.15);
+        $incompleteCount = (int) round(6 * 0.15);
+        if ($this->level === self::LEVEL_NIGHTMARE) {
+            $conflictingCount = 3;
+            $incompleteCount = 3;
+            $cleanCount = 2;
+            $messyCount = 2;
+        }
+
+        $clean = self::TASKS_CLEAN;
+        $messy = self::TASKS_MESSY;
+        for ($i = 0; $i < $cleanCount && $i < count($clean); $i++) {
+            $data = $clean[$i];
+            $specs[] = [
+                'title' => $data['title'],
+                'description' => $data['description'],
+                'priority' => fake()->randomElement(TaskPriority::cases()),
+                'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                'duration' => fake()->numberBetween(15, 240),
+                'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', 'now'),
+                'end_datetime' => fake()->dateTimeBetween('+1 day', '+1 month'),
+            ];
+        }
+        for ($i = 0; $i < $messyCount && $i < count($messy); $i++) {
+            $data = $messy[$i];
+            $specs[] = [
+                'title' => $data['title'],
+                'description' => $data['description'],
+                'priority' => fake()->randomElement(TaskPriority::cases()),
+                'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                'duration' => fake()->optional(0.5)->numberBetween(15, 120),
+                'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', 'now'),
+                'end_datetime' => fake()->optional(0.6)->dateTimeBetween('+1 day', '+1 month'),
+            ];
+        }
+        for ($i = 0; $i < $conflictingCount; $i++) {
+            $specs[] = [
+                'title' => self::TASK_TITLE_DUPLICATE,
+                'description' => null,
+                'priority' => $this->level === self::LEVEL_NIGHTMARE ? TaskPriority::Urgent : fake()->randomElement([TaskPriority::Urgent, TaskPriority::High]),
+                'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                'duration' => fake()->numberBetween(60, 180),
+                'start_datetime' => fake()->optional(0.5)->dateTimeBetween('-1 week', 'now'),
+                'end_datetime' => fake()->dateTimeBetween('+1 day', '+1 week'),
+            ];
+        }
+        for ($i = 0; $i < $incompleteCount; $i++) {
+            $specs[] = [
+                'title' => 'Incomplete task '.($i + 1),
+                'description' => null,
+                'priority' => fake()->randomElement(TaskPriority::cases()),
+                'complexity' => fake()->randomElement(TaskComplexity::cases()),
+                'duration' => null,
+                'start_datetime' => null,
+                'end_datetime' => null,
+            ];
+        }
+
+        if ($this->level === self::LEVEL_NIGHTMARE) {
+            $specs[] = [
+                'title' => 'Impossible 5h due in 2h',
+                'description' => '5h work, deadline in 2 hours',
+                'priority' => TaskPriority::Urgent,
+                'complexity' => TaskComplexity::Complex,
+                'duration' => 300,
+                'start_datetime' => $now->copy(),
+                'end_datetime' => $now->copy()->addHours(2),
+            ];
+        }
+
+        return $specs;
     }
 
     /**
@@ -529,6 +716,13 @@ class FullFakeDataSeeder extends Seeder
                 'field' => 'status',
                 'from' => TaskStatus::ToDo->value,
                 'to' => TaskStatus::Doing->value,
+            ]);
+        }
+        if (count($tasks) > 1) {
+            $recorder->record($tasks[1], $user, ActivityLogAction::FieldUpdated, [
+                'field' => 'priority',
+                'from' => TaskPriority::Medium->value,
+                'to' => TaskPriority::High->value,
             ]);
         }
         if (count($projects) > 0) {

@@ -9,6 +9,7 @@ use App\Models\AssistantThread;
 use App\Models\User;
 use App\Services\Llm\LlmHealthCheck;
 use App\Services\Llm\LlmInteractionLogger;
+use App\Services\Llm\StructuredOutputSanitizer;
 use App\Services\LlmInferenceService;
 use Illuminate\Support\Str;
 
@@ -20,6 +21,7 @@ class RunLlmInferenceAction
         private LlmInferenceService $inferenceService,
         private LlmHealthCheck $healthCheck,
         private LlmInteractionLogger $interactionLogger,
+        private StructuredOutputSanitizer $sanitizer,
     ) {}
 
     public function execute(
@@ -69,6 +71,16 @@ class RunLlmInferenceAction
             intent: $intent,
             promptResult: $promptResult,
             user: $user,
+        );
+
+        $sanitizedStructured = $this->sanitizer->sanitize($result->structured, $context, $intent);
+        $result = new LlmInferenceResult(
+            structured: $sanitizedStructured,
+            promptVersion: $result->promptVersion,
+            promptTokens: $result->promptTokens,
+            completionTokens: $result->completionTokens,
+            usedFallback: $result->usedFallback,
+            fallbackReason: $result->fallbackReason,
         );
 
         $durationMs = (int) ((microtime(true) - $startedAt) * 1000);

@@ -136,10 +136,17 @@ class LlmIntentClassificationService
     /** Phrases that ask for a list/filter (e.g. "tasks with low priority", "no due date") → general_query so LLM can use listed_items. */
     private const INTENT_LIST_OR_FILTER = ['low prio', 'low priority', 'no due date', 'no due dates', 'without due date', 'without deadline', 'that have no due', 'with no due date', 'that has no due', 'has no due date', 'list the tasks', 'which tasks have', 'which events have'];
 
+    /** Meta-questions or complaints about the assistant → general_query so the model can respond conversationally. */
+    private const INTENT_META_OR_COMPLAINT = ['why did you not', 'why did you not answer', 'are you hallucinating', 'too complex', 'too hard for you', 'repeat it twice', 'answer it the first time', 'could not produce', 'unavailable'];
+
     private function detectIntent(string $normalized, LlmEntityType $entityType): LlmIntent
     {
         if ($this->hasAnyKeyword($normalized, self::INTENT_RESOLVE_DEPENDENCY)) {
             return LlmIntent::ResolveDependency;
+        }
+
+        if ($this->hasAnyKeyword($normalized, self::INTENT_META_OR_COMPLAINT)) {
+            return LlmIntent::GeneralQuery;
         }
 
         if ($this->hasAnyKeyword($normalized, self::INTENT_DELETE_OR_REMOVE)

@@ -236,3 +236,106 @@ test('context respects entity_id filter for single task', function (): void {
         ->and($context['tasks'][0]['id'])->toBe($t1->id)
         ->and($context['tasks'][0]['title'])->toBe('First');
 });
+
+test('prioritize_tasks task context does not include complexity or project_id', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'Rank me',
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null
+    );
+
+    $task = $context['tasks'][0];
+    expect($task)->toHaveKeys(['id', 'title', 'end_datetime', 'priority', 'is_recurring', 'status'])
+        ->and($task)->not->toHaveKey('complexity')
+        ->and($task)->not->toHaveKey('project_id')
+        ->and($task)->not->toHaveKey('description');
+});
+
+test('general_query task context includes full set with description and complexity', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'Full task',
+        'description' => 'Some details',
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::GeneralQuery,
+        LlmEntityType::Task,
+        null,
+        null
+    );
+
+    $task = $context['tasks'][0];
+    expect($task)->toHaveKeys(['id', 'title', 'description', 'complexity', 'duration', 'end_datetime', 'priority', 'is_recurring'])
+        ->and($task['title'])->toBe('Full task');
+});
+
+test('schedule_task task context includes duration priority description end_datetime', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'Schedule me',
+        'description' => 'Blockers here',
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleTask,
+        LlmEntityType::Task,
+        null,
+        null
+    );
+
+    $task = $context['tasks'][0];
+    expect($task)->toHaveKeys(['id', 'title', 'description', 'duration', 'priority', 'end_datetime', 'is_recurring'])
+        ->and($task)->not->toHaveKey('complexity');
+});
+
+test('prioritize_events event context does not include description or status', function (): void {
+    Event::factory()->for($this->user)->create([
+        'title' => 'Event to rank',
+        'status' => 'scheduled',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeEvents,
+        LlmEntityType::Event,
+        null,
+        null
+    );
+
+    $event = $context['events'][0];
+    expect($event)->toHaveKeys(['id', 'title', 'start_datetime', 'end_datetime', 'is_recurring'])
+        ->and($event)->not->toHaveKey('description')
+        ->and($event)->not->toHaveKey('status');
+});
+
+test('general_query event context includes description and status', function (): void {
+    Event::factory()->for($this->user)->create([
+        'title' => 'Full event',
+        'description' => 'Event details',
+        'status' => 'scheduled',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::GeneralQuery,
+        LlmEntityType::Event,
+        null,
+        null
+    );
+
+    $event = $context['events'][0];
+    expect($event)->toHaveKeys(['id', 'title', 'description', 'start_datetime', 'end_datetime', 'status', 'is_recurring']);
+});
