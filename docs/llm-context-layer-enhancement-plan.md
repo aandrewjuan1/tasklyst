@@ -112,7 +112,83 @@ Derived from prompt templates and schemas:
 
 ---
 
-## 6. Out of Scope (Future)
+## 6. Frontend UI Flow (Optimistic / Hybrid via Alpine + Livewire)
+
+Although this document focuses on the backend context layer, the LLM assistant is consumed through a **chat UI in a Flux flyout modal**. The frontend should follow the **optimistic UI pattern** described in `docs/optimistic-ui-guide.md`, similar to how collaborators and calendar feeds work:
+
+- `resources/views/components/workspace/collaborators-popover.blade.php`
+- `resources/views/components/workspace/calendar-feeds-popover.blade.php`
+
+### 6.1. High-level frontend pattern
+
+- **Livewire** provides server-side methods:
+  - e.g. `processAssistantMessage(string $message, ?int $threadId)` which internally uses `ProcessAssistantMessageAction` and the LLM pipeline.
+- **Alpine.js** owns the chat UI state in the browser:
+  - `messages` array (user + assistant messages, including metadata).
+  - `input` string for the current message.
+  - `sending` / `error` flags and optional `pendingTraceId`.
+- **Flux UI** renders the flyout and components:
+  - `flux:modal flyout` + `flux:textarea` + `flux:button` for the chat surface (see `llm-assistant-chat-ui-guidelines.md`).
+
+Key rule: **treat Livewire as a transport** and Alpine as the source of truth for visible chat state, just like in the collaborators and calendar feeds popovers.
+
+### 6.2. Optimistic send message flow
+
+Use the 5‑phase optimistic pattern from `optimistic-ui-guide.md` for sending a message:
+
+1. **Snapshot**  
+   - Keep a backup of the `messages` array before changes:  
+     `const messagesBackup = [...this.messages];`
+2. **Optimistic UI update**  
+   - Push the user message into `messages` immediately.
+   - Append a **temporary assistant “thinking” bubble** (e.g. `{ id: 'temp-'+Date.now(), role: 'assistant', status: 'pending' }`).
+   - Clear the input field and set `sending = true`.
+3. **Call server (Livewire)**  
+   - Use `$wire.call()` (or `$wire.$call()` from Alpine) to dispatch the backend action without blocking UI:  
+     `const promise = $wire.call('processAssistantMessage', this.input, this.threadId);`
+4. **Handle response**  
+   - `await promise` and replace the temporary assistant bubble with the real assistant message payload returned from the Livewire method (including `RecommendationDisplayDto` data).
+   - Keep `messages` as-is on success; set `sending = false`.
+5. **Rollback on error**  
+   - In `catch`, restore `this.messages = messagesBackup;`
+   - Show a toast or inline error (similar to `inviteInlineError` and calendar `inlineError` patterns).
+   - Set `sending = false`.
+
+This mirrors:
+
+- **Collaborators popover**: optimistic removal / permission change with rollback and toasts.
+- **Calendar feeds popover**: hybrid pattern with inline error, `connecting` / `loadingFeeds` flags, and `$wire.$call` for backend actions.
+
+### 6.3. Loading and streaming behavior
+
+- While `sending` is `true`:
+  - Disable the send button (`x-bind:disabled="sending || !input.trim()"`).
+  - Show a “typing” indicator in the assistant bubble (e.g. spinner icon).
+- When the backend finishes:
+  - Replace the pending assistant bubble with the full `message` and `structured` data from `RecommendationDisplayDto`.
+  - Optionally listen for browser events (`@assistant-message-created.window`) if Livewire dispatches events after the queued job completes; Alpine can then merge new messages into its local `messages` array.
+
+### 6.4. Alignment with context layer
+
+The context layer remains a **pure backend concern**. The frontend:
+
+- Never constructs or sends the context JSON itself.
+- Only sends:
+  - `userMessage` text,
+  - optional `threadId`,
+  - any lightweight hints (if needed later, e.g. targeting a specific task/event/project).
+- Renders assistant replies using the **display DTO** and **structured output**:
+  - `message` as the main bubble.
+  - `structured.ranked_tasks` / `listed_items` / `next_steps` as secondary sections.
+
+This separation ensures:
+
+- The **optimistic/hybrid Alpine + Livewire UX** can evolve independently of the context payload.
+- The LLM context optimization work in `ContextBuilder` can change without breaking the chat UI contract.
+
+---
+
+## 7. Out of Scope (Future)
 
 - **Semantic RAG:** Embedding the user message and retrieving “most relevant” tasks/events (e.g. for “schedule my essay”) — would require an embedding model and store.
 - **Config-driven field sets:** Defining field sets in config files instead of code — can be added later if we want non-developers to tune.
