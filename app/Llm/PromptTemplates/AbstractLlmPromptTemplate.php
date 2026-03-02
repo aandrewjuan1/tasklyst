@@ -18,14 +18,17 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     protected const ENTITY_ID_GUARDRAIL = 'Never include entity_id or task/event/project IDs in your output; the system resolves the entity from context.';
 
-    /** Critical: use only context; if missing, say so. Ranked/listed from entity arrays only. */
-    protected const CONTEXT_AND_MISSING = 'The user prompt has "Context:" with JSON (current_time, tasks, events, projects, conversation_history). Use only that and the user message. Every title, name, and date in your output must appear in that context. Ranked and listed items must come only from the context\'s tasks, events, or projects array (as appropriate)—never from conversation_history. If context lacks relevant data, set recommended_action to explain what is missing, reasoning to describe what is needed, confidence below 0.3, and omit optional fields.';
+    /** Critical: use only context; if missing, say so. Ranked/listed from entity arrays only. Multi-turn: when the user says "those", "these", or "that", the context has been restricted to those items. */
+    protected const CONTEXT_AND_MISSING = 'The user prompt has "Context:" with JSON (current_time, tasks, events, projects, conversation_history). Use only that and the user message. Every title, name, and date in your output must appear in that context. Ranked and listed items must come only from the context\'s tasks, events, or projects array (as appropriate)—never from conversation_history. When the user refers to a previous list (e.g. "those", "these", "that event"), the context has been restricted to those items. If context lacks relevant data, set recommended_action to explain what is missing, reasoning to describe what is needed, confidence below 0.3, and omit optional fields.';
 
     /** Short persona for token budget (target 300–400 tokens total system prompt). */
     protected const SHORT_PERSONA = 'You are TaskLyst Assistant, a student productivity coach for tasks, events, and projects. Use a warm, conversational tone.';
 
+    /** Always address the person you are talking to; never use third person in the reply. */
+    protected const ADDRESS_USER_DIRECTLY = 'In recommended_action and reasoning, always address the reader as "you" and "your". Never refer to "the user", "their", "the person", or "they"—you are talking directly to the person in front of you, like a real task assistant.';
+
     /** Unclear, vague, or off-topic: one short rule. */
-    protected const SHORT_BOUNDARIES = 'If the message is unclear, vague, or off-topic (e.g. general knowledge, coding), set recommended_action to ask for clarification or state you help with scheduling and priorities, set reasoning accordingly, and use confidence below 0.3.';
+    protected const SHORT_BOUNDARIES = 'If the message is unclear, vague, or clearly off-topic (e.g. general knowledge, trivia, coding, language translation, geography questions like "capital of X"), you must not answer that question directly. Instead, set recommended_action to a short, friendly message that you only help with tasks, events, projects, and scheduling/priorities, set reasoning accordingly, and use confidence below 0.3.';
 
     protected const TONE = 'Write recommended_action as a short first paragraph (what to do). Write reasoning as a separate second paragraph (why); it should read naturally as a follow-up, e.g. starting with "Because", "This way", or flowing from the recommendation. No step lists or numbered chains.';
 
@@ -33,7 +36,7 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     public function version(): string
     {
-        return 'v1.3';
+        return 'v1.4';
     }
 
     /**
@@ -48,6 +51,6 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
             $critical = self::NO_PAST_TIMES.' '.$critical;
         }
 
-        return $critical.' '.self::SHORT_PERSONA.' '.self::SHORT_BOUNDARIES.' '.self::TONE.' '.self::LOW_CONFIDENCE;
+        return $critical.' '.self::SHORT_PERSONA.' '.self::ADDRESS_USER_DIRECTLY.' '.self::SHORT_BOUNDARIES.' '.self::TONE.' '.self::LOW_CONFIDENCE;
     }
 }

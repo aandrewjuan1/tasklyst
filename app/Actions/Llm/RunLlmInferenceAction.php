@@ -58,7 +58,7 @@ class RunLlmInferenceAction
             return $result;
         }
 
-        $context = $this->buildContext->execute($user, $intent, $entityType, $entityId, $thread);
+        $context = $this->buildContext->execute($user, $intent, $entityType, $entityId, $thread, $userMessage);
 
         $contextJson = json_encode($context, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $userPrompt = Str::limit($userMessage, 2000)."\n\nContext:\n".$contextJson;
@@ -73,7 +73,13 @@ class RunLlmInferenceAction
             user: $user,
         );
 
-        $sanitizedStructured = $this->sanitizer->sanitize($result->structured, $context, $intent);
+        $sanitizedStructured = $this->sanitizer->sanitize(
+            $result->structured,
+            $context,
+            $intent,
+            $entityType,
+            $userMessage
+        );
         $result = new LlmInferenceResult(
             structured: $sanitizedStructured,
             promptVersion: $result->promptVersion,
