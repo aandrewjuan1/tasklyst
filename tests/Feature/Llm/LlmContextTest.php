@@ -125,12 +125,155 @@ test('context includes conversation history when thread provided', function (): 
         LlmIntent::PrioritizeTasks,
         LlmEntityType::Task,
         null,
-        $thread
+        $thread,
+        null
     );
 
     expect($context['conversation_history'])->toHaveCount(2)
         ->and($context['conversation_history'][0])->toEqual(['role' => 'user', 'content' => 'Hello'])
         ->and($context['conversation_history'][1])->toEqual(['role' => 'assistant', 'content' => 'Hi there']);
+});
+
+test('conversation history excludes current user message to avoid duplication', function (): void {
+    $thread = AssistantThread::factory()->for($this->user)->create();
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'First message']);
+    AssistantMessage::factory()->for($thread)->assistant()->create(['content' => 'First reply']);
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'Schedule those tasks']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        $thread,
+        'Schedule those tasks'
+    );
+
+    expect($context['conversation_history'])->toHaveCount(2)
+        ->and($context['conversation_history'][0])->toEqual(['role' => 'user', 'content' => 'First message'])
+        ->and($context['conversation_history'][1])->toEqual(['role' => 'assistant', 'content' => 'First reply']);
+});
+
+test('prioritize_tasks context scopes to previous list when user references those items', function (): void {
+    Task::factory()->for($this->user)->create(['title' => 'Fix stuff', 'status' => 'to_do', 'completed_at' => null]);
+    Task::factory()->for($this->user)->create(['title' => 'Send email', 'status' => 'to_do', 'completed_at' => null]);
+    Task::factory()->for($this->user)->create(['title' => 'Submit proposal', 'status' => 'to_do', 'completed_at' => null]);
+
+    $thread = AssistantThread::factory()->for($this->user)->create();
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'list tasks that are recurring']);
+    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
+        'recommendation_snapshot' => [
+            'structured' => [
+                'listed_items' => [
+                    ['title' => 'Fix stuff'],
+                    ['title' => 'Send email'],
+                ],
+            ],
+        ],
+    ])->create(['content' => 'Here are your recurring tasks.', 'role' => 'assistant']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        $thread,
+        'in those 2 what should i do first'
+    );
+
+    $titles = collect($context['tasks'])->pluck('title')->values()->all();
+    expect($context['tasks'])->toHaveCount(2)
+        ->and($titles)->toContain('Fix stuff')
+        ->and($titles)->toContain('Send email')
+        ->and($titles)->not->toContain('Submit proposal');
+});
+
+test('schedule_task context scopes to previous list when user says schedule that task', function (): void {
+    Task::factory()->for($this->user)->create(['title' => 'Incomplete task 1', 'status' => 'to_do', 'completed_at' => null, 'start_datetime' => null, 'end_datetime' => null]);
+    Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
+
+    $thread = AssistantThread::factory()->for($this->user)->create();
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'tasks that have no dates']);
+    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
+        'recommendation_snapshot' => [
+            'structured' => [
+                'listed_items' => [['title' => 'Incomplete task 1']],
+            ],
+        ],
+    ])->create(['content' => 'Here are your tasks with no set dates.', 'role' => 'assistant']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleTask,
+        LlmEntityType::Task,
+        null,
+        $thread,
+        'schedule that task, suggest a time where i can do it'
+    );
+
+    expect($context['tasks'])->toHaveCount(1)
+        ->and($context['tasks'][0]['title'])->toBe('Incomplete task 1');
+});
+
+test('general_query task context scopes to previous list when user says about those', function (): void {
+    Task::factory()->for($this->user)->create(['title' => 'Task A', 'status' => 'to_do', 'completed_at' => null]);
+    Task::factory()->for($this->user)->create(['title' => 'Task B', 'status' => 'to_do', 'completed_at' => null]);
+    Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
+
+    $thread = AssistantThread::factory()->for($this->user)->create();
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'list low priority tasks']);
+    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
+        'recommendation_snapshot' => [
+            'structured' => [
+                'listed_items' => [
+                    ['title' => 'Task A'],
+                    ['title' => 'Task B'],
+                ],
+            ],
+        ],
+    ])->create(['content' => 'Here are your low-priority tasks.', 'role' => 'assistant']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::GeneralQuery,
+        LlmEntityType::Task,
+        null,
+        $thread,
+        'tell me more about those'
+    );
+
+    $titles = collect($context['tasks'])->pluck('title')->values()->all();
+    expect($context['tasks'])->toHaveCount(2)
+        ->and($titles)->toContain('Task A')
+        ->and($titles)->toContain('Task B')
+        ->and($titles)->not->toContain('Other task');
+});
+
+test('schedule_event context scopes to previous list when user says schedule that event', function (): void {
+    Event::factory()->for($this->user)->create(['title' => 'Doctor checkup', 'status' => 'scheduled', 'start_datetime' => null, 'end_datetime' => null]);
+    Event::factory()->for($this->user)->create(['title' => 'Lunch with Mom', 'status' => 'scheduled']);
+
+    $thread = AssistantThread::factory()->for($this->user)->create();
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'what events that has no set dates']);
+    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
+        'recommendation_snapshot' => [
+            'structured' => [
+                'listed_items' => [['title' => 'Doctor checkup']],
+            ],
+        ],
+    ])->create(['content' => 'Here are your events with no set dates.', 'role' => 'assistant']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleEvent,
+        LlmEntityType::Event,
+        null,
+        $thread,
+        'schedule that event for me, suggest a time'
+    );
+
+    expect($context['events'])->toHaveCount(1)
+        ->and($context['events'][0]['title'])->toBe('Doctor checkup');
 });
 
 test('task context marks is_recurring true when recurringTask exists', function (): void {
@@ -187,6 +330,42 @@ test('resolve_dependency context includes tasks and events', function (): void {
     expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'conversation_history'])
         ->and($context['tasks'])->toBeArray()
         ->and($context['events'])->toBeArray();
+});
+
+test('resolve_dependency context scopes to previous list when user says for those', function (): void {
+    Task::factory()->for($this->user)->create(['title' => 'Blocked task A', 'status' => 'to_do', 'completed_at' => null]);
+    Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
+    Event::factory()->for($this->user)->create(['title' => 'Blocked event', 'status' => 'scheduled']);
+
+    $thread = AssistantThread::factory()->for($this->user)->create();
+    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'list blocked items']);
+    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
+        'recommendation_snapshot' => [
+            'structured' => [
+                'listed_items' => [
+                    ['title' => 'Blocked task A'],
+                    ['title' => 'Blocked event'],
+                ],
+            ],
+        ],
+    ])->create(['content' => 'Here are your blocked items.', 'role' => 'assistant']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ResolveDependency,
+        LlmEntityType::Task,
+        null,
+        $thread,
+        'resolve dependencies for those'
+    );
+
+    $taskTitles = collect($context['tasks'])->pluck('title')->values()->all();
+    $eventTitles = collect($context['events'])->pluck('title')->values()->all();
+    expect($context['tasks'])->toHaveCount(1)
+        ->and($taskTitles)->toContain('Blocked task A')
+        ->and($taskTitles)->not->toContain('Other task')
+        ->and($context['events'])->toHaveCount(1)
+        ->and($eventTitles)->toContain('Blocked event');
 });
 
 test('context token cap trims conversation history first', function (): void {

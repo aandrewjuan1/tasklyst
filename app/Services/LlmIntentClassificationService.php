@@ -134,7 +134,13 @@ class LlmIntentClassificationService
     private const INTENT_DELETE_OR_REMOVE = ['delete', 'remove', 'drop', 'get rid of'];
 
     /** Phrases that ask for a list/filter (e.g. "tasks with low priority", "no due date") → general_query so LLM can use listed_items. */
-    private const INTENT_LIST_OR_FILTER = ['low prio', 'low priority', 'no due date', 'no due dates', 'without due date', 'without deadline', 'that have no due', 'with no due date', 'that has no due', 'has no due date', 'list the tasks', 'which tasks have', 'which events have'];
+    private const INTENT_LIST_OR_FILTER = [
+        'low prio', 'low priority',
+        'no due date', 'no due dates', 'without due date', 'without deadline', 'that have no due', 'with no due date', 'that has no due', 'has no due date',
+        'no set dates', 'no dates', 'without dates', 'has no dates', 'that has no set dates', 'that have no set dates', 'with no set dates', 'tasks that has no set dates',
+        'list the tasks', 'which tasks have', 'which events have',
+        'show me my tasks', 'show me all my tasks', 'show all my tasks', 'show my tasks', 'show tasks', 'show my events', 'show all my events',
+    ];
 
     /** Meta-questions or complaints about the assistant → general_query so the model can respond conversationally. */
     private const INTENT_META_OR_COMPLAINT = ['why did you not', 'why did you not answer', 'are you hallucinating', 'too complex', 'too hard for you', 'repeat it twice', 'answer it the first time', 'could not produce', 'unavailable'];
@@ -192,6 +198,13 @@ class LlmIntentClassificationService
     private function computeConfidence(string $normalized, LlmIntent $intent, LlmEntityType $entityType): float
     {
         if ($intent === LlmIntent::GeneralQuery) {
+            // List/filter and delete/remove queries are intentionally routed to GeneralQuery and
+            // should not trigger LLM fallback, so give them high confidence.
+            if ($this->hasAnyKeyword($normalized, self::INTENT_LIST_OR_FILTER)
+                || $this->hasAnyKeyword($normalized, self::INTENT_DELETE_OR_REMOVE)) {
+                return 0.9;
+            }
+
             return 0.5;
         }
 

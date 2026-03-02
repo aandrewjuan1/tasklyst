@@ -55,6 +55,37 @@ it('classifies which task to delete or remove as general_query', function (): vo
         ->and($result->entityType)->toBe(LlmEntityType::Task);
 });
 
+it('classifies tasks with no set dates as general_query', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('in all of my tasks list me the tasks that has no set dates');
+
+    expect($result->intent)->toBe(LlmIntent::GeneralQuery)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+it('classifies show me my tasks for this week as general_query', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('Show me all my tasks for this week');
+
+    expect($result->intent)->toBe(LlmIntent::GeneralQuery)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+it('classifies give me all low priority tasks as general_query with high confidence', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('give me all low priority tasks');
+
+    expect($result->intent)->toBe(LlmIntent::GeneralQuery)
+        ->and($result->entityType)->toBe(LlmEntityType::Task)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.8);
+});
+
 it('classifies meta or complaint questions about the assistant as general_query', function (string $message): void {
     /** @var LlmIntentClassificationService $service */
     $service = app(LlmIntentClassificationService::class);

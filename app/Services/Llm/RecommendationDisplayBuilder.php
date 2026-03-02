@@ -28,7 +28,9 @@ class RecommendationDisplayBuilder
         $reasoningForDisplay = $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.');
 
         $listedItems = isset($structured['listed_items']) && is_array($structured['listed_items']) ? $structured['listed_items'] : null;
-        $message = $this->buildMessageWithOptionalList($actionForDisplay, $reasoningForDisplay, $listedItems);
+        $rankedLines = $this->formatRankedListForMessage($structured, $intent);
+        $nextStepsLines = $this->formatNextStepsForMessage($structured);
+        $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
 
         return new RecommendationDisplayDto(
@@ -116,17 +118,85 @@ class RecommendationDisplayBuilder
     }
 
     /**
-     * Build reply: optional summary, optional list (when LLM returns listed_items), optional reasoning.
-     * Flexible format so list-style answers (e.g. "tasks with low priority", "tasks with no due date") are shown as a list.
+     * Format ranked_tasks, ranked_events, or ranked_projects into lines for the message body.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<int, string>
+     */
+    private function formatRankedListForMessage(array $structured, LlmIntent $intent): array
+    {
+        $ranked = $structured['ranked_tasks'] ?? $structured['ranked_events'] ?? $structured['ranked_projects'] ?? null;
+        if (! is_array($ranked) || $ranked === []) {
+            return [];
+        }
+
+        $lines = [];
+        foreach ($ranked as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $rank = $item['rank'] ?? null;
+            $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : null;
+            $name = isset($item['name']) && is_string($item['name']) ? trim($item['name']) : null;
+            $label = $title ?? $name ?? '';
+            if ($label === '') {
+                continue;
+            }
+            $suffix = [];
+            if (isset($item['end_datetime']) && is_string($item['end_datetime']) && $item['end_datetime'] !== '') {
+                $suffix[] = $item['end_datetime'];
+            } elseif (isset($item['start_datetime']) && is_string($item['start_datetime']) && $item['start_datetime'] !== '') {
+                $suffix[] = $item['start_datetime'];
+            }
+            $line = ($rank !== null ? '#'.$rank.' ' : '').$label;
+            if ($suffix !== []) {
+                $line .= ' ('.implode(', ', $suffix).')';
+            }
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Format next_steps (resolve_dependency) into numbered lines for the message body.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<int, string>
+     */
+    private function formatNextStepsForMessage(array $structured): array
+    {
+        $steps = $structured['next_steps'] ?? null;
+        if (! is_array($steps) || $steps === []) {
+            return [];
+        }
+
+        $lines = [];
+        $i = 1;
+        foreach ($steps as $step) {
+            if (is_string($step) && trim($step) !== '') {
+                $lines[] = $i.'. '.trim($step);
+                $i++;
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Build reply: optional summary, optional ranked list (prioritize intents), optional bullet list (listed_items), optional next_steps, optional reasoning.
+     * Ensures the full LLM answer (including ranked_* and listed_items) is shown to the user.
      *
      * @param  array<int, array{title: string, priority?: string, end_datetime?: string}>|null  $listedItems
+     * @param  array<int, string>  $rankedLines  Pre-formatted lines for ranked_tasks / ranked_events / ranked_projects
+     * @param  array<int, string>  $nextStepsLines  Pre-formatted lines for next_steps (resolve_dependency)
      */
-    private function buildMessageWithOptionalList(string $recommendedAction, string $reasoning, ?array $listedItems): string
+    private function buildMessage(string $recommendedAction, string $reasoning, ?array $listedItems, array $rankedLines = [], array $nextStepsLines = []): string
     {
         $action = trim($recommendedAction);
         $reason = trim($reasoning);
 
-        if ($action === '' && $reason === '' && empty($listedItems)) {
+        if ($action === '' && $reason === '' && empty($listedItems) && $rankedLines === [] && $nextStepsLines === []) {
             return __('No specific action suggested. The assistant could not provide detailed reasoning.');
         }
 
@@ -134,6 +204,10 @@ class RecommendationDisplayBuilder
 
         if ($action !== '') {
             $parts[] = $action;
+        }
+
+        if ($rankedLines !== []) {
+            $parts[] = implode("\n", $rankedLines);
         }
 
         if (! empty($listedItems)) {
@@ -156,20 +230,15 @@ class RecommendationDisplayBuilder
             }
         }
 
+        if ($nextStepsLines !== []) {
+            $parts[] = implode("\n", $nextStepsLines);
+        }
+
         if ($reason !== '') {
             $parts[] = $reason;
         }
 
         return implode("\n\n", $parts);
-    }
-
-    /**
-     * Build reply as two paragraphs: recommendation first, then reasoning.
-     * No hardcoded connector so the LLM's own wording stays natural.
-     */
-    private function buildCombinedMessage(string $recommendedAction, string $reasoning): string
-    {
-        return $this->buildMessageWithOptionalList($recommendedAction, $reasoning, null);
     }
 
     private function parseDateTime(mixed $value): ?Carbon

@@ -84,13 +84,13 @@ return [
     |
     | When regex/keyword confidence is below confidence_threshold, the system
     | may use an optional second-pass LLM classification (if use_llm_fallback).
-    | Default: regex-only (use_llm_fallback false) for better performance;
-    | set to true and tune threshold when you need higher intent accuracy.
+    | Default: true for multi-turn support (e.g. "how about in events?" follow-ups);
+    | set to false for regex-only when you need lower latency.
     |
     */
     'intent' => [
         'confidence_threshold' => (float) env('TASKLYST_INTENT_CONFIDENCE_THRESHOLD', 0.75),
-        'use_llm_fallback' => env('TASKLYST_INTENT_LLM_FALLBACK', false),
+        'use_llm_fallback' => env('TASKLYST_INTENT_LLM_FALLBACK', true),
     ],
 
     /*

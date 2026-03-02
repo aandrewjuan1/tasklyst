@@ -22,8 +22,9 @@ class BuildLlmContextAction
         LlmIntent $intent,
         LlmEntityType $entityType,
         ?int $entityId = null,
-        ?AssistantThread $thread = null
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null
     ): array {
-        return $this->contextBuilder->build($user, $intent, $entityType, $entityId, $thread);
+        return $this->contextBuilder->build($user, $intent, $entityType, $entityId, $thread, $userMessage);
     }
 }

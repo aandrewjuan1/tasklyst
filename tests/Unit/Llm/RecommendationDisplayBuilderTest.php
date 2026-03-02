@@ -33,6 +33,10 @@ test('build returns display dto with validation confidence for prioritization', 
         ->and($dto->reasoning)->toContain('Step 1')
         ->and($dto->message)->toContain('Focus on overdue first.')
         ->and($dto->message)->toContain('Step 1')
+        ->and($dto->message)->toContain('#1')
+        ->and($dto->message)->toContain('Task A')
+        ->and($dto->message)->toContain('#2')
+        ->and($dto->message)->toContain('Task B')
         ->and($dto->validationConfidence)->toBeGreaterThan(0)
         ->and($dto->usedFallback)->toBeFalse()
         ->and($dto->structured)->toHaveKey('ranked_tasks')
@@ -129,7 +133,42 @@ test('build includes next_steps for resolve_dependency', function (): void {
         ->and($dto->structured['next_steps'])->toHaveCount(2)
         ->and($dto->validationConfidence)->toBeGreaterThan(0.5)
         ->and($dto->message)->toContain('Start with the blocker first.')
-        ->and($dto->message)->toContain('Unblocks everything else.');
+        ->and($dto->message)->toContain('Unblocks everything else.')
+        ->and($dto->message)->toContain('1.')
+        ->and($dto->message)->toContain('Email your tutor for feedback.')
+        ->and($dto->message)->toContain('2.')
+        ->and($dto->message)->toContain('Update the outline based on feedback.');
+});
+
+test('build includes ranked_events in message for prioritize_events', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'event',
+            'recommended_action' => 'Prioritize these upcoming events you have scheduled:',
+            'reasoning' => 'To effectively manage your time, focus on the soonest first.',
+            'ranked_events' => [
+                ['rank' => 1, 'title' => 'Conference call'],
+                ['rank' => 2, 'title' => 'Dentist appointment'],
+                ['rank' => 3, 'title' => '23 BDAY'],
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 100,
+        completionTokens: 60,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::PrioritizeEvents, LlmEntityType::Event);
+
+    expect($dto->message)->toContain('Prioritize these upcoming events you have scheduled:')
+        ->and($dto->message)->toContain('#1')
+        ->and($dto->message)->toContain('Conference call')
+        ->and($dto->message)->toContain('#2')
+        ->and($dto->message)->toContain('Dentist appointment')
+        ->and($dto->message)->toContain('#3')
+        ->and($dto->message)->toContain('23 BDAY')
+        ->and($dto->message)->toContain('To effectively manage your time');
 });
 
 test('build combined message puts action first then reasoning with natural connector', function (): void {
