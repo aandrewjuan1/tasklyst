@@ -28,6 +28,21 @@ class RecommendationDisplayBuilder
         $reasoningForDisplay = $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.');
 
         $listedItems = isset($structured['listed_items']) && is_array($structured['listed_items']) ? $structured['listed_items'] : null;
+
+        if ($intent === LlmIntent::GeneralQuery && $listedItems !== null && $listedItems !== []) {
+            $count = count($listedItems);
+            $entityLabel = match ($entityType) {
+                LlmEntityType::Event => $count === 1 ? __('event') : __('events'),
+                LlmEntityType::Project => $count === 1 ? __('project') : __('projects'),
+                default => $count === 1 ? __('task') : __('tasks'),
+            };
+
+            $actionForDisplay = __('You have :count :entity matching that request.', [
+                'count' => $count,
+                'entity' => $entityLabel,
+            ]);
+        }
+
         $rankedLines = $this->formatRankedListForMessage($structured, $intent);
         $nextStepsLines = $this->formatNextStepsForMessage($structured);
         $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);

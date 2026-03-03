@@ -52,6 +52,21 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
+            {{-- LLM Assistant trigger (Phase 1: shell + empty state) --}}
+            <flux:modal.trigger name="assistant-chat">
+                <flux:tooltip :content="__('Open TaskLyst Assistant')" position="bottom">
+                    <flux:button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        icon="sparkles"
+                        class="gap-1.5 text-[11px] font-medium"
+                    >
+                        {{ __('Assistant') }}
+                    </flux:button>
+                </flux:tooltip>
+            </flux:modal.trigger>
+
             <x-workspace.trash-popover />
             <x-workspace.filter-bar
                 :filters="$this->getFilters()"
@@ -167,5 +182,14 @@
             </div>
         </div>
     </div>
+
+    {{-- Assistant flyout modal (Phase 1: UI shell only, no backend wiring yet) --}}
+    <flux:modal
+        name="assistant-chat"
+        flyout
+        class="flex h-full max-h-[min(100vh,40rem)] w-full max-w-lg flex-col"
+    >
+        <livewire:assistant.chat-flyout />
+    </flux:modal>
 
 </section>
