@@ -61,32 +61,57 @@
 
             return out;
         },
-        quickActions() {
-            const msg = this.lastAssistant();
-            if (!msg || !msg.metadata) return [];
-            const snap = msg.metadata.recommendation_snapshot || {};
-            const entityType = snap.entity_type || msg.metadata.entity_type || null;
+        getSnapshot(message) {
+            if (!message || !message.metadata) return {};
+            return message.metadata.recommendation_snapshot || {};
+        },
+        getStructured(message) {
+            const snap = this.getSnapshot(message);
+            return snap.structured || {};
+        },
+        contextEntityLabel(message) {
+            const snap = this.getSnapshot(message);
+            const entity = snap.entity_type || (message.metadata && message.metadata.entity_type) || null;
 
-            const actions = [];
-
-            if (entityType === 'task' || !entityType) {
-                actions.push({
-                    label: '{{ __('Open task list') }}',
-                    href: this.workspaceUrl,
-                });
-            } else if (entityType === 'event') {
-                actions.push({
-                    label: '{{ __('Open calendar') }}',
-                    href: this.workspaceUrl,
-                });
-            } else if (entityType === 'project') {
-                actions.push({
-                    label: '{{ __('Open projects') }}',
-                    href: this.workspaceUrl,
-                });
+            if (entity === 'task') {
+                return '{{ __('Tasks') }}';
             }
 
-            return actions;
+            if (entity === 'event') {
+                return '{{ __('Events') }}';
+            }
+
+            if (entity === 'project') {
+                return '{{ __('Projects') }}';
+            }
+
+            return '';
+        },
+        contextIntentLabel(message) {
+            const snap = this.getSnapshot(message);
+            const intent = snap.intent || (message.metadata && message.metadata.intent) || null;
+
+            if (!intent) {
+                return '';
+            }
+
+            if (intent.startsWith('prioritize_')) {
+                return '{{ __('Prioritisation') }}';
+            }
+
+            if (intent.startsWith('schedule_') || intent.startsWith('adjust_')) {
+                return '{{ __('Scheduling') }}';
+            }
+
+            if (intent === 'resolve_dependency') {
+                return '{{ __('Dependencies') }}';
+            }
+
+            if (intent === 'general_query') {
+                return '{{ __('General') }}';
+            }
+
+            return '';
         },
         scrollToBottom(force = false) {
             const scroller = this.$refs.scroller;
@@ -110,6 +135,16 @@
             const distance = scroller.scrollHeight - (scroller.scrollTop + scroller.clientHeight);
             const nearBottom = distance < 40;
             this.showJumpToLatest = !nearBottom && this.pendingAssistantCount === 0;
+        },
+        resizeInput() {
+            const el = this.$refs.input;
+            if (!el) return;
+
+            const maxHeight = 96; // ~3–4 lines
+
+            el.style.height = 'auto';
+            const next = Math.min(el.scrollHeight, maxHeight);
+            el.style.height = `${next}px`;
         },
         subscribeToThread() {
             if (!this.threadId) return;
@@ -173,7 +208,7 @@
                     }
 
                     this.$nextTick(() => {
-                        this.scrollToBottom(false);
+                        this.scrollToBottom(true);
                     });
                 });
 
@@ -197,6 +232,9 @@
             };
 
             this.messages = [...this.messages, optimistic];
+            this.$nextTick(() => {
+                this.scrollToBottom(true);
+            });
             this.input = '';
             this.isSending = true;
             this.errorMessage = '';
@@ -243,7 +281,7 @@
             } finally {
                 this.isSending = false;
                 this.$nextTick(() => {
-                    this.scrollToBottom(false);
+                    this.scrollToBottom(true);
                 });
             }
         },
@@ -257,6 +295,9 @@
             }
             if (threadId) {
                 subscribeToThread();
+            }
+            if ($refs.input) {
+                resizeInput();
             }
         })
     "
@@ -320,6 +361,171 @@
                         : 'bg-muted text-foreground'"
                 >
                     <p class="whitespace-pre-wrap" x-text="message.content"></p>
+
+                    <template x-if="message.role === 'assistant'">
+                        <div class="mt-2 space-y-2">
+                            <template x-if="getStructured(message).ranked_tasks && getStructured(message).ranked_tasks.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Prioritised tasks') }}
+                                    </p>
+                                    <ol class="list-decimal pl-4 space-y-0.5">
+                                        <template
+                                            x-for="item in getStructured(message).ranked_tasks"
+                                            :key="`${item.rank}-${item.title}`"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="`#${item.rank} ${item.title}`"></span>
+                                                <span
+                                                    x-show="item.end_datetime"
+                                                    class="text-[11px] text-muted-foreground"
+                                                    x-text="` — ${new Date(item.end_datetime).toLocaleString()}`"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ol>
+                                </div>
+                            </template>
+
+                            <template x-if="getStructured(message).ranked_events && getStructured(message).ranked_events.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Prioritised events') }}
+                                    </p>
+                                    <ol class="list-decimal pl-4 space-y-0.5">
+                                        <template
+                                            x-for="event in getStructured(message).ranked_events"
+                                            :key="`${event.rank}-${event.title}`"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="`#${event.rank} ${event.title}`"></span>
+                                                <span
+                                                    x-show="event.start_datetime || event.end_datetime"
+                                                    class="text-[11px] text-muted-foreground"
+                                                    x-text="[
+                                                        event.start_datetime ? new Date(event.start_datetime).toLocaleString() : null,
+                                                        event.end_datetime ? new Date(event.end_datetime).toLocaleString() : null,
+                                                    ].filter(Boolean).join(' → ')"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ol>
+                                </div>
+                            </template>
+
+                            <template x-if="getStructured(message).ranked_projects && getStructured(message).ranked_projects.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Prioritised projects') }}
+                                    </p>
+                                    <ol class="list-decimal pl-4 space-y-0.5">
+                                        <template
+                                            x-for="project in getStructured(message).ranked_projects"
+                                            :key="`${project.rank}-${project.name}`"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="`#${project.rank} ${project.name}`"></span>
+                                                <span
+                                                    x-show="project.end_datetime"
+                                                    class="text-[11px] text-muted-foreground"
+                                                    x-text="` — ${new Date(project.end_datetime).toLocaleString()}`"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ol>
+                                </div>
+                            </template>
+
+                            <template x-if="getStructured(message).listed_items && getStructured(message).listed_items.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Suggested items') }}
+                                    </p>
+                                    <ul class="list-disc pl-4 space-y-0.5">
+                                        <template
+                                            x-for="item in getStructured(message).listed_items"
+                                            :key="item.title"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="item.title"></span>
+                                                <span
+                                                    x-show="item.priority"
+                                                    class="ml-1 inline-flex rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-tight text-emerald-700 dark:text-emerald-300"
+                                                    x-text="item.priority"
+                                                ></span>
+                                                <span
+                                                    x-show="item.end_datetime"
+                                                    class="ml-1 text-[11px] text-muted-foreground"
+                                                    x-text="new Date(item.end_datetime).toLocaleString()"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </template>
+
+                            <template x-if="getStructured(message).next_steps && getStructured(message).next_steps.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Next steps') }}
+                                    </p>
+                                    <ol class="list-decimal pl-4 space-y-0.5">
+                                        <template
+                                            x-for="(step, index) in getStructured(message).next_steps"
+                                            :key="`${index}-${step}`"
+                                        >
+                                            <li class="text-[11px]" x-text="step"></li>
+                                        </template>
+                                    </ol>
+                                </div>
+                            </template>
+
+                            <div
+                                x-show="
+                                    getSnapshot(message).used_fallback
+                                    || (
+                                        typeof getSnapshot(message).validation_confidence === 'number'
+                                        && getSnapshot(message).validation_confidence < 0.5
+                                    )
+                                "
+                                x-cloak
+                                class="mt-1 flex items-center gap-1.5"
+                            >
+                                <flux:icon name="information-circle" class="size-3 text-muted-foreground" />
+                                <p class="text-[10px] text-muted-foreground">
+                                    <span x-show="getSnapshot(message).used_fallback">
+                                        {{ __('This suggestion used a fallback. Consider double-checking details.') }}
+                                    </span>
+                                    <span
+                                        x-show="
+                                            !getSnapshot(message).used_fallback
+                                            && typeof getSnapshot(message).validation_confidence === 'number'
+                                            && getSnapshot(message).validation_confidence < 0.5
+                                        "
+                                    >
+                                        {{ __('Confidence is lower than usual. Check details before acting.') }}
+                                    </span>
+                                </p>
+                            </div>
+
+                            <div
+                                x-show="contextEntityLabel(message) || contextIntentLabel(message)"
+                                x-cloak
+                                class="mt-1 flex flex-wrap items-center gap-1.5"
+                            >
+                                <span
+                                    x-show="contextEntityLabel(message)"
+                                    class="inline-flex items-center rounded-full bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60"
+                                    x-text="contextEntityLabel(message)"
+                                ></span>
+                                <span
+                                    x-show="contextIntentLabel(message)"
+                                    class="inline-flex items-center rounded-full bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60"
+                                    x-text="contextIntentLabel(message)"
+                                ></span>
+                            </div>
+                        </div>
+                    </template>
                 </div>
             </div>
         </template>
@@ -339,20 +545,21 @@
             </div>
         </div>
 
-        <div
-            x-show="showJumpToLatest"
-            x-cloak
-            class="pointer-events-none fixed bottom-20 right-6 z-10 flex justify-end"
+    </div>
+
+    <div
+        x-show="showJumpToLatest"
+        x-cloak
+        class="flex justify-center px-4 pb-1"
+    >
+        <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded-full bg-zinc-900/90 px-3 py-1 text-[11px] font-medium text-zinc-50 shadow-lg ring-1 ring-black/30 dark:bg-zinc-100 dark:text-zinc-900 dark:ring-white/40"
+            @click="scrollToBottom(true)"
         >
-            <button
-                type="button"
-                class="pointer-events-auto inline-flex items-center gap-1 rounded-full bg-zinc-900/90 px-3 py-1 text-[11px] font-medium text-zinc-50 shadow-lg ring-1 ring-black/30 dark:bg-zinc-100 dark:text-zinc-900 dark:ring-white/40"
-                @click="scrollToBottom(true)"
-            >
-                <flux:icon name="chevron-down" class="size-3" />
-                <span>{{ __('Jump to latest') }}</span>
-            </button>
-        </div>
+            <flux:icon name="chevron-down" class="size-3" />
+            <span>{{ __('Jump to latest') }}</span>
+        </button>
     </div>
 
     <div class="border-t border-border/60 px-3 py-2">
@@ -366,33 +573,31 @@
                 <p x-text="errorMessage"></p>
             </div>
 
-            <div class="flex items-end gap-2">
+            <div class="flex items-center gap-2">
                 <flux:textarea
                     x-ref="input"
                     x-model="input"
                     rows="2"
-                    class="flex-1 resize-none text-xs!"
+                    class="flex-1 resize-none text-xs! max-h-24"
+                    style="resize: none;"
                     placeholder="{{ __('Ask about your tasks, events, or projects…') }}"
                     x-bind:disabled="isRateLimited || isSending || pendingAssistantCount > 0"
-                    @keydown.enter.prevent="submit()"
+                    @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); submit(); }"
+                    @input="resizeInput()"
                 />
 
                 <flux:button
                     type="button"
                     size="sm"
                     variant="primary"
-                    class="shrink-0"
+                    class="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full p-0"
                     x-bind:disabled="isRateLimited || isSending || pendingAssistantCount > 0 || !input.trim()"
-                    icon="paper-airplane"
+                    aria-label="{{ __('Send') }}"
                     @click="submit()"
                 >
-                    {{ __('Send') }}
+                    <flux:icon name="arrow-up" class="size-4" />
                 </flux:button>
             </div>
-
-            <p class="text-[11px] text-muted-foreground">
-                {{ __('Example: “Prioritise my tasks for today.”') }}
-            </p>
 
             <div
                 x-show="followupSuggestions().length > 0"
@@ -412,23 +617,6 @@
                 </template>
             </div>
 
-            <div
-                x-show="quickActions().length > 0"
-                x-cloak
-                class="mt-1 flex flex-wrap items-center gap-1.5"
-            >
-                <template x-for="action in quickActions()" :key="action.label">
-                    <flux:button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        class="text-[11px]! px-2.5 py-1!"
-                        @click="window.location = action.href"
-                    >
-                        <span x-text="action.label"></span>
-                    </flux:button>
-                </template>
-            </div>
         </div>
     </div>
 </div>
