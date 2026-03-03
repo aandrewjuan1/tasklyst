@@ -236,7 +236,8 @@ test('build formats message with listed_items as summary then bullet list then r
     $builder = app(RecommendationDisplayBuilder::class);
     $dto = $builder->build($result, LlmIntent::GeneralQuery, LlmEntityType::Task);
 
-    expect($dto->message)->toContain('Here are your tasks with no due date.')
+    expect($dto->recommendedAction)->toBe('You have 3 tasks matching that request.')
+        ->and($dto->message)->toContain('You have 3 tasks matching that request.')
         ->and($dto->message)->toContain('Task A')
         ->and($dto->message)->toContain('Task B')
         ->and($dto->message)->toContain('Task C')

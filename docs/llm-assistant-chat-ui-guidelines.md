@@ -1,253 +1,263 @@
-## TaskLyst LLM Assistant — Chat UI/UX Guidelines
+# TaskLyst LLM Assistant — Frontend UI Implementation Plan (AI Agent Context)
 
-This document captures the design guidelines for building the **Hermes 3B (hermes3:3b) task assistant UI** on top of the existing Laravel + Prism + Ollama backend. The goal is a **small, focused chat UI** embedded in a **Flux flyout modal**.
-
----
-
-## 1. High-level goals
-
-- **Assist, don’t overwhelm**: The assistant should feel like a light, focused helper for tasks/events/projects, not a full-screen chatbot.
-- **Grounded in TaskLyst data**: UI should reflect that answers are based on the user’s tasks, events, and projects (LLM context + structured output), not general-purpose chat.
-- **Fast to access, easy to dismiss**: The assistant lives in a **Flux `flyout` modal**, available from anywhere but not blocking the main workflow.
+This document is the **authoritative implementation plan** for the TaskLyst Hermes 3B (hermes3:3b) assistant chat UI. It is written for **AI agents and implementers**: backend-aligned data contracts, phased steps, and concrete file/component decisions. Use it as context when implementing the frontend; do not rely on the old high-level “guidelines” version.
 
 ---
 
-## 2. Embedding in a Flux flyout modal
+## 1. Backend alignment (source of truth)
 
-Use a Flux modal with the `flyout` prop to host the chat UI, based on the official Flux docs [`flux:modal flyout`](https://fluxui.dev/components/modal#flyout).
+The frontend MUST consume only what the backend provides. The following are the exact contracts.
 
-### 2.1. Basic structure
+### 1.1. Entry point: processing a user message
 
-- **Trigger**: A `flux:modal.trigger` (e.g. “Assistant”, “Need help planning?”) in the header or a floating button.
-- **Flyout modal**:
-  - `flyout` enabled.
-  - Position: default right is usually fine for a side assistant.
-  - Classes to make it act like a small side panel, e.g. `class="flex flex-col h-full md:w-lg"`.
+- **Action**: `App\Actions\Llm\ProcessAssistantMessageAction::execute(User $user, string $userMessage, ?int $threadId = null): AssistantMessage`
+- **Behaviour**:
+  - Resolves or creates thread via `GetOrCreateAssistantThreadAction` (uses `AssistantConversationService`).
+  - Appends the **user** message to the thread.
+  - **Guardrail-only responses** (no LLM call): returns the **assistant** message immediately when:
+    - `QueryRelevanceService::isSocialClosing()` → friendly goodbye; metadata `recommendation_snapshot.reasoning` = `'social_closing'`, `used_guardrail` = true.
+    - Relevance guardrail (off-topic) → “I'm focused on helping you manage tasks…”; metadata `reasoning` = `'off_topic_query'`, `used_guardrail` = true.
+    - Rate limit → “You've sent quite a few requests…”; metadata `reasoning` = `'rate_limited'`, `used_guardrail` = true.
+  - **LLM path**: dispatches `App\Jobs\Llm\RunLlmInferenceJob` and returns the **user** message model (assistant reply arrives later via broadcast).
+- **Implication for UI**: If the API returns an `AssistantMessage` with `role === 'assistant'`, render it and do not show a loading state. If it returns a message with `role === 'user'`, show the user bubble and a loading indicator, then wait for the broadcast for the assistant reply.
 
-Conceptual structure inside the modal:
+### 1.2. Assistant reply delivery (real-time)
 
-- **Header**:
-  - Title, e.g. “TaskLyst Assistant”.
-  - Short subtitle, e.g. “Helps you prioritise and schedule tasks, events, and projects.”
-- **Messages area**:
-  - Scrollable, fills most of the modal height.
-  - Shows past messages in a chat-like format.
-- **Composer**:
-  - Sticks to the bottom.
-  - Contains the text input and send button, plus optional helper text.
+- **Event**: `App\Events\AssistantMessageCreated` (implements `ShouldBroadcast`).
+- **Channel**: `private-assistant.thread.{threadId}`. Authorisation in `routes/channels.php`: user must own the thread (`AssistantThread::forUser($user->id)->whereKey($threadId)->exists()`).
+- **Broadcast payload** (use these exact keys when rendering):
 
----
+```json
+{
+  "id": 123,
+  "thread_id": 1,
+  "role": "assistant",
+  "content": "Full plain-text reply (RecommendationDisplayDto.message).",
+  "metadata": {
+    "intent": "prioritize_tasks",
+    "entity_type": "task",
+    "recommendation_snapshot": { ... }
+  },
+  "created_at": "2026-03-03T12:00:00.000000Z"
+}
+```
 
-## 2.2. Recommended Flux components for the assistant
+- **Echo + Reverb**: Frontend must subscribe (using Laravel Echo with Reverb as the WebSocket broadcast driver) to `private-assistant.thread.{threadId}` and listen for `AssistantMessageCreated` (or the broadcast event name Laravel assigns). When a message with `role === 'assistant'` is received, append it to the thread’s message list and stop the loading indicator.
 
-To keep the UI consistent with the rest of TaskLyst, prefer Flux components wherever possible:
+### 1.3. Recommendation snapshot (metadata.recommendation_snapshot)
 
-- **Modal shell**:
-  - `flux:modal.trigger` — trigger button to open the assistant flyout.
-  - `flux:modal` with `flyout` — the side panel container for the entire chat UI ([docs](https://fluxui.dev/components/modal#flyout)).
-- **Header area**:
-  - `flux:heading` — assistant title (e.g. “TaskLyst Assistant”).
-  - `flux:text` — one-line subtitle describing the assistant’s purpose.
-  - Optional `flux:badge` — to show model info (e.g. “Hermes 3B”) or “Beta”.
-- **Messages area**:
-  - Plain `div`/`section` layout with Tailwind for message bubbles.
-  - Optionally wrap special notices (guardrail or rate-limit messages) in a `flux:callout` to visually distinguish them ([docs](https://fluxui.dev/components/callout)).
-  - Optional `flux:avatar` next to assistant messages if you want a visual identity.
-- **Empty-state + suggested prompts**:
-  - `flux:button` with lightweight variants (e.g. `variant="ghost"` or `variant="subtle"`) to render clickable suggestion chips ([docs](https://fluxui.dev/components/button)).
-- **Composer (input area)**:
-  - `flux:textarea` — multi-line chat input with label/placeholder if needed ([docs](https://fluxui.dev/components/textarea)).
-  - `flux:button` — primary send button at the right side of the composer.
-  - Optional `flux:text` — tiny helper text under the textarea explaining what to ask.
+This is the payload from `RecommendationDisplayDto::toArray()`. All keys are **snake_case** in JSON.
 
-You can still combine Flux components with Tailwind utility classes to achieve a focused chat design without writing custom low-level HTML for every element.
+| Key | Type | Description |
+|-----|------|-------------|
+| `intent` | string | One of: `schedule_task`, `schedule_event`, `schedule_project`, `prioritize_tasks`, `prioritize_events`, `prioritize_projects`, `resolve_dependency`, `adjust_task_deadline`, `adjust_event_time`, `adjust_project_timeline`, `general_query`. |
+| `entity_type` | string | One of: `task`, `event`, `project`. |
+| `recommended_action` | string | First paragraph / summary (student-facing). |
+| `reasoning` | string | Explanation paragraph. |
+| `message` | string | **Primary display**: combined reply (action + reasoning + any formatted lists). Use this for the main assistant bubble text; preserve newlines. |
+| `validation_confidence` | float | 0–1, server-computed; do not use model self-reported confidence. |
+| `used_fallback` | bool | True if rule-based or generic fallback was used (e.g. LLM unreachable, invalid structured output). |
+| `fallback_reason` | string \| null | e.g. `health_unreachable`, `connection_exception`, `invalid_structured`. |
+| `structured` | object | See below. |
 
----
+**structured** (allowed keys for display; only these may be present):
 
-## 3. Chat layout inside the flyout
+| Key | When present | Shape (for UI) |
+|-----|----------------|----------------|
+| `ranked_tasks` | PrioritizeTasks | Array of `{ rank: number, title: string, end_datetime?: string }` |
+| `ranked_events` | PrioritizeEvents | Array of `{ rank: number, title: string, start_datetime?: string, end_datetime?: string }` |
+| `ranked_projects` | PrioritizeProjects | Array of `{ rank: number, name: string, end_datetime?: string }` |
+| `listed_items` | GeneralQuery (list/filter) | Array of `{ title: string, priority?: string, end_datetime?: string }` |
+| `next_steps` | ResolveDependency | Array of strings (ordered steps). |
+| `start_datetime` | Schedule/Adjust (task/event/project) | ISO 8601 string or null. |
+| `end_datetime` | Schedule/Adjust | ISO 8601 string or null. |
+| `priority` | Task schedule/adjust | `low` \| `medium` \| `high` \| `urgent`. |
+| `duration` | Task | Minutes (number). |
+| `timezone` | Event | string. |
+| `location` | Event | string. |
+| `blockers` | Task / ResolveDependency | Array of strings. |
 
-### 3.1. Zones
+Guardrail-only messages may have minimal or no `recommendation_snapshot`; they include `used_guardrail: true` and `reasoning` (e.g. `social_closing`, `off_topic_query`, `rate_limited`). Render `content` as the main text.
 
-- **Header zone** (top):
-  - Assistant name + 1-line purpose.
-  - Optional small badge (e.g. “Hermes 3B · experimental” if you want to emphasise model).
-- **Messages zone** (middle, scrollable):
-  - Column of messages, newest at the bottom.
-  - Enough padding for readability.
-- **Composer zone** (bottom, fixed):
-  - Thin border-top.
-  - Textarea + send button aligned horizontally.
+### 1.4. Models and API surface (to be exposed to frontend)
 
-### 3.2. Message styling
+- **AssistantThread**: `id`, `user_id`, `title`, `updated_at`. Relationship: `messages()` (ordered by `created_at`).
+- **AssistantMessage**: `id`, `assistant_thread_id`, `role` (`'user'` \| `'assistant'`), `content`, `metadata` (JSON), `created_at` (no `updated_at`).
 
-- **User messages**:
-  - Right-aligned bubbles.
-  - Slightly stronger accent colour to differentiate from assistant.
-- **Assistant messages**:
-  - Left-aligned.
-  - Softer background colour; visually consistent with the rest of TaskLyst.
-  - Separate paragraphs for:
-    - **Recommended action** (first paragraph).
-    - **Reasoning** (second paragraph).
-- **Timestamps**:
-  - Small, muted text under each bubble or in the corner.
+The frontend will need at least:
 
-### 3.3. Loading and error states
+- **Get or create thread**: by `threadId` or “latest” for current user.
+- **List messages**: for a given thread (e.g. for initial load and scroll).
+- **Send message**: submit user text → backend runs `ProcessAssistantMessageAction`; response is the created user message (or the guardrail assistant message). No synchronous assistant reply for the LLM path.
 
-- **Loading**:
-  - When waiting for Hermes, show a small “typing/processing” bubble (three-dot indicator) on the assistant side.
-  - Disable the send button while a request is in-flight; you may still allow typing in the input.
-- **Errors / guardrails**:
-  - Use a different visual treatment (e.g. a subtle warning icon and neutral-colour background) when:
-    - The relevance guardrail responds (“I only help with tasks/events/projects…”).
-    - The rate limiter responds (“You’ve sent quite a few requests…”).
-    - A fallback is used due to LLM errors (optional small label).
+Implement these as Livewire component methods calling the same actions, or as a dedicated controller + routes; keep a single source of truth (the actions above).
 
 ---
 
-## 4. Conversation scaffolding (reduce “blank page” problem)
+## 2. UI stack and shell
 
-Research on LLM interfaces for education shows that structured, guided interfaces perform better than raw chat for usability and cognitive load. Instead of starting from an empty text box:
+- **Stack**: Laravel + Livewire + Flux UI (free). Tailwind CSS v4. Layout: `resources/views/layouts/app.blade.php` (Flux header, sidebar, slot).
+- **Assistant shell**: Flux **flyout** modal (see Flux docs: `flux:modal` with `flyout`). Position: right side; size equivalent to a side panel (e.g. `md:w-lg` or similar), full height.
+- **Trigger**: A trigger in the app header (e.g. “Assistant” or “Need help?”) that opens the flyout. Prefer `flux:modal.trigger` + `flux:modal` with `flyout` so the chat lives in one place from any page.
+- **Interaction pattern (Livewire 4 + Alpine v3)**: The chat UI should follow the same pattern as `workspace/collaborators-popover` and `workspace/calendar-feeds-popover`:
+  - Wrap the interactive chat body in `wire:ignore`.
+  - Use `x-data="{ ... }` to own **all rich UI state** (open/closed, placement, messages array, input text, loading/error flags).
+  - Call Livewire methods **only via** `$wire.call(...)` / `$wire.$call(...)` from Alpine, following the optimistic UI rules in `docs/optimistic-ui-guide.md` (snapshot → optimistic update → server call → handle response → rollback on error).
 
-- **Empty-state suggestions**:
-  - When there are no messages yet (or very few), show **suggested prompts** as clickable chips/buttons, e.g.:
-    - “What should I focus on today?”
-    - “Show my tasks with no due date.”
-    - “Help me plan study time for my exam.”
-    - “Which tasks can I drop if I’m overwhelmed?”
-- **Short helper text** under the composer:
-  - Example: “Ask about tasks, events, or projects. Example: ‘Prioritise my tasks for today.’”
+**Concrete structure inside the modal:**
 
-This reduces the need for users to “prompt engineer” and encourages interaction that matches what the backend is tuned for.
+1. **Header zone** (top, fixed): Title “TaskLyst Assistant”, one-line subtitle (“Helps you prioritise and schedule tasks, events, and projects.”), optional small badge (“Hermes 3B” or “Beta”). Use `flux:heading`, `flux:text`, optionally `flux:badge`.
+2. **Messages zone** (middle): Scrollable area (`flex-1 overflow-y-auto`), flex column, messages in chronological order (newest at bottom). Padding for readability.
+3. **Composer zone** (bottom, fixed): Border-top, textarea + send button in a row. Use `flux:textarea` and `flux:button` (primary for send).
 
----
-
-## 5. Using backend structured output in the UI
-
-The backend returns a `RecommendationDisplayDto` (Phase 6) for each inference, which the UI should use rather than raw model JSON:
-
-- **Core properties**:
-  - `message` — combined natural-language reply (recommended action + reasoning, including lists and steps).
-  - `recommendedAction` — first paragraph / summary.
-  - `reasoning` — explanation paragraph.
-  - `intent` / `entityType` — which type of recommendation this is (e.g. prioritise tasks vs schedule event).
-  - `validationConfidence` — server-side validation of the structured payload.
-  - `usedFallback` / `fallbackReason` — whether a rule-based or generic fallback was used.
-  - `structured` — safe subset of structured fields for UI (e.g. `ranked_tasks`, `listed_items`, `next_steps`, `start_datetime`, `end_datetime`, `priority`, `blockers`).
-
-### 5.1. How to render an assistant reply
-
-- **Primary content**:
-  - Show `message` as the main text inside the assistant bubble.
-  - Keep paragraphs intact; do not collapse them into a single paragraph.
-- **Ranked lists (prioritise intents)**:
-  - If `structured.ranked_tasks` / `ranked_events` / `ranked_projects` exists:
-    - Render a **numbered mini-list** under the main message, e.g.:
-      - `#1 Task title (2026-03-12T09:00:00Z)`
-      - `#2 Task title (no due date)`
-- **Filtered lists (general_query + listed_items)**:
-  - If `structured.listed_items` exists, render a **bullet list**, with each item:
-    - Title.
-    - Optional small badges for priority or date if present.
-- **Next steps (resolve_dependency)**:
-  - If `structured.next_steps` exists:
-    - Subtitle “Next steps” then numbered steps:
-      - `1. …`
-      - `2. …`
-- **Fallback / confidence indicators**:
-  - If `usedFallback === true`:
-    - Optionally show a small label like “Rule-based suggestion” or “Fallback recommendation” in the corner of the message.
-  - If `validationConfidence` is low (e.g. < 0.5):
-    - Consider a subtle hint (e.g. “Check details before acting”) but avoid scaring users.
+Use `flex flex-col h-full` on the modal content wrapper so header and composer stay fixed and the messages area scrolls.
 
 ---
 
-## 6. Composer (input area) design
+## 3. Phased implementation plan
 
-### 6.1. Input behaviour
+Implement in this order. Each phase is testable on its own.
 
-- **Textarea**:
-  - Multi-line (2–3 visible lines) with auto-resize up to a small maximum (3–4 lines).
-  - Show placeholder like “Ask about your tasks, events, or projects…”.
-- **Keyboard shortcuts**:
-  - Enter → send.
-  - Shift+Enter → newline.
+### Phase 1: Shell, trigger, and empty state (COMPLETED)
 
-### 6.2. Controls
+**Goal**: Open a flyout from the header; show header + empty message area + composer; no backend yet.
 
-- **Primary send button**:
-  - Flux button with `variant="primary"`.
-  - Right-aligned relative to the input.
-- **Disabled state**:
-  - Disable send while a request is pending to avoid accidental spamming (you can still allow queueing if you implement that later).
+1. **Create Livewire component** for the assistant chat (e.g. `App\Livewire\Assistant\ChatFlyout` or `AssistantChat`). The component will own: open/close state (or delegate to Flux modal), thread id, messages list, input value, loading state.
+   - Inside the component view, wrap the chat flyout body in a `wire:ignore` root with `x-data="{ ... }"` so Alpine controls local UI state (open, placement, messages, input, loading) just like the collaborators and calendar-feeds popovers.
+   - Flux `modal flyout` provides the shell; Alpine controls the internals (panel behaviour, message list, optimistic send), and Livewire stays responsible for server calls.
+2. **Add trigger in header**: In `resources/views/layouts/app.blade.php` (or the header partial), add a “Assistant” / “Need help?” control that opens the Flux flyout containing the Livewire component.
+3. **Modal layout**: Inside the flyout, render the three zones (header, messages, composer). Messages zone shows an **empty state** when there are no messages: short copy (“Ask about tasks, events, or projects”) and **suggested prompt chips** (buttons) such as:
+   - “What should I focus on today?”
+   - “Show my tasks with no due date.”
+   - “Help me plan study time for my exam.”
+   - “Which tasks can I drop if I’m overwhelmed?”
+4. **Composer**: Textarea (placeholder: e.g. “Ask about your tasks, events, or projects…”) and a Send button; no submit logic yet (or submit that only appends locally for testing). Prefer 2–3 visible lines, optional max height (e.g. 3–4 lines).
 
----
-
-## 7. TaskLyst-specific touches
-
-### 7.1. Context awareness
-
-Because the backend builds an intentional context payload (tasks/events/projects + time + conversation history), the UI can reflect that:
-
-- **Context chips** under some messages (optional):
-  - E.g. “Looking at tasks due this week” or “Filtered: low priority only”.
-  - These can be inferred from `intent`, `entityType`, and the filters the backend detected (date / priority / complexity / recurring / all-day).
-
-### 7.2. Follow-up actions
-
-Under certain replies, you can add **quick action buttons** that bridge to the main app:
-
-- Examples:
-  - “Open task list” → navigate to the main tasks view filtered appropriately.
-  - “Open calendar” → navigate to the calendar view.
-  - “View this project” → open project details when the reply is about a specific project.
-
-These actions should respect the backend’s structured output (e.g. if the assistant lists tasks with no due date, you can open the task list pre-filtered to those).
+**Acceptance**: Opening the flyout shows the layout; clicking a chip could set the input text or be wired later to “send”.
 
 ---
 
-## 8. Behaviour within the Flux flyout
+### Phase 2: Load thread and list messages (COMPLETED)
 
-### 8.1. Sizing and scrolling
+**Goal**: On open (or when thread is set), load the thread and its messages from the backend; render user and assistant bubbles.
 
-Inside `<flux:modal flyout>`, use a vertical layout:
+1. **Backend**: Expose “get or create thread” and “list messages” (e.g. via Livewire component that uses `GetOrCreateAssistantThreadAction` and `AssistantThread::messages`). If no route/controller exists, implement a minimal API or keep everything inside Livewire (recommended).
+2. **Component + Alpine state**: On mount or when flyout opens, call get-or-create thread (e.g. by `threadId` from URL or null for “current user’s latest”). Store `threadId` in the Livewire component and pass the initial messages into Alpine via `@js()` so `x-data` can maintain a **pure JS messages array**, similar to how `people`/`feeds` are handled in existing workspace components.
+3. **Message list**: For each `AssistantMessage`, render a bubble:
+   - **User**: right-aligned, stronger accent; content = `content`.
+   - **Assistant**: left-aligned, softer background; content = `content` (this is already the full `message` from the backend). Preserve line breaks (e.g. `nl2br` or CSS `whitespace: pre-wrap`).
+4. **Timestamps**: Optional; show `created_at` under or beside each bubble (muted, small).
+5. **Scroll**: After loading or after appending a message, scroll the messages zone to the bottom.
 
-- Outer wrapper: `class="flex flex-col h-full"` so the modal content uses all vertical space.
-- Header: normal height, fixed at the top.
-- Messages: `class="flex-1 overflow-y-auto"` so the chat scrolls independently.
-- Composer: fixed at the bottom with a subtle border-top to separate from messages.
-
-### 8.2. Closing and persistence
-
-- Closing the flyout should **not delete the conversation**; it only hides the UI. Assistant threads are already persisted in the backend (`AssistantThread` + `AssistantMessage`).
-- Re-opening the modal should:
-  - Load the latest thread (if any) for the current user.
-  - Scroll to the bottom of the conversation.
+**Acceptance**: Re-opening the flyout shows the same thread and history; new messages appear when added (e.g. via tinker or a simple test send).
 
 ---
 
-## 9. Summary checklist
+### Phase 3: Send message and handle guardrails (COMPLETED)
 
-When implementing the frontend chat UI for the Hermes 3B assistant inside a Flux flyout:
+**Goal**: User can send a message; backend is called; guardrail responses (social closing, off-topic, rate limit) appear immediately.
 
-- **Integration**:
-  - [ ] Use `flux:modal.flyout` with a trigger button and a tall, scrollable panel.
-  - [ ] Make the modal content a `flex flex-col h-full` layout (header, messages, composer).
-- **Messages**:
-  - [ ] Render `RecommendationDisplayDto->message` as the main assistant bubble text.
-  - [ ] Use `structured` to show ranked lists, filtered lists, and next steps.
-  - [ ] Differentiate user vs assistant bubbles clearly.
-  - [ ] Show typing/loading indicator while waiting for a response.
-- **Composer**:
-  - [ ] Multi-line textarea with sensible placeholder.
-  - [ ] Enter to send, Shift+Enter for new line.
-  - [ ] Primary send button with clear disabled/loading states.
-- **Scaffolding**:
-  - [ ] Empty-state suggested prompts (chips) to guide first use.
-  - [ ] Short explanation of what the assistant can do (tasks/events/projects/scheduling/prioritisation).
-- **Safety and clarity**:
-  - [ ] Optionally show a small label when fallbacks are used.
-  - [ ] Keep a warm, student-focused tone to match backend prompts.
+1. **Send action (optimistic pattern)**: On submit (Enter or Send button), have Alpine execute the full optimistic flow described in `docs/optimistic-ui-guide.md`:
+   - **Snapshot**: Create a backup of the current `messages` array before any changes.
+   - **Optimistic append**: Immediately push a local “pending” user message object into the Alpine `messages` array (with a temporary id and a `status` flag if helpful) so the UI updates instantly.
+   - **Server call**: Call `ProcessAssistantMessageAction::execute($user, $input, $threadId)` via `$wire.call(...)` / `$wire.$call(...)` from Alpine. Use the current user (auth) and the resolved thread id.
+   - **Handle response**:
+     - If the returned message has `role === 'user'`, treat it as confirmation of the pending user message (you can update its id/status or simply rely on subsequent reloads), and keep the optimistic UI.
+     - If the returned message has `role === 'assistant'` (guardrail), replace or augment the optimistic user message as appropriate and append the assistant message immediately.
+   - **Rollback on error**: If the `$wire.call(...)` throws, restore the `messages` array from the snapshot and surface an error (inline text in the composer area and/or a toast), exactly as you do for collaborators/calendar feeds.
+2. **Response handling**:
+   - If returned message has `role === 'user'`: append that user message to the local list; clear input; **show loading indicator** (typing/processing) for the assistant; do not expect an immediate assistant message from the same response.
+   - If returned message has `role === 'assistant'`: append that assistant message to the local list; **do not** show loading. This is the guardrail case (social closing, off-topic, rate limit).
+3. **Guardrail styling** (optional but recommended): If `metadata.recommendation_snapshot.reasoning` is `off_topic_query`, `rate_limited`, or `metadata.used_guardrail` is true, render the bubble with a subtle different style (e.g. neutral/warning tone, or small “Info” icon) so it’s clear it’s a system-style reply.
+4. **Composer rules**: Enter → send; Shift+Enter → newline. Disable Send (and optionally show loading on button) while a request is in progress. Optionally allow typing during load.
 
-These guidelines are intended as a practical reference while you design and implement the frontend UI for the TaskLyst LLM assistant.
+**Acceptance**: Sending “thanks” yields an immediate assistant goodbye; sending an off-topic phrase yields the “I’m focused on…” message; sending a normal question yields the user bubble + loading state.
 
+---
+
+### Phase 4: Real-time assistant reply (Echo)
+
+**Goal**: When the LLM job finishes, the assistant reply appears in the UI without refresh.
+
+1. **Subscribe to channel**: After thread is resolved, subscribe to `private-assistant.thread.{threadId}` (Laravel Echo). Ensure broadcasting auth is configured and the channel is authorised for the current user. This subscription can be wired from Alpine (e.g. in an `x-init` hook that calls a small JS helper to register the Echo listener) so that incoming messages update the same `messages` array used for optimistic UI.
+2. **Listen for new message**: On the event that carries the broadcast payload (e.g. `AssistantMessageCreated` or the name configured in broadcasting), check `role === 'assistant'`. Append the payload as a new message to the thread’s message list: `id`, `thread_id`, `role`, `content`, `metadata`, `created_at`.
+3. **Stop loading**: When such a message is received, remove the “typing” / loading indicator and scroll to bottom.
+4. **Persistence**: Closing the flyout does not clear the thread; re-opening loads the same thread and messages (Phase 2). No “delete conversation” in this phase.
+
+**Acceptance**: Send “What should I focus on today?”; after a short delay the assistant reply appears and loading stops, without reload.
+
+---
+
+### Phase 5: Render structured content and fallbacks
+
+**Goal**: Use `metadata.recommendation_snapshot` to enrich the assistant bubble (ranked lists, listed items, next steps) and show fallback/confidence hints.
+
+1. **Primary text**: Continue to use `content` (or `recommendation_snapshot.message`) as the main body of the assistant bubble; preserve paragraphs.
+2. **Ranked lists**: If `recommendation_snapshot.structured.ranked_tasks` exists, render a numbered list below the main text (e.g. “#1 Title (end_datetime)”). Same for `ranked_events` (title + optional start/end), `ranked_projects` (name + optional end_datetime).
+3. **Listed items** (GeneralQuery): If `structured.listed_items` exists, render a bullet list; each item: title, optional small badges for priority or end_datetime.
+4. **Next steps** (ResolveDependency): If `structured.next_steps` exists, render a “Next steps” subtitle and a numbered list of the steps.
+5. **Fallback/confidence**: If `recommendation_snapshot.used_fallback` is true, show a small label (e.g. “Rule-based suggestion” or “Fallback”) near the bubble. If `validation_confidence` < 0.5, optional subtle hint (“Check details before acting”); avoid alarming wording.
+6. **Schedule/Adjust fields**: If you add “quick view” details for schedule or adjust intents, use `structured.start_datetime`, `end_datetime`, `priority`, `duration`, `blockers` per the table in §1.3; do not invent keys.
+
+**Acceptance**: Prioritize-tasks reply shows numbered task list; general query with “tasks with no due date” shows bullet list; resolve_dependency shows next steps; fallback replies show the small fallback label.
+
+---
+
+### Phase 6: Composer polish and UX
+
+**Goal**: Input behaviour, helper text, and accessibility.
+
+1. **Textarea**: Multi-line, auto-resize up to a small max (e.g. 3–4 lines); placeholder as above.
+2. **Short helper text** under the composer: e.g. “Ask about tasks, events, or projects. Example: ‘Prioritise my tasks for today.’”
+3. **Keyboard**: Enter → send; Shift+Enter → newline (already in Phase 3; confirm and document).
+4. **Disabled state**: Send disabled while request in progress; optional loading spinner on button.
+5. **Empty state**: When there are no messages, show suggested chips; when there are messages, chips can be hidden or moved to a “Suggestions” dropdown to save space.
+
+**Acceptance**: UX matches the behaviour described in the original guidelines (no new backend behaviour).
+
+---
+
+### Phase 7 (optional): Context chips and follow-up actions
+
+**Goal**: Optional context awareness and links into the app.
+
+1. **Context chips**: Under some assistant messages, optional small chip(s) derived from `intent` and `entity_type`, e.g. “Tasks · Prioritisation”, “Events · This week”. Do not invent backend fields; use only `intent` and `entity_type` from the snapshot.
+2. **Follow-up actions**: Buttons such as “Open task list”, “Open calendar”, “View this project” that navigate to existing app routes (e.g. workspace, calendar) with optional query params. Use `intent` / `entity_type` and, if needed, IDs from `structured` (e.g. from ranked/listed items) to pre-filter where the app supports it.
+
+**Acceptance**: Optional; can be skipped or done later without breaking the core chat.
+
+---
+
+## 4. Component and file checklist (for AI agent)
+
+Use this as a quick reference when generating or modifying files.
+
+- **Livewire component**: e.g. `app/Livewire/Assistant/ChatFlyout.php` (or `AssistantChat.php`) — state: threadId, messages, input, loading, optional error.
+- **Blade view**: Corresponding view in `resources/views/livewire/assistant/` — three zones, message loop, composer, empty state with chips.
+- **Trigger**: In `resources/views/layouts/app.blade.php` or `resources/views/components/.../header.blade.php` — button/link that opens the modal.
+- **Flux usage**: `flux:modal.trigger`, `flux:modal` (flyout), `flux:heading`, `flux:text`, `flux:badge`, `flux:textarea`, `flux:button`, optionally `flux:callout` for guardrail messages, `flux:avatar` for assistant if desired.
+- **Echo + Reverb**: Subscribe (via Laravel Echo using Reverb as the WebSocket transport) to `private-assistant.thread.{threadId}`; listen for `AssistantMessageCreated` (or configured event name); append message when `role === 'assistant'`.
+- **Backend**: Use only `ProcessAssistantMessageAction`, `GetOrCreateAssistantThreadAction`, and `AssistantThread`/`AssistantMessage`; do not bypass or duplicate logic. Message metadata and `recommendation_snapshot` shape must match §1.3.
+
+---
+
+## 5. Intent and entity reference (backend enum values)
+
+Use these when rendering context chips, routing, or conditional UI.
+
+**LlmIntent (intent):**  
+`schedule_task`, `schedule_event`, `schedule_project`, `prioritize_tasks`, `prioritize_events`, `prioritize_projects`, `resolve_dependency`, `adjust_task_deadline`, `adjust_event_time`, `adjust_project_timeline`, `general_query`.
+
+**LlmEntityType (entity_type):**  
+`task`, `event`, `project`.
+
+---
+
+## 6. Summary
+
+- **Backend contract**: §1 defines exactly what the frontend receives (process flow, broadcast payload, `recommendation_snapshot` and `structured` keys). Do not assume extra fields.
+- **Phases**: 1 → Shell and empty state. 2 → Load thread and messages. 3 → Send and guardrails. 4 → Real-time reply via Echo. 5 → Structured rendering and fallback/confidence. 6 → Composer polish. 7 → Optional context and follow-up actions.
+- **Stack**: Livewire + Flux (flyout modal) + Tailwind; follow existing app layout and Flux patterns.
+- **Tone**: Student-focused, warm, assistive; match backend prompts and copy (e.g. “prioritise”, “tasks, events, and projects”).
+
+This file is the single context document for implementing the LLM assistant chat frontend; keep it in sync with backend changes (e.g. new intents or snapshot fields) and use it to drive phase-by-phase implementation by an AI agent or developer.
