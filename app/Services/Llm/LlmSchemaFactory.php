@@ -51,6 +51,20 @@ class LlmSchemaFactory
                     description: 'List of blocker descriptions',
                     items: new StringSchema('item', 'Blocker description')
                 ),
+                new ArraySchema(
+                    name: 'sessions',
+                    description: 'Optional: multiple work sessions instead of a single block',
+                    items: new ObjectSchema(
+                        name: 'session',
+                        description: 'Single proposed work session',
+                        properties: [
+                            new StringSchema('start_datetime', 'ISO 8601 session start datetime'),
+                            new StringSchema('end_datetime', 'ISO 8601 session end datetime'),
+                            new NumberSchema('duration', 'Optional: duration in minutes'),
+                        ],
+                        requiredFields: ['start_datetime', 'end_datetime']
+                    )
+                ),
             ],
             requiredFields: ['entity_type', 'recommended_action', 'reasoning']
         );

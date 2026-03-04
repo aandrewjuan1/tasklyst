@@ -36,6 +36,12 @@ class ApplyTaskScheduleRecommendationAction
             return;
         }
 
+        if (! $this->isScheduleAcceptable($task, $recommendation, $intent)) {
+            $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
+
+            return;
+        }
+
         $changes = [];
 
         $attributes = $recommendation->toTaskAttributes();
@@ -92,5 +98,28 @@ class ApplyTaskScheduleRecommendationAction
                 ],
             ]
         );
+    }
+
+    private function isScheduleAcceptable(Task $task, TaskScheduleRecommendationDto $recommendation, LlmIntent $intent): bool
+    {
+        $now = now();
+        $start = $recommendation->startDatetime;
+        $end = $recommendation->endDatetime;
+
+        // Disallow recommendations that end fully in the past.
+        if ($end !== null && $end->lt($now)) {
+            return false;
+        }
+
+        // For scheduling or deadline-adjustment intents, keep suggested end within the task's due date when present.
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
+            && $task->end_datetime !== null
+            && $end !== null
+            && $end->gt($task->end_datetime->copy()->endOfDay())
+        ) {
+            return false;
+        }
+
+        return true;
     }
 }

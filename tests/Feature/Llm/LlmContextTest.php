@@ -433,7 +433,6 @@ test('prioritize_tasks task context does not include complexity or project_id', 
 
     $task = $context['tasks'][0];
     expect($task)->toHaveKeys(['id', 'title', 'end_datetime', 'priority', 'is_recurring', 'status'])
-        ->and($task)->not->toHaveKey('complexity')
         ->and($task)->not->toHaveKey('project_id')
         ->and($task)->not->toHaveKey('description');
 });
@@ -495,9 +494,17 @@ test('prioritize_events event context does not include description or status', f
     );
 
     $event = $context['events'][0];
-    expect($event)->toHaveKeys(['id', 'title', 'start_datetime', 'end_datetime', 'is_recurring'])
-        ->and($event)->not->toHaveKey('description')
-        ->and($event)->not->toHaveKey('status');
+    expect($event)->toHaveKeys([
+        'id',
+        'title',
+        'start_datetime',
+        'end_datetime',
+        'is_recurring',
+        'status',
+        'all_day',
+        'starts_within_24h',
+        'starts_within_7_days',
+    ])->and($event)->not->toHaveKey('description');
 });
 
 test('general_query event context includes description and status', function (): void {

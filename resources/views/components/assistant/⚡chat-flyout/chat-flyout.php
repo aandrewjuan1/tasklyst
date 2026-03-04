@@ -14,6 +14,8 @@ new class extends Component
 {
     public ?int $threadId = null;
 
+    public ?string $currentTraceId = null;
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -65,6 +67,55 @@ new class extends Component
             ->all();
 
         $this->pendingAssistantCount = 0;
+        $this->currentTraceId = null;
+
+        $pendingIndex = null;
+        $pendingTraceId = null;
+
+        foreach (array_reverse($this->messages, true) as $index => $message) {
+            $role = $message['role'] ?? null;
+            $metadata = $message['metadata'] ?? [];
+
+            if ($role !== 'user' || ! is_array($metadata)) {
+                continue;
+            }
+
+            if (($metadata['llm_cancelled'] ?? false) === true) {
+                continue;
+            }
+
+            $traceId = $metadata['llm_trace_id'] ?? null;
+
+            if (! is_string($traceId) || $traceId === '') {
+                continue;
+            }
+
+            $pendingIndex = $index;
+            $pendingTraceId = $traceId;
+
+            break;
+        }
+
+        if ($pendingIndex !== null) {
+            $hasAssistantAfter = false;
+
+            foreach ($this->messages as $index => $message) {
+                if ($index <= $pendingIndex) {
+                    continue;
+                }
+
+                if (($message['role'] ?? null) === 'assistant') {
+                    $hasAssistantAfter = true;
+
+                    break;
+                }
+            }
+
+            if (! $hasAssistantAfter) {
+                $this->pendingAssistantCount = 1;
+                $this->currentTraceId = $pendingTraceId;
+            }
+        }
     }
 
     /**

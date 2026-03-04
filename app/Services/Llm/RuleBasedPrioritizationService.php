@@ -20,21 +20,46 @@ use Illuminate\Support\Collection;
 class RuleBasedPrioritizationService
 {
     /**
-     * Return pending tasks for the user ranked by: overdue first, then by due date ascending,
+     * Return pending tasks for the user ranked in intuitive time buckets:
+     * - Overdue (end_datetime in the past, highest)
+     * - Due today
+     * - Due within the next 7 days
+     * - Later (after 7 days)
+     * - No date (no start/end set, lowest)
+     *
+     * Within each bucket, tasks are ordered by due date ascending,
      * then by priority (urgent first), then by complexity (complex first).
      *
      * @return Collection<int, Task>
      */
     public function prioritizeTasks(User $user, int $limit = 12): Collection
     {
-        $now = now()->toDateTimeString();
+        $now = now();
+        $startOfToday = $now->copy()->startOfDay();
+        $endOfToday = $now->copy()->endOfDay();
+        $endOfWeek = $now->copy()->addDays(7)->endOfDay();
 
         return Task::query()
             ->forUser($user->id)
             ->incomplete()
             ->orderByRaw(
-                'CASE WHEN end_datetime IS NOT NULL AND end_datetime < ? THEN 0 ELSE 1 END',
-                [$now]
+                // Bucket index:
+                // 0 = overdue, 1 = today, 2 = next 7 days, 3 = later, 4 = no date.
+                'CASE
+                    WHEN end_datetime IS NOT NULL AND end_datetime < ? THEN 0
+                    WHEN end_datetime IS NOT NULL AND end_datetime BETWEEN ? AND ? THEN 1
+                    WHEN end_datetime IS NOT NULL AND end_datetime > ? AND end_datetime <= ? THEN 2
+                    WHEN end_datetime IS NOT NULL AND end_datetime > ? THEN 3
+                    ELSE 4
+                END',
+                [
+                    $now,
+                    $startOfToday,
+                    $endOfToday,
+                    $endOfToday,
+                    $endOfWeek,
+                    $endOfWeek,
+                ]
             )
             ->orderBy('end_datetime', 'asc')
             ->orderByRaw(

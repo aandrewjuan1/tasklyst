@@ -49,6 +49,16 @@ final readonly class TaskScheduleRecommendationDto
             $priority = null;
         }
 
+        // Basic temporal guardrails: ignore recommendations that are wholly in the past
+        // or have an invalid ordering between start and end.
+        $now = Carbon::now();
+        if ($end !== null && $end->lt($now)) {
+            return null;
+        }
+        if ($start !== null && $end !== null && $end->lte($start)) {
+            return null;
+        }
+
         if ($start === null && $end === null && $priority === null && $duration === null) {
             return null;
         }

@@ -13,7 +13,7 @@
         _subscribedThreadId: null,
         _pendingTimeoutId: null,
         ignoreNextAssistant: false,
-        currentTraceId: null,
+        currentTraceId: @js($this->currentTraceId),
         suggestedPrompts: [
             {{ json_encode(__('What should I focus on today?')) }},
             {{ json_encode(__('Show my tasks with no due date.')) }},
@@ -493,6 +493,9 @@
             }
             if (threadId) {
                 subscribeToThread();
+            }
+            if (pendingAssistantCount > 0) {
+                startPendingTimeout();
             }
             if ($refs.input) {
                 resizeInput();

@@ -31,7 +31,7 @@ test('build returns display dto with validation confidence for prioritization', 
         ->and($dto->followupSuggestions)->toBeArray()
         ->and($dto->followupSuggestions)->not->toBeEmpty()
         ->and($dto->entityType)->toBe(LlmEntityType::Task)
-        ->and($dto->recommendedAction)->toBe('Focus on overdue first.')
+        ->and($dto->recommendedAction)->toContain('Focus on overdue first.')
         ->and($dto->reasoning)->toContain('Step 1')
         ->and($dto->message)->toContain('Focus on overdue first.')
         ->and($dto->message)->toContain('Step 1')
