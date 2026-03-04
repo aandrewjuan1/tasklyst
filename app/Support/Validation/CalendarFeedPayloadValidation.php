@@ -23,7 +23,13 @@ final class CalendarFeedPayloadValidation
     public static function rules(): array
     {
         return [
-            'calendarFeedPayload.feedUrl' => ['required', 'string', 'url', 'max:2000'],
+            'calendarFeedPayload.feedUrl' => [
+                'required',
+                'string',
+                'url',
+                'max:2000',
+                'regex:/^https:\/\/eac\.brightspace\.com\/d2l\/le\/calendar\/feed\/user\/feed\.ics(\?.+)?$/',
+            ],
             'calendarFeedPayload.name' => ['nullable', 'string', 'max:255'],
         ];
     }

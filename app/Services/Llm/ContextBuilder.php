@@ -425,6 +425,22 @@ class ContextBuilder
     {
         $normalized = mb_strtolower(trim($userMessage));
 
+        // Upcoming week / next week: tasks due within the next 7 days (inclusive).
+        if (
+            str_contains($normalized, 'upcoming week')
+            || str_contains($normalized, 'next week')
+            || str_contains($normalized, 'next 7 days')
+            || str_contains($normalized, 'coming week')
+        ) {
+            $start = now();
+            $end = now()->addDays(7);
+
+            $query->whereNotNull('end_datetime')
+                ->whereBetween('end_datetime', [$start, $end]);
+
+            return;
+        }
+
         if (str_contains($normalized, 'low prio') || str_contains($normalized, 'low priority') || str_contains($normalized, 'low prioritiy')) {
             $query->where('priority', TaskPriority::Low->value);
 

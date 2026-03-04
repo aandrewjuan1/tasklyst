@@ -47,6 +47,7 @@ class RecommendationDisplayBuilder
         $nextStepsLines = $this->formatNextStepsForMessage($structured);
         $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
+        $followupSuggestions = $this->defaultFollowupSuggestionsForIntent($intent, $entityType);
 
         return new RecommendationDisplayDto(
             intent: $intent,
@@ -58,6 +59,7 @@ class RecommendationDisplayBuilder
             usedFallback: $result->usedFallback,
             fallbackReason: $result->fallbackReason,
             structured: $displayStructured,
+            followupSuggestions: $followupSuggestions,
         );
     }
 
@@ -158,10 +160,20 @@ class RecommendationDisplayBuilder
                 continue;
             }
             $suffix = [];
+            $dateRaw = null;
             if (isset($item['end_datetime']) && is_string($item['end_datetime']) && $item['end_datetime'] !== '') {
-                $suffix[] = $item['end_datetime'];
+                $dateRaw = $item['end_datetime'];
             } elseif (isset($item['start_datetime']) && is_string($item['start_datetime']) && $item['start_datetime'] !== '') {
-                $suffix[] = $item['start_datetime'];
+                $dateRaw = $item['start_datetime'];
+            }
+
+            if ($dateRaw !== null) {
+                try {
+                    $date = Carbon::parse($dateRaw)->setTimezone(config('app.timezone'));
+                    $suffix[] = __('due :date', ['date' => $date->toDayDateTimeString()]);
+                } catch (\Throwable) {
+                    $suffix[] = $dateRaw;
+                }
             }
             $line = ($rank !== null ? '#'.$rank.' ' : '').$label;
             if ($suffix !== []) {
@@ -229,17 +241,37 @@ class RecommendationDisplayBuilder
             $lines = [];
             foreach ($listedItems as $item) {
                 $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
-                if ($title !== '') {
-                    $suffix = [];
-                    if (! empty($item['priority']) && is_string($item['priority'])) {
-                        $suffix[] = $item['priority'];
-                    }
-                    if (! empty($item['end_datetime']) && is_string($item['end_datetime'])) {
-                        $suffix[] = $item['end_datetime'];
-                    }
-                    $lines[] = '• '.$title.($suffix !== [] ? ' ('.implode(', ', $suffix).')' : '');
+                if ($title === '') {
+                    continue;
                 }
+
+                $fragments = [];
+
+                if (! empty($item['priority']) && is_string($item['priority'])) {
+                    $priority = strtolower(trim($item['priority']));
+                    $priorityLabel = match ($priority) {
+                        'low' => __('low priority'),
+                        'medium' => __('medium priority'),
+                        'high' => __('high priority'),
+                        'urgent' => __('urgent priority'),
+                        default => $priority,
+                    };
+                    $fragments[] = $priorityLabel;
+                }
+
+                if (! empty($item['end_datetime']) && is_string($item['end_datetime'])) {
+                    try {
+                        $date = Carbon::parse($item['end_datetime'])->setTimezone(config('app.timezone'));
+                        $fragments[] = __('due :date', ['date' => $date->toDayDateTimeString()]);
+                    } catch (\Throwable) {
+                        $fragments[] = $item['end_datetime'];
+                    }
+                }
+
+                $suffix = $fragments !== [] ? ' ('.implode(', ', $fragments).')' : '';
+                $lines[] = '• '.$title.$suffix;
             }
+
             if ($lines !== []) {
                 $parts[] = implode("\n", $lines);
             }
@@ -285,5 +317,42 @@ class RecommendationDisplayBuilder
         }
 
         return $out;
+    }
+
+    /**
+     * Default follow-up prompt suggestions for the assistant UI, based on intent/entity.
+     *
+     * @return list<string>
+     */
+    private function defaultFollowupSuggestionsForIntent(LlmIntent $intent, LlmEntityType $entityType): array
+    {
+        return match ($intent) {
+            LlmIntent::PrioritizeTasks => [
+                __('Schedule the top task for today.'),
+                __('Show my tasks with no due date.'),
+            ],
+            LlmIntent::PrioritizeEvents => [
+                __('Which events should I focus on this week?'),
+            ],
+            LlmIntent::PrioritizeProjects => [
+                __('Help me break my top project into smaller steps.'),
+            ],
+            LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline => [
+                __('Can you suggest another time slot for this task?'),
+            ],
+            LlmIntent::ScheduleEvent, LlmIntent::AdjustEventTime => [
+                __('Suggest a different time for this event.'),
+            ],
+            LlmIntent::ScheduleProject, LlmIntent::AdjustProjectTimeline => [
+                __('Help me plan milestones for this project.'),
+            ],
+            LlmIntent::ResolveDependency => [
+                __('Show me which tasks are still blocked.'),
+            ],
+            LlmIntent::GeneralQuery => [
+                __('What should I focus on next?'),
+            ],
+            default => [],
+        };
     }
 }

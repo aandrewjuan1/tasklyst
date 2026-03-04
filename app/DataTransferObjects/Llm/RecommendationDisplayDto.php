@@ -24,6 +24,8 @@ final readonly class RecommendationDisplayDto
         public ?string $fallbackReason = null,
         /** @var array<string, mixed> Entity-specific fields: ranked_tasks, start_datetime, end_datetime, priority, blockers, etc. */
         public array $structured = [],
+        /** @var list<string> Follow-up prompt suggestions for the UI (chips). */
+        public array $followupSuggestions = [],
     ) {}
 
     public function toArray(): array
@@ -38,6 +40,7 @@ final readonly class RecommendationDisplayDto
             'used_fallback' => $this->usedFallback,
             'fallback_reason' => $this->fallbackReason,
             'structured' => $this->structured,
+            'followup_suggestions' => $this->followupSuggestions,
         ];
     }
 
@@ -53,6 +56,10 @@ final readonly class RecommendationDisplayDto
             usedFallback: (bool) ($data['used_fallback'] ?? false),
             fallbackReason: $data['fallback_reason'] ?? null,
             structured: (array) ($data['structured'] ?? []),
+            followupSuggestions: array_values(array_filter(
+                (array) ($data['followup_suggestions'] ?? []),
+                static fn ($item): bool => is_string($item) && trim($item) !== ''
+            )),
         );
     }
 

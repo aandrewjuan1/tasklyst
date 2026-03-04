@@ -129,11 +129,19 @@
 
             const url = (this.feedUrl || '').trim();
             const name = (this.feedName || '').trim();
+            const brightspacePattern = /^https:\/\/eac\.brightspace\.com\/d2l\/le\/calendar\/feed\/user\/feed\.ics(\?.+)?$/;
 
             this.inlineError = '';
 
             if (!url) {
                 this.inlineError = @js(__('Please enter your Brightspace calendar URL.'));
+                this.$refs.urlInput && this.$refs.urlInput.focus();
+
+                return;
+            }
+
+            if (!brightspacePattern.test(url)) {
+                this.inlineError = @js(__('Please use a Brightspace calendar link that starts with https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics'));
                 this.$refs.urlInput && this.$refs.urlInput.focus();
 
                 return;

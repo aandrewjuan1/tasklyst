@@ -148,6 +148,19 @@ class QueryRelevanceService
         'recipe for', 'poem about', 'story about',
         'how to cook', 'movie recommendation',
         'sports score', 'weather in',
+        // Existential / philosophical questions that are outside the assistant's scope
+        'purpose of life',
+        'purpose of living',
+        'point of life',
+        'point of living',
+        'meaning of life',
+        'meaning of living',
+        'why do we exist',
+        'why i exist',
+        'why we exist',
+        'what is the purpose of living',
+        'what even is the purpose of living',
+        'what even is the point of living',
     ];
 
     public function isSocialClosing(string $userMessage): bool

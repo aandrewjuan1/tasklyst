@@ -17,6 +17,29 @@ class ConnectCalendarFeedAction
 
     public function execute(User $user, CreateCalendarFeedDto $dto): CalendarFeed
     {
+        $existing = CalendarFeed::query()
+            ->where('user_id', $user->id)
+            ->where('feed_url', $dto->feedUrl)
+            ->first();
+
+        if ($existing instanceof CalendarFeed) {
+            $attributes = [
+                'sync_enabled' => true,
+            ];
+
+            if ($dto->name !== null && $dto->name !== '') {
+                $attributes['name'] = $dto->name;
+            }
+
+            if ($attributes !== []) {
+                $existing = $this->calendarFeedService->updateFeed($existing, $attributes);
+            }
+
+            $this->calendarFeedSyncService->sync($existing);
+
+            return $existing;
+        }
+
         $feed = $this->calendarFeedService->createFeed($user, $dto->toServiceAttributes());
 
         $this->calendarFeedSyncService->sync($feed);

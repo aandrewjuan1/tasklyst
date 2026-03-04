@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\Llm\RecommendationDisplayBuilder;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Cache;
 
 class RunLlmInferenceJob implements ShouldQueue
 {
@@ -45,6 +46,13 @@ class RunLlmInferenceJob implements ShouldQueue
      */
     public function handle(): void
     {
+        if ($this->traceId !== null) {
+            $cancelKey = 'tasklyst_llm_cancel:'.$this->traceId;
+            if (Cache::pull($cancelKey)) {
+                return;
+            }
+        }
+
         $user = User::find($this->userId);
         $thread = AssistantThread::find($this->threadId);
 
@@ -75,6 +83,13 @@ class RunLlmInferenceJob implements ShouldQueue
             thread: $thread,
             traceId: $this->traceId
         );
+
+        if ($this->traceId !== null) {
+            $cancelKey = 'tasklyst_llm_cancel:'.$this->traceId;
+            if (Cache::pull($cancelKey)) {
+                return;
+            }
+        }
 
         $display = $displayBuilder->build($inferenceResult, $intent, $entityType);
 

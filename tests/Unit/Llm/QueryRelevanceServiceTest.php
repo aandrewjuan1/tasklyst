@@ -2,6 +2,19 @@
 
 use App\Services\Llm\QueryRelevanceService;
 
+it('treats existential questions as off-topic and not relevant', function (string $query): void {
+    /** @var QueryRelevanceService $service */
+    $service = app(QueryRelevanceService::class);
+
+    expect($service->isRelevant($query))->toBeFalse();
+})->with([
+    'what is the purpose of living',
+    'WHAT EVEN IS THE PURPOSE OF LIVING',
+    'what even is the point of living',
+    'what even is the purpose of living',
+    'what is the meaning of life',
+]);
+
 it('treats task and planning queries as relevant', function (): void {
     /** @var QueryRelevanceService $service */
     $service = app(QueryRelevanceService::class);

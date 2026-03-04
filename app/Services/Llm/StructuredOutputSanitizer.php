@@ -33,6 +33,17 @@ class StructuredOutputSanitizer
         'that have no start', 'with no start date', 'has no start date',
     ];
 
+    /** Phrases that mean "due within the upcoming week" (end_datetime within next 7 days). */
+    private const PHRASES_UPCOMING_WEEK = [
+        'upcoming week',
+        'next week',
+        'next 7 days',
+        'coming week',
+        'this coming week',
+        'in the next week',
+        'over the next week',
+    ];
+
     /** Priority values for filter matching. */
     private const PRIORITY_LOW = 'low';
 
@@ -476,6 +487,12 @@ class StructuredOutputSanitizer
             return null;
         }
 
+        foreach (self::PHRASES_UPCOMING_WEEK as $phrase) {
+            if (str_contains($normalized, $phrase)) {
+                return 'upcoming_week';
+            }
+        }
+
         foreach (self::PHRASES_NO_SET_DATES as $phrase) {
             if (str_contains($normalized, $phrase)) {
                 return 'no_set_dates';
@@ -602,8 +619,33 @@ class StructuredOutputSanitizer
             'no_set_dates' => $startNull && $endNull,
             'no_due_date' => $endNull,
             'no_start_date' => $startNull,
+            'upcoming_week' => $this->contextItemMatchesUpcomingWeek($ctx),
             default => true,
         };
+    }
+
+    /**
+     * Match tasks/events that have an end date within the next 7 days.
+     *
+     * @param  array<string, mixed>  $ctx
+     */
+    private function contextItemMatchesUpcomingWeek(array $ctx): bool
+    {
+        $end = $ctx['end_datetime'] ?? null;
+        if (! is_string($end) || trim($end) === '') {
+            return false;
+        }
+
+        try {
+            $endAt = \Carbon\CarbonImmutable::parse($end);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $start = \Carbon\CarbonImmutable::now(config('app.timezone'));
+        $windowEnd = $start->addDays(7);
+
+        return $endAt->betweenIncluded($start, $windowEnd);
     }
 
     /**
