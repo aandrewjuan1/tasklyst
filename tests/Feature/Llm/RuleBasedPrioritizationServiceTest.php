@@ -112,3 +112,44 @@ test('prioritize tasks returns only tasks for the given user', function (): void
     expect($result->pluck('id')->all())->toContain($myTask->id)
         ->and($result->pluck('id')->all())->not->toContain($otherTask->id);
 });
+
+test('prioritize tasks buckets by overdue today soon later and no-date', function (): void {
+    $overdue = Task::factory()->for($this->user)->create([
+        'title' => 'Overdue',
+        'end_datetime' => now()->subDay(),
+        'completed_at' => null,
+    ]);
+
+    $today = Task::factory()->for($this->user)->create([
+        'title' => 'Today',
+        'end_datetime' => now()->addHours(2),
+        'completed_at' => null,
+    ]);
+
+    $thisWeek = Task::factory()->for($this->user)->create([
+        'title' => 'This week',
+        'end_datetime' => now()->addDays(3),
+        'completed_at' => null,
+    ]);
+
+    $later = Task::factory()->for($this->user)->create([
+        'title' => 'Later',
+        'end_datetime' => now()->addDays(10),
+        'completed_at' => null,
+    ]);
+
+    $noDate = Task::factory()->for($this->user)->create([
+        'title' => 'No date',
+        'end_datetime' => null,
+        'start_datetime' => null,
+        'completed_at' => null,
+    ]);
+
+    $result = $this->service->prioritizeTasks($this->user, 10)->pluck('title')->values()->all();
+
+    expect($result[0])->toBe('Overdue')
+        ->and($result)->toContain('Today')
+        ->and($result)->toContain('This week')
+        ->and($result)->toContain('Later')
+        ->and($result[count($result) - 1])->toBe('No date');
+});

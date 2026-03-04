@@ -170,7 +170,12 @@ class RecommendationDisplayBuilder
             if ($dateRaw !== null) {
                 try {
                     $date = Carbon::parse($dateRaw)->setTimezone(config('app.timezone'));
-                    $suffix[] = __('due :date', ['date' => $date->toDayDateTimeString()]);
+                    $now = Carbon::now($date->getTimezone());
+                    if ($date->lessThan($now)) {
+                        $suffix[] = __('overdue since :date', ['date' => $date->toDayDateTimeString()]);
+                    } else {
+                        $suffix[] = __('due :date', ['date' => $date->toDayDateTimeString()]);
+                    }
                 } catch (\Throwable) {
                     $suffix[] = $dateRaw;
                 }

@@ -57,7 +57,20 @@ class ContextBuilder
      * @var list<string>
      */
     private const TASK_FIELDS_PRIORITIZE = [
-        'id', 'title', 'end_datetime', 'priority', 'is_recurring', 'status',
+        'id',
+        'title',
+        'end_datetime',
+        'priority',
+        'complexity',
+        'duration',
+        'is_recurring',
+        'status',
+        // Derived helper flags and relationship hints for smarter prioritization.
+        'is_overdue',
+        'due_today',
+        'is_someday',
+        'project_name',
+        'event_title',
     ];
 
     /**
@@ -86,7 +99,16 @@ class ContextBuilder
      * @var list<string>
      */
     private const EVENT_FIELDS_PRIORITIZE = [
-        'id', 'title', 'start_datetime', 'end_datetime', 'is_recurring',
+        'id',
+        'title',
+        'start_datetime',
+        'end_datetime',
+        'is_recurring',
+        'status',
+        'all_day',
+        // Derived helper flags for urgency.
+        'starts_within_24h',
+        'starts_within_7_days',
     ];
 
     /**
@@ -104,7 +126,13 @@ class ContextBuilder
      * @var list<string>
      */
     private const PROJECT_FIELDS_PRIORITIZE = [
-        'id', 'name', 'tasks',
+        'id',
+        'name',
+        'tasks',
+        // Aggregate helper flags.
+        'has_incomplete_tasks',
+        'is_overdue',
+        'starts_soon',
     ];
 
     /**
@@ -122,7 +150,11 @@ class ContextBuilder
      * @var list<string>
      */
     private const PROJECT_TASK_FIELDS_PRIORITIZE = [
-        'id', 'title', 'end_datetime', 'priority',
+        'id',
+        'title',
+        'end_datetime',
+        'priority',
+        'is_recurring',
     ];
 
     /**
@@ -194,6 +226,7 @@ class ContextBuilder
         $fields = $this->taskFieldsForIntent($intent);
         $maxDesc = $this->descriptionMaxCharsForIntent($intent);
         $out = [];
+        $now = now();
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $task->id;
@@ -231,6 +264,28 @@ class ContextBuilder
         if (in_array('is_recurring', $fields, true)) {
             $out['is_recurring'] = $this->isTaskRecurring($task);
         }
+        if (in_array('is_overdue', $fields, true)) {
+            $out['is_overdue'] = $task->end_datetime !== null && $task->end_datetime->lt($now);
+        }
+        if (in_array('due_today', $fields, true)) {
+            $out['due_today'] = $task->end_datetime !== null
+                && $task->end_datetime->isSameDay($now);
+        }
+        if (in_array('is_someday', $fields, true)) {
+            $out['is_someday'] = $task->start_datetime === null && $task->end_datetime === null;
+        }
+        if (in_array('project_name', $fields, true) && $task->relationLoaded('project')) {
+            $name = $task->project?->name;
+            if (is_string($name) && trim($name) !== '') {
+                $out['project_name'] = trim($name);
+            }
+        }
+        if (in_array('event_title', $fields, true) && $task->relationLoaded('event')) {
+            $title = $task->event?->title;
+            if (is_string($title) && trim($title) !== '') {
+                $out['event_title'] = trim($title);
+            }
+        }
 
         return $out;
     }
@@ -243,6 +298,7 @@ class ContextBuilder
         $fields = $this->eventFieldsForIntent($intent);
         $maxDesc = $this->descriptionMaxCharsForIntent($intent);
         $out = [];
+        $now = now();
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $event->id;
@@ -267,6 +323,19 @@ class ContextBuilder
         }
         if (in_array('is_recurring', $fields, true)) {
             $out['is_recurring'] = $this->isEventRecurring($event);
+        }
+        if (in_array('all_day', $fields, true)) {
+            $out['all_day'] = $event->all_day;
+        }
+        if (in_array('starts_within_24h', $fields, true)) {
+            $out['starts_within_24h'] = $event->start_datetime !== null
+                && $event->start_datetime->gte($now)
+                && $event->start_datetime->lte($now->copy()->addDay());
+        }
+        if (in_array('starts_within_7_days', $fields, true)) {
+            $out['starts_within_7_days'] = $event->start_datetime !== null
+                && $event->start_datetime->gte($now)
+                && $event->start_datetime->lte($now->copy()->addDays(7));
         }
 
         return $out;
@@ -307,6 +376,7 @@ class ContextBuilder
         $fields = $this->projectFieldsForIntent($intent);
         $maxDesc = $this->descriptionMaxCharsForIntent($intent);
         $out = [];
+        $now = now();
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $project->id;
@@ -334,6 +404,18 @@ class ContextBuilder
                 ->get();
 
             $out['tasks'] = $tasks->map(fn (Task $t) => $this->projectTaskPayloadItem($t, $intent))->values()->all();
+            if (in_array('has_incomplete_tasks', $fields, true)) {
+                $out['has_incomplete_tasks'] = $tasks->isNotEmpty();
+            }
+        }
+        if (in_array('is_overdue', $fields, true)) {
+            $out['is_overdue'] = $project->end_datetime !== null
+                && $project->end_datetime->lt($now->copy()->startOfDay());
+        }
+        if (in_array('starts_soon', $fields, true)) {
+            $out['starts_soon'] = $project->start_datetime !== null
+                && $project->start_datetime->gte($now->copy()->startOfDay())
+                && $project->start_datetime->lte($now->copy()->addDays(7)->endOfDay());
         }
 
         return $out;
@@ -363,9 +445,118 @@ class ContextBuilder
             $payload = array_merge($payload, $entityPayload);
         }
 
+        if (in_array($intent, [
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+        ], true)) {
+            $payload['availability'] = $this->buildAvailabilityContext($user);
+        }
+
         $payload['conversation_history'] = $this->buildConversationHistory($thread, $userMessage);
 
         return $this->enforceTokenAwareness($payload);
+    }
+
+    /**
+     * Build a coarse-grained availability view (busy windows) for the next few days.
+     * Used by scheduling and adjust-intents so the LLM can see when the user is busy.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildAvailabilityContext(User $user): array
+    {
+        $days = (int) config('tasklyst.context.availability_days', 7);
+        $maxWindowsPerDay = (int) config('tasklyst.context.availability_max_windows_per_day', 12);
+
+        $startOfRange = now()->startOfDay();
+        $endOfRange = $startOfRange->copy()->addDays($days)->endOfDay();
+
+        $events = Event::query()
+            ->forUser($user->id)
+            ->notCancelled()
+            ->notCompleted()
+            ->whereNotNull('start_datetime')
+            ->whereBetween('start_datetime', [$startOfRange, $endOfRange])
+            ->get();
+
+        $tasks = Task::query()
+            ->forUser($user->id)
+            ->incomplete()
+            ->whereNotNull('start_datetime')
+            ->whereNotNull('end_datetime')
+            ->whereBetween('start_datetime', [$startOfRange, $endOfRange])
+            ->get();
+
+        $daysMap = [];
+
+        for ($i = 0; $i <= $days; $i++) {
+            $date = $startOfRange->copy()->addDays($i)->toDateString();
+            $daysMap[$date] = [
+                'date' => $date,
+                'busy_windows' => [],
+            ];
+        }
+
+        foreach ($events as $event) {
+            if ($event->start_datetime === null) {
+                continue;
+            }
+            $dateKey = $event->start_datetime->toDateString();
+            if (! isset($daysMap[$dateKey])) {
+                continue;
+            }
+            $daysMap[$dateKey]['busy_windows'][] = [
+                'start' => $event->start_datetime->toIso8601String(),
+                'end' => $event->end_datetime?->toIso8601String(),
+                'label' => $event->title,
+                'entity_type' => 'event',
+            ];
+        }
+
+        foreach ($tasks as $task) {
+            if ($task->start_datetime === null) {
+                continue;
+            }
+            $dateKey = $task->start_datetime->toDateString();
+            if (! isset($daysMap[$dateKey])) {
+                continue;
+            }
+            $daysMap[$dateKey]['busy_windows'][] = [
+                'start' => $task->start_datetime->toIso8601String(),
+                'end' => $task->end_datetime?->toIso8601String(),
+                'label' => $task->title,
+                'entity_type' => 'task',
+            ];
+        }
+
+        foreach ($daysMap as &$day) {
+            if ($day['busy_windows'] === []) {
+                continue;
+            }
+
+            usort($day['busy_windows'], static function (array $a, array $b): int {
+                return strcmp((string) ($a['start'] ?? ''), (string) ($b['start'] ?? ''));
+            });
+
+            if (count($day['busy_windows']) > $maxWindowsPerDay) {
+                $day['busy_windows'] = array_slice($day['busy_windows'], 0, $maxWindowsPerDay);
+            }
+        }
+        unset($day);
+
+        $out = [];
+        foreach ($daysMap as $day) {
+            if ($day['busy_windows'] === []) {
+                continue;
+            }
+            $out[] = $day;
+        }
+
+        return $out;
     }
 
     /**
