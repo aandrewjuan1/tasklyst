@@ -11,6 +11,9 @@
         messages: @js($this->messages),
         pendingAssistantCount: @js($this->pendingAssistantCount),
         _subscribedThreadId: null,
+        _pendingTimeoutId: null,
+        ignoreNextAssistant: false,
+        currentTraceId: null,
         suggestedPrompts: [
             {{ json_encode(__('What should I focus on today?')) }},
             {{ json_encode(__('Show my tasks with no due date.')) }},
@@ -33,33 +36,11 @@
             const msg = this.lastAssistant();
             if (!msg || !msg.metadata) return [];
             const snap = msg.metadata.recommendation_snapshot || {};
-            const intent = snap.intent || msg.metadata.intent || null;
-            const entityType = snap.entity_type || msg.metadata.entity_type || null;
+            const raw = Array.isArray(snap.followup_suggestions) ? snap.followup_suggestions : [];
 
-            const out = [];
-
-            if (!intent) return out;
-
-            if (intent === 'prioritize_tasks') {
-                out.push({ prompt: '{{ __('Schedule the top task for today.') }}' });
-                out.push({ prompt: '{{ __('Show my tasks with no due date.') }}' });
-            } else if (intent === 'prioritize_events') {
-                out.push({ prompt: '{{ __('Which events should I focus on this week?') }}' });
-            } else if (intent === 'prioritize_projects') {
-                out.push({ prompt: '{{ __('Help me break my top project into smaller steps.') }}' });
-            } else if (intent === 'schedule_task' || intent === 'adjust_task_deadline') {
-                out.push({ prompt: '{{ __('Can you suggest another time slot for this task?') }}' });
-            } else if (intent === 'schedule_event' || intent === 'adjust_event_time') {
-                out.push({ prompt: '{{ __('Suggest a different time for this event.') }}' });
-            } else if (intent === 'schedule_project' || intent === 'adjust_project_timeline') {
-                out.push({ prompt: '{{ __('Help me plan milestones for this project.') }}' });
-            } else if (intent === 'resolve_dependency') {
-                out.push({ prompt: '{{ __('Show me which tasks are still blocked.') }}' });
-            } else if (intent === 'general_query') {
-                out.push({ prompt: '{{ __('What should I focus on next?') }}' });
-            }
-
-            return out;
+            return raw
+                .filter((item) => typeof item === 'string' && item.trim().length > 0)
+                .map((prompt) => ({ prompt }));
         },
         getSnapshot(message) {
             if (!message || !message.metadata) return {};
@@ -68,6 +49,38 @@
         getStructured(message) {
             const snap = this.getSnapshot(message);
             return snap.structured || {};
+        },
+        isSchedulingIntent(message) {
+            const snap = this.getSnapshot(message);
+            const intent = snap.intent || (message.metadata && message.metadata.intent) || null;
+
+            if (!intent) return false;
+
+            return [
+                'schedule_task',
+                'adjust_task_deadline',
+                'schedule_event',
+                'adjust_event_time',
+                'schedule_project',
+                'adjust_project_timeline',
+            ].includes(intent);
+        },
+        isActionableIntent(message) {
+            const snap = this.getSnapshot(message);
+            const intent = snap.intent || (message.metadata && message.metadata.intent) || null;
+
+            if (!intent) return false;
+
+            return [
+                'schedule_task',
+                'schedule_event',
+                'schedule_project',
+                'adjust_task_deadline',
+                'adjust_event_time',
+                'adjust_project_timeline',
+                'resolve_dependency',
+                'prioritize_tasks',
+            ].includes(intent);
         },
         contextEntityLabel(message) {
             const snap = this.getSnapshot(message);
@@ -146,6 +159,64 @@
             const next = Math.min(el.scrollHeight, maxHeight);
             el.style.height = `${next}px`;
         },
+        startPendingTimeout() {
+            if (this._pendingTimeoutId) {
+                clearTimeout(this._pendingTimeoutId);
+                this._pendingTimeoutId = null;
+            }
+
+            if (this.pendingAssistantCount <= 0) return;
+
+            this._pendingTimeoutId = window.setTimeout(() => {
+                if (this.pendingAssistantCount > 0) {
+                    this.pendingAssistantCount = 0;
+                    this.errorMessage = '{{ __('The assistant is taking longer than usual. Please make sure the background queue is running and try again.') }}';
+                }
+            }, 45000);
+        },
+        startNewChat() {
+            if (this.isSending || this.pendingAssistantCount > 0) return;
+
+            this.isRateLimited = false;
+            this.errorMessage = '';
+            this.input = '';
+            this.showJumpToLatest = false;
+
+            if (this._pendingTimeoutId) {
+                clearTimeout(this._pendingTimeoutId);
+                this._pendingTimeoutId = null;
+            }
+
+            this.isSending = true;
+
+            $wire.$call('newThread')
+                .then((payload) => {
+                    const threadId = payload.thread_id ?? null;
+                    const messages = payload.messages ?? [];
+
+                    this.threadId = threadId;
+                    this.messages = messages;
+                    this.pendingAssistantCount = 0;
+
+                    if (this.threadId) {
+                        this.subscribeToThread();
+                    }
+
+                    this.$nextTick(() => {
+                        this.scrollToBottom(true);
+                        if (this.$refs.input) {
+                            this.$refs.input.focus();
+                        }
+                    });
+                })
+                .catch((error) => {
+                    console.error(error);
+                    this.errorMessage = '{{ __('Unable to start a new chat right now. Please try again.') }}';
+                })
+                .finally(() => {
+                    this.isSending = false;
+                });
+        },
         subscribeToThread() {
             if (!this.threadId) return;
             if (this._subscribedThreadId === this.threadId) return;
@@ -185,6 +256,11 @@
                         return;
                     }
 
+                    if (this.ignoreNextAssistant) {
+                        this.ignoreNextAssistant = false;
+                        return;
+                    }
+
                     this.messages = [
                         ...this.messages,
                         {
@@ -207,12 +283,52 @@
                         this.pendingAssistantCount = Math.max(0, this.pendingAssistantCount - 1);
                     }
 
+                    if (this.pendingAssistantCount === 0 && this._pendingTimeoutId) {
+                        clearTimeout(this._pendingTimeoutId);
+                        this._pendingTimeoutId = null;
+                    }
+
                     this.$nextTick(() => {
                         this.scrollToBottom(true);
                     });
                 });
 
             this._subscribedThreadId = threadId;
+        },
+        cancelPending() {
+            if (this.pendingAssistantCount <= 0) return;
+
+            this.pendingAssistantCount = 0;
+            this.ignoreNextAssistant = true;
+
+            if (this._pendingTimeoutId) {
+                clearTimeout(this._pendingTimeoutId);
+                this._pendingTimeoutId = null;
+            }
+
+            // Mark the latest user message as stopped in the UI and backend
+            let lastUserMessageId = null;
+            for (let i = this.messages.length - 1; i >= 0; i--) {
+                const m = this.messages[i];
+                if (m && m.role === 'user') {
+                    const meta = m.metadata && typeof m.metadata === 'object' ? { ...m.metadata } : {};
+                    meta.llm_cancelled = true;
+                    this.messages[i] = { ...m, metadata: meta };
+                    if (m.id && typeof m.id === 'number') {
+                        lastUserMessageId = m.id;
+                    }
+                    break;
+                }
+            }
+
+            if (this.currentTraceId) {
+                $wire.$call('cancelInference', this.currentTraceId);
+                this.currentTraceId = null;
+            }
+
+            if (lastUserMessageId !== null) {
+                $wire.$call('markMessageCancelled', lastUserMessageId);
+            }
         },
         async submit() {
             if (this.isRateLimited || this.isSending || this.pendingAssistantCount > 0) return;
@@ -264,6 +380,10 @@
                     }
 
                     this.pendingAssistantCount += 1;
+                    this.startPendingTimeout();
+                    this.currentTraceId = message.metadata && message.metadata.llm_trace_id
+                        ? message.metadata.llm_trace_id
+                        : null;
                 } else if (message && message.role === 'assistant') {
                     this.messages = [...this.messages, message];
 
@@ -273,6 +393,84 @@
                     } else if (snap.reasoning && snap.reasoning !== 'rate_limited') {
                         this.isRateLimited = false;
                     }
+
+                    this.currentTraceId = null;
+                }
+            } catch (error) {
+                console.error(error);
+                this.messages = snapshot;
+                this.errorMessage = error?.message || '{{ __('Something went wrong while sending your message. Please try again.') }}';
+            } finally {
+                this.isSending = false;
+                this.$nextTick(() => {
+                    this.scrollToBottom(true);
+                });
+            }
+        },
+        async submitPrompt(prompt) {
+            if (this.isRateLimited || this.isSending || this.pendingAssistantCount > 0) return;
+            const text = (prompt || '').trim();
+            if (!text) return;
+
+            const clientId = `temp-${Date.now()}`;
+            const snapshot = [...this.messages];
+
+            const optimistic = {
+                id: clientId,
+                client_id: clientId,
+                role: 'user',
+                content: text,
+                created_at: new Date().toISOString(),
+                metadata: {},
+            };
+
+            this.messages = [...this.messages, optimistic];
+            this.$nextTick(() => {
+                this.scrollToBottom(true);
+            });
+            this.isSending = true;
+            this.errorMessage = '';
+
+            try {
+                const result = await $wire.$call('send', text, clientId);
+
+                const payload = result || {};
+                const serverThreadId = payload.thread_id ?? null;
+                const message = payload.message ?? null;
+
+                if (serverThreadId && !this.threadId) {
+                    this.threadId = serverThreadId;
+                    this.subscribeToThread();
+                }
+
+                if (message && message.role === 'user') {
+                    const idx = this.messages.findIndex(m => m.client_id === clientId);
+                    if (idx !== -1) {
+                        this.messages[idx] = {
+                            ...this.messages[idx],
+                            ...message,
+                            id: message.id,
+                        };
+                    } else {
+                        this.messages = [...this.messages, message];
+                    }
+
+                    this.pendingAssistantCount += 1;
+                    this.startPendingTimeout();
+                    this.currentTraceId = message.metadata && message.metadata.llm_trace_id
+                        ? message.metadata.llm_trace_id
+                        : null;
+                } else if (message && message.role === 'assistant') {
+                    this.messages = [...this.messages, message];
+
+                    const snap = (message.metadata && message.metadata.recommendation_snapshot) || {};
+                    if (snap.reasoning === 'rate_limited') {
+                        this.isRateLimited = true;
+                    } else if (snap.reasoning && snap.reasoning !== 'rate_limited') {
+                        this.isRateLimited = false;
+                    }
+
+                    this.currentTraceId = null;
                 }
             } catch (error) {
                 console.error(error);
@@ -303,11 +501,15 @@
     "
 >
     <div class="border-b border-border/60 px-4 py-3">
-        <div class="flex items-center gap-2">
-            <div class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                <flux:icon name="sparkles" class="size-4" />
+        <div class="flex items-center gap-2 min-w-0">
+            <div class="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <img
+                    src="{{ asset('images/robot-face-svgrepo-com.svg') }}"
+                    alt="{{ __('TaskLyst assistant avatar') }}"
+                    class="h-7 w-7 rounded-full border border-emerald-500/40 bg-background"
+                >
             </div>
-            <div class="min-w-0">
+            <div class="flex-1 min-w-0">
                 <flux:heading size="md" class="truncate">
                     {{ __('TaskLyst Assistant') }}
                 </flux:heading>
@@ -354,16 +556,138 @@
                 class="flex w-full"
                 :class="message.role === 'user' ? 'justify-end' : 'justify-start'"
             >
-                <div
-                    class="max-w-[80%] rounded-lg px-3 py-2 text-xs leading-relaxed"
-                    :class="message.role === 'user'
-                        ? 'bg-emerald-500 text-white dark:bg-emerald-500'
-                        : 'bg-muted text-foreground'"
-                >
+                <div class="flex items-start gap-2 max-w-[80%]">
+                    <template x-if="message.role === 'assistant'">
+                        <div class="mt-0.5 shrink-0">
+                            <img
+                                src="{{ asset('images/robot-face-svgrepo-com.svg') }}"
+                                alt="{{ __('TaskLyst assistant avatar') }}"
+                                class="h-6 w-6 rounded-full border border-border/60 bg-background"
+                            >
+                        </div>
+                    </template>
+
+                    <div
+                        class="flex-1 rounded-lg px-3 py-2 text-xs leading-relaxed"
+                        :class="message.role === 'user'
+                            ? 'bg-emerald-500 text-white dark:bg-emerald-500'
+                            : 'bg-muted text-foreground'"
+                    >
                     <p class="whitespace-pre-wrap" x-text="message.content"></p>
+
+                    <template
+                        x-if="message.role === 'user'
+                            && message.metadata
+                            && message.metadata.llm_cancelled"
+                    >
+                        <div class="mt-1 inline-flex items-center gap-1 rounded-full bg-background/20 px-2 py-0.5 text-[10px] font-medium text-zinc-900/90 dark:text-zinc-100/90">
+                            <flux:icon name="stop-circle" class="size-3" />
+                            <span>{{ __('Request stopped') }}</span>
+                        </div>
+                    </template>
 
                     <template x-if="message.role === 'assistant'">
                         <div class="mt-2 space-y-2">
+                            <template x-if="getSnapshot(message).reasoning === 'off_topic_query'">
+                                <div class="flex gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-2 text-[11px] text-amber-900 dark:text-amber-100">
+                                    <flux:icon name="shield-exclamation" class="mt-0.5 size-3.5 text-amber-500" />
+                                    <div class="space-y-0.5">
+                                        <p class="font-medium">
+                                            {{ __('Out of scope for TaskLyst Assistant') }}
+                                        </p>
+                                        <p class="text-[10px] text-amber-900/80 dark:text-amber-100/80">
+                                            {{ __('I can only help with your tasks, events, and projects. Try asking about your schedule, priorities, or workload.') }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <template x-if="getSnapshot(message).reasoning === 'social_closing'">
+                                <div class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground">
+                                    <flux:icon name="hand-thumb-up" class="size-3" />
+                                    <span>{{ __('Closing reply') }}</span>
+                                </div>
+                            </template>
+
+                            <template x-if="isSchedulingIntent(message)">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Proposed schedule') }}
+                                    </p>
+
+                                    <div class="space-y-0.5 text-[11px] text-muted-foreground">
+                                        <template x-if="getStructured(message).start_datetime || getStructured(message).end_datetime">
+                                            <p>
+                                                <span class="font-medium text-foreground">
+                                                    {{ __('When:') }}
+                                                </span>
+                                                <span
+                                                    x-text="[
+                                                        getStructured(message).start_datetime ? new Date(getStructured(message).start_datetime).toLocaleString() : null,
+                                                        getStructured(message).end_datetime ? new Date(getStructured(message).end_datetime).toLocaleString() : null,
+                                                    ].filter(Boolean).join(' → ')"
+                                                ></span>
+                                            </p>
+                                        </template>
+
+                                        <template x-if="getStructured(message).duration">
+                                            <p>
+                                                <span class="font-medium text-foreground">
+                                                    {{ __('Duration:') }}
+                                                </span>
+                                                <span x-text="getStructured(message).duration"></span>
+                                            </p>
+                                        </template>
+
+                                        <template x-if="getStructured(message).timezone">
+                                            <p>
+                                                <span class="font-medium text-foreground">
+                                                    {{ __('Timezone:') }}
+                                                </span>
+                                                <span x-text="getStructured(message).timezone"></span>
+                                            </p>
+                                        </template>
+
+                                        <template x-if="getStructured(message).location">
+                                            <p>
+                                                <span class="font-medium text-foreground">
+                                                    {{ __('Location:') }}
+                                                </span>
+                                                <span x-text="getStructured(message).location"></span>
+                                            </p>
+                                        </template>
+
+                                        <template x-if="getStructured(message).priority">
+                                            <p class="flex items-center gap-1.5">
+                                                <span class="font-medium text-foreground">
+                                                    {{ __('Priority:') }}
+                                                </span>
+                                                <span
+                                                    class="inline-flex rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-tight text-emerald-700 dark:text-emerald-300"
+                                                    x-text="getStructured(message).priority"
+                                                ></span>
+                                            </p>
+                                        </template>
+                                    </div>
+
+                                    <template x-if="getStructured(message).blockers && getStructured(message).blockers.length">
+                                        <div class="mt-1 space-y-0.5">
+                                            <p class="text-[11px] font-medium text-muted-foreground">
+                                                {{ __('Blockers') }}
+                                            </p>
+                                            <ul class="list-disc pl-4 space-y-0.5 text-[11px] text-muted-foreground">
+                                                <template
+                                                    x-for="(blocker, index) in getStructured(message).blockers"
+                                                    :key="`${index}-${blocker}`"
+                                                >
+                                                    <li x-text="blocker"></li>
+                                                </template>
+                                            </ul>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+
                             <template x-if="getStructured(message).ranked_tasks && getStructured(message).ranked_tasks.length">
                                 <div class="space-y-1">
                                     <p class="text-[11px] font-medium text-muted-foreground">
@@ -523,12 +847,34 @@
                                     class="inline-flex items-center rounded-full bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60"
                                     x-text="contextIntentLabel(message)"
                                 ></span>
+                                <span
+                                    x-show="isActionableIntent(message)"
+                                    class="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-500/40 dark:text-emerald-300"
+                                >
+                                    {{ __('Actionable') }}
+                                </span>
                             </div>
                         </div>
                     </template>
+                    </div>
                 </div>
             </div>
         </template>
+
+        <div
+            x-show="isSending && pendingAssistantCount === 0"
+            x-cloak
+            class="flex w-full justify-start"
+            aria-live="polite"
+            aria-busy="true"
+        >
+            <div class="max-w-[80%] rounded-lg bg-muted px-3 py-2 text-xs text-foreground">
+                <div class="flex items-center gap-2">
+                    <flux:icon name="arrow-path" class="size-3.5 animate-spin text-muted-foreground" />
+                    <span>{{ __('Checking your request and deciding what to do…') }}</span>
+                </div>
+            </div>
+        </div>
 
         <div
             x-show="pendingAssistantCount > 0"
@@ -540,7 +886,17 @@
             <div class="max-w-[80%] rounded-lg bg-muted px-3 py-2 text-xs text-foreground">
                 <div class="flex items-center gap-2">
                     <flux:icon name="arrow-path" class="size-3.5 animate-spin text-muted-foreground" />
-                    <span>{{ __('Thinking…') }}</span>
+                    <span>{{ __('The assistant is thinking through your tasks and building a recommendation…') }}</span>
+                    <flux:button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        class="ml-1 inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5"
+                        @click="cancelPending()"
+                    >
+                        <flux:icon name="stop-circle" class="size-3" />
+                        <span>{{ __('Stop') }}</span>
+                    </flux:button>
                 </div>
             </div>
         </div>
@@ -564,6 +920,35 @@
 
     <div class="border-t border-border/60 px-3 py-2">
         <div class="flex flex-col gap-1.5">
+            <div
+                x-show="followupSuggestions().length > 0"
+                x-cloak
+                class="mb-1.5 rounded-md bg-emerald-500/5 px-2.5 py-2 ring-1 ring-emerald-500/40 dark:bg-emerald-500/10"
+            >
+                <div class="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-emerald-800 dark:text-emerald-100">
+                    <flux:icon name="sparkles" class="size-3.5 text-emerald-600 dark:text-emerald-300" />
+                    <span>{{ __('Follow-up suggestions') }}</span>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <template x-for="item in followupSuggestions()" :key="item.prompt">
+                        <flux:button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            class="text-[11px]! px-2.5 py-1! whitespace-normal text-left cursor-pointer border-emerald-500/60 text-emerald-800 hover:bg-emerald-500/10 dark:text-emerald-100 dark:border-emerald-400/70"
+                            x-bind:disabled="isRateLimited || isSending || pendingAssistantCount > 0"
+                            @click="submitPrompt(item.prompt)"
+                        >
+                            <span class="inline-flex items-center gap-1">
+                                <flux:icon name="arrow-up" class="size-3 text-emerald-600 dark:text-emerald-300" />
+                                <span x-text="item.prompt"></span>
+                            </span>
+                        </flux:button>
+                    </template>
+                </div>
+            </div>
+
             <div
                 x-show="errorMessage"
                 x-cloak
@@ -599,22 +984,20 @@
                 </flux:button>
             </div>
 
-            <div
-                x-show="followupSuggestions().length > 0"
-                x-cloak
-                class="mt-1 flex flex-wrap items-center gap-1.5"
-            >
-                <template x-for="item in followupSuggestions()" :key="item.prompt">
+            <div class="mt-2 flex items-center justify-start">
+                <flux:tooltip :content="__('Start a new conversation')">
                     <flux:button
                         type="button"
                         size="xs"
                         variant="ghost"
-                        class="text-[11px]! px-2.5 py-1! whitespace-normal text-left"
-                        @click="usePrompt(item.prompt)"
+                        icon="plus"
+                        class="inline-flex h-7 px-2 items-center gap-1 rounded-full text-[11px]"
+                        @click="startNewChat()"
+                        aria-label="{{ __('New chat') }}"
                     >
-                        <span x-text="item.prompt"></span>
+                        <span>{{ __('New chat') }}</span>
                     </flux:button>
-                </template>
+                </flux:tooltip>
             </div>
 
         </div>

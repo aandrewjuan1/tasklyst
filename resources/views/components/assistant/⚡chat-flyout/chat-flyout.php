@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\AssistantConversationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Component;
 
 new class extends Component
@@ -64,14 +65,35 @@ new class extends Component
             ->all();
 
         $this->pendingAssistantCount = 0;
+    }
 
-        if ($this->messages !== []) {
-            $last = end($this->messages);
-            if (is_array($last) && ($last['role'] ?? null) === 'user') {
-                $this->pendingAssistantCount = 1;
-            }
-            reset($this->messages);
+    /**
+     * Start a brand new assistant thread for the current user.
+     *
+     * @return array<string, mixed>
+     */
+    public function newThread(): array
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            abort(403);
         }
+
+        /** @var AssistantConversationService $conversation */
+        $conversation = app(AssistantConversationService::class);
+
+        $thread = $conversation->getOrCreateThread($user, null);
+
+        $this->threadId = $thread->id;
+        $this->messages = [];
+        $this->pendingAssistantCount = 0;
+
+        return [
+            'thread_id' => $this->threadId,
+            'messages' => $this->messages,
+        ];
     }
 
     /**
@@ -115,5 +137,49 @@ new class extends Component
                 'metadata' => $assistantMessage->metadata ?? [],
             ],
         ];
+    }
+
+    public function markMessageCancelled(int $messageId): void
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            abort(403);
+        }
+
+        if ($this->threadId === null) {
+            return;
+        }
+
+        /** @var AssistantMessage|null $message */
+        $message = AssistantMessage::query()
+            ->where('assistant_thread_id', $this->threadId)
+            ->where('id', $messageId)
+            ->where('role', 'user')
+            ->first();
+
+        if (! $message instanceof AssistantMessage) {
+            return;
+        }
+
+        $metadata = $message->metadata ?? [];
+        if (! is_array($metadata)) {
+            $metadata = [];
+        }
+
+        $metadata['llm_cancelled'] = true;
+        $message->metadata = $metadata;
+        $message->save();
+    }
+
+    public function cancelInference(string $traceId): void
+    {
+        $traceId = trim($traceId);
+        if ($traceId === '') {
+            return;
+        }
+
+        Cache::put('tasklyst_llm_cancel:'.$traceId, true, now()->addMinutes(5));
     }
 };

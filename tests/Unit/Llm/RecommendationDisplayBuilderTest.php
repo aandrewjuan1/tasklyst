@@ -28,6 +28,8 @@ test('build returns display dto with validation confidence for prioritization', 
 
     expect($dto)->toBeInstanceOf(RecommendationDisplayDto::class)
         ->and($dto->intent)->toBe(LlmIntent::PrioritizeTasks)
+        ->and($dto->followupSuggestions)->toBeArray()
+        ->and($dto->followupSuggestions)->not->toBeEmpty()
         ->and($dto->entityType)->toBe(LlmEntityType::Task)
         ->and($dto->recommendedAction)->toBe('Focus on overdue first.')
         ->and($dto->reasoning)->toContain('Step 1')
@@ -205,14 +207,22 @@ test('RecommendationDisplayDto toArray and fromArray include message', function 
         'used_fallback' => false,
         'fallback_reason' => null,
         'structured' => [],
+        'followup_suggestions' => [
+            'Schedule the top task for today.',
+            'Show my tasks with no due date.',
+        ],
     ]);
 
     $arr = $dto->toArray();
     expect($arr)->toHaveKey('message')
-        ->and($arr['message'])->toBe('Do A first. Here\'s why: Because it is urgent.');
+        ->and($arr['message'])->toBe('Do A first. Here\'s why: Because it is urgent.')
+        ->and($arr)->toHaveKey('followup_suggestions')
+        ->and($arr['followup_suggestions'])->toBeArray()
+        ->and($arr['followup_suggestions'])->toHaveCount(2);
 
     $restored = RecommendationDisplayDto::fromArray($arr);
-    expect($restored->message)->toBe($dto->message);
+    expect($restored->message)->toBe($dto->message)
+        ->and($restored->followupSuggestions)->toBe($dto->followupSuggestions);
 });
 
 test('build formats message with listed_items as summary then bullet list then reasoning', function (): void {

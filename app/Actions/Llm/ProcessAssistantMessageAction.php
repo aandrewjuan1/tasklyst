@@ -88,6 +88,11 @@ class ProcessAssistantMessageAction
             traceId: $traceId
         );
 
+        $metadata = $userMessageModel->metadata ?? [];
+        $metadata['llm_trace_id'] = $traceId;
+        $userMessageModel->metadata = $metadata;
+        $userMessageModel->save();
+
         return $userMessageModel;
     }
 
