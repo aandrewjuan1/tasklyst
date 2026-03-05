@@ -78,6 +78,12 @@ class StructuredOutputSanitizer
             LlmIntent::PrioritizeTasksAndProjects => $this->sanitizeRankedTasksAndProjects($structured, $context),
             LlmIntent::PrioritizeEventsAndProjects => $this->sanitizeRankedEventsAndProjects($structured, $context),
             LlmIntent::PrioritizeAll => $this->sanitizeRankedAll($structured, $context),
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline => $this->sanitizeSingleScheduleRecommendation($structured),
             LlmIntent::ScheduleTasksAndEvents => $this->sanitizeScheduledTasksAndEvents($structured, $context),
             LlmIntent::ScheduleTasksAndProjects => $this->sanitizeScheduledTasksAndProjects($structured, $context),
             LlmIntent::ScheduleEventsAndProjects => $this->sanitizeScheduledEventsAndProjects($structured, $context),
@@ -87,6 +93,48 @@ class StructuredOutputSanitizer
         };
 
         return $result;
+    }
+
+    /**
+     * Apply schedule-time guards to a single schedule-style recommendation
+     * (ScheduleTask, ScheduleEvent, ScheduleProject and their adjust variants).
+     * If the suggested time range is wholly in the past, strip the temporal
+     * fields so the UI does not present an outdated slot.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function sanitizeSingleScheduleRecommendation(array $structured): array
+    {
+        $items = [[
+            'start_datetime' => $structured['start_datetime'] ?? null,
+            'end_datetime' => $structured['end_datetime'] ?? null,
+        ]];
+
+        $filtered = $this->applyScheduleTimeGuards($items);
+
+        if ($filtered === []) {
+            unset(
+                $structured['start_datetime'],
+                $structured['end_datetime'],
+                $structured['duration'],
+                $structured['sessions']
+            );
+
+            return $structured;
+        }
+
+        $first = $filtered[0];
+
+        if (isset($first['start_datetime'])) {
+            $structured['start_datetime'] = $first['start_datetime'];
+        }
+
+        if (isset($first['end_datetime'])) {
+            $structured['end_datetime'] = $first['end_datetime'];
+        }
+
+        return $structured;
     }
 
     /**
