@@ -76,6 +76,34 @@ test('build context for prioritize_events includes events array', function (): v
         ->and($context['events'][0])->toHaveKeys(['id', 'title', 'is_recurring', 'start_datetime']);
 });
 
+test('build context for PrioritizeTasksAndEvents with Multiple includes both tasks and events', function (): void {
+    Task::factory()->for($this->user)->count(2)->create([
+        'title' => 'Task one',
+        'status' => 'to_do',
+        'completed_at' => null,
+    ]);
+    Event::factory()->for($this->user)->count(2)->create([
+        'title' => 'Event one',
+        'status' => 'scheduled',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasksAndEvents,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['events'])->toBeArray()
+        ->and($context['tasks'])->toHaveCount(2)
+        ->and($context['events'])->toHaveCount(2)
+        ->and($context['tasks'][0])->toHaveKeys(['id', 'title', 'end_datetime', 'priority'])
+        ->and($context['events'][0])->toHaveKeys(['id', 'title', 'start_datetime', 'end_datetime']);
+});
+
 test('build context for prioritize_projects includes projects with tasks', function (): void {
     $project = Project::factory()->for($this->user)->create(['name' => 'My project']);
     Task::factory()->for($this->user)->for($project)->create(['title' => 'Project task', 'completed_at' => null]);
@@ -330,6 +358,153 @@ test('resolve_dependency context includes tasks and events', function (): void {
     expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'conversation_history'])
         ->and($context['tasks'])->toBeArray()
         ->and($context['events'])->toBeArray();
+});
+
+test('build context for PrioritizeTasksAndProjects with Multiple includes tasks and projects', function (): void {
+    Task::factory()->for($this->user)->count(2)->create([
+        'title' => 'Task one',
+        'status' => 'to_do',
+        'completed_at' => null,
+    ]);
+    Project::factory()->for($this->user)->count(2)->create([
+        'name' => 'Project one',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasksAndProjects,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'projects', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['projects'])->toBeArray();
+});
+
+test('build context for PrioritizeEventsAndProjects with Multiple includes events and projects', function (): void {
+    Event::factory()->for($this->user)->count(2)->create([
+        'title' => 'Event one',
+        'status' => 'scheduled',
+    ]);
+    Project::factory()->for($this->user)->count(2)->create([
+        'name' => 'Project one',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeEventsAndProjects,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'events', 'projects', 'conversation_history'])
+        ->and($context['events'])->toBeArray()
+        ->and($context['projects'])->toBeArray();
+});
+
+test('build context for PrioritizeAll with Multiple includes tasks, events and projects', function (): void {
+    Task::factory()->for($this->user)->count(1)->create([
+        'title' => 'Task one',
+        'status' => 'to_do',
+        'completed_at' => null,
+    ]);
+    Event::factory()->for($this->user)->count(1)->create([
+        'title' => 'Event one',
+        'status' => 'scheduled',
+    ]);
+    Project::factory()->for($this->user)->count(1)->create([
+        'name' => 'Project one',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeAll,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'projects', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['events'])->toBeArray()
+        ->and($context['projects'])->toBeArray();
+});
+
+test('build context for ScheduleTasksAndEvents with Multiple includes tasks, events and availability', function (): void {
+    Task::factory()->for($this->user)->count(1)->create(['title' => 'Task one', 'status' => 'to_do', 'completed_at' => null]);
+    Event::factory()->for($this->user)->count(1)->create(['title' => 'Event one', 'status' => 'scheduled']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleTasksAndEvents,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'availability', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['events'])->toBeArray()
+        ->and($context['availability'])->toBeArray();
+});
+
+test('build context for ScheduleTasksAndProjects with Multiple includes tasks, projects and availability', function (): void {
+    Task::factory()->for($this->user)->count(1)->create(['title' => 'Task one', 'status' => 'to_do', 'completed_at' => null]);
+    Project::factory()->for($this->user)->count(1)->create(['name' => 'Project one']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleTasksAndProjects,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'projects', 'availability', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['projects'])->toBeArray()
+        ->and($context['availability'])->toBeArray();
+});
+
+test('build context for ScheduleEventsAndProjects with Multiple includes events, projects and availability', function (): void {
+    Event::factory()->for($this->user)->count(1)->create(['title' => 'Event one', 'status' => 'scheduled']);
+    Project::factory()->for($this->user)->count(1)->create(['name' => 'Project one']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleEventsAndProjects,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'events', 'projects', 'availability', 'conversation_history'])
+        ->and($context['events'])->toBeArray()
+        ->and($context['projects'])->toBeArray()
+        ->and($context['availability'])->toBeArray();
+});
+
+test('build context for ScheduleAll with Multiple includes tasks, events, projects and availability', function (): void {
+    Task::factory()->for($this->user)->count(1)->create(['title' => 'Task one', 'status' => 'to_do', 'completed_at' => null]);
+    Event::factory()->for($this->user)->count(1)->create(['title' => 'Event one', 'status' => 'scheduled']);
+    Project::factory()->for($this->user)->count(1)->create(['name' => 'Project one']);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleAll,
+        LlmEntityType::Multiple,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'projects', 'availability', 'conversation_history'])
+        ->and($context['tasks'])->toBeArray()
+        ->and($context['events'])->toBeArray()
+        ->and($context['projects'])->toBeArray()
+        ->and($context['availability'])->toBeArray();
 });
 
 test('resolve_dependency context scopes to previous list when user says for those', function (): void {

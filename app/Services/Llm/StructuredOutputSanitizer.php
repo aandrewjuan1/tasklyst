@@ -74,6 +74,14 @@ class StructuredOutputSanitizer
             LlmIntent::PrioritizeTasks => $this->sanitizeRankedTasks($structured, $context),
             LlmIntent::PrioritizeEvents => $this->sanitizeRankedEvents($structured, $context),
             LlmIntent::PrioritizeProjects => $this->sanitizeRankedProjects($structured, $context),
+            LlmIntent::PrioritizeTasksAndEvents => $this->sanitizeRankedTasksAndEvents($structured, $context),
+            LlmIntent::PrioritizeTasksAndProjects => $this->sanitizeRankedTasksAndProjects($structured, $context),
+            LlmIntent::PrioritizeEventsAndProjects => $this->sanitizeRankedEventsAndProjects($structured, $context),
+            LlmIntent::PrioritizeAll => $this->sanitizeRankedAll($structured, $context),
+            LlmIntent::ScheduleTasksAndEvents => $this->sanitizeScheduledTasksAndEvents($structured, $context),
+            LlmIntent::ScheduleTasksAndProjects => $this->sanitizeScheduledTasksAndProjects($structured, $context),
+            LlmIntent::ScheduleEventsAndProjects => $this->sanitizeScheduledEventsAndProjects($structured, $context),
+            LlmIntent::ScheduleAll => $this->sanitizeScheduledAll($structured, $context),
             LlmIntent::GeneralQuery => $this->sanitizeGeneralQuery($structured, $context, $entityType, $userMessage),
             default => $structured,
         };
@@ -135,6 +143,308 @@ class StructuredOutputSanitizer
 
         $filtered = $this->filterRankedByTitle($ranked, $allowedTitles, 'title');
         $structured['ranked_events'] = $this->rerank($filtered);
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize both ranked_tasks and ranked_events for PrioritizeTasksAndEvents.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeRankedTasksAndEvents(array $structured, array $context): array
+    {
+        $tasksContext = $context['tasks'] ?? [];
+        $eventsContext = $context['events'] ?? [];
+        $allowedTaskTitles = $this->titlesFromContextItems($tasksContext);
+        $allowedEventTitles = $this->titlesFromContextItems($eventsContext);
+
+        $rankedTasks = $structured['ranked_tasks'] ?? [];
+        if (is_array($rankedTasks)) {
+            if ($allowedTaskTitles === []) {
+                $structured['ranked_tasks'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
+                $structured['ranked_tasks'] = $this->rerank($filtered);
+            }
+        }
+
+        $rankedEvents = $structured['ranked_events'] ?? [];
+        if (is_array($rankedEvents)) {
+            if ($allowedEventTitles === []) {
+                $structured['ranked_events'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedEvents, $allowedEventTitles, 'title');
+                $structured['ranked_events'] = $this->rerank($filtered);
+            }
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize both ranked_tasks and ranked_projects for PrioritizeTasksAndProjects.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeRankedTasksAndProjects(array $structured, array $context): array
+    {
+        $tasksContext = $context['tasks'] ?? [];
+        $projectsContext = $context['projects'] ?? [];
+        $allowedTaskTitles = $this->titlesFromContextItems($tasksContext);
+        $allowedProjectNames = $this->namesFromContextProjects($projectsContext);
+
+        $rankedTasks = $structured['ranked_tasks'] ?? [];
+        if (is_array($rankedTasks)) {
+            if ($allowedTaskTitles === []) {
+                $structured['ranked_tasks'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
+                $structured['ranked_tasks'] = $this->rerank($filtered);
+            }
+        }
+
+        $rankedProjects = $structured['ranked_projects'] ?? [];
+        if (is_array($rankedProjects)) {
+            if ($allowedProjectNames === []) {
+                $structured['ranked_projects'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedProjects, $allowedProjectNames, 'name');
+                $structured['ranked_projects'] = $this->rerank($filtered);
+            }
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize both ranked_events and ranked_projects for PrioritizeEventsAndProjects.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeRankedEventsAndProjects(array $structured, array $context): array
+    {
+        $eventsContext = $context['events'] ?? [];
+        $projectsContext = $context['projects'] ?? [];
+        $allowedEventTitles = $this->titlesFromContextItems($eventsContext);
+        $allowedProjectNames = $this->namesFromContextProjects($projectsContext);
+
+        $rankedEvents = $structured['ranked_events'] ?? [];
+        if (is_array($rankedEvents)) {
+            if ($allowedEventTitles === []) {
+                $structured['ranked_events'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedEvents, $allowedEventTitles, 'title');
+                $structured['ranked_events'] = $this->rerank($filtered);
+            }
+        }
+
+        $rankedProjects = $structured['ranked_projects'] ?? [];
+        if (is_array($rankedProjects)) {
+            if ($allowedProjectNames === []) {
+                $structured['ranked_projects'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedProjects, $allowedProjectNames, 'name');
+                $structured['ranked_projects'] = $this->rerank($filtered);
+            }
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize ranked_tasks, ranked_events, and ranked_projects for PrioritizeAll.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeRankedAll(array $structured, array $context): array
+    {
+        $tasksContext = $context['tasks'] ?? [];
+        $eventsContext = $context['events'] ?? [];
+        $projectsContext = $context['projects'] ?? [];
+        $allowedTaskTitles = $this->titlesFromContextItems($tasksContext);
+        $allowedEventTitles = $this->titlesFromContextItems($eventsContext);
+        $allowedProjectNames = $this->namesFromContextProjects($projectsContext);
+
+        $rankedTasks = $structured['ranked_tasks'] ?? [];
+        if (is_array($rankedTasks)) {
+            if ($allowedTaskTitles === []) {
+                $structured['ranked_tasks'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
+                $structured['ranked_tasks'] = $this->rerank($filtered);
+            }
+        }
+
+        $rankedEvents = $structured['ranked_events'] ?? [];
+        if (is_array($rankedEvents)) {
+            if ($allowedEventTitles === []) {
+                $structured['ranked_events'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedEvents, $allowedEventTitles, 'title');
+                $structured['ranked_events'] = $this->rerank($filtered);
+            }
+        }
+
+        $rankedProjects = $structured['ranked_projects'] ?? [];
+        if (is_array($rankedProjects)) {
+            if ($allowedProjectNames === []) {
+                $structured['ranked_projects'] = [];
+            } else {
+                $filtered = $this->filterRankedByTitle($rankedProjects, $allowedProjectNames, 'name');
+                $structured['ranked_projects'] = $this->rerank($filtered);
+            }
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize scheduled_tasks and scheduled_events for ScheduleTasksAndEvents.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeScheduledTasksAndEvents(array $structured, array $context): array
+    {
+        $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
+        $allowedEventTitles = $this->titlesFromContextItems($context['events'] ?? []);
+
+        $scheduledTasks = $structured['scheduled_tasks'] ?? [];
+        if (is_array($scheduledTasks)) {
+            $structured['scheduled_tasks'] = $allowedTaskTitles === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
+                );
+        }
+
+        $scheduledEvents = $structured['scheduled_events'] ?? [];
+        if (is_array($scheduledEvents)) {
+            $structured['scheduled_events'] = $allowedEventTitles === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledEvents, $allowedEventTitles, 'title')
+                );
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize scheduled_tasks and scheduled_projects for ScheduleTasksAndProjects.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeScheduledTasksAndProjects(array $structured, array $context): array
+    {
+        $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
+        $allowedProjectNames = $this->namesFromContextProjects($context['projects'] ?? []);
+
+        $scheduledTasks = $structured['scheduled_tasks'] ?? [];
+        if (is_array($scheduledTasks)) {
+            $structured['scheduled_tasks'] = $allowedTaskTitles === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
+                );
+        }
+
+        $scheduledProjects = $structured['scheduled_projects'] ?? [];
+        if (is_array($scheduledProjects)) {
+            $structured['scheduled_projects'] = $allowedProjectNames === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledProjects, $allowedProjectNames, 'name')
+                );
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize scheduled_events and scheduled_projects for ScheduleEventsAndProjects.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeScheduledEventsAndProjects(array $structured, array $context): array
+    {
+        $allowedEventTitles = $this->titlesFromContextItems($context['events'] ?? []);
+        $allowedProjectNames = $this->namesFromContextProjects($context['projects'] ?? []);
+
+        $scheduledEvents = $structured['scheduled_events'] ?? [];
+        if (is_array($scheduledEvents)) {
+            $structured['scheduled_events'] = $allowedEventTitles === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledEvents, $allowedEventTitles, 'title')
+                );
+        }
+
+        $scheduledProjects = $structured['scheduled_projects'] ?? [];
+        if (is_array($scheduledProjects)) {
+            $structured['scheduled_projects'] = $allowedProjectNames === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledProjects, $allowedProjectNames, 'name')
+                );
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Sanitize scheduled_tasks, scheduled_events, scheduled_projects for ScheduleAll.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeScheduledAll(array $structured, array $context): array
+    {
+        $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
+        $allowedEventTitles = $this->titlesFromContextItems($context['events'] ?? []);
+        $allowedProjectNames = $this->namesFromContextProjects($context['projects'] ?? []);
+
+        $scheduledTasks = $structured['scheduled_tasks'] ?? [];
+        if (is_array($scheduledTasks)) {
+            $structured['scheduled_tasks'] = $allowedTaskTitles === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
+                );
+        }
+
+        $scheduledEvents = $structured['scheduled_events'] ?? [];
+        if (is_array($scheduledEvents)) {
+            $structured['scheduled_events'] = $allowedEventTitles === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledEvents, $allowedEventTitles, 'title')
+                );
+        }
+
+        $scheduledProjects = $structured['scheduled_projects'] ?? [];
+        if (is_array($scheduledProjects)) {
+            $structured['scheduled_projects'] = $allowedProjectNames === []
+                ? []
+                : $this->applyScheduleTimeGuards(
+                    $this->filterRankedByTitle($scheduledProjects, $allowedProjectNames, 'name')
+                );
+        }
 
         return $structured;
     }
@@ -646,6 +956,75 @@ class StructuredOutputSanitizer
         $windowEnd = $start->addDays(7);
 
         return $endAt->betweenIncluded($start, $windowEnd);
+    }
+
+    /**
+     * Apply stricter backend guards to scheduled time ranges so we avoid
+     * obviously unreasonable times, such as scheduling "today" work in the
+     * early-morning hours of the next day in the Asia/Manila timezone.
+     *
+     * - Drop items whose end time is wholly in the past.
+     * - When a start or end falls between 00:00 and 06:00 local time and the
+     *   date is strictly after today, prefer to drop the item. This prevents
+     *   LLM outputs like 01:00–03:00 tomorrow when the user asked for "today".
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyScheduleTimeGuards(array $items): array
+    {
+        if ($items === []) {
+            return [];
+        }
+
+        $timezone = config('app.timezone');
+        $now = \Carbon\CarbonImmutable::now($timezone);
+        $today = $now->toDateString();
+
+        $out = [];
+
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $startRaw = isset($item['start_datetime']) && is_string($item['start_datetime']) ? trim($item['start_datetime']) : null;
+            $endRaw = isset($item['end_datetime']) && is_string($item['end_datetime']) ? trim($item['end_datetime']) : null;
+
+            try {
+                $start = $startRaw ? \Carbon\CarbonImmutable::parse($startRaw, $timezone)->setTimezone($timezone) : null;
+            } catch (\Throwable) {
+                $start = null;
+            }
+
+            try {
+                $end = $endRaw ? \Carbon\CarbonImmutable::parse($endRaw, $timezone)->setTimezone($timezone) : null;
+            } catch (\Throwable) {
+                $end = null;
+            }
+
+            // Drop items with an end time wholly in the past.
+            if ($end !== null && $end->lt($now)) {
+                continue;
+            }
+
+            // If the model suggested a slot in the early morning (00:00–06:00)
+            // of a *future* day, drop it. This protects against answers like
+            // "today after lunch" being mapped to 01:00–03:00 tomorrow.
+            $candidate = $start ?? $end;
+            if ($candidate !== null) {
+                $candidateDate = $candidate->toDateString();
+                $hour = (int) $candidate->format('G');
+
+                if ($candidateDate > $today && $hour >= 0 && $hour < 6) {
+                    continue;
+                }
+            }
+
+            $out[] = $item;
+        }
+
+        return $out;
     }
 
     /**

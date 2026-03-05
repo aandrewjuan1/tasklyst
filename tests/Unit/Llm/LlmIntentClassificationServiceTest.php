@@ -97,3 +97,100 @@ it('classifies meta or complaint questions about the assistant as general_query'
     'why did you not answer' => ['why did you not answer it the first time? are you hallucinating?'],
     'too complex too hard' => ['when the query is too complex its too hard for you?'],
 ]);
+
+it('classifies prioritize both tasks and events as PrioritizeTasksAndEvents with Multiple entity type', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('prioritize both my tasks and events');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeTasksAndEvents)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});
+
+it('classifies rank my tasks and events as PrioritizeTasksAndEvents when both and connector present', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('rank my tasks and events');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeTasksAndEvents)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple);
+});
+
+it('classifies prioritize both tasks and projects as PrioritizeTasksAndProjects with Multiple entity type', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('prioritize both my tasks and projects');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeTasksAndProjects)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});
+
+it('classifies prioritize events and projects as PrioritizeEventsAndProjects with Multiple entity type', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('prioritize events and projects');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeEventsAndProjects)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});
+
+it('classifies prioritize all my items as PrioritizeAll with Multiple entity type', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('prioritize all my items');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeAll)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});
+
+it('classifies in my tasks events projects what should I do first as PrioritizeAll with Multiple', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('in my tasks, events, projects what should I do first?');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeAll)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple);
+});
+
+it('classifies schedule both my tasks and events as ScheduleTasksAndEvents with Multiple', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('schedule both my tasks and events');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTasksAndEvents)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});
+
+it('classifies schedule tasks and projects as ScheduleTasksAndProjects with Multiple', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('schedule tasks and projects');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTasksAndProjects)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});
+
+it('classifies schedule all my items as ScheduleAll with Multiple', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('schedule all my items');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleAll)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->confidence)->toBeGreaterThanOrEqual(0.7);
+});

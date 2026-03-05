@@ -111,6 +111,117 @@ test('build fills default content when recommended action or reasoning empty', f
         ->and($dto->message)->not->toBeEmpty();
 });
 
+test('build for PrioritizeTasksAndEvents with Multiple includes both task and event sections in message', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'task,event',
+            'recommended_action' => 'Focus on tasks first, then events.',
+            'reasoning' => 'Tasks have deadlines; events are time-bound.',
+            'ranked_tasks' => [
+                ['rank' => 1, 'title' => 'Task Alpha', 'end_datetime' => null],
+                ['rank' => 2, 'title' => 'Task Beta', 'end_datetime' => null],
+            ],
+            'ranked_events' => [
+                ['rank' => 1, 'title' => 'Event One', 'start_datetime' => now()->addDay()->toIso8601String()],
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 120,
+        completionTokens: 60,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::PrioritizeTasksAndEvents, LlmEntityType::Multiple);
+
+    expect($dto->intent)->toBe(LlmIntent::PrioritizeTasksAndEvents)
+        ->and($dto->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($dto->message)->toContain('Focus on tasks first')
+        ->and($dto->message)->toContain('Task Alpha')
+        ->and($dto->message)->toContain('Task Beta')
+        ->and($dto->message)->toContain('Event One')
+        ->and($dto->structured)->toHaveKey('ranked_tasks')
+        ->and($dto->structured)->toHaveKey('ranked_events')
+        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->validationConfidence)->toBeGreaterThan(0);
+});
+
+test('build for PrioritizeAll with Multiple includes tasks, events and projects sections in message', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'all',
+            'recommended_action' => 'Focus on tasks first, then events, then projects.',
+            'reasoning' => 'Unified order across all item types.',
+            'ranked_tasks' => [
+                ['rank' => 1, 'title' => 'Task One', 'end_datetime' => null],
+            ],
+            'ranked_events' => [
+                ['rank' => 1, 'title' => 'Event One', 'start_datetime' => now()->addDay()->toIso8601String()],
+            ],
+            'ranked_projects' => [
+                ['rank' => 1, 'name' => 'Project One', 'end_datetime' => null],
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 150,
+        completionTokens: 80,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::PrioritizeAll, LlmEntityType::Multiple);
+
+    expect($dto->intent)->toBe(LlmIntent::PrioritizeAll)
+        ->and($dto->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($dto->message)->toContain('Focus on tasks first')
+        ->and($dto->message)->toContain('Task One')
+        ->and($dto->message)->toContain('Event One')
+        ->and($dto->message)->toContain('Project One')
+        ->and($dto->structured)->toHaveKey('ranked_tasks')
+        ->and($dto->structured)->toHaveKey('ranked_events')
+        ->and($dto->structured)->toHaveKey('ranked_projects')
+        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->validationConfidence)->toBeGreaterThan(0);
+});
+
+test('build for ScheduleAll with Multiple includes scheduled tasks, events and projects sections in message', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'all',
+            'recommended_action' => 'Here are suggested times for your items.',
+            'reasoning' => 'Based on your availability.',
+            'scheduled_tasks' => [
+                ['title' => 'Task One', 'start_datetime' => now()->addDay()->setTime(9, 0)->toIso8601String(), 'end_datetime' => now()->addDay()->setTime(10, 0)->toIso8601String()],
+            ],
+            'scheduled_events' => [
+                ['title' => 'Event One', 'start_datetime' => now()->addDays(2)->setTime(14, 0)->toIso8601String(), 'end_datetime' => now()->addDays(2)->setTime(15, 0)->toIso8601String()],
+            ],
+            'scheduled_projects' => [
+                ['name' => 'Project One', 'start_datetime' => now()->addDays(3)->setTime(9, 0)->toIso8601String(), 'end_datetime' => now()->addDays(5)->setTime(17, 0)->toIso8601String()],
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 150,
+        completionTokens: 80,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ScheduleAll, LlmEntityType::Multiple);
+
+    expect($dto->intent)->toBe(LlmIntent::ScheduleAll)
+        ->and($dto->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($dto->message)->toContain('Here are suggested times')
+        ->and($dto->message)->toContain('Task One')
+        ->and($dto->message)->toContain('Event One')
+        ->and($dto->message)->toContain('Project One')
+        ->and($dto->structured)->toHaveKey('scheduled_tasks')
+        ->and($dto->structured)->toHaveKey('scheduled_events')
+        ->and($dto->structured)->toHaveKey('scheduled_projects')
+        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->validationConfidence)->toBeGreaterThan(0);
+});
+
 test('build includes next_steps for resolve_dependency', function (): void {
     $result = new LlmInferenceResult(
         structured: [

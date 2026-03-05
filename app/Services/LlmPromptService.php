@@ -9,13 +9,21 @@ use App\Llm\PromptTemplates\AdjustEventTimePrompt;
 use App\Llm\PromptTemplates\AdjustProjectTimelinePrompt;
 use App\Llm\PromptTemplates\AdjustTaskDeadlinePrompt;
 use App\Llm\PromptTemplates\GeneralQueryPrompt;
+use App\Llm\PromptTemplates\PrioritizeAllPrompt;
+use App\Llm\PromptTemplates\PrioritizeEventsAndProjectsPrompt;
 use App\Llm\PromptTemplates\PrioritizeEventsPrompt;
 use App\Llm\PromptTemplates\PrioritizeProjectsPrompt;
+use App\Llm\PromptTemplates\PrioritizeTasksAndEventsPrompt;
+use App\Llm\PromptTemplates\PrioritizeTasksAndProjectsPrompt;
 use App\Llm\PromptTemplates\PrioritizeTasksPrompt;
 use App\Llm\PromptTemplates\ResolveDependencyPrompt;
+use App\Llm\PromptTemplates\ScheduleAllPrompt;
 use App\Llm\PromptTemplates\ScheduleEventPrompt;
+use App\Llm\PromptTemplates\ScheduleEventsAndProjectsPrompt;
 use App\Llm\PromptTemplates\ScheduleProjectPrompt;
 use App\Llm\PromptTemplates\ScheduleTaskPrompt;
+use App\Llm\PromptTemplates\ScheduleTasksAndEventsPrompt;
+use App\Llm\PromptTemplates\ScheduleTasksAndProjectsPrompt;
 
 class LlmPromptService
 {
@@ -26,9 +34,17 @@ class LlmPromptService
         LlmIntent::ScheduleTask->value => ScheduleTaskPrompt::class,
         LlmIntent::ScheduleEvent->value => ScheduleEventPrompt::class,
         LlmIntent::ScheduleProject->value => ScheduleProjectPrompt::class,
+        LlmIntent::ScheduleTasksAndEvents->value => ScheduleTasksAndEventsPrompt::class,
+        LlmIntent::ScheduleTasksAndProjects->value => ScheduleTasksAndProjectsPrompt::class,
+        LlmIntent::ScheduleEventsAndProjects->value => ScheduleEventsAndProjectsPrompt::class,
+        LlmIntent::ScheduleAll->value => ScheduleAllPrompt::class,
         LlmIntent::PrioritizeTasks->value => PrioritizeTasksPrompt::class,
         LlmIntent::PrioritizeEvents->value => PrioritizeEventsPrompt::class,
         LlmIntent::PrioritizeProjects->value => PrioritizeProjectsPrompt::class,
+        LlmIntent::PrioritizeTasksAndEvents->value => PrioritizeTasksAndEventsPrompt::class,
+        LlmIntent::PrioritizeTasksAndProjects->value => PrioritizeTasksAndProjectsPrompt::class,
+        LlmIntent::PrioritizeEventsAndProjects->value => PrioritizeEventsAndProjectsPrompt::class,
+        LlmIntent::PrioritizeAll->value => PrioritizeAllPrompt::class,
         LlmIntent::ResolveDependency->value => ResolveDependencyPrompt::class,
         LlmIntent::AdjustTaskDeadline->value => AdjustTaskDeadlinePrompt::class,
         LlmIntent::AdjustEventTime->value => AdjustEventTimePrompt::class,

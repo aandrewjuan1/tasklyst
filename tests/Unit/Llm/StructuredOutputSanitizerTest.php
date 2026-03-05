@@ -74,6 +74,155 @@ test('sanitize non prioritize intent returns structured unchanged', function ():
     expect($out)->toEqual($structured);
 });
 
+test('sanitize PrioritizeTasksAndEvents filters both ranked_tasks and ranked_events by context', function (): void {
+    $structured = [
+        'entity_type' => 'task,event',
+        'recommended_action' => 'Prioritize both.',
+        'reasoning' => 'Order by urgency.',
+        'ranked_tasks' => [
+            ['rank' => 1, 'title' => 'Real Task'],
+            ['rank' => 2, 'title' => 'Hallucinated Task'],
+        ],
+        'ranked_events' => [
+            ['rank' => 1, 'title' => 'Real Event'],
+            ['rank' => 2, 'title' => 'Fake Event'],
+        ],
+    ];
+    $context = [
+        'tasks' => [['id' => 1, 'title' => 'Real Task']],
+        'events' => [['id' => 1, 'title' => 'Real Event']],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeTasksAndEvents);
+
+    expect($out['ranked_tasks'])->toHaveCount(1)
+        ->and($out['ranked_tasks'][0]['title'])->toBe('Real Task')
+        ->and($out['ranked_events'])->toHaveCount(1)
+        ->and($out['ranked_events'][0]['title'])->toBe('Real Event');
+});
+
+test('sanitize PrioritizeTasksAndProjects filters ranked_tasks and ranked_projects by context', function (): void {
+    $structured = [
+        'entity_type' => 'task,project',
+        'recommended_action' => 'Prioritize both.',
+        'reasoning' => 'Order by urgency.',
+        'ranked_tasks' => [
+            ['rank' => 1, 'title' => 'Real Task'],
+            ['rank' => 2, 'title' => 'Hallucinated Task'],
+        ],
+        'ranked_projects' => [
+            ['rank' => 1, 'name' => 'Real Project'],
+            ['rank' => 2, 'name' => 'Fake Project'],
+        ],
+    ];
+    $context = [
+        'tasks' => [['id' => 1, 'title' => 'Real Task']],
+        'projects' => [['id' => 1, 'name' => 'Real Project']],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeTasksAndProjects);
+
+    expect($out['ranked_tasks'])->toHaveCount(1)
+        ->and($out['ranked_tasks'][0]['title'])->toBe('Real Task')
+        ->and($out['ranked_projects'])->toHaveCount(1)
+        ->and($out['ranked_projects'][0]['name'])->toBe('Real Project');
+});
+
+test('sanitize PrioritizeAll filters all three ranked lists by context', function (): void {
+    $structured = [
+        'entity_type' => 'all',
+        'recommended_action' => 'Prioritize all.',
+        'reasoning' => 'Order by urgency.',
+        'ranked_tasks' => [
+            ['rank' => 1, 'title' => 'Real Task'],
+            ['rank' => 2, 'title' => 'Hallucinated Task'],
+        ],
+        'ranked_events' => [
+            ['rank' => 1, 'title' => 'Real Event'],
+        ],
+        'ranked_projects' => [
+            ['rank' => 1, 'name' => 'Real Project'],
+            ['rank' => 2, 'name' => 'Fake Project'],
+        ],
+    ];
+    $context = [
+        'tasks' => [['id' => 1, 'title' => 'Real Task']],
+        'events' => [['id' => 1, 'title' => 'Real Event']],
+        'projects' => [['id' => 1, 'name' => 'Real Project']],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeAll);
+
+    expect($out['ranked_tasks'])->toHaveCount(1)
+        ->and($out['ranked_tasks'][0]['title'])->toBe('Real Task')
+        ->and($out['ranked_events'])->toHaveCount(1)
+        ->and($out['ranked_events'][0]['title'])->toBe('Real Event')
+        ->and($out['ranked_projects'])->toHaveCount(1)
+        ->and($out['ranked_projects'][0]['name'])->toBe('Real Project');
+});
+
+test('sanitize ScheduleTasksAndEvents keeps only tasks and events that exist in context', function (): void {
+    $structured = [
+        'entity_type' => 'task,event',
+        'recommended_action' => 'Suggested times below.',
+        'reasoning' => 'Based on availability.',
+        'scheduled_tasks' => [
+            ['title' => 'Real Task', 'start_datetime' => '2026-03-10T09:00:00+00:00', 'end_datetime' => '2026-03-10T10:00:00+00:00'],
+            ['title' => 'Hallucinated Task', 'start_datetime' => '2026-03-11T09:00:00+00:00', 'end_datetime' => '2026-03-11T10:00:00+00:00'],
+        ],
+        'scheduled_events' => [
+            ['title' => 'Real Event', 'start_datetime' => '2026-03-12T14:00:00+00:00', 'end_datetime' => '2026-03-12T15:00:00+00:00'],
+            ['title' => 'Fake Event', 'start_datetime' => '2026-03-13T14:00:00+00:00', 'end_datetime' => '2026-03-13T15:00:00+00:00'],
+        ],
+    ];
+    $context = [
+        'tasks' => [['id' => 1, 'title' => 'Real Task']],
+        'events' => [['id' => 1, 'title' => 'Real Event']],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ScheduleTasksAndEvents);
+
+    expect($out['scheduled_tasks'])->toHaveCount(1)
+        ->and($out['scheduled_tasks'][0]['title'])->toBe('Real Task')
+        ->and($out['scheduled_tasks'][0]['start_datetime'])->toBe('2026-03-10T09:00:00+00:00')
+        ->and($out['scheduled_events'])->toHaveCount(1)
+        ->and($out['scheduled_events'][0]['title'])->toBe('Real Event')
+        ->and($out['scheduled_events'][0]['start_datetime'])->toBe('2026-03-12T14:00:00+00:00');
+});
+
+test('sanitize ScheduleAll keeps only scheduled items that exist in context', function (): void {
+    $structured = [
+        'entity_type' => 'all',
+        'recommended_action' => 'Suggested times for all.',
+        'reasoning' => 'Based on availability.',
+        'scheduled_tasks' => [
+            ['title' => 'Real Task', 'start_datetime' => '2026-03-10T09:00:00+00:00', 'end_datetime' => '2026-03-10T10:00:00+00:00'],
+            ['title' => 'Hallucinated Task', 'start_datetime' => '2026-03-11T09:00:00+00:00', 'end_datetime' => '2026-03-11T10:00:00+00:00'],
+        ],
+        'scheduled_events' => [
+            ['title' => 'Real Event', 'start_datetime' => '2026-03-12T14:00:00+00:00', 'end_datetime' => '2026-03-12T15:00:00+00:00'],
+        ],
+        'scheduled_projects' => [
+            ['name' => 'Real Project', 'start_datetime' => '2026-03-15T09:00:00+00:00', 'end_datetime' => '2026-03-17T17:00:00+00:00'],
+            ['name' => 'Fake Project', 'start_datetime' => '2026-03-18T09:00:00+00:00', 'end_datetime' => '2026-03-19T17:00:00+00:00'],
+        ],
+    ];
+    $context = [
+        'tasks' => [['id' => 1, 'title' => 'Real Task']],
+        'events' => [['id' => 1, 'title' => 'Real Event']],
+        'projects' => [['id' => 1, 'name' => 'Real Project']],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ScheduleAll);
+
+    expect($out['scheduled_tasks'])->toHaveCount(1)
+        ->and($out['scheduled_tasks'][0]['title'])->toBe('Real Task')
+        ->and($out['scheduled_events'])->toHaveCount(1)
+        ->and($out['scheduled_events'][0]['title'])->toBe('Real Event')
+        ->and($out['scheduled_projects'])->toHaveCount(1)
+        ->and($out['scheduled_projects'][0]['name'])->toBe('Real Project');
+});
+
 test('sanitize prioritize_tasks accepts fuzzy title match and normalizes to context title', function (): void {
     $structured = [
         'entity_type' => 'task',

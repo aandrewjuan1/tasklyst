@@ -140,6 +140,14 @@ Classification rules:
 - If the message clearly asks about times, dates, or scheduling, prefer a schedule_* intent over general_query.
 - If the message is very vague but you must choose, still pick the single best intent and entity_type, but set confidence below 0.4.
 - When conversation history is provided: treat follow-ups like "how about in events?" or "same for projects?" as carrying over the previous intent. E.g. if the user asked "what to do first?" (prioritize_tasks) and then "how about in events?", classify intent as prioritize_events.
+- When the user asks to prioritize both tasks and events (e.g. "prioritize both my tasks and events", "rank my tasks and events"), use intent "prioritize_tasks_and_events" and entity_type "multiple".
+- When the user asks to prioritize both tasks and projects (e.g. "prioritize my tasks and projects", "both tasks and projects"), use intent "prioritize_tasks_and_projects" and entity_type "multiple".
+- When the user asks to prioritize both events and projects (e.g. "prioritize events and projects", "both events and projects"), use intent "prioritize_events_and_projects" and entity_type "multiple".
+- When the user asks to prioritize "all" items or explicitly mentions tasks, events, and projects together (e.g. "in my tasks, events, projects what should I do first?", "prioritize all my items", "all items what to do first"), use intent "prioritize_all" and entity_type "multiple".
+- When the user asks to schedule both tasks and events (e.g. "schedule my tasks and events", "when should I do my tasks and events"), use intent "schedule_tasks_and_events" and entity_type "multiple".
+- When the user asks to schedule both tasks and projects (e.g. "schedule tasks and projects", "when to work on tasks and projects"), use intent "schedule_tasks_and_projects" and entity_type "multiple".
+- When the user asks to schedule both events and projects (e.g. "schedule events and projects"), use intent "schedule_events_and_projects" and entity_type "multiple".
+- When the user asks to schedule "all" items (e.g. "schedule all my items", "schedule everything", "when should I do everything", "schedule my tasks events and projects"), use intent "schedule_all" and entity_type "multiple".
 
 Examples:
 "What should I work on today?" → intent: prioritize_tasks, entity_type: task, confidence: 0.92
@@ -147,6 +155,14 @@ Examples:
 "Move my project deadline to Friday" → intent: adjust_project_timeline, entity_type: project, confidence: 0.95
 "Help me plan my study sessions for exams" → intent: schedule_task, entity_type: task, confidence: 0.88
 "What is the capital of France?" → intent: general_query, entity_type: task, confidence: 0.98
+"Prioritize both my tasks and events" → intent: prioritize_tasks_and_events, entity_type: multiple, confidence: 0.9
+"Prioritize both my tasks and projects" → intent: prioritize_tasks_and_projects, entity_type: multiple, confidence: 0.9
+"Rank my events and projects" → intent: prioritize_events_and_projects, entity_type: multiple, confidence: 0.9
+"In my tasks, events, projects what should I do first?" → intent: prioritize_all, entity_type: multiple, confidence: 0.9
+"Schedule both my tasks and events" → intent: schedule_tasks_and_events, entity_type: multiple, confidence: 0.9
+"Schedule tasks and projects" → intent: schedule_tasks_and_projects, entity_type: multiple, confidence: 0.9
+"Schedule events and projects" → intent: schedule_events_and_projects, entity_type: multiple, confidence: 0.9
+"Schedule all my items" → intent: schedule_all, entity_type: multiple, confidence: 0.9
 
 Respond ONLY with the JSON object. Do not explain.
 PROMPT;

@@ -1,0 +1,74 @@
+<?php
+
+namespace App\DataTransferObjects\Llm;
+
+final readonly class TasksAndEventsPrioritizationDto
+{
+    /**
+     * @param  array<int, array{rank:int,title:string,end_datetime?:string|null}>  $rankedTasks
+     * @param  array<int, array{rank:int,title:string,start_datetime?:string|null,end_datetime?:string|null}>  $rankedEvents
+     */
+    public function __construct(
+        public array $rankedTasks,
+        public array $rankedEvents,
+        public string $reasoning
+    ) {}
+
+    /**
+     * @param  array<string, mixed>  $structured
+     */
+    public static function fromStructured(array $structured): ?self
+    {
+        $reasoning = trim((string) ($structured['reasoning'] ?? ''));
+        if ($reasoning === '') {
+            return null;
+        }
+
+        $rankedTasks = $structured['ranked_tasks'] ?? [];
+        $rankedEvents = $structured['ranked_events'] ?? [];
+        if (! is_array($rankedTasks) || ! is_array($rankedEvents)) {
+            return null;
+        }
+
+        $normalizedTasks = [];
+        foreach ($rankedTasks as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $rank = isset($item['rank']) && is_numeric($item['rank']) ? (int) $item['rank'] : 0;
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($rank <= 0 || $title === '') {
+                continue;
+            }
+            $normalizedTasks[] = [
+                'rank' => $rank,
+                'title' => $title,
+                'end_datetime' => $item['end_datetime'] ?? null,
+            ];
+        }
+
+        $normalizedEvents = [];
+        foreach ($rankedEvents as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $rank = isset($item['rank']) && is_numeric($item['rank']) ? (int) $item['rank'] : 0;
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($rank <= 0 || $title === '') {
+                continue;
+            }
+            $normalizedEvents[] = [
+                'rank' => $rank,
+                'title' => $title,
+                'start_datetime' => $item['start_datetime'] ?? null,
+                'end_datetime' => $item['end_datetime'] ?? null,
+            ];
+        }
+
+        return new self(
+            rankedTasks: $normalizedTasks,
+            rankedEvents: $normalizedEvents,
+            reasoning: $reasoning,
+        );
+    }
+}

@@ -15,10 +15,10 @@
         ignoreNextAssistant: false,
         currentTraceId: @js($this->currentTraceId),
         suggestedPrompts: [
-            {{ json_encode(__('What should I focus on today?')) }},
-            {{ json_encode(__('Show my tasks with no due date.')) }},
-            {{ json_encode(__('Help me plan study time for my exam.')) }},
-            {{ json_encode(__('Which tasks can I drop if I’m overwhelmed?')) }},
+            {{ json_encode(__('Prioritise my tasks for this week.')) }},
+            {{ json_encode(__('Schedule my events for the next few days.')) }},
+            {{ json_encode(__('List tasks, events, and projects with no due date.')) }},
+            {{ json_encode(__('Filter my projects to those I should focus on today.')) }},
         ],
         usePrompt(prompt) {
             this.input = prompt || '';
@@ -296,8 +296,9 @@
             this._subscribedThreadId = threadId;
         },
         cancelPending() {
-            if (this.pendingAssistantCount <= 0) return;
+            if (!this.isSending && this.pendingAssistantCount <= 0) return;
 
+            this.isSending = false;
             this.pendingAssistantCount = 0;
             this.ignoreNextAssistant = true;
 
@@ -531,10 +532,10 @@
             <div class="flex h-full flex-col items-center justify-center text-center gap-3">
                 <div class="space-y-1">
                     <p class="text-sm font-medium text-foreground">
-                        {{ __('Ask about your work') }}
+                        {{ __('Plan what to work on next') }}
                     </p>
                     <p class="text-xs text-muted-foreground">
-                        {{ __('Ask about tasks, events, or projects. The assistant uses your TaskLyst data to respond.') }}
+                        {{ __('Use the assistant to prioritise, schedule, and filter your tasks, events, and projects.') }}
                     </p>
                 </div>
 
@@ -542,9 +543,9 @@
                     <template x-for="prompt in suggestedPrompts" :key="prompt">
                         <flux:button
                             type="button"
-                            size="xs"
-                            variant="ghost"
-                            class="text-[11px]! px-2.5 py-1! whitespace-normal text-left"
+                            size="sm"
+                            variant="outline"
+                            class="text-[11px]! px-3 py-1.5! whitespace-normal text-left cursor-pointer hover:bg-muted"
                             @click="usePrompt(prompt)"
                         >
                             <span x-text="prompt"></span>
@@ -763,6 +764,84 @@
                                 </div>
                             </template>
 
+                            <template x-if="getStructured(message).scheduled_tasks && getStructured(message).scheduled_tasks.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Scheduled tasks') }}
+                                    </p>
+                                    <ul class="list-disc pl-4 space-y-0.5">
+                                        <template
+                                            x-for="item in getStructured(message).scheduled_tasks"
+                                            :key="item.title"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="item.title"></span>
+                                                <span
+                                                    x-show="item.start_datetime || item.end_datetime"
+                                                    class="text-[11px] text-muted-foreground"
+                                                    x-text="[
+                                                        item.start_datetime ? new Date(item.start_datetime).toLocaleString() : null,
+                                                        item.end_datetime ? new Date(item.end_datetime).toLocaleString() : null,
+                                                    ].filter(Boolean).join(' → ')"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </template>
+
+                            <template x-if="getStructured(message).scheduled_events && getStructured(message).scheduled_events.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Scheduled events') }}
+                                    </p>
+                                    <ul class="list-disc pl-4 space-y-0.5">
+                                        <template
+                                            x-for="event in getStructured(message).scheduled_events"
+                                            :key="event.title"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="event.title"></span>
+                                                <span
+                                                    x-show="event.start_datetime || event.end_datetime"
+                                                    class="text-[11px] text-muted-foreground"
+                                                    x-text="[
+                                                        event.start_datetime ? new Date(event.start_datetime).toLocaleString() : null,
+                                                        event.end_datetime ? new Date(event.end_datetime).toLocaleString() : null,
+                                                    ].filter(Boolean).join(' → ')"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </template>
+
+                            <template x-if="getStructured(message).scheduled_projects && getStructured(message).scheduled_projects.length">
+                                <div class="space-y-1">
+                                    <p class="text-[11px] font-medium text-muted-foreground">
+                                        {{ __('Scheduled projects') }}
+                                    </p>
+                                    <ul class="list-disc pl-4 space-y-0.5">
+                                        <template
+                                            x-for="project in getStructured(message).scheduled_projects"
+                                            :key="project.name"
+                                        >
+                                            <li class="text-[11px]">
+                                                <span x-text="project.name"></span>
+                                                <span
+                                                    x-show="project.start_datetime || project.end_datetime"
+                                                    class="text-[11px] text-muted-foreground"
+                                                    x-text="[
+                                                        project.start_datetime ? new Date(project.start_datetime).toLocaleString() : null,
+                                                        project.end_datetime ? new Date(project.end_datetime).toLocaleString() : null,
+                                                    ].filter(Boolean).join(' → ')"
+                                                ></span>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                            </template>
+
                             <template x-if="getStructured(message).listed_items && getStructured(message).listed_items.length">
                                 <div class="space-y-1">
                                     <p class="text-[11px] font-medium text-muted-foreground">
@@ -865,7 +944,7 @@
         </template>
 
         <div
-            x-show="isSending && pendingAssistantCount === 0"
+            x-show="isSending || pendingAssistantCount > 0"
             x-cloak
             class="flex w-full justify-start"
             aria-live="polite"
@@ -874,22 +953,7 @@
             <div class="max-w-[80%] rounded-lg bg-muted px-3 py-2 text-xs text-foreground">
                 <div class="flex items-center gap-2">
                     <flux:icon name="arrow-path" class="size-3.5 animate-spin text-muted-foreground" />
-                    <span>{{ __('Checking your request and deciding what to do…') }}</span>
-                </div>
-            </div>
-        </div>
-
-        <div
-            x-show="pendingAssistantCount > 0"
-            x-cloak
-            class="flex w-full justify-start"
-            aria-live="polite"
-            aria-busy="true"
-        >
-            <div class="max-w-[80%] rounded-lg bg-muted px-3 py-2 text-xs text-foreground">
-                <div class="flex items-center gap-2">
-                    <flux:icon name="arrow-path" class="size-3.5 animate-spin text-muted-foreground" />
-                    <span>{{ __('The assistant is thinking through your tasks and building a recommendation…') }}</span>
+                    <span>{{ __('The assistant is reviewing everything and preparing a recommendation…') }}</span>
                     <flux:button
                         type="button"
                         size="xs"
@@ -924,7 +988,7 @@
     <div class="border-t border-border/60 px-3 py-2">
         <div class="flex flex-col gap-1.5">
             <div
-                x-show="followupSuggestions().length > 0"
+                x-show="followupSuggestions().length > 0 && !isSending && pendingAssistantCount === 0"
                 x-cloak
                 class="mb-1.5 rounded-md bg-emerald-500/5 px-2.5 py-2 ring-1 ring-emerald-500/40 dark:bg-emerald-500/10"
             >

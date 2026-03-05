@@ -2,14 +2,22 @@
 
 namespace App\Services;
 
+use App\DataTransferObjects\Llm\AllPrioritizationDto;
 use App\DataTransferObjects\Llm\EventPrioritizationRecommendationDto;
+use App\DataTransferObjects\Llm\EventsAndProjectsPrioritizationDto;
 use App\DataTransferObjects\Llm\EventScheduleRecommendationDto;
 use App\DataTransferObjects\Llm\LlmInferenceResult;
 use App\DataTransferObjects\Llm\LlmSystemPromptResult;
 use App\DataTransferObjects\Llm\ProjectPrioritizationRecommendationDto;
 use App\DataTransferObjects\Llm\ProjectScheduleRecommendationDto;
 use App\DataTransferObjects\Llm\ResolveDependencyRecommendationDto;
+use App\DataTransferObjects\Llm\ScheduleAllDto;
+use App\DataTransferObjects\Llm\ScheduleEventsAndProjectsDto;
+use App\DataTransferObjects\Llm\ScheduleTasksAndEventsDto;
+use App\DataTransferObjects\Llm\ScheduleTasksAndProjectsDto;
 use App\DataTransferObjects\Llm\TaskPrioritizationRecommendationDto;
+use App\DataTransferObjects\Llm\TasksAndEventsPrioritizationDto;
+use App\DataTransferObjects\Llm\TasksAndProjectsPrioritizationDto;
 use App\DataTransferObjects\Llm\TaskScheduleRecommendationDto;
 use App\Enums\LlmIntent;
 use App\Models\User;
@@ -192,6 +200,30 @@ class LlmInferenceService
             LlmIntent::PrioritizeProjects => in_array($raw, ['project', 'projects'], true) || $raw === ''
                 ? 'project'
                 : $raw,
+            LlmIntent::PrioritizeTasksAndEvents => in_array($raw, ['task,event', 'multiple', 'tasks and events'], true) || $raw === ''
+                ? 'task,event'
+                : $raw,
+            LlmIntent::PrioritizeTasksAndProjects => in_array($raw, ['task,project', 'multiple', 'tasks and projects'], true) || $raw === ''
+                ? 'task,project'
+                : $raw,
+            LlmIntent::PrioritizeEventsAndProjects => in_array($raw, ['event,project', 'multiple', 'events and projects'], true) || $raw === ''
+                ? 'event,project'
+                : $raw,
+            LlmIntent::PrioritizeAll => in_array($raw, ['all', 'multiple', 'task,event,project'], true) || $raw === ''
+                ? 'all'
+                : $raw,
+            LlmIntent::ScheduleTasksAndEvents => in_array($raw, ['task,event', 'multiple', 'tasks and events'], true) || $raw === ''
+                ? 'task,event'
+                : $raw,
+            LlmIntent::ScheduleTasksAndProjects => in_array($raw, ['task,project', 'multiple', 'tasks and projects'], true) || $raw === ''
+                ? 'task,project'
+                : $raw,
+            LlmIntent::ScheduleEventsAndProjects => in_array($raw, ['event,project', 'multiple', 'events and projects'], true) || $raw === ''
+                ? 'event,project'
+                : $raw,
+            LlmIntent::ScheduleAll => in_array($raw, ['all', 'multiple', 'task,event,project'], true) || $raw === ''
+                ? 'all'
+                : $raw,
             default => $raw !== '' ? $raw : 'task',
         };
 
@@ -202,6 +234,200 @@ class LlmInferenceService
 
     private function isValidStructured(LlmIntent $intent, array $structured): bool
     {
+        if ($intent === LlmIntent::PrioritizeTasksAndEvents) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['ranked_tasks']) && is_array($structured['ranked_tasks']);
+            $hasEvents = isset($structured['ranked_events']) && is_array($structured['ranked_events']);
+            if (! $hasTasks && ! $hasEvents) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::PrioritizeTasksAndProjects) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['ranked_tasks']) && is_array($structured['ranked_tasks']);
+            $hasProjects = isset($structured['ranked_projects']) && is_array($structured['ranked_projects']);
+            if (! $hasTasks && ! $hasProjects) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::PrioritizeEventsAndProjects) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasEvents = isset($structured['ranked_events']) && is_array($structured['ranked_events']);
+            $hasProjects = isset($structured['ranked_projects']) && is_array($structured['ranked_projects']);
+            if (! $hasEvents && ! $hasProjects) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::PrioritizeAll) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['ranked_tasks']) && is_array($structured['ranked_tasks']);
+            $hasEvents = isset($structured['ranked_events']) && is_array($structured['ranked_events']);
+            $hasProjects = isset($structured['ranked_projects']) && is_array($structured['ranked_projects']);
+            if (! $hasTasks && ! $hasEvents && ! $hasProjects) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::ScheduleTasksAndEvents) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['scheduled_tasks']) && is_array($structured['scheduled_tasks']);
+            $hasEvents = isset($structured['scheduled_events']) && is_array($structured['scheduled_events']);
+            if (! $hasTasks && ! $hasEvents) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::ScheduleTasksAndProjects) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['scheduled_tasks']) && is_array($structured['scheduled_tasks']);
+            $hasProjects = isset($structured['scheduled_projects']) && is_array($structured['scheduled_projects']);
+            if (! $hasTasks && ! $hasProjects) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::ScheduleEventsAndProjects) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasEvents = isset($structured['scheduled_events']) && is_array($structured['scheduled_events']);
+            $hasProjects = isset($structured['scheduled_projects']) && is_array($structured['scheduled_projects']);
+            if (! $hasEvents && ! $hasProjects) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($intent === LlmIntent::ScheduleAll) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['scheduled_tasks']) && is_array($structured['scheduled_tasks']);
+            $hasEvents = isset($structured['scheduled_events']) && is_array($structured['scheduled_events']);
+            $hasProjects = isset($structured['scheduled_projects']) && is_array($structured['scheduled_projects']);
+            if (! $hasTasks && ! $hasEvents && ! $hasProjects) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
         if (! isset(
             $structured['entity_type'],
             $structured['recommended_action'],
@@ -274,6 +500,22 @@ class LlmInferenceService
                 || $hasCoreText,
             LlmIntent::ResolveDependency => ResolveDependencyRecommendationDto::fromStructured($structured) !== null
                 || $hasCoreText,
+            LlmIntent::PrioritizeTasksAndEvents => TasksAndEventsPrioritizationDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::PrioritizeTasksAndProjects => TasksAndProjectsPrioritizationDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::PrioritizeEventsAndProjects => EventsAndProjectsPrioritizationDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::PrioritizeAll => AllPrioritizationDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::ScheduleTasksAndEvents => ScheduleTasksAndEventsDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::ScheduleTasksAndProjects => ScheduleTasksAndProjectsDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::ScheduleEventsAndProjects => ScheduleEventsAndProjectsDto::fromStructured($structured) !== null
+                || $hasCoreText,
+            LlmIntent::ScheduleAll => ScheduleAllDto::fromStructured($structured) !== null
+                || $hasCoreText,
             default => true,
         };
     }
@@ -316,6 +558,117 @@ class LlmInferenceService
                 'reasoning' => 'AI was unavailable. Tasks are ordered by: overdue first, then soonest due, then priority.',
                 'confidence' => 0.7,
                 'ranked_tasks' => $ranked,
+            ];
+        }
+
+        if ($intent === LlmIntent::PrioritizeTasksAndEvents && $user !== null) {
+            $tasks = $this->ruleBasedPrioritization->prioritizeTasks($user, 6);
+            $rankedTasks = $tasks->map(fn ($t, $i) => [
+                'rank' => $i + 1,
+                'title' => $t->title,
+                'end_datetime' => $t->end_datetime?->toIso8601String(),
+            ])->values()->all();
+
+            return [
+                'entity_type' => 'task,event',
+                'recommended_action' => 'Prioritized tasks by due date and priority (rule-based fallback). Events could not be ranked while the assistant is unavailable.',
+                'reasoning' => 'AI was unavailable. Tasks are ordered by: overdue first, then soonest due, then priority. Events list is empty in fallback.',
+                'confidence' => 0.5,
+                'ranked_tasks' => $rankedTasks,
+                'ranked_events' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::PrioritizeTasksAndProjects && $user !== null) {
+            $tasks = $this->ruleBasedPrioritization->prioritizeTasks($user, 6);
+            $rankedTasks = $tasks->map(fn ($t, $i) => [
+                'rank' => $i + 1,
+                'title' => $t->title,
+                'end_datetime' => $t->end_datetime?->toIso8601String(),
+            ])->values()->all();
+
+            return [
+                'entity_type' => 'task,project',
+                'recommended_action' => 'Prioritized tasks by due date and priority (rule-based fallback). Projects could not be ranked while the assistant is unavailable.',
+                'reasoning' => 'AI was unavailable. Tasks are ordered by: overdue first, then soonest due, then priority. Projects list is empty in fallback.',
+                'confidence' => 0.5,
+                'ranked_tasks' => $rankedTasks,
+                'ranked_projects' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::PrioritizeEventsAndProjects && $user !== null) {
+            return [
+                'entity_type' => 'event,project',
+                'recommended_action' => 'Events and projects could not be ranked while the assistant is unavailable. Please try again later.',
+                'reasoning' => 'AI was unavailable. Fallback does not support event or project ranking.',
+                'confidence' => 0.3,
+                'ranked_events' => [],
+                'ranked_projects' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::PrioritizeAll && $user !== null) {
+            $tasks = $this->ruleBasedPrioritization->prioritizeTasks($user, 6);
+            $rankedTasks = $tasks->map(fn ($t, $i) => [
+                'rank' => $i + 1,
+                'title' => $t->title,
+                'end_datetime' => $t->end_datetime?->toIso8601String(),
+            ])->values()->all();
+
+            return [
+                'entity_type' => 'all',
+                'recommended_action' => 'Prioritized tasks by due date and priority (rule-based fallback). Full "prioritize all" (tasks + events + projects) is unavailable while the assistant is unavailable; events and projects are empty.',
+                'reasoning' => 'AI was unavailable. Tasks are ordered by: overdue first, then soonest due, then priority. Events and projects could not be ranked in fallback.',
+                'confidence' => 0.5,
+                'ranked_tasks' => $rankedTasks,
+                'ranked_events' => [],
+                'ranked_projects' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::ScheduleTasksAndEvents) {
+            return [
+                'entity_type' => 'task,event',
+                'recommended_action' => 'Scheduling for tasks and events is unavailable right now. Please try again later.',
+                'reasoning' => 'The assistant is temporarily unavailable. Schedule suggestions could not be generated.',
+                'confidence' => 0.3,
+                'scheduled_tasks' => [],
+                'scheduled_events' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::ScheduleTasksAndProjects) {
+            return [
+                'entity_type' => 'task,project',
+                'recommended_action' => 'Scheduling for tasks and projects is unavailable right now. Please try again later.',
+                'reasoning' => 'The assistant is temporarily unavailable. Schedule suggestions could not be generated.',
+                'confidence' => 0.3,
+                'scheduled_tasks' => [],
+                'scheduled_projects' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::ScheduleEventsAndProjects) {
+            return [
+                'entity_type' => 'event,project',
+                'recommended_action' => 'Scheduling for events and projects is unavailable right now. Please try again later.',
+                'reasoning' => 'The assistant is temporarily unavailable. Schedule suggestions could not be generated.',
+                'confidence' => 0.3,
+                'scheduled_events' => [],
+                'scheduled_projects' => [],
+            ];
+        }
+
+        if ($intent === LlmIntent::ScheduleAll) {
+            return [
+                'entity_type' => 'all',
+                'recommended_action' => 'Scheduling for all items is unavailable right now. Please try again later.',
+                'reasoning' => 'The assistant is temporarily unavailable. Schedule suggestions could not be generated.',
+                'confidence' => 0.3,
+                'scheduled_tasks' => [],
+                'scheduled_events' => [],
+                'scheduled_projects' => [],
             ];
         }
 
