@@ -1105,6 +1105,8 @@ class ContextBuilder
             'that one', 'this one', 'schedule that', 'schedule this', 'adjust that', 'adjust this',
             'those tasks', 'those events', 'those projects', 'these tasks', 'these events', 'these projects',
             'about those', 'about these', 'for those', 'for these', 'with those', 'with these',
+            // Explicit references to the top item from a previous list.
+            'top 1', 'top one', 'top task', 'top item', 'top from that list', 'top from the list',
         ];
 
         foreach ($phrases as $phrase) {

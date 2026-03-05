@@ -3,6 +3,7 @@
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use App\Services\Llm\StructuredOutputSanitizer;
+use Carbon\CarbonImmutable;
 
 beforeEach(function (): void {
     $this->sanitizer = new StructuredOutputSanitizer;
@@ -69,7 +70,7 @@ test('sanitize non prioritize intent returns structured unchanged', function ():
     $structured = ['entity_type' => 'task', 'recommended_action' => 'Do X', 'reasoning' => 'Because'];
     $context = ['tasks' => []];
 
-    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ScheduleTask);
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ResolveDependency);
 
     expect($out)->toEqual($structured);
 });
@@ -498,4 +499,29 @@ test('sanitize general_query with priority and complexity filter builds intersec
     expect($out['listed_items'])->toHaveCount(1)
         ->and($out['listed_items'][0]['title'])->toBe('Send email')
         ->and($out['listed_items'][0]['priority'])->toBe('low');
+});
+
+test('sanitize schedule task strips past-only time range', function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-05 15:30:00', config('app.timezone')));
+
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Work on the top task.',
+        'reasoning' => 'It is overdue and important.',
+        'start_datetime' => '2026-03-05T10:00:00+08:00',
+        'end_datetime' => '2026-03-05T13:00:00+08:00',
+        'duration' => 180,
+    ];
+
+    $context = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Output # 1: My Light to the Society for today. It\'s overdue and urgent.'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ScheduleTask);
+
+    expect($out)->not->toHaveKey('start_datetime')
+        ->and($out)->not->toHaveKey('end_datetime')
+        ->and($out)->not->toHaveKey('duration');
 });
