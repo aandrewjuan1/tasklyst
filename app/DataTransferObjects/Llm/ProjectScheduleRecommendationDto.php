@@ -20,17 +20,23 @@ final readonly class ProjectScheduleRecommendationDto
      */
     public static function fromStructured(array $structured): ?self
     {
+        $proposed = isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])
+            ? $structured['proposed_properties']
+            : [];
+
+        $source = array_merge($structured, $proposed);
+
         $reasoning = trim((string) ($structured['reasoning'] ?? ''));
         if ($reasoning === '') {
             return null;
         }
 
-        $start = isset($structured['start_datetime'])
-            ? DateHelper::parseOptional($structured['start_datetime'])
+        $start = isset($source['start_datetime'])
+            ? DateHelper::parseOptional($source['start_datetime'])
             : null;
 
-        $end = isset($structured['end_datetime'])
-            ? DateHelper::parseOptional($structured['end_datetime'])
+        $end = isset($source['end_datetime'])
+            ? DateHelper::parseOptional($source['end_datetime'])
             : null;
 
         if ($start === null && $end === null) {
@@ -55,5 +61,25 @@ final readonly class ProjectScheduleRecommendationDto
             'startDatetime' => $this->startDatetime,
             'endDatetime' => $this->endDatetime,
         ];
+    }
+
+    /**
+     * Normalised set of properties that can be applied to a project.
+     *
+     * @return array<string, mixed>
+     */
+    public function proposedProperties(): array
+    {
+        $properties = [];
+
+        if ($this->startDatetime !== null) {
+            $properties['startDatetime'] = $this->startDatetime->toIso8601String();
+        }
+
+        if ($this->endDatetime !== null) {
+            $properties['endDatetime'] = $this->endDatetime->toIso8601String();
+        }
+
+        return $properties;
     }
 }

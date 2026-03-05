@@ -1,6 +1,14 @@
 <?php
 
+use App\Actions\Llm\ApplyAssistantEventRecommendationAction;
+use App\Actions\Llm\ApplyAssistantProjectRecommendationAction;
+use App\Actions\Llm\ApplyAssistantTaskRecommendationAction;
 use App\Actions\Llm\ProcessAssistantMessageAction;
+use App\Enums\LlmEntityType;
+use App\Enums\LlmIntent;
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Task;
 use App\Models\AssistantMessage;
 use App\Models\AssistantThread;
 use App\Models\User;
@@ -232,5 +240,102 @@ new class extends Component
         }
 
         Cache::put('tasklyst_llm_cancel:'.$traceId, true, now()->addMinutes(5));
+    }
+
+    public function acceptRecommendation(int $assistantMessageId): void
+    {
+        $this->applyRecommendation($assistantMessageId, 'accept');
+    }
+
+    public function rejectRecommendation(int $assistantMessageId): void
+    {
+        $this->applyRecommendation($assistantMessageId, 'reject');
+    }
+
+    /**
+     * Apply or reject a recommendation associated with a given assistant message.
+     */
+    private function applyRecommendation(int $assistantMessageId, string $userAction): void
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            abort(403);
+        }
+
+        if ($this->threadId === null) {
+            return;
+        }
+
+        /** @var AssistantMessage|null $message */
+        $message = AssistantMessage::query()
+            ->where('assistant_thread_id', $this->threadId)
+            ->where('id', $assistantMessageId)
+            ->where('role', 'assistant')
+            ->first();
+
+        if (! $message instanceof AssistantMessage) {
+            return;
+        }
+
+        $metadata = $message->metadata ?? [];
+        if (! is_array($metadata)) {
+            $metadata = [];
+        }
+
+        $snapshot = $metadata['recommendation_snapshot'] ?? null;
+        if (! is_array($snapshot)) {
+            return;
+        }
+
+        $intentValue = (string) ($snapshot['intent'] ?? '');
+        $entityTypeValue = (string) ($snapshot['entity_type'] ?? '');
+
+        $intent = LlmIntent::tryFrom($intentValue);
+        $entityType = LlmEntityType::tryFrom($entityTypeValue);
+
+        if (! $intent instanceof LlmIntent || ! $entityType instanceof LlmEntityType) {
+            return;
+        }
+
+        $entity = match ($entityType) {
+            LlmEntityType::Task => Task::query()
+                ->forUser($user->id)
+                ->incomplete()
+                ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('end_datetime')
+                ->first(),
+            LlmEntityType::Event => Event::query()
+                ->forUser($user->id)
+                ->notCancelled()
+                ->notCompleted()
+                ->orderByStartTime()
+                ->first(),
+            LlmEntityType::Project => Project::query()
+                ->forUser($user->id)
+                ->notArchived()
+                ->orderByStartTime()
+                ->orderByName()
+                ->first(),
+            LlmEntityType::Multiple => null,
+        };
+
+        if ($entity === null) {
+            return;
+        }
+
+        match ($entityType) {
+            LlmEntityType::Task => app(ApplyAssistantTaskRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
+            LlmEntityType::Event => app(ApplyAssistantEventRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
+            LlmEntityType::Project => app(ApplyAssistantProjectRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
+            LlmEntityType::Multiple => null,
+        };
+
+        $snapshot['user_action'] = $userAction;
+        $snapshot['applied'] = $userAction === 'accept';
+        $metadata['recommendation_snapshot'] = $snapshot;
+        $message->metadata = $metadata;
+        $message->save();
     }
 };

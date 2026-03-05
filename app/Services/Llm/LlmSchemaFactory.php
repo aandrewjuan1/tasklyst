@@ -73,6 +73,20 @@ class LlmSchemaFactory
                         requiredFields: ['start_datetime', 'end_datetime']
                     )
                 ),
+                // Optional nested block for explicit property changes that the assistant
+                // would like to apply to a specific task. This mirrors the top-level fields
+                // but keeps the schema backwards compatible when omitted.
+                new ObjectSchema(
+                    name: 'proposed_properties',
+                    description: 'Optional: explicit properties to update on the task (mirrors top-level fields)',
+                    properties: [
+                        new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                        new NumberSchema('duration', 'Duration in minutes'),
+                        new StringSchema('priority', 'low|medium|high|urgent'),
+                    ],
+                    requiredFields: []
+                ),
             ],
             requiredFields: ['entity_type', 'recommended_action', 'reasoning']
         );
@@ -92,6 +106,17 @@ class LlmSchemaFactory
                 new StringSchema('end_datetime', 'ISO 8601 datetime'),
                 new StringSchema('timezone', 'Timezone identifier'),
                 new StringSchema('location', 'Location if applicable'),
+                new ObjectSchema(
+                    name: 'proposed_properties',
+                    description: 'Optional: explicit properties to update on the event (mirrors top-level fields)',
+                    properties: [
+                        new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('timezone', 'Timezone identifier'),
+                        new StringSchema('location', 'Location if applicable'),
+                    ],
+                    requiredFields: []
+                ),
             ],
             requiredFields: ['entity_type', 'recommended_action', 'reasoning']
         );
@@ -109,6 +134,15 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new StringSchema('start_datetime', 'ISO 8601 datetime'),
                 new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                new ObjectSchema(
+                    name: 'proposed_properties',
+                    description: 'Optional: explicit properties to update on the project (mirrors top-level fields)',
+                    properties: [
+                        new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                    ],
+                    requiredFields: []
+                ),
             ],
             requiredFields: ['entity_type', 'recommended_action', 'reasoning']
         );

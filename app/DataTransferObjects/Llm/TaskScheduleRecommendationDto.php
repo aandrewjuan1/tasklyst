@@ -22,29 +22,35 @@ final readonly class TaskScheduleRecommendationDto
      */
     public static function fromStructured(array $structured): ?self
     {
+        $proposed = isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])
+            ? $structured['proposed_properties']
+            : [];
+
+        $source = array_merge($structured, $proposed);
+
         $reasoning = trim((string) ($structured['reasoning'] ?? ''));
         if ($reasoning === '') {
             return null;
         }
 
-        $start = isset($structured['start_datetime'])
-            ? DateHelper::parseOptional($structured['start_datetime'])
+        $start = isset($source['start_datetime'])
+            ? DateHelper::parseOptional($source['start_datetime'])
             : null;
 
-        $end = isset($structured['end_datetime'])
-            ? DateHelper::parseOptional($structured['end_datetime'])
+        $end = isset($source['end_datetime'])
+            ? DateHelper::parseOptional($source['end_datetime'])
             : null;
 
         // Duration is optional; normalize to int minutes when present and valid.
         $duration = null;
-        if (isset($structured['duration']) && is_numeric($structured['duration'])) {
-            $minutes = (int) $structured['duration'];
+        if (isset($source['duration']) && is_numeric($source['duration'])) {
+            $minutes = (int) $source['duration'];
             if ($minutes > 0) {
                 $duration = $minutes;
             }
         }
 
-        $priority = isset($structured['priority']) ? strtolower((string) $structured['priority']) : null;
+        $priority = isset($source['priority']) ? strtolower((string) $source['priority']) : null;
         if ($priority !== null && ! in_array($priority, ['low', 'medium', 'high', 'urgent'], true)) {
             $priority = null;
         }
@@ -85,5 +91,33 @@ final readonly class TaskScheduleRecommendationDto
             'priority' => $this->priority,
             'duration' => $this->durationMinutes,
         ];
+    }
+
+    /**
+     * Normalised set of properties that can be applied to a task.
+     *
+     * @return array<string, mixed>
+     */
+    public function proposedProperties(): array
+    {
+        $properties = [];
+
+        if ($this->startDatetime !== null) {
+            $properties['startDatetime'] = $this->startDatetime->toIso8601String();
+        }
+
+        if ($this->endDatetime !== null) {
+            $properties['endDatetime'] = $this->endDatetime->toIso8601String();
+        }
+
+        if ($this->durationMinutes !== null) {
+            $properties['duration'] = $this->durationMinutes;
+        }
+
+        if ($this->priority !== null) {
+            $properties['priority'] = $this->priority;
+        }
+
+        return $properties;
     }
 }

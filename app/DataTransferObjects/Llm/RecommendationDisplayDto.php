@@ -26,6 +26,17 @@ final readonly class RecommendationDisplayDto
         public array $structured = [],
         /** @var list<string> Follow-up prompt suggestions for the UI (chips). */
         public array $followupSuggestions = [],
+        /**
+         * Machine-friendly description of properties that can be applied to a concrete entity.
+         * Example shape:
+         * [
+         *     'entity_type' => 'task',
+         *     'properties' => ['startDatetime' => '2026-03-10T09:00:00+00:00', 'duration' => 60],
+         * ]
+         *
+         * @var array<string, mixed>
+         */
+        public array $appliableChanges = [],
     ) {}
 
     public function toArray(): array
@@ -41,6 +52,7 @@ final readonly class RecommendationDisplayDto
             'fallback_reason' => $this->fallbackReason,
             'structured' => $this->structured,
             'followup_suggestions' => $this->followupSuggestions,
+            'appliable_changes' => $this->appliableChanges,
         ];
     }
 
@@ -60,6 +72,7 @@ final readonly class RecommendationDisplayDto
                 (array) ($data['followup_suggestions'] ?? []),
                 static fn ($item): bool => is_string($item) && trim($item) !== ''
             )),
+            appliableChanges: (array) ($data['appliable_changes'] ?? []),
         );
     }
 
