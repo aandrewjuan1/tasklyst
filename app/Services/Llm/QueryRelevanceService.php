@@ -285,8 +285,9 @@ class QueryRelevanceService
     private function normalize(string $message): string
     {
         $lower = mb_strtolower(trim($message));
+        $withoutPunctuation = preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $lower) ?? $lower;
 
-        return preg_replace('/\s+/', ' ', $lower) ?? $lower;
+        return preg_replace('/\s+/', ' ', $withoutPunctuation) ?? $withoutPunctuation;
     }
 
     private function matchesGreeting(string $normalized): bool

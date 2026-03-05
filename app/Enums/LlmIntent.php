@@ -7,9 +7,17 @@ enum LlmIntent: string
     case ScheduleTask = 'schedule_task';
     case ScheduleEvent = 'schedule_event';
     case ScheduleProject = 'schedule_project';
+    case ScheduleTasksAndEvents = 'schedule_tasks_and_events';
+    case ScheduleTasksAndProjects = 'schedule_tasks_and_projects';
+    case ScheduleEventsAndProjects = 'schedule_events_and_projects';
+    case ScheduleAll = 'schedule_all';
     case PrioritizeTasks = 'prioritize_tasks';
     case PrioritizeEvents = 'prioritize_events';
     case PrioritizeProjects = 'prioritize_projects';
+    case PrioritizeTasksAndEvents = 'prioritize_tasks_and_events';
+    case PrioritizeTasksAndProjects = 'prioritize_tasks_and_projects';
+    case PrioritizeEventsAndProjects = 'prioritize_events_and_projects';
+    case PrioritizeAll = 'prioritize_all';
     case ResolveDependency = 'resolve_dependency';
     case AdjustTaskDeadline = 'adjust_task_deadline';
     case AdjustEventTime = 'adjust_event_time';
@@ -19,7 +27,9 @@ enum LlmIntent: string
     public function isReadonly(): bool
     {
         return match ($this) {
-            self::PrioritizeEvents, self::PrioritizeProjects => true,
+            self::ScheduleTasksAndEvents, self::ScheduleTasksAndProjects, self::ScheduleEventsAndProjects, self::ScheduleAll,
+            self::PrioritizeEvents, self::PrioritizeProjects, self::PrioritizeTasksAndEvents,
+            self::PrioritizeTasksAndProjects, self::PrioritizeEventsAndProjects, self::PrioritizeAll => true,
             default => false,
         };
     }

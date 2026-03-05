@@ -48,6 +48,11 @@ class LlmIntentClassificationService
         'capstone',
     ];
 
+    /** Event keywords for schedule multi-entity detection only; excludes "schedule" so "schedule tasks and projects" is not treated as tasks+events. */
+    private const ENTITY_EVENT_FOR_SCHEDULE_MULTI = [
+        'event', 'events', 'meeting', 'meetings', 'appointment', 'calendar', 'class', 'lecture', 'exam', 'quiz', 'test',
+    ];
+
     private const INTENT_RESOLVE_DEPENDENCY = ['blocked', 'waiting', 'depends', 'after', 'blocking', 'dependency'];
 
     private const INTENT_ADJUST = ['extend', 'move', 'delay', 'push', 'earlier', 'reschedule', 'change time', 'shift', 'timeline', 'postpone', 'push back'];
@@ -68,6 +73,16 @@ class LlmIntentClassificationService
         'planning',
         'due',
         'remind',
+    ];
+
+    /** Phrases for "schedule all" (tasks + events + projects). Checked first under hasSchedule. */
+    private const INTENT_SCHEDULE_ALL = [
+        'schedule all',
+        'schedule everything',
+        'schedule all my items',
+        'when should i do everything',
+        'schedule my tasks events and projects',
+        'schedule my tasks events projects',
     ];
 
     private const INTENT_PRIORITIZE = [
@@ -95,6 +110,20 @@ class LlmIntentClassificationService
         $normalized = $this->normalize($userMessage);
         $entityType = $this->detectEntityType($normalized);
         $intent = $this->detectIntent($normalized, $entityType);
+
+        $multiEntityIntents = [
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::ScheduleEventsAndProjects,
+            LlmIntent::ScheduleAll,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll,
+        ];
+        if (in_array($intent, $multiEntityIntents, true)) {
+            $entityType = LlmEntityType::Multiple;
+        }
 
         $confidence = $this->computeConfidence($normalized, $intent, $entityType);
 
@@ -145,6 +174,19 @@ class LlmIntentClassificationService
     /** Meta-questions or complaints about the assistant → general_query so the model can respond conversationally. */
     private const INTENT_META_OR_COMPLAINT = ['why did you not', 'why did you not answer', 'are you hallucinating', 'too complex', 'too hard for you', 'repeat it twice', 'answer it the first time', 'could not produce', 'unavailable'];
 
+    /** Phrases for "prioritize all" (tasks + events + projects). Checked first under hasPrioritize. */
+    private const INTENT_PRIORITIZE_ALL = [
+        'all my items',
+        'all items',
+        'all of my',
+        'tasks events and projects',
+        'tasks events projects',
+        'tasks and events and projects',
+        'what to do first in all',
+        'across all',
+        'everything',
+    ];
+
     private function detectIntent(string $normalized, LlmEntityType $entityType): LlmIntent
     {
         if ($this->hasAnyKeyword($normalized, self::INTENT_RESOLVE_DEPENDENCY)) {
@@ -177,6 +219,25 @@ class LlmIntentClassificationService
         }
 
         if ($hasSchedule) {
+            if ($this->hasAnyKeyword($normalized, self::INTENT_SCHEDULE_ALL)) {
+                return LlmIntent::ScheduleAll;
+            }
+
+            $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+            $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT_FOR_SCHEDULE_MULTI);
+            $projectHits = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+            $hasBothOrAnd = str_contains($normalized, ' both ') || str_contains($normalized, ' and ');
+
+            if ($taskHits > 0 && $eventHits > 0 && $hasBothOrAnd) {
+                return LlmIntent::ScheduleTasksAndEvents;
+            }
+            if ($taskHits > 0 && $projectHits > 0 && $hasBothOrAnd) {
+                return LlmIntent::ScheduleTasksAndProjects;
+            }
+            if ($eventHits > 0 && $projectHits > 0 && $hasBothOrAnd) {
+                return LlmIntent::ScheduleEventsAndProjects;
+            }
+
             return match ($entityType) {
                 LlmEntityType::Task => LlmIntent::ScheduleTask,
                 LlmEntityType::Event => LlmIntent::ScheduleEvent,
@@ -185,6 +246,25 @@ class LlmIntentClassificationService
         }
 
         if ($hasPrioritize) {
+            if ($this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE_ALL)) {
+                return LlmIntent::PrioritizeAll;
+            }
+
+            $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+            $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT);
+            $projectHits = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+            $hasBothOrAnd = str_contains($normalized, ' both ') || str_contains($normalized, ' and ');
+
+            if ($taskHits > 0 && $eventHits > 0 && $hasBothOrAnd) {
+                return LlmIntent::PrioritizeTasksAndEvents;
+            }
+            if ($taskHits > 0 && $projectHits > 0 && $hasBothOrAnd) {
+                return LlmIntent::PrioritizeTasksAndProjects;
+            }
+            if ($eventHits > 0 && $projectHits > 0 && $hasBothOrAnd) {
+                return LlmIntent::PrioritizeEventsAndProjects;
+            }
+
             return match ($entityType) {
                 LlmEntityType::Task => LlmIntent::PrioritizeTasks,
                 LlmEntityType::Event => LlmIntent::PrioritizeEvents,
@@ -197,6 +277,50 @@ class LlmIntentClassificationService
 
     private function computeConfidence(string $normalized, LlmIntent $intent, LlmEntityType $entityType): float
     {
+        if ($intent === LlmIntent::PrioritizeTasksAndEvents) {
+            $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+            $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT);
+
+            return $taskHits >= 1 && $eventHits >= 1 ? 0.85 : 0.7;
+        }
+        if ($intent === LlmIntent::PrioritizeTasksAndProjects) {
+            $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+            $projectHits = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+
+            return $taskHits >= 1 && $projectHits >= 1 ? 0.85 : 0.7;
+        }
+        if ($intent === LlmIntent::PrioritizeEventsAndProjects) {
+            $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT);
+            $projectHits = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+
+            return $eventHits >= 1 && $projectHits >= 1 ? 0.85 : 0.7;
+        }
+        if ($intent === LlmIntent::PrioritizeAll) {
+            return $this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE_ALL) ? 0.85 : 0.7;
+        }
+
+        if ($intent === LlmIntent::ScheduleTasksAndEvents) {
+            $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+            $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT);
+
+            return $taskHits >= 1 && $eventHits >= 1 ? 0.85 : 0.7;
+        }
+        if ($intent === LlmIntent::ScheduleTasksAndProjects) {
+            $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
+            $projectHits = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+
+            return $taskHits >= 1 && $projectHits >= 1 ? 0.85 : 0.7;
+        }
+        if ($intent === LlmIntent::ScheduleEventsAndProjects) {
+            $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT);
+            $projectHits = $this->countKeywordHits($normalized, self::ENTITY_PROJECT);
+
+            return $eventHits >= 1 && $projectHits >= 1 ? 0.85 : 0.7;
+        }
+        if ($intent === LlmIntent::ScheduleAll) {
+            return $this->hasAnyKeyword($normalized, self::INTENT_SCHEDULE_ALL) ? 0.85 : 0.7;
+        }
+
         if ($intent === LlmIntent::GeneralQuery) {
             // List/filter and delete/remove queries are intentionally routed to GeneralQuery and
             // should not trigger LLM fallback, so give them high confidence.
@@ -300,8 +424,12 @@ class LlmIntentClassificationService
         return match ($intent) {
             LlmIntent::ResolveDependency => self::INTENT_RESOLVE_DEPENDENCY,
             LlmIntent::AdjustTaskDeadline, LlmIntent::AdjustEventTime, LlmIntent::AdjustProjectTimeline => self::INTENT_ADJUST,
-            LlmIntent::ScheduleTask, LlmIntent::ScheduleEvent, LlmIntent::ScheduleProject => self::INTENT_SCHEDULE,
-            LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects => self::INTENT_PRIORITIZE,
+            LlmIntent::ScheduleTask, LlmIntent::ScheduleEvent, LlmIntent::ScheduleProject,
+            LlmIntent::ScheduleTasksAndEvents, LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::ScheduleEventsAndProjects, LlmIntent::ScheduleAll => self::INTENT_SCHEDULE,
+            LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects,
+            LlmIntent::PrioritizeTasksAndEvents, LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects, LlmIntent::PrioritizeAll => self::INTENT_PRIORITIZE,
             LlmIntent::GeneralQuery => [],
         };
     }

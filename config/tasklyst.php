@@ -145,6 +145,23 @@ return [
         'general_query_event_limit' => (int) env('TASKLYST_CONTEXT_GENERAL_QUERY_EVENT_LIMIT', 6),
         'general_query_project_limit' => (int) env('TASKLYST_CONTEXT_GENERAL_QUERY_PROJECT_LIMIT', 3),
         'general_query_project_tasks_limit' => (int) env('TASKLYST_CONTEXT_GENERAL_QUERY_PROJECT_TASKS_LIMIT', 5),
+        // Multi-entity prioritization (e.g. prioritize_tasks_and_events): reduced per-entity limits.
+        'multi_entity_task_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_TASK_LIMIT', 6),
+        'multi_entity_event_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_EVENT_LIMIT', 6),
+        'multi_entity_project_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_PROJECT_LIMIT', 4),
+        'multi_entity_project_tasks_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_PROJECT_TASKS_LIMIT', 3),
+        // Prioritize all (tasks + events + projects): smallest per-entity limits.
+        'multi_entity_all_task_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_ALL_TASK_LIMIT', 4),
+        'multi_entity_all_event_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_ALL_EVENT_LIMIT', 4),
+        'multi_entity_all_project_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_ALL_PROJECT_LIMIT', 3),
+        // Multi-entity scheduling (two-entity combos): reduced per-entity limits.
+        'multi_entity_schedule_task_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_TASK_LIMIT', 5),
+        'multi_entity_schedule_event_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_EVENT_LIMIT', 5),
+        'multi_entity_schedule_project_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_PROJECT_LIMIT', 3),
+        // Schedule all (tasks + events + projects): smallest per-entity limits for schedule.
+        'multi_entity_schedule_all_task_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_ALL_TASK_LIMIT', 4),
+        'multi_entity_schedule_all_event_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_ALL_EVENT_LIMIT', 4),
+        'multi_entity_schedule_all_project_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_ALL_PROJECT_LIMIT', 3),
     ],
 
 ];
