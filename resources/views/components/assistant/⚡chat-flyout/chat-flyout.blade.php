@@ -6,6 +6,7 @@
         workspaceUrl: @js(route('workspace')),
         input: '',
         isSending: false,
+        isSubmittingMessage: false,
         isRateLimited: false,
         errorMessage: '',
         messages: @js($this->messages),
@@ -24,6 +25,54 @@
             this.input = prompt || '';
             this.$nextTick(() => this.$refs.input && this.$refs.input.focus());
         },
+        hasAppliableChanges(message) {
+            const snap = this.getSnapshot(message);
+            const changes = snap.appliable_changes || {};
+            return !!changes && Array.isArray(Object.keys(changes.properties || {})) && Object.keys(changes.properties || {}).length > 0;
+        },
+        isRecommendationApplied(message) {
+            const snap = this.getSnapshot(message);
+            if (snap.applied === true) return true;
+            if (typeof snap.user_action === 'string' && snap.user_action.length > 0) return true;
+
+            return false;
+        },
+        formatAppliableSummary(message) {
+            const snap = this.getSnapshot(message);
+            const changes = snap.appliable_changes || {};
+            const props = changes.properties || {};
+            const labels = [];
+
+            if ('startDatetime' in props) {
+                try {
+                    labels.push('{{ __('start') }} ' + new Date(props.startDatetime).toLocaleString());
+                } catch (e) {
+                    labels.push('{{ __('start') }} ' + props.startDatetime);
+                }
+            }
+
+            if ('endDatetime' in props) {
+                try {
+                    labels.push('{{ __('end') }} ' + new Date(props.endDatetime).toLocaleString());
+                } catch (e) {
+                    labels.push('{{ __('end') }} ' + props.endDatetime);
+                }
+            }
+
+            if ('duration' in props) {
+                labels.push('{{ __('duration') }} ' + props.duration + ' {{ __('min') }}');
+            }
+
+            if ('priority' in props) {
+                labels.push('{{ __('priority') }} ' + String(props.priority).toUpperCase());
+            }
+
+            if (labels.length === 0) {
+                return '{{ __('Apply these suggested changes?') }}';
+            }
+
+            return '{{ __('Apply these changes:') }} ' + labels.join(', ');
+        },
         lastAssistant() {
             for (let i = this.messages.length - 1; i >= 0; i--) {
                 const m = this.messages[i];
@@ -37,10 +86,115 @@
             if (!msg || !msg.metadata) return [];
             const snap = msg.metadata.recommendation_snapshot || {};
             const raw = Array.isArray(snap.followup_suggestions) ? snap.followup_suggestions : [];
+            const intent = snap.intent || (msg.metadata && msg.metadata.intent) || null;
+            const reasoning = snap.reasoning || null;
 
-            return raw
-                .filter((item) => typeof item === 'string' && item.trim().length > 0)
-                .map((prompt) => ({ prompt }));
+            if (reasoning === 'social_closing') {
+                return [];
+            }
+
+            let cleaned = raw
+                .filter((item) => typeof item === 'string')
+                .map((item) => item.trim())
+                .filter((item) => item.length > 0);
+
+            const seen = new Set();
+            cleaned = cleaned.filter((item) => {
+                const key = item.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+
+                return true;
+            });
+
+            if (cleaned.length === 0 && intent) {
+                cleaned = this.defaultFollowupsForIntent(intent);
+            }
+
+            return cleaned.slice(0, 3).map((prompt) => ({ prompt }));
+        },
+        defaultFollowupsForIntent(intent) {
+            switch (intent) {
+                case 'prioritize_tasks':
+                    return [
+                        {{ json_encode(__('Schedule the top task for today.')) }},
+                        {{ json_encode(__('Show my tasks with no due date.')) }},
+                    ];
+                case 'prioritize_events':
+                    return [
+                        {{ json_encode(__('Which events should I focus on this week?')) }},
+                    ];
+                case 'prioritize_tasks_and_events':
+                    return [
+                        {{ json_encode(__('Schedule the top task for today.')) }},
+                        {{ json_encode(__('Which events should I focus on this week?')) }},
+                    ];
+                case 'prioritize_tasks_and_projects':
+                    return [
+                        {{ json_encode(__('Schedule the top task for today.')) }},
+                        {{ json_encode(__('Break my top project into steps.')) }},
+                    ];
+                case 'prioritize_events_and_projects':
+                    return [
+                        {{ json_encode(__('Which events this week?')) }},
+                        {{ json_encode(__('Help me plan my top project.')) }},
+                    ];
+                case 'prioritize_all':
+                    return [
+                        {{ json_encode(__('Schedule the top task for today.')) }},
+                        {{ json_encode(__('Which events should I focus on this week?')) }},
+                        {{ json_encode(__('Break my top project into steps.')) }},
+                    ];
+                case 'prioritize_projects':
+                    return [
+                        {{ json_encode(__('Help me break my top project into smaller steps.')) }},
+                    ];
+                case 'schedule_task':
+                case 'adjust_task_deadline':
+                    return [
+                        {{ json_encode(__('Can you suggest another time slot for this task?')) }},
+                    ];
+                case 'schedule_event':
+                case 'adjust_event_time':
+                    return [
+                        {{ json_encode(__('Suggest a different time for this event.')) }},
+                    ];
+                case 'schedule_project':
+                case 'adjust_project_timeline':
+                    return [
+                        {{ json_encode(__('Help me plan milestones for this project.')) }},
+                    ];
+                case 'schedule_tasks_and_events':
+                    return [
+                        {{ json_encode(__('Adjust the time for my top task.')) }},
+                        {{ json_encode(__('Schedule another event.')) }},
+                    ];
+                case 'schedule_tasks_and_projects':
+                    return [
+                        {{ json_encode(__('Adjust the time for my top task.')) }},
+                        {{ json_encode(__('Help me plan milestones for a project.')) }},
+                    ];
+                case 'schedule_events_and_projects':
+                    return [
+                        {{ json_encode(__('Suggest a different time for an event.')) }},
+                        {{ json_encode(__('Help me plan milestones for a project.')) }},
+                    ];
+                case 'schedule_all':
+                    return [
+                        {{ json_encode(__('Adjust the time for my top task.')) }},
+                        {{ json_encode(__('Schedule another item.')) }},
+                    ];
+                case 'resolve_dependency':
+                    return [
+                        {{ json_encode(__('Show me which tasks are still blocked.')) }},
+                    ];
+                case 'general_query':
+                    return [
+                        {{ json_encode(__('What should I focus on next?')) }},
+                    ];
+                default:
+                    return [];
+            }
         },
         getSnapshot(message) {
             if (!message || !message.metadata) return {};
@@ -175,7 +329,9 @@
             }, 45000);
         },
         startNewChat() {
-            if (this.isSending || this.pendingAssistantCount > 0) return;
+            if (this.isSubmittingMessage || this.pendingAssistantCount > 0 || this.currentTraceId) {
+                this.cancelPending();
+            }
 
             this.isRateLimited = false;
             this.errorMessage = '';
@@ -299,6 +455,7 @@
             if (!this.isSending && this.pendingAssistantCount <= 0) return;
 
             this.isSending = false;
+            this.isSubmittingMessage = false;
             this.pendingAssistantCount = 0;
             this.ignoreNextAssistant = true;
 
@@ -354,6 +511,7 @@
             });
             this.input = '';
             this.isSending = true;
+            this.isSubmittingMessage = true;
             this.errorMessage = '';
 
             try {
@@ -403,6 +561,7 @@
                 this.errorMessage = error?.message || '{{ __('Something went wrong while sending your message. Please try again.') }}';
             } finally {
                 this.isSending = false;
+                this.isSubmittingMessage = false;
                 this.$nextTick(() => {
                     this.scrollToBottom(true);
                 });
@@ -430,6 +589,7 @@
                 this.scrollToBottom(true);
             });
             this.isSending = true;
+            this.isSubmittingMessage = true;
             this.errorMessage = '';
 
             try {
@@ -479,6 +639,7 @@
                 this.errorMessage = error?.message || '{{ __('Something went wrong while sending your message. Please try again.') }}';
             } finally {
                 this.isSending = false;
+                this.isSubmittingMessage = false;
                 this.$nextTick(() => {
                     this.scrollToBottom(true);
                 });
@@ -914,6 +1075,55 @@
                                 </p>
                             </div>
 
+                            <template
+                                x-if="
+                                    isActionableIntent(message)
+                                    && hasAppliableChanges(message)
+                                    && !isRecommendationApplied(message)
+                                "
+                            >
+                                <div class="mt-2 flex flex-col gap-1.5 rounded-md bg-emerald-500/5 px-2.5 py-2 ring-1 ring-emerald-500/40 dark:bg-emerald-500/10">
+                                    <div class="flex items-start gap-1.5">
+                                        <flux:icon name="question-mark-circle" class="mt-0.5 size-3.5 text-emerald-600 dark:text-emerald-300" />
+                                        <p class="text-[11px] text-emerald-900 dark:text-emerald-100" x-text="formatAppliableSummary(message)"></p>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-1.5">
+                                        <flux:button
+                                            type="button"
+                                            size="xs"
+                                            variant="primary"
+                                            class="text-[11px]! px-2.5 py-1!"
+                                            @click="$wire.acceptRecommendation(message.id); const snap = getSnapshot(message); snap.user_action = 'accept'; snap.applied = true; message.metadata.recommendation_snapshot = snap;"
+                                        >
+                                            <span>{{ __('Apply changes') }}</span>
+                                        </flux:button>
+                                        <flux:button
+                                            type="button"
+                                            size="xs"
+                                            variant="ghost"
+                                            class="text-[11px]! px-2.5 py-1!"
+                                            @click="$wire.rejectRecommendation(message.id); const snap = getSnapshot(message); snap.user_action = 'reject'; snap.applied = false; message.metadata.recommendation_snapshot = snap;"
+                                        >
+                                            <span>{{ __('Dismiss') }}</span>
+                                        </flux:button>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <template
+                                x-if="
+                                    isActionableIntent(message)
+                                    && hasAppliableChanges(message)
+                                    && isRecommendationApplied(message)
+                                "
+                            >
+                                <div class="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-800 dark:text-emerald-100">
+                                    <flux:icon name="check-circle" class="size-3" />
+                                    <span x-show="getSnapshot(message).user_action === 'accept'">{{ __('Changes applied from this suggestion') }}</span>
+                                    <span x-show="getSnapshot(message).user_action === 'reject'">{{ __('Suggestion dismissed') }}</span>
+                                </div>
+                            </template>
+
                             <div
                                 x-show="contextEntityLabel(message) || contextIntentLabel(message)"
                                 x-cloak
@@ -944,7 +1154,7 @@
         </template>
 
         <div
-            x-show="isSending || pendingAssistantCount > 0"
+            x-show="(isSending && isSubmittingMessage) || pendingAssistantCount > 0"
             x-cloak
             class="flex w-full justify-start"
             aria-live="polite"

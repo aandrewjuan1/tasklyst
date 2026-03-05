@@ -2,8 +2,11 @@
 
 namespace App\Services\Llm;
 
+use App\DataTransferObjects\Llm\EventScheduleRecommendationDto;
 use App\DataTransferObjects\Llm\LlmInferenceResult;
+use App\DataTransferObjects\Llm\ProjectScheduleRecommendationDto;
 use App\DataTransferObjects\Llm\RecommendationDisplayDto;
+use App\DataTransferObjects\Llm\TaskScheduleRecommendationDto;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use Carbon\Carbon;
@@ -48,6 +51,7 @@ class RecommendationDisplayBuilder
         $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
         $followupSuggestions = $this->defaultFollowupSuggestionsForIntent($intent, $entityType);
+        $appliableChanges = $this->buildAppliableChanges($structured, $intent, $entityType);
 
         return new RecommendationDisplayDto(
             intent: $intent,
@@ -60,6 +64,7 @@ class RecommendationDisplayBuilder
             fallbackReason: $result->fallbackReason,
             structured: $displayStructured,
             followupSuggestions: $followupSuggestions,
+            appliableChanges: $appliableChanges,
         );
     }
 
@@ -212,6 +217,81 @@ class RecommendationDisplayBuilder
         $checks = max(1, $checks);
 
         return round($passed / $checks, 2);
+    }
+
+    /**
+     * Build a machine-friendly description of properties that can be applied to a concrete entity.
+     * For the initial slice, this is limited to schedule/adjust intents for single-entity modes.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function buildAppliableChanges(array $structured, LlmIntent $intent, LlmEntityType $entityType): array
+    {
+        if (! in_array($intent, [
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+        ], true)) {
+            return [];
+        }
+
+        if ($entityType === LlmEntityType::Multiple) {
+            return [];
+        }
+
+        if ($intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline) {
+            $dto = TaskScheduleRecommendationDto::fromStructured($structured);
+            if ($dto === null) {
+                return [];
+            }
+
+            $properties = $dto->proposedProperties();
+
+            return $properties !== []
+                ? [
+                    'entity_type' => 'task',
+                    'properties' => $properties,
+                ]
+                : [];
+        }
+
+        if ($intent === LlmIntent::ScheduleEvent || $intent === LlmIntent::AdjustEventTime) {
+            $dto = EventScheduleRecommendationDto::fromStructured($structured);
+            if ($dto === null) {
+                return [];
+            }
+
+            $properties = $dto->proposedProperties();
+
+            return $properties !== []
+                ? [
+                    'entity_type' => 'event',
+                    'properties' => $properties,
+                ]
+                : [];
+        }
+
+        if ($intent === LlmIntent::ScheduleProject || $intent === LlmIntent::AdjustProjectTimeline) {
+            $dto = ProjectScheduleRecommendationDto::fromStructured($structured);
+            if ($dto === null) {
+                return [];
+            }
+
+            $properties = $dto->proposedProperties();
+
+            return $properties !== []
+                ? [
+                    'entity_type' => 'project',
+                    'properties' => $properties,
+                ]
+                : [];
+        }
+
+        return [];
     }
 
     /**
