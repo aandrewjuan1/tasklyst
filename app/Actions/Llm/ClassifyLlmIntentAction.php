@@ -138,6 +138,11 @@ Classification rules:
 - Match entity_type to the dominant subject of the message.
 - If no clear entity is mentioned, default entity_type to "task".
 - If the message clearly asks about times, dates, or scheduling, prefer a schedule_* intent over general_query.
+- When the user clearly asks to change one or more properties of an existing item (e.g. duration, complexity, priority, title, description, status) and is not asking for a new item, use one of the update_*_properties intents:
+- "update_task_properties" when the main subject is a task (e.g. "make this task low priority", "change that task to 45 minutes", "rename this task").
+- "update_event_properties" when the main subject is an event (e.g. "rename that event", "mark this event as all-day").
+- "update_project_properties" when the main subject is a project (e.g. "make this project high priority and complex").
+- For pure time/date changes to an existing item where the user is clearly talking about scheduling or deadlines (e.g. "move this task to tomorrow", "push the event to Friday"), prefer the adjust_* or schedule_* intents instead of update_*_properties.
 - If the message is very vague but you must choose, still pick the single best intent and entity_type, but set confidence below 0.4.
 - When conversation history is provided: treat follow-ups like "how about in events?" or "same for projects?" as carrying over the previous intent. E.g. if the user asked "what to do first?" (prioritize_tasks) and then "how about in events?", classify intent as prioritize_events.
 - When the user asks to prioritize both tasks and events (e.g. "prioritize both my tasks and events", "rank my tasks and events"), use intent "prioritize_tasks_and_events" and entity_type "multiple".
@@ -163,6 +168,9 @@ Examples:
 "Schedule tasks and projects" → intent: schedule_tasks_and_projects, entity_type: multiple, confidence: 0.9
 "Schedule events and projects" → intent: schedule_events_and_projects, entity_type: multiple, confidence: 0.9
 "Schedule all my items" → intent: schedule_all, entity_type: multiple, confidence: 0.9
+"Change the duration of this task to 45 minutes" → intent: update_task_properties, entity_type: task, confidence: 0.9
+"Make this project high complexity and low priority" → intent: update_project_properties, entity_type: project, confidence: 0.9
+"Rename that event to 'Math exam review'" → intent: update_event_properties, entity_type: event, confidence: 0.9
 
 Respond ONLY with the JSON object. Do not explain.
 PROMPT;

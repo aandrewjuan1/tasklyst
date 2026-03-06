@@ -4,12 +4,15 @@ namespace App\Services\Llm;
 
 use App\DataTransferObjects\Llm\EventCreateRecommendationDto;
 use App\DataTransferObjects\Llm\EventScheduleRecommendationDto;
+use App\DataTransferObjects\Llm\EventUpdatePropertiesRecommendationDto;
 use App\DataTransferObjects\Llm\LlmInferenceResult;
 use App\DataTransferObjects\Llm\ProjectCreateRecommendationDto;
 use App\DataTransferObjects\Llm\ProjectScheduleRecommendationDto;
+use App\DataTransferObjects\Llm\ProjectUpdatePropertiesRecommendationDto;
 use App\DataTransferObjects\Llm\RecommendationDisplayDto;
 use App\DataTransferObjects\Llm\TaskCreateRecommendationDto;
 use App\DataTransferObjects\Llm\TaskScheduleRecommendationDto;
+use App\DataTransferObjects\Llm\TaskUpdatePropertiesRecommendationDto;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use Carbon\Carbon;
@@ -241,6 +244,9 @@ class RecommendationDisplayBuilder
             LlmIntent::ScheduleProject,
             LlmIntent::AdjustProjectTimeline,
             LlmIntent::CreateProject,
+            LlmIntent::UpdateTaskProperties,
+            LlmIntent::UpdateEventProperties,
+            LlmIntent::UpdateProjectProperties,
         ], true)) {
             return [];
         }
@@ -360,6 +366,54 @@ class RecommendationDisplayBuilder
             if ($dto->endDatetime !== null) {
                 $properties['endDatetime'] = $dto->endDatetime->toIso8601String();
             }
+
+            return $properties !== []
+                ? [
+                    'entity_type' => 'project',
+                    'properties' => $properties,
+                ]
+                : [];
+        }
+
+        if ($intent === LlmIntent::UpdateTaskProperties) {
+            $dto = TaskUpdatePropertiesRecommendationDto::fromStructured($structured);
+            if ($dto === null) {
+                return [];
+            }
+
+            $properties = $dto->proposedProperties();
+
+            return $properties !== []
+                ? [
+                    'entity_type' => 'task',
+                    'properties' => $properties,
+                ]
+                : [];
+        }
+
+        if ($intent === LlmIntent::UpdateEventProperties) {
+            $dto = EventUpdatePropertiesRecommendationDto::fromStructured($structured);
+            if ($dto === null) {
+                return [];
+            }
+
+            $properties = $dto->proposedProperties();
+
+            return $properties !== []
+                ? [
+                    'entity_type' => 'event',
+                    'properties' => $properties,
+                ]
+                : [];
+        }
+
+        if ($intent === LlmIntent::UpdateProjectProperties) {
+            $dto = ProjectUpdatePropertiesRecommendationDto::fromStructured($structured);
+            if ($dto === null) {
+                return [];
+            }
+
+            $properties = $dto->proposedProperties();
 
             return $properties !== []
                 ? [

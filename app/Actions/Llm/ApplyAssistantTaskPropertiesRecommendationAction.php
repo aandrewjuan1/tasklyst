@@ -7,14 +7,14 @@ use App\Enums\LlmIntent;
 use App\Models\Task;
 use App\Models\User;
 
-class ApplyAssistantTaskRecommendationAction
+class ApplyAssistantTaskPropertiesRecommendationAction
 {
     public function __construct(
         private ApplyTaskPropertiesRecommendationAction $applyTaskProperties,
     ) {}
 
     /**
-     * Apply or reject a task recommendation coming from an assistant message snapshot.
+     * Apply or reject a task properties recommendation coming from an assistant message snapshot.
      *
      * @param  array<string, mixed>  $snapshot  The recommendation_snapshot array from metadata.
      */
@@ -23,27 +23,13 @@ class ApplyAssistantTaskRecommendationAction
         $intentValue = (string) ($snapshot['intent'] ?? '');
 
         $intent = LlmIntent::tryFrom($intentValue);
-        if (! $intent instanceof LlmIntent) {
-            return;
-        }
-
-        if (! in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+        if (! $intent instanceof LlmIntent || $intent !== LlmIntent::UpdateTaskProperties) {
             return;
         }
 
         $structured = (array) ($snapshot['structured'] ?? []);
-        $appliable = (array) ($snapshot['appliable_changes'] ?? []);
-        $properties = isset($appliable['properties']) && is_array($appliable['properties'])
-            ? $appliable['properties']
-            : [];
 
-        $dtoStructured = [
-            'reasoning' => $structured['reasoning'] ?? '',
-            'confidence' => $structured['validation_confidence'] ?? 0.0,
-            'properties' => $properties,
-        ];
-
-        $dto = TaskUpdatePropertiesRecommendationDto::fromStructured($dtoStructured);
+        $dto = TaskUpdatePropertiesRecommendationDto::fromStructured($structured);
         if ($dto === null) {
             return;
         }

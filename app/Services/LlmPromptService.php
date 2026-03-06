@@ -27,6 +27,9 @@ use App\Llm\PromptTemplates\ScheduleProjectPrompt;
 use App\Llm\PromptTemplates\ScheduleTaskPrompt;
 use App\Llm\PromptTemplates\ScheduleTasksAndEventsPrompt;
 use App\Llm\PromptTemplates\ScheduleTasksAndProjectsPrompt;
+use App\Llm\PromptTemplates\UpdateEventPropertiesPrompt;
+use App\Llm\PromptTemplates\UpdateProjectPropertiesPrompt;
+use App\Llm\PromptTemplates\UpdateTaskPropertiesPrompt;
 
 class LlmPromptService
 {
@@ -52,6 +55,9 @@ class LlmPromptService
         LlmIntent::AdjustTaskDeadline->value => AdjustTaskDeadlinePrompt::class,
         LlmIntent::AdjustEventTime->value => AdjustEventTimePrompt::class,
         LlmIntent::AdjustProjectTimeline->value => AdjustProjectTimelinePrompt::class,
+        LlmIntent::UpdateTaskProperties->value => UpdateTaskPropertiesPrompt::class,
+        LlmIntent::UpdateEventProperties->value => UpdateEventPropertiesPrompt::class,
+        LlmIntent::UpdateProjectProperties->value => UpdateProjectPropertiesPrompt::class,
         LlmIntent::CreateTask->value => CreateTaskPrompt::class,
         LlmIntent::CreateEvent->value => CreateEventPrompt::class,
         LlmIntent::CreateProject->value => CreateProjectPrompt::class,

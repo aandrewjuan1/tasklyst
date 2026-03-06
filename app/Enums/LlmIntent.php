@@ -22,6 +22,9 @@ enum LlmIntent: string
     case AdjustTaskDeadline = 'adjust_task_deadline';
     case AdjustEventTime = 'adjust_event_time';
     case AdjustProjectTimeline = 'adjust_project_timeline';
+    case UpdateTaskProperties = 'update_task_properties';
+    case UpdateEventProperties = 'update_event_properties';
+    case UpdateProjectProperties = 'update_project_properties';
     case CreateTask = 'create_task';
     case CreateEvent = 'create_event';
     case CreateProject = 'create_project';

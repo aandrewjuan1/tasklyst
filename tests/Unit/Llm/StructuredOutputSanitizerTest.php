@@ -525,3 +525,51 @@ test('sanitize schedule task strips past-only time range', function (): void {
         ->and($out)->not->toHaveKey('end_datetime')
         ->and($out)->not->toHaveKey('duration');
 });
+
+test('sanitize schedule_event with empty context overrides message for no events', function (): void {
+    $structured = [
+        'entity_type' => 'event',
+        'recommended_action' => 'Schedule your exam.',
+        'reasoning' => 'It is important.',
+        'start_datetime' => '2026-03-10T09:00:00+00:00',
+        'end_datetime' => '2026-03-10T10:00:00+00:00',
+        'duration' => 60,
+    ];
+
+    $context = [
+        'events' => [],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ScheduleEvent);
+
+    expect($out['recommended_action'])->toContain('no events')
+        ->and($out['reasoning'])->toContain('events')
+        ->and($out)->not->toHaveKey('start_datetime')
+        ->and($out)->not->toHaveKey('end_datetime')
+        ->and($out)->not->toHaveKey('duration');
+});
+
+test('sanitize schedule_events_and_projects with empty context overrides message', function (): void {
+    $structured = [
+        'entity_type' => 'event,project',
+        'recommended_action' => 'Schedule items.',
+        'reasoning' => 'Based on availability.',
+        'scheduled_events' => [
+            ['title' => 'Hallucinated Event', 'start_datetime' => '2026-03-12T14:00:00+00:00', 'end_datetime' => '2026-03-12T15:00:00+00:00'],
+        ],
+        'scheduled_projects' => [
+            ['name' => 'Fake Project', 'start_datetime' => '2026-03-15T09:00:00+00:00', 'end_datetime' => '2026-03-17T17:00:00+00:00'],
+        ],
+    ];
+
+    $context = [
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::ScheduleEventsAndProjects);
+
+    expect($out['scheduled_events'])->toBeArray()->toBeEmpty()
+        ->and($out['scheduled_projects'])->toBeArray()->toBeEmpty()
+        ->and($out['recommended_action'])->toContain('no events or projects');
+});

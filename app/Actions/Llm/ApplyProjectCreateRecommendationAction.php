@@ -23,6 +23,23 @@ class ApplyProjectCreateRecommendationAction
     public function execute(User $user, ProjectCreateRecommendationDto $recommendation, LlmIntent $intent, string $userAction): void
     {
         if ($userAction === 'reject') {
+            $this->activityLogRecorder->record(
+                $user,
+                $user,
+                ActivityLogAction::FieldUpdated,
+                [
+                    'field' => 'llm_recommendation',
+                    'from' => null,
+                    'to' => [
+                        'intent' => $intent->value,
+                        'entity_type' => 'project',
+                        'user_action' => $userAction,
+                        'reasoning' => $recommendation->reasoning,
+                        'created' => null,
+                    ],
+                ],
+            );
+
             return;
         }
 
