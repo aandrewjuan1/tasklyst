@@ -9,6 +9,8 @@ use App\Enums\LlmIntent;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\ActivityLogRecorder;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 
 class ApplyTaskScheduleRecommendationAction
 {
@@ -47,25 +49,29 @@ class ApplyTaskScheduleRecommendationAction
         $attributes = $recommendation->toTaskAttributes();
         $attributes = array_merge($attributes, $overrides);
 
-        foreach (['startDatetime', 'endDatetime', 'duration', 'priority'] as $property) {
-            if (! array_key_exists($property, $attributes)) {
-                continue;
+        DB::transaction(function () use (&$changes, $task, $user, $attributes): void {
+            foreach (['startDatetime', 'endDatetime', 'duration', 'priority'] as $property) {
+                if (! array_key_exists($property, $attributes)) {
+                    continue;
+                }
+
+                $oldValue = $task->getPropertyValueForUpdate($property);
+                $newValue = $attributes[$property];
+
+                if ($this->valuesAreEquivalent($oldValue, $newValue)) {
+                    continue;
+                }
+
+                $result = $this->updateTaskProperty->execute($task, $property, $newValue, null, $user);
+
+                if ($result->success) {
+                    $changes[$property] = [
+                        'from' => $result->oldValue,
+                        'to' => $result->newValue,
+                    ];
+                }
             }
-
-            $oldValue = $task->getPropertyValueForUpdate($property);
-            $newValue = $attributes[$property];
-
-            if ($oldValue === $newValue) {
-                continue;
-            }
-
-            $this->updateTaskProperty->execute($task, $property, $newValue);
-
-            $changes[$property] = [
-                'from' => $oldValue,
-                'to' => $newValue,
-            ];
-        }
+        });
 
         $this->recordAudit($task, $user, $intent, $userAction, $recommendation, $changes);
     }
@@ -121,5 +127,14 @@ class ApplyTaskScheduleRecommendationAction
         }
 
         return true;
+    }
+
+    private function valuesAreEquivalent(mixed $oldValue, mixed $newValue): bool
+    {
+        if ($oldValue instanceof CarbonInterface && $newValue instanceof CarbonInterface) {
+            return $oldValue->eq($newValue);
+        }
+
+        return $oldValue === $newValue;
     }
 }

@@ -19,11 +19,14 @@ class LlmSchemaFactory
     {
         return match ($intent) {
             LlmIntent::ScheduleTask,
-            LlmIntent::AdjustTaskDeadline => $this->taskRecommendationSchema(),
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::CreateTask => $this->taskRecommendationSchema(),
             LlmIntent::ScheduleEvent,
-            LlmIntent::AdjustEventTime => $this->eventRecommendationSchema(),
+            LlmIntent::AdjustEventTime,
+            LlmIntent::CreateEvent => $this->eventRecommendationSchema(),
             LlmIntent::ScheduleProject,
-            LlmIntent::AdjustProjectTimeline => $this->projectRecommendationSchema(),
+            LlmIntent::AdjustProjectTimeline,
+            LlmIntent::CreateProject => $this->projectRecommendationSchema(),
             LlmIntent::PrioritizeTasks,
             LlmIntent::PrioritizeEvents,
             LlmIntent::PrioritizeProjects => $this->prioritizationSchemaForIntent($intent),
@@ -47,6 +50,8 @@ class LlmSchemaFactory
             description: 'Structured recommendation for a task (schedule or adjust)',
             properties: [
                 new StringSchema('entity_type', 'Always "task"'),
+                new StringSchema('title', 'Optional: task title when proposing a new task'),
+                new StringSchema('description', 'Optional: task description when proposing a new task'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
                 new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
@@ -54,6 +59,11 @@ class LlmSchemaFactory
                 new StringSchema('end_datetime', 'ISO 8601 datetime'),
                 new NumberSchema('duration', 'Duration in minutes'),
                 new StringSchema('priority', 'low|medium|high|urgent'),
+                new ArraySchema(
+                    name: 'tags',
+                    description: 'Optional: list of tag names to associate when creating a new task',
+                    items: new StringSchema('tag', 'Tag name')
+                ),
                 new ArraySchema(
                     name: 'blockers',
                     description: 'List of blocker descriptions',
@@ -99,6 +109,8 @@ class LlmSchemaFactory
             description: 'Structured recommendation for an event',
             properties: [
                 new StringSchema('entity_type', 'Always "event"'),
+                new StringSchema('title', 'Optional: event title when proposing a new event'),
+                new StringSchema('description', 'Optional: event description when proposing a new event'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
                 new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),
@@ -129,6 +141,8 @@ class LlmSchemaFactory
             description: 'Structured recommendation for a project timeline',
             properties: [
                 new StringSchema('entity_type', 'Always "project"'),
+                new StringSchema('name', 'Optional: project name when proposing a new project'),
+                new StringSchema('description', 'Optional: project description when proposing a new project'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
                 new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
                 new NumberSchema('confidence', 'Self-reported 0-1'),

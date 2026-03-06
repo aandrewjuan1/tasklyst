@@ -22,6 +22,9 @@ enum LlmIntent: string
     case AdjustTaskDeadline = 'adjust_task_deadline';
     case AdjustEventTime = 'adjust_event_time';
     case AdjustProjectTimeline = 'adjust_project_timeline';
+    case CreateTask = 'create_task';
+    case CreateEvent = 'create_event';
+    case CreateProject = 'create_project';
     case GeneralQuery = 'general_query';
 
     public function isReadonly(): bool

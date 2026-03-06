@@ -330,7 +330,7 @@ trait HandlesTasks
             ]);
         }
 
-        $result = $this->updateTaskPropertyAction->execute($task, $property, $validatedValue, $occurrenceDate);
+        $result = $this->updateTaskPropertyAction->execute($task, $property, $validatedValue, $occurrenceDate, $user);
 
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Action execution completed', [

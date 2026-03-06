@@ -8,6 +8,7 @@ use App\Enums\TaskStatus;
 use App\Models\RecurringTask;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\User;
 use App\Services\ActivityLogRecorder;
 use App\Services\TaskService;
 use App\Support\DateHelper;
@@ -22,27 +23,27 @@ class UpdateTaskPropertyAction
         private TaskService $taskService
     ) {}
 
-    public function execute(Task $task, string $property, mixed $validatedValue, ?string $occurrenceDate = null): UpdateTaskPropertyResult
+    public function execute(Task $task, string $property, mixed $validatedValue, ?string $occurrenceDate = null, ?User $actor = null): UpdateTaskPropertyResult
     {
         if ($property === 'tagIds') {
-            return $this->updateTagIds($task, $validatedValue);
+            return $this->updateTagIds($task, $validatedValue, $actor);
         }
 
         if ($property === 'recurrence') {
-            return $this->updateRecurrence($task, $validatedValue);
+            return $this->updateRecurrence($task, $validatedValue, $actor);
         }
 
         if ($property === 'status') {
             $recurringTask = $task->recurringTask ?? RecurringTask::where('task_id', $task->id)->first();
             if ($recurringTask !== null) {
-                return $this->updateRecurringStatus($task, $validatedValue, $occurrenceDate);
+                return $this->updateRecurringStatus($task, $validatedValue, $occurrenceDate, $actor);
             }
         }
 
-        return $this->updateSimpleProperty($task, $property, $validatedValue);
+        return $this->updateSimpleProperty($task, $property, $validatedValue, $actor);
     }
 
-    private function updateTagIds(Task $task, mixed $validatedValue): UpdateTaskPropertyResult
+    private function updateTagIds(Task $task, mixed $validatedValue, ?User $actor): UpdateTaskPropertyResult
     {
         Log::info('[TAG-SYNC] Starting task tag update', [
             'task_id' => $task->id,
@@ -96,12 +97,14 @@ class UpdateTaskPropertyAction
                 'new_tag_ids' => $validatedValue,
             ]);
 
-            $this->activityLogRecorder->record(
-                $task,
-                auth()->user(),
-                ActivityLogAction::FieldUpdated,
-                ['field' => 'tagIds', 'from' => $oldTagIds, 'to' => $validatedValue]
-            );
+            if ($actor !== null) {
+                $this->activityLogRecorder->record(
+                    $task,
+                    $actor,
+                    ActivityLogAction::FieldUpdated,
+                    ['field' => 'tagIds', 'from' => $oldTagIds, 'to' => $validatedValue]
+                );
+            }
 
             return UpdateTaskPropertyResult::success($oldTagIds, $validatedValue, $addedTagName, $removedTagName);
         } catch (\Throwable $e) {
@@ -118,7 +121,7 @@ class UpdateTaskPropertyAction
         }
     }
 
-    private function updateRecurrence(Task $task, mixed $validatedValue): UpdateTaskPropertyResult
+    private function updateRecurrence(Task $task, mixed $validatedValue, ?User $actor): UpdateTaskPropertyResult
     {
         $task->loadMissing('recurringTask');
         $oldRecurrence = RecurringTask::toPayloadArray($task->recurringTask);
@@ -126,12 +129,14 @@ class UpdateTaskPropertyAction
         try {
             $this->taskService->updateOrCreateRecurringTask($task, $validatedValue);
 
-            $this->activityLogRecorder->record(
-                $task,
-                auth()->user(),
-                ActivityLogAction::FieldUpdated,
-                ['field' => 'recurrence', 'from' => $oldRecurrence, 'to' => $validatedValue]
-            );
+            if ($actor !== null) {
+                $this->activityLogRecorder->record(
+                    $task,
+                    $actor,
+                    ActivityLogAction::FieldUpdated,
+                    ['field' => 'recurrence', 'from' => $oldRecurrence, 'to' => $validatedValue]
+                );
+            }
 
             return UpdateTaskPropertyResult::success($oldRecurrence, $validatedValue);
         } catch (\Throwable $e) {
@@ -144,7 +149,7 @@ class UpdateTaskPropertyAction
         }
     }
 
-    private function updateRecurringStatus(Task $task, mixed $validatedValue, ?string $occurrenceDate): UpdateTaskPropertyResult
+    private function updateRecurringStatus(Task $task, mixed $validatedValue, ?string $occurrenceDate, ?User $actor): UpdateTaskPropertyResult
     {
         $recurringTask = $task->recurringTask ?? RecurringTask::where('task_id', $task->id)->first();
         if ($recurringTask === null) {
@@ -162,12 +167,14 @@ class UpdateTaskPropertyAction
                 $this->taskService->updateTask($task, ['status' => $validatedValue]);
             }
 
-            $this->activityLogRecorder->record(
-                $task,
-                auth()->user(),
-                ActivityLogAction::FieldUpdated,
-                ['field' => 'status', 'from' => $oldStatus, 'to' => $validatedValue]
-            );
+            if ($actor !== null) {
+                $this->activityLogRecorder->record(
+                    $task,
+                    $actor,
+                    ActivityLogAction::FieldUpdated,
+                    ['field' => 'status', 'from' => $oldStatus, 'to' => $validatedValue]
+                );
+            }
 
             return UpdateTaskPropertyResult::success($oldStatus, $validatedValue);
         } catch (\Throwable $e) {
@@ -180,13 +187,24 @@ class UpdateTaskPropertyAction
         }
     }
 
-    private function updateSimpleProperty(Task $task, string $property, mixed $validatedValue): UpdateTaskPropertyResult
+    private function updateSimpleProperty(Task $task, string $property, mixed $validatedValue, ?User $actor): UpdateTaskPropertyResult
     {
         $column = Task::propertyToColumn($property);
 
         $oldValue = $task->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];
+        if ($column === 'duration') {
+            $durationMinutes = (int) ($validatedValue ?? 0);
+            $start = $task->start_datetime;
+            $end = $task->end_datetime;
+
+            $dateRangeError = TaskPayloadValidation::validateTaskDateRangeForUpdate($start, $end, $durationMinutes);
+            if ($dateRangeError !== null) {
+                return UpdateTaskPropertyResult::failure($oldValue, $validatedValue, $dateRangeError);
+            }
+        }
+
         if ($column === 'start_datetime' || $column === 'end_datetime') {
             $parsedDatetime = DateHelper::parseOptional($validatedValue);
             $attributes[$column] = $parsedDatetime;
@@ -215,12 +233,14 @@ class UpdateTaskPropertyAction
 
         $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
 
-        $this->activityLogRecorder->record(
-            $task,
-            auth()->user(),
-            ActivityLogAction::FieldUpdated,
-            ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
-        );
+        if ($actor !== null) {
+            $this->activityLogRecorder->record(
+                $task,
+                $actor,
+                ActivityLogAction::FieldUpdated,
+                ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
+            );
+        }
 
         return UpdateTaskPropertyResult::success($oldValue, $newValue);
     }

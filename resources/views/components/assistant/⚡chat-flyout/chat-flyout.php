@@ -1,7 +1,10 @@
 <?php
 
+use App\Actions\Llm\ApplyAssistantEventCreateRecommendationAction;
 use App\Actions\Llm\ApplyAssistantEventRecommendationAction;
+use App\Actions\Llm\ApplyAssistantProjectCreateRecommendationAction;
 use App\Actions\Llm\ApplyAssistantProjectRecommendationAction;
+use App\Actions\Llm\ApplyAssistantTaskCreateRecommendationAction;
 use App\Actions\Llm\ApplyAssistantTaskRecommendationAction;
 use App\Actions\Llm\ProcessAssistantMessageAction;
 use App\Enums\LlmEntityType;
@@ -299,38 +302,47 @@ new class extends Component
             return;
         }
 
-        $entity = match ($entityType) {
-            LlmEntityType::Task => Task::query()
-                ->forUser($user->id)
-                ->incomplete()
-                ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
-                ->orderBy('end_datetime')
-                ->first(),
-            LlmEntityType::Event => Event::query()
-                ->forUser($user->id)
-                ->notCancelled()
-                ->notCompleted()
-                ->orderByStartTime()
-                ->first(),
-            LlmEntityType::Project => Project::query()
-                ->forUser($user->id)
-                ->notArchived()
-                ->orderByStartTime()
-                ->orderByName()
-                ->first(),
-            LlmEntityType::Multiple => null,
-        };
+        if (in_array($intent, [LlmIntent::CreateTask, LlmIntent::CreateEvent, LlmIntent::CreateProject], true)) {
+            match ($entityType) {
+                LlmEntityType::Task => app(ApplyAssistantTaskCreateRecommendationAction::class)->execute($user, $snapshot, $userAction),
+                LlmEntityType::Event => app(ApplyAssistantEventCreateRecommendationAction::class)->execute($user, $snapshot, $userAction),
+                LlmEntityType::Project => app(ApplyAssistantProjectCreateRecommendationAction::class)->execute($user, $snapshot, $userAction),
+                LlmEntityType::Multiple => null,
+            };
+        } else {
+            $entity = match ($entityType) {
+                LlmEntityType::Task => Task::query()
+                    ->forUser($user->id)
+                    ->incomplete()
+                    ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
+                    ->orderBy('end_datetime')
+                    ->first(),
+                LlmEntityType::Event => Event::query()
+                    ->forUser($user->id)
+                    ->notCancelled()
+                    ->notCompleted()
+                    ->orderByStartTime()
+                    ->first(),
+                LlmEntityType::Project => Project::query()
+                    ->forUser($user->id)
+                    ->notArchived()
+                    ->orderByStartTime()
+                    ->orderByName()
+                    ->first(),
+                LlmEntityType::Multiple => null,
+            };
 
-        if ($entity === null) {
-            return;
+            if ($entity === null) {
+                return;
+            }
+
+            match ($entityType) {
+                LlmEntityType::Task => app(ApplyAssistantTaskRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
+                LlmEntityType::Event => app(ApplyAssistantEventRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
+                LlmEntityType::Project => app(ApplyAssistantProjectRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
+                LlmEntityType::Multiple => null,
+            };
         }
-
-        match ($entityType) {
-            LlmEntityType::Task => app(ApplyAssistantTaskRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
-            LlmEntityType::Event => app(ApplyAssistantEventRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
-            LlmEntityType::Project => app(ApplyAssistantProjectRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
-            LlmEntityType::Multiple => null,
-        };
 
         $snapshot['user_action'] = $userAction;
         $snapshot['applied'] = $userAction === 'accept';

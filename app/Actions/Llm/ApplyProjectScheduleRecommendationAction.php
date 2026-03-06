@@ -9,6 +9,8 @@ use App\Enums\LlmIntent;
 use App\Models\Project;
 use App\Models\User;
 use App\Services\ActivityLogRecorder;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 
 class ApplyProjectScheduleRecommendationAction
 {
@@ -41,25 +43,29 @@ class ApplyProjectScheduleRecommendationAction
         $attributes = $recommendation->toProjectAttributes();
         $attributes = array_merge($attributes, $overrides);
 
-        foreach (['startDatetime', 'endDatetime'] as $property) {
-            if (! array_key_exists($property, $attributes)) {
-                continue;
+        DB::transaction(function () use (&$changes, $project, $user, $attributes): void {
+            foreach (['startDatetime', 'endDatetime'] as $property) {
+                if (! array_key_exists($property, $attributes)) {
+                    continue;
+                }
+
+                $oldValue = $project->getPropertyValueForUpdate($property);
+                $newValue = $attributes[$property];
+
+                if ($this->valuesAreEquivalent($oldValue, $newValue)) {
+                    continue;
+                }
+
+                $result = $this->updateProjectProperty->execute($project, $property, $newValue, $user);
+
+                if ($result->success) {
+                    $changes[$property] = [
+                        'from' => $result->oldValue,
+                        'to' => $result->newValue,
+                    ];
+                }
             }
-
-            $oldValue = $project->getPropertyValueForUpdate($property);
-            $newValue = $attributes[$property];
-
-            if ($oldValue === $newValue) {
-                continue;
-            }
-
-            $this->updateProjectProperty->execute($project, $property, $newValue);
-
-            $changes[$property] = [
-                'from' => $oldValue,
-                'to' => $newValue,
-            ];
-        }
+        });
 
         $this->recordAudit($project, $user, $intent, $userAction, $recommendation, $changes);
     }
@@ -92,5 +98,14 @@ class ApplyProjectScheduleRecommendationAction
                 ],
             ]
         );
+    }
+
+    private function valuesAreEquivalent(mixed $oldValue, mixed $newValue): bool
+    {
+        if ($oldValue instanceof CarbonInterface && $newValue instanceof CarbonInterface) {
+            return $oldValue->eq($newValue);
+        }
+
+        return $oldValue === $newValue;
     }
 }
