@@ -8,6 +8,9 @@ use App\Llm\Contracts\LlmPromptTemplate;
 use App\Llm\PromptTemplates\AdjustEventTimePrompt;
 use App\Llm\PromptTemplates\AdjustProjectTimelinePrompt;
 use App\Llm\PromptTemplates\AdjustTaskDeadlinePrompt;
+use App\Llm\PromptTemplates\CreateEventPrompt;
+use App\Llm\PromptTemplates\CreateProjectPrompt;
+use App\Llm\PromptTemplates\CreateTaskPrompt;
 use App\Llm\PromptTemplates\GeneralQueryPrompt;
 use App\Llm\PromptTemplates\PrioritizeAllPrompt;
 use App\Llm\PromptTemplates\PrioritizeEventsAndProjectsPrompt;
@@ -49,6 +52,9 @@ class LlmPromptService
         LlmIntent::AdjustTaskDeadline->value => AdjustTaskDeadlinePrompt::class,
         LlmIntent::AdjustEventTime->value => AdjustEventTimePrompt::class,
         LlmIntent::AdjustProjectTimeline->value => AdjustProjectTimelinePrompt::class,
+        LlmIntent::CreateTask->value => CreateTaskPrompt::class,
+        LlmIntent::CreateEvent->value => CreateEventPrompt::class,
+        LlmIntent::CreateProject->value => CreateProjectPrompt::class,
         LlmIntent::GeneralQuery->value => GeneralQueryPrompt::class,
     ];
 

@@ -295,7 +295,7 @@ trait HandlesProjects
 
         $validatedValue = $validator->validated()['value'];
 
-        $result = $this->updateProjectPropertyAction->execute($project, $property, $validatedValue);
+        $result = $this->updateProjectPropertyAction->execute($project, $property, $validatedValue, $user);
 
         if (! $result->success) {
             if ($result->errorMessage !== null) {

@@ -9,6 +9,8 @@ use App\Enums\LlmIntent;
 use App\Models\Event;
 use App\Models\User;
 use App\Services\ActivityLogRecorder;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 
 class ApplyEventScheduleRecommendationAction
 {
@@ -41,25 +43,29 @@ class ApplyEventScheduleRecommendationAction
         $attributes = $recommendation->toEventAttributes();
         $attributes = array_merge($attributes, $overrides);
 
-        foreach (['startDatetime', 'endDatetime'] as $property) {
-            if (! array_key_exists($property, $attributes)) {
-                continue;
+        DB::transaction(function () use (&$changes, $event, $user, $attributes): void {
+            foreach (['startDatetime', 'endDatetime'] as $property) {
+                if (! array_key_exists($property, $attributes)) {
+                    continue;
+                }
+
+                $oldValue = $event->getPropertyValueForUpdate($property);
+                $newValue = $attributes[$property];
+
+                if ($this->valuesAreEquivalent($oldValue, $newValue)) {
+                    continue;
+                }
+
+                $result = $this->updateEventProperty->execute($event, $property, $newValue, null, $user);
+
+                if ($result->success) {
+                    $changes[$property] = [
+                        'from' => $result->oldValue,
+                        'to' => $result->newValue,
+                    ];
+                }
             }
-
-            $oldValue = $event->getPropertyValueForUpdate($property);
-            $newValue = $attributes[$property];
-
-            if ($oldValue === $newValue) {
-                continue;
-            }
-
-            $this->updateEventProperty->execute($event, $property, $newValue);
-
-            $changes[$property] = [
-                'from' => $oldValue,
-                'to' => $newValue,
-            ];
-        }
+        });
 
         $this->recordAudit($event, $user, $intent, $userAction, $recommendation, $changes);
     }
@@ -92,5 +98,14 @@ class ApplyEventScheduleRecommendationAction
                 ],
             ]
         );
+    }
+
+    private function valuesAreEquivalent(mixed $oldValue, mixed $newValue): bool
+    {
+        if ($oldValue instanceof CarbonInterface && $newValue instanceof CarbonInterface) {
+            return $oldValue->eq($newValue);
+        }
+
+        return $oldValue === $newValue;
     }
 }

@@ -8,6 +8,7 @@ use App\Enums\EventStatus;
 use App\Models\Event;
 use App\Models\RecurringEvent;
 use App\Models\Tag;
+use App\Models\User;
 use App\Services\ActivityLogRecorder;
 use App\Services\EventService;
 use App\Support\DateHelper;
@@ -22,27 +23,27 @@ class UpdateEventPropertyAction
         private EventService $eventService
     ) {}
 
-    public function execute(Event $event, string $property, mixed $validatedValue, ?string $occurrenceDate = null): UpdateEventPropertyResult
+    public function execute(Event $event, string $property, mixed $validatedValue, ?string $occurrenceDate = null, ?User $actor = null): UpdateEventPropertyResult
     {
         if ($property === 'tagIds') {
-            return $this->updateTagIds($event, $validatedValue);
+            return $this->updateTagIds($event, $validatedValue, $actor);
         }
 
         if ($property === 'recurrence') {
-            return $this->updateRecurrence($event, $validatedValue);
+            return $this->updateRecurrence($event, $validatedValue, $actor);
         }
 
         if ($property === 'status') {
             $recurringEvent = $event->recurringEvent ?? RecurringEvent::where('event_id', $event->id)->first();
             if ($recurringEvent !== null) {
-                return $this->updateRecurringStatus($event, $validatedValue, $occurrenceDate);
+                return $this->updateRecurringStatus($event, $validatedValue, $occurrenceDate, $actor);
             }
         }
 
-        return $this->updateSimpleProperty($event, $property, $validatedValue);
+        return $this->updateSimpleProperty($event, $property, $validatedValue, $actor);
     }
 
-    private function updateTagIds(Event $event, mixed $validatedValue): UpdateEventPropertyResult
+    private function updateTagIds(Event $event, mixed $validatedValue, ?User $actor): UpdateEventPropertyResult
     {
         Log::info('[TAG-SYNC] Starting event tag update', [
             'event_id' => $event->id,
@@ -96,12 +97,14 @@ class UpdateEventPropertyAction
                 'new_tag_ids' => $validatedValue,
             ]);
 
-            $this->activityLogRecorder->record(
-                $event,
-                auth()->user(),
-                ActivityLogAction::FieldUpdated,
-                ['field' => 'tagIds', 'from' => $oldTagIds, 'to' => $validatedValue]
-            );
+            if ($actor !== null) {
+                $this->activityLogRecorder->record(
+                    $event,
+                    $actor,
+                    ActivityLogAction::FieldUpdated,
+                    ['field' => 'tagIds', 'from' => $oldTagIds, 'to' => $validatedValue]
+                );
+            }
 
             return UpdateEventPropertyResult::success($oldTagIds, $validatedValue, $addedTagName, $removedTagName);
         } catch (\Throwable $e) {
@@ -118,7 +121,7 @@ class UpdateEventPropertyAction
         }
     }
 
-    private function updateRecurrence(Event $event, mixed $validatedValue): UpdateEventPropertyResult
+    private function updateRecurrence(Event $event, mixed $validatedValue, ?User $actor): UpdateEventPropertyResult
     {
         $event->loadMissing('recurringEvent');
         $oldRecurrence = RecurringEvent::toPayloadArray($event->recurringEvent);
@@ -126,12 +129,14 @@ class UpdateEventPropertyAction
         try {
             $this->eventService->updateOrCreateRecurringEvent($event, $validatedValue);
 
-            $this->activityLogRecorder->record(
-                $event,
-                auth()->user(),
-                ActivityLogAction::FieldUpdated,
-                ['field' => 'recurrence', 'from' => $oldRecurrence, 'to' => $validatedValue]
-            );
+            if ($actor !== null) {
+                $this->activityLogRecorder->record(
+                    $event,
+                    $actor,
+                    ActivityLogAction::FieldUpdated,
+                    ['field' => 'recurrence', 'from' => $oldRecurrence, 'to' => $validatedValue]
+                );
+            }
 
             return UpdateEventPropertyResult::success($oldRecurrence, $validatedValue);
         } catch (\Throwable $e) {
@@ -144,7 +149,7 @@ class UpdateEventPropertyAction
         }
     }
 
-    private function updateRecurringStatus(Event $event, mixed $validatedValue, ?string $occurrenceDate): UpdateEventPropertyResult
+    private function updateRecurringStatus(Event $event, mixed $validatedValue, ?string $occurrenceDate, ?User $actor): UpdateEventPropertyResult
     {
         $recurringEvent = $event->recurringEvent ?? RecurringEvent::where('event_id', $event->id)->first();
         if ($recurringEvent === null) {
@@ -162,12 +167,14 @@ class UpdateEventPropertyAction
                 $this->eventService->updateEvent($event, ['status' => $validatedValue]);
             }
 
-            $this->activityLogRecorder->record(
-                $event,
-                auth()->user(),
-                ActivityLogAction::FieldUpdated,
-                ['field' => 'status', 'from' => $oldStatus, 'to' => $validatedValue]
-            );
+            if ($actor !== null) {
+                $this->activityLogRecorder->record(
+                    $event,
+                    $actor,
+                    ActivityLogAction::FieldUpdated,
+                    ['field' => 'status', 'from' => $oldStatus, 'to' => $validatedValue]
+                );
+            }
 
             return UpdateEventPropertyResult::success($oldStatus, $validatedValue);
         } catch (\Throwable $e) {
@@ -180,7 +187,7 @@ class UpdateEventPropertyAction
         }
     }
 
-    private function updateSimpleProperty(Event $event, string $property, mixed $validatedValue): UpdateEventPropertyResult
+    private function updateSimpleProperty(Event $event, string $property, mixed $validatedValue, ?User $actor): UpdateEventPropertyResult
     {
         $column = Event::propertyToColumn($property);
         $oldValue = $event->getPropertyValueForUpdate($property);
@@ -213,12 +220,14 @@ class UpdateEventPropertyAction
 
         $newValue = in_array($property, ['startDatetime', 'endDatetime'], true) ? ($attributes[$column] ?? null) : $validatedValue;
 
-        $this->activityLogRecorder->record(
-            $event,
-            auth()->user(),
-            ActivityLogAction::FieldUpdated,
-            ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
-        );
+        if ($actor !== null) {
+            $this->activityLogRecorder->record(
+                $event,
+                $actor,
+                ActivityLogAction::FieldUpdated,
+                ['field' => $property, 'from' => $oldValue, 'to' => $newValue]
+            );
+        }
 
         return UpdateEventPropertyResult::success($oldValue, $newValue);
     }

@@ -392,7 +392,7 @@ trait HandlesEvents
             ]);
         }
 
-        $result = $this->updateEventPropertyAction->execute($event, $property, $validatedValue, $occurrenceDate);
+        $result = $this->updateEventPropertyAction->execute($event, $property, $validatedValue, $occurrenceDate, $user);
 
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Action execution completed', [
