@@ -5,6 +5,7 @@ namespace App\Actions\Llm;
 use App\Actions\Task\CreateTaskAction;
 use App\DataTransferObjects\Llm\TaskCreateRecommendationDto;
 use App\DataTransferObjects\Task\CreateTaskDto;
+use App\Enums\ActivityLogAction;
 use App\Enums\LlmIntent;
 use App\Models\Event;
 use App\Models\Project;
@@ -28,6 +29,23 @@ class ApplyTaskCreateRecommendationAction
     public function execute(User $user, TaskCreateRecommendationDto $recommendation, LlmIntent $intent, string $userAction): void
     {
         if ($userAction === 'reject') {
+            $this->activityLogRecorder->record(
+                $user,
+                $user,
+                ActivityLogAction::FieldUpdated,
+                [
+                    'field' => 'llm_recommendation',
+                    'from' => null,
+                    'to' => [
+                        'intent' => $intent->value,
+                        'entity_type' => 'task',
+                        'user_action' => $userAction,
+                        'reasoning' => $recommendation->reasoning,
+                        'created' => null,
+                    ],
+                ],
+            );
+
             return;
         }
 
@@ -90,7 +108,7 @@ class ApplyTaskCreateRecommendationAction
         $this->activityLogRecorder->record(
             $task,
             $user,
-            \App\Enums\ActivityLogAction::FieldUpdated,
+            ActivityLogAction::FieldUpdated,
             [
                 'field' => 'llm_recommendation',
                 'from' => null,

@@ -7,14 +7,14 @@ use App\Enums\LlmIntent;
 use App\Models\Project;
 use App\Models\User;
 
-class ApplyAssistantProjectRecommendationAction
+class ApplyAssistantProjectPropertiesRecommendationAction
 {
     public function __construct(
         private ApplyProjectPropertiesRecommendationAction $applyProjectProperties,
     ) {}
 
     /**
-     * Apply or reject a project recommendation coming from an assistant message snapshot.
+     * Apply or reject a project properties recommendation coming from an assistant message snapshot.
      *
      * @param  array<string, mixed>  $snapshot  The recommendation_snapshot array from metadata.
      */
@@ -23,27 +23,13 @@ class ApplyAssistantProjectRecommendationAction
         $intentValue = (string) ($snapshot['intent'] ?? '');
 
         $intent = LlmIntent::tryFrom($intentValue);
-        if (! $intent instanceof LlmIntent) {
-            return;
-        }
-
-        if (! in_array($intent, [LlmIntent::ScheduleProject, LlmIntent::AdjustProjectTimeline], true)) {
+        if (! $intent instanceof LlmIntent || $intent !== LlmIntent::UpdateProjectProperties) {
             return;
         }
 
         $structured = (array) ($snapshot['structured'] ?? []);
-        $appliable = (array) ($snapshot['appliable_changes'] ?? []);
-        $properties = isset($appliable['properties']) && is_array($appliable['properties'])
-            ? $appliable['properties']
-            : [];
 
-        $dtoStructured = [
-            'reasoning' => $structured['reasoning'] ?? '',
-            'confidence' => $structured['validation_confidence'] ?? 0.0,
-            'properties' => $properties,
-        ];
-
-        $dto = ProjectUpdatePropertiesRecommendationDto::fromStructured($dtoStructured);
+        $dto = ProjectUpdatePropertiesRecommendationDto::fromStructured($structured);
         if ($dto === null) {
             return;
         }

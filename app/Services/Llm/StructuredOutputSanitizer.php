@@ -83,7 +83,7 @@ class StructuredOutputSanitizer
             LlmIntent::ScheduleEvent,
             LlmIntent::AdjustEventTime,
             LlmIntent::ScheduleProject,
-            LlmIntent::AdjustProjectTimeline => $this->sanitizeSingleScheduleRecommendation($structured),
+            LlmIntent::AdjustProjectTimeline => $this->sanitizeSingleScheduleRecommendationWithContext($structured, $context, $intent),
             LlmIntent::ScheduleTasksAndEvents => $this->sanitizeScheduledTasksAndEvents($structured, $context),
             LlmIntent::ScheduleTasksAndProjects => $this->sanitizeScheduledTasksAndProjects($structured, $context),
             LlmIntent::ScheduleEventsAndProjects => $this->sanitizeScheduledEventsAndProjects($structured, $context),
@@ -93,6 +93,67 @@ class StructuredOutputSanitizer
         };
 
         return $result;
+    }
+
+    /**
+     * Apply a quick rule-based guard for single-entity schedule/adjust intents:
+     * if there are no matching entities in context, avoid presenting a
+     * hallucinated schedule and instead return a clear "no items" message.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeSingleScheduleRecommendationWithContext(array $structured, array $context, LlmIntent $intent): array
+    {
+        $key = match ($intent) {
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline => 'tasks',
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime => 'events',
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline => 'projects',
+            default => null,
+        };
+
+        if ($key !== null) {
+            $items = $context[$key] ?? [];
+            if (! is_array($items) || $items === []) {
+                unset(
+                    $structured['start_datetime'],
+                    $structured['end_datetime'],
+                    $structured['duration'],
+                    $structured['sessions']
+                );
+
+                $structured['recommended_action'] = match ($key) {
+                    'tasks' => __('You have no tasks yet. Add tasks to your list to get scheduling suggestions.'),
+                    'events' => __('You have no events yet. Add events to your calendar to get scheduling suggestions.'),
+                    'projects' => __('You have no projects yet. Add projects to get scheduling suggestions.'),
+                    default => __('You have no items yet. Add some to get scheduling suggestions.'),
+                };
+
+                $structured['reasoning'] = match ($key) {
+                    'tasks' => __('I checked your tasks and there are none to schedule right now.'),
+                    'events' => __('I checked your events and there are none to schedule right now.'),
+                    'projects' => __('I checked your projects and there are none to schedule right now.'),
+                    default => __('There are no items available to schedule right now.'),
+                };
+
+                if (! isset($structured['entity_type'])) {
+                    $structured['entity_type'] = match ($key) {
+                        'tasks' => 'task',
+                        'events' => 'event',
+                        'projects' => 'project',
+                        default => $structured['entity_type'] ?? 'task',
+                    };
+                }
+
+                return $structured;
+            }
+        }
+
+        return $this->sanitizeSingleScheduleRecommendation($structured);
     }
 
     /**
@@ -367,6 +428,15 @@ class StructuredOutputSanitizer
         $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
         $allowedEventTitles = $this->titlesFromContextItems($context['events'] ?? []);
 
+        if ($allowedTaskTitles === [] && $allowedEventTitles === []) {
+            $structured['scheduled_tasks'] = [];
+            $structured['scheduled_events'] = [];
+            $structured['recommended_action'] = __('You have no tasks or events yet. Add some to get scheduling suggestions.');
+            $structured['reasoning'] = __('I checked your tasks and events and there are none to schedule right now.');
+
+            return $structured;
+        }
+
         $scheduledTasks = $structured['scheduled_tasks'] ?? [];
         if (is_array($scheduledTasks)) {
             $structured['scheduled_tasks'] = $allowedTaskTitles === []
@@ -399,6 +469,15 @@ class StructuredOutputSanitizer
     {
         $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
         $allowedProjectNames = $this->namesFromContextProjects($context['projects'] ?? []);
+
+        if ($allowedTaskTitles === [] && $allowedProjectNames === []) {
+            $structured['scheduled_tasks'] = [];
+            $structured['scheduled_projects'] = [];
+            $structured['recommended_action'] = __('You have no tasks or projects yet. Add some to get scheduling suggestions.');
+            $structured['reasoning'] = __('I checked your tasks and projects and there are none to schedule right now.');
+
+            return $structured;
+        }
 
         $scheduledTasks = $structured['scheduled_tasks'] ?? [];
         if (is_array($scheduledTasks)) {
@@ -433,6 +512,15 @@ class StructuredOutputSanitizer
         $allowedEventTitles = $this->titlesFromContextItems($context['events'] ?? []);
         $allowedProjectNames = $this->namesFromContextProjects($context['projects'] ?? []);
 
+        if ($allowedEventTitles === [] && $allowedProjectNames === []) {
+            $structured['scheduled_events'] = [];
+            $structured['scheduled_projects'] = [];
+            $structured['recommended_action'] = __('You have no events or projects yet. Add some to get scheduling suggestions.');
+            $structured['reasoning'] = __('I checked your events and projects and there are none to schedule right now.');
+
+            return $structured;
+        }
+
         $scheduledEvents = $structured['scheduled_events'] ?? [];
         if (is_array($scheduledEvents)) {
             $structured['scheduled_events'] = $allowedEventTitles === []
@@ -466,6 +554,16 @@ class StructuredOutputSanitizer
         $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
         $allowedEventTitles = $this->titlesFromContextItems($context['events'] ?? []);
         $allowedProjectNames = $this->namesFromContextProjects($context['projects'] ?? []);
+
+        if ($allowedTaskTitles === [] && $allowedEventTitles === [] && $allowedProjectNames === []) {
+            $structured['scheduled_tasks'] = [];
+            $structured['scheduled_events'] = [];
+            $structured['scheduled_projects'] = [];
+            $structured['recommended_action'] = __('You have no tasks, events, or projects yet. Add some to get scheduling suggestions.');
+            $structured['reasoning'] = __('I checked your tasks, events, and projects and there are none to schedule right now.');
+
+            return $structured;
+        }
 
         $scheduledTasks = $structured['scheduled_tasks'] ?? [];
         if (is_array($scheduledTasks)) {

@@ -2,61 +2,72 @@
 
 namespace App\Actions\Llm;
 
-use App\Actions\Event\UpdateEventPropertyAction;
-use App\DataTransferObjects\Llm\EventScheduleRecommendationDto;
+use App\Actions\Project\UpdateProjectPropertyAction;
+use App\DataTransferObjects\Llm\ProjectUpdatePropertiesRecommendationDto;
 use App\Enums\ActivityLogAction;
 use App\Enums\LlmIntent;
-use App\Models\Event;
+use App\Models\Project;
 use App\Models\User;
 use App\Services\ActivityLogRecorder;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
-class ApplyEventScheduleRecommendationAction
+class ApplyProjectPropertiesRecommendationAction
 {
+    /**
+     * @var list<string>
+     */
+    private const ALLOWED_PROPERTIES = [
+        'name',
+        'description',
+        'startDatetime',
+        'endDatetime',
+    ];
+
     public function __construct(
-        private UpdateEventPropertyAction $updateEventProperty,
+        private UpdateProjectPropertyAction $updateProjectProperty,
         private ActivityLogRecorder $activityLogRecorder
     ) {}
 
     /**
-     * Apply an event scheduling or time-adjustment recommendation to the given event.
+     * Apply a generic project property update recommendation to the given project.
      *
-     * @param  array<string, mixed>  $overrides  Optional user-modified values for startDatetime, endDatetime.
+     * @param  array<string, mixed>  $overrides  Optional user-modified values for properties.
      */
     public function execute(
         User $user,
-        Event $event,
-        EventScheduleRecommendationDto $recommendation,
+        Project $project,
+        ProjectUpdatePropertiesRecommendationDto $recommendation,
         LlmIntent $intent,
         string $userAction,
         array $overrides = []
     ): void {
         if ($userAction === 'reject') {
-            $this->recordAudit($event, $user, $intent, $userAction, $recommendation, []);
+            $this->recordAudit($project, $user, $intent, $userAction, $recommendation, []);
 
             return;
         }
 
         $changes = [];
 
-        $attributes = $recommendation->toEventAttributes();
-        $attributes = array_merge($attributes, $overrides);
+        $properties = array_merge($recommendation->proposedProperties(), $overrides);
+        $properties = array_intersect_key($properties, array_flip(self::ALLOWED_PROPERTIES));
 
-        DB::transaction(function () use (&$changes, $event, $user, $attributes): void {
-            foreach (['startDatetime', 'endDatetime'] as $property) {
-                if (! array_key_exists($property, $attributes)) {
-                    continue;
-                }
+        if ($properties === []) {
+            $this->recordAudit($project, $user, $intent, $userAction, $recommendation, []);
 
-                $oldValue = $event->getPropertyValueForUpdate($property);
-                $newValue = $attributes[$property];
+            return;
+        }
+
+        DB::transaction(function () use (&$changes, $project, $user, $properties): void {
+            foreach ($properties as $property => $newValue) {
+                $oldValue = $project->getPropertyValueForUpdate($property);
 
                 if ($this->valuesAreEquivalent($oldValue, $newValue)) {
                     continue;
                 }
 
-                $result = $this->updateEventProperty->execute($event, $property, $newValue, null, $user);
+                $result = $this->updateProjectProperty->execute($project, $property, $newValue, $user);
 
                 if ($result->success) {
                     $changes[$property] = [
@@ -67,22 +78,22 @@ class ApplyEventScheduleRecommendationAction
             }
         });
 
-        $this->recordAudit($event, $user, $intent, $userAction, $recommendation, $changes);
+        $this->recordAudit($project, $user, $intent, $userAction, $recommendation, $changes);
     }
 
     /**
      * @param  array<string, array{from:mixed,to:mixed}>  $changes
      */
     private function recordAudit(
-        Event $event,
+        Project $project,
         User $user,
         LlmIntent $intent,
         string $userAction,
-        EventScheduleRecommendationDto $recommendation,
+        ProjectUpdatePropertiesRecommendationDto $recommendation,
         array $changes
     ): void {
         $this->activityLogRecorder->record(
-            $event,
+            $project,
             $user,
             ActivityLogAction::FieldUpdated,
             [
@@ -90,7 +101,7 @@ class ApplyEventScheduleRecommendationAction
                 'from' => null,
                 'to' => [
                     'intent' => $intent->value,
-                    'entity_type' => 'event',
+                    'entity_type' => 'project',
                     'user_action' => $userAction,
                     'reasoning' => $recommendation->reasoning,
                     'changes' => $changes,
