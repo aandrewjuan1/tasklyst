@@ -787,7 +787,7 @@ class RecommendationDisplayBuilder
     {
         $out = [];
 
-        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'scheduled_tasks', 'scheduled_events', 'scheduled_projects', 'listed_items', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps'];
+        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'scheduled_tasks', 'scheduled_events', 'scheduled_projects', 'listed_items', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps', 'proposed_properties'];
         foreach ($allowedKeys as $key) {
             if (array_key_exists($key, $structured) && $structured[$key] !== null) {
                 $out[$key] = $structured[$key];
