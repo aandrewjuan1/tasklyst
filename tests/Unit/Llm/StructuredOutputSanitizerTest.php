@@ -526,6 +526,73 @@ test('sanitize schedule task strips past-only time range', function (): void {
         ->and($out)->not->toHaveKey('duration');
 });
 
+test('sanitize schedule task corrects tomorrow to same day when user said later evening', function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-07 12:00:00', config('app.timezone')));
+
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Work on Output # 2 tonight at 8pm for 1 hour.',
+        'reasoning' => 'Later evening fits.',
+        'proposed_properties' => [
+            'start_datetime' => '2026-03-08T20:00:00+08:00',
+            'duration' => 60,
+        ],
+        'start_datetime' => '2026-03-08T20:00:00+08:00',
+        'duration' => 60,
+    ];
+
+    $context = [
+        'current_date' => '2026-03-07',
+        'tasks' => [
+            ['id' => 1, 'title' => 'Output # 2: EMILIAN - Due'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::ScheduleTask,
+        null,
+        'schedule my most important task for later evening'
+    );
+
+    expect($out['start_datetime'])->toBe('2026-03-07T20:00:00+08:00')
+        ->and($out['proposed_properties']['start_datetime'])->toBe('2026-03-07T20:00:00+08:00')
+        ->and($out['duration'])->toBe(60);
+});
+
+test('sanitize schedule task does not correct when user said tomorrow', function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-07 12:00:00', config('app.timezone')));
+
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Work on it tomorrow evening.',
+        'reasoning' => 'Tomorrow fits.',
+        'proposed_properties' => [
+            'start_datetime' => '2026-03-08T20:00:00+08:00',
+            'duration' => 60,
+        ],
+        'start_datetime' => '2026-03-08T20:00:00+08:00',
+        'duration' => 60,
+    ];
+
+    $context = [
+        'current_date' => '2026-03-07',
+        'tasks' => [['id' => 1, 'title' => 'Some task']],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::ScheduleTask,
+        null,
+        'schedule my most important task for tomorrow evening'
+    );
+
+    expect($out['start_datetime'])->toBe('2026-03-08T20:00:00+08:00')
+        ->and($out['proposed_properties']['start_datetime'])->toBe('2026-03-08T20:00:00+08:00');
+});
+
 test('sanitize schedule_event with empty context overrides message for no events', function (): void {
     $structured = [
         'entity_type' => 'event',
