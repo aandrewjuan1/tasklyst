@@ -183,7 +183,22 @@ class RecommendationDisplayBuilder
             $passed += is_array($steps) && count($steps) >= 2 ? 1 : 0;
         }
 
-        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline, LlmIntent::CreateTask], true)) {
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+            if (! empty($structured['start_datetime'])) {
+                $checks++;
+                $passed += $this->parseDateTime($structured['start_datetime']) !== null ? 1 : 0;
+            }
+            if (isset($structured['duration']) && is_numeric($structured['duration']) && (int) $structured['duration'] > 0) {
+                $checks++;
+                $passed += 1;
+            }
+            if (isset($structured['priority']) && $structured['priority'] !== '') {
+                $checks++;
+                $passed += in_array(strtolower((string) $structured['priority']), self::PRIORITY_VALUES, true) ? 1 : 0;
+            }
+        }
+
+        if (in_array($intent, [LlmIntent::CreateTask], true)) {
             if (! empty($structured['start_datetime'])) {
                 $checks++;
                 $passed += $this->parseDateTime($structured['start_datetime']) !== null ? 1 : 0;
@@ -578,6 +593,7 @@ class RecommendationDisplayBuilder
             }
             $startRaw = isset($item['start_datetime']) && is_string($item['start_datetime']) ? trim($item['start_datetime']) : null;
             $endRaw = isset($item['end_datetime']) && is_string($item['end_datetime']) ? trim($item['end_datetime']) : null;
+            $duration = isset($item['duration']) && is_numeric($item['duration']) ? (int) $item['duration'] : null;
             $timePart = '';
             if ($startRaw !== null && $startRaw !== '') {
                 try {
@@ -590,6 +606,8 @@ class RecommendationDisplayBuilder
                         } catch (\Throwable) {
                             $timePart .= ' → '.$endRaw;
                         }
+                    } elseif ($duration !== null && $duration > 0) {
+                        $timePart .= ' '.__('for :min min', ['min' => $duration]);
                     }
                 } catch (\Throwable) {
                     $timePart = $startRaw.($endRaw !== null && $endRaw !== '' ? ' → '.$endRaw : '');

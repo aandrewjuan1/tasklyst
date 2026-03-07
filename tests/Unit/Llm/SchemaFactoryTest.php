@@ -16,8 +16,14 @@ test('returns object schema for every intent', function (LlmIntent $intent): voi
         ->and($schema->requiredFields)->toContain('entity_type', 'recommended_action', 'reasoning');
 })->with(array_map(fn ($case) => [$case], LlmIntent::cases()));
 
-test('task intents get task recommendation schema', function (): void {
+test('schedule and adjust task intents get task schedule recommendation schema', function (): void {
     $schema = $this->factory->schemaForIntent(LlmIntent::ScheduleTask);
+
+    expect($schema->name)->toBe('task_schedule_recommendation');
+});
+
+test('create task intent gets task recommendation schema', function (): void {
+    $schema = $this->factory->schemaForIntent(LlmIntent::CreateTask);
 
     expect($schema->name)->toBe('task_recommendation');
 });

@@ -56,6 +56,10 @@ class ApplyTaskPropertiesRecommendationAction
         $properties = array_merge($recommendation->proposedProperties(), $overrides);
         $properties = array_intersect_key($properties, array_flip(self::ALLOWED_PROPERTIES));
 
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+            unset($properties['endDatetime']);
+        }
+
         if ($properties === []) {
             $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
 
@@ -140,12 +144,34 @@ class ApplyTaskPropertiesRecommendationAction
 
     /**
      * Basic temporal guardrails for schedule/adjust intents using proposed properties.
+     * For task intents: only start and duration are applied; validate start + duration does not exceed task due.
      *
      * @param  array<string, mixed>  $properties
      */
     private function isScheduleAcceptableFromProperties(Task $task, array $properties, LlmIntent $intent): bool
     {
         $now = now();
+
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+            $startRaw = $properties['startDatetime'] ?? null;
+            $start = is_string($startRaw) ? \App\Support\DateHelper::parseOptional($startRaw) : null;
+            if ($start !== null && $start->lt($now)) {
+                return false;
+            }
+            if ($task->end_datetime !== null && $start !== null) {
+                $duration = isset($properties['duration']) && is_numeric($properties['duration'])
+                    ? (int) $properties['duration']
+                    : null;
+                if ($duration !== null && $duration > 0) {
+                    $blockEnd = $start->copy()->addMinutes($duration);
+                    if ($blockEnd->gt($task->end_datetime->copy()->endOfDay())) {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
 
         $endRaw = $properties['endDatetime'] ?? null;
         $end = is_string($endRaw) ? \App\Support\DateHelper::parseOptional($endRaw) : null;
@@ -154,8 +180,7 @@ class ApplyTaskPropertiesRecommendationAction
             return false;
         }
 
-        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
-            && $task->end_datetime !== null
+        if ($task->end_datetime !== null
             && $end !== null
             && $end->gt($task->end_datetime->copy()->endOfDay())
         ) {

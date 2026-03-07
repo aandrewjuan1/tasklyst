@@ -19,7 +19,7 @@ class LlmSchemaFactory
     {
         return match ($intent) {
             LlmIntent::ScheduleTask,
-            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::AdjustTaskDeadline => $this->taskScheduleRecommendationSchema(),
             LlmIntent::CreateTask => $this->taskRecommendationSchema(),
             LlmIntent::ScheduleEvent,
             LlmIntent::AdjustEventTime,
@@ -39,6 +39,9 @@ class LlmSchemaFactory
             LlmIntent::ScheduleEventsAndProjects => $this->scheduleEventsAndProjectsSchema(),
             LlmIntent::ScheduleAll => $this->scheduleAllSchema(),
             LlmIntent::ResolveDependency => $this->resolveDependencySchema(),
+            LlmIntent::UpdateTaskProperties => $this->taskRecommendationSchema(),
+            LlmIntent::UpdateEventProperties => $this->eventRecommendationSchema(),
+            LlmIntent::UpdateProjectProperties => $this->projectRecommendationSchema(),
             LlmIntent::GeneralQuery => $this->genericRecommendationSchema(),
         };
     }
@@ -92,6 +95,63 @@ class LlmSchemaFactory
                     properties: [
                         new StringSchema('start_datetime', 'ISO 8601 datetime'),
                         new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                        new NumberSchema('duration', 'Duration in minutes'),
+                        new StringSchema('priority', 'low|medium|high|urgent'),
+                    ],
+                    requiredFields: []
+                ),
+            ],
+            requiredFields: ['entity_type', 'recommended_action', 'reasoning']
+        );
+    }
+
+    /**
+     * Task schedule/adjust only: proposed_properties has start_datetime and duration; no end_datetime.
+     */
+    private function taskScheduleRecommendationSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'task_schedule_recommendation',
+            description: 'Structured schedule recommendation for a task (start and/or duration only; do not suggest end/due)',
+            properties: [
+                new StringSchema('entity_type', 'Always "task"'),
+                new StringSchema('title', 'Optional: task title when proposing a new task'),
+                new StringSchema('description', 'Optional: task description when proposing a new task'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
+                new NumberSchema('confidence', 'Self-reported 0-1'),
+                new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                new NumberSchema('duration', 'Duration in minutes'),
+                new StringSchema('priority', 'low|medium|high|urgent'),
+                new ArraySchema(
+                    name: 'tags',
+                    description: 'Optional: list of tag names to associate when creating a new task',
+                    items: new StringSchema('tag', 'Tag name')
+                ),
+                new ArraySchema(
+                    name: 'blockers',
+                    description: 'List of blocker descriptions',
+                    items: new StringSchema('item', 'Blocker description')
+                ),
+                new ArraySchema(
+                    name: 'sessions',
+                    description: 'Optional: multiple work sessions instead of a single block',
+                    items: new ObjectSchema(
+                        name: 'session',
+                        description: 'Single proposed work session',
+                        properties: [
+                            new StringSchema('start_datetime', 'ISO 8601 session start datetime'),
+                            new StringSchema('end_datetime', 'ISO 8601 session end datetime'),
+                            new NumberSchema('duration', 'Optional: duration in minutes'),
+                        ],
+                        requiredFields: ['start_datetime', 'end_datetime']
+                    )
+                ),
+                new ObjectSchema(
+                    name: 'proposed_properties',
+                    description: 'Optional: only start_datetime and/or duration (never end_datetime for task scheduling)',
+                    properties: [
+                        new StringSchema('start_datetime', 'ISO 8601 datetime'),
                         new NumberSchema('duration', 'Duration in minutes'),
                         new StringSchema('priority', 'low|medium|high|urgent'),
                     ],
@@ -490,14 +550,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_tasks',
-                    description: 'Scheduled task items (can be empty)',
+                    description: 'Scheduled task items (can be empty); each task: title, start_datetime, optional duration only (no end_datetime)',
                     items: new ObjectSchema(
                         name: 'scheduled_task',
-                        description: 'Single scheduled task',
+                        description: 'Single scheduled task (start and/or duration; do not include end_datetime)',
                         properties: [
                             new StringSchema('title', 'Task title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
-                            new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
+                            new NumberSchema('duration', 'Duration in minutes, optional'),
                             new ArraySchema(
                                 name: 'sessions',
                                 description: 'Optional: multiple work sessions',
@@ -546,14 +606,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_tasks',
-                    description: 'Scheduled task items (can be empty)',
+                    description: 'Scheduled task items (can be empty); each task: title, start_datetime, optional duration only (no end_datetime)',
                     items: new ObjectSchema(
                         name: 'scheduled_task',
-                        description: 'Single scheduled task',
+                        description: 'Single scheduled task (start and/or duration; do not include end_datetime)',
                         properties: [
                             new StringSchema('title', 'Task title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
-                            new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
+                            new NumberSchema('duration', 'Duration in minutes, optional'),
                         ],
                         requiredFields: ['title']
                     )
@@ -632,14 +692,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_tasks',
-                    description: 'Scheduled task items (can be empty)',
+                    description: 'Scheduled task items (can be empty); each task: title, start_datetime, optional duration only (no end_datetime)',
                     items: new ObjectSchema(
                         name: 'scheduled_task',
-                        description: 'Single scheduled task',
+                        description: 'Single scheduled task (start and/or duration; do not include end_datetime)',
                         properties: [
                             new StringSchema('title', 'Task title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
-                            new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
+                            new NumberSchema('duration', 'Duration in minutes, optional'),
                         ],
                         requiredFields: ['title']
                     )

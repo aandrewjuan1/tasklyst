@@ -8,6 +8,7 @@
  * @param {number} config.pendingAssistantCount
  * @param {string|null} config.currentTraceId
  * @param {Array<string>} config.suggestedPrompts
+ * @param {string} [config.appTimezone] Application timezone for schedule display (e.g. 'Asia/Manila')
  * @returns {Object}
  */
 
@@ -45,6 +46,7 @@ export function assistantChatFlyout($wire, config) {
         _onScroll: null,
         ignoreNextAssistant: false,
         currentTraceId: config.currentTraceId ?? null,
+        appTimezone: config.appTimezone ?? 'Asia/Manila',
         suggestedPrompts: Array.isArray(config.suggestedPrompts) ? config.suggestedPrompts : [],
         computedFollowups: [],
         resizeScheduled: false,
@@ -224,19 +226,11 @@ export function assistantChatFlyout($wire, config) {
             const labels = [];
 
             if ('startDatetime' in props) {
-                try {
-                    labels.push('start ' + new Date(props.startDatetime).toLocaleString());
-                } catch (e) {
-                    labels.push('start ' + props.startDatetime);
-                }
+                labels.push('start ' + this.formatInAppTimezone(props.startDatetime));
             }
 
             if ('endDatetime' in props) {
-                try {
-                    labels.push('end ' + new Date(props.endDatetime).toLocaleString());
-                } catch (e) {
-                    labels.push('end ' + props.endDatetime);
-                }
+                labels.push('end ' + this.formatInAppTimezone(props.endDatetime));
             }
 
             if ('duration' in props) {
@@ -312,6 +306,15 @@ export function assistantChatFlyout($wire, config) {
             return cleaned.slice(0, 3).map((prompt) => ({ prompt }));
         },
 
+        formatInAppTimezone(isoString) {
+            if (!isoString) return '';
+            try {
+                return new Date(isoString).toLocaleString(undefined, { timeZone: this.appTimezone });
+            } catch (e) {
+                return isoString;
+            }
+        },
+
         formatTimeRange(structured) {
             if (!structured || typeof structured !== 'object') return '';
 
@@ -322,19 +325,11 @@ export function assistantChatFlyout($wire, config) {
             const parts = [];
 
             if (structured.start_datetime) {
-                try {
-                    parts.push(new Date(structured.start_datetime).toLocaleString());
-                } catch (e) {
-                    parts.push(structured.start_datetime);
-                }
+                parts.push(this.formatInAppTimezone(structured.start_datetime));
             }
 
             if (structured.end_datetime) {
-                try {
-                    parts.push(new Date(structured.end_datetime).toLocaleString());
-                } catch (e) {
-                    parts.push(structured.end_datetime);
-                }
+                parts.push(this.formatInAppTimezone(structured.end_datetime));
             }
 
             const value = parts.filter(Boolean).join(' \u2192 ');
@@ -353,19 +348,11 @@ export function assistantChatFlyout($wire, config) {
             const parts = [];
 
             if (item.start_datetime) {
-                try {
-                    parts.push(new Date(item.start_datetime).toLocaleString());
-                } catch (e) {
-                    parts.push(item.start_datetime);
-                }
+                parts.push(this.formatInAppTimezone(item.start_datetime));
             }
 
             if (item.end_datetime) {
-                try {
-                    parts.push(new Date(item.end_datetime).toLocaleString());
-                } catch (e) {
-                    parts.push(item.end_datetime);
-                }
+                parts.push(this.formatInAppTimezone(item.end_datetime));
             }
 
             const value = parts.filter(Boolean).join(' \u2192 ');
@@ -387,14 +374,7 @@ export function assistantChatFlyout($wire, config) {
                 return '';
             }
 
-            let formatted;
-
-            try {
-                formatted = new Date(item.end_datetime).toLocaleString();
-            } catch (e) {
-                formatted = item.end_datetime;
-            }
-
+            const formatted = this.formatInAppTimezone(item.end_datetime);
             const value = ` \u2014 ${formatted}`;
             item._formatted_end = value;
 

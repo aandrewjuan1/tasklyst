@@ -429,8 +429,10 @@ class ContextBuilder
         ?AssistantThread $thread = null,
         ?string $userMessage = null
     ): array {
+        $now = now();
         $payload = [
-            'current_time' => now()->toIso8601String(),
+            'current_time' => $now->toIso8601String(),
+            'current_date' => $now->toDateString(),
             'timezone' => config('app.timezone', 'Asia/Manila'),
         ];
 
@@ -1285,8 +1287,12 @@ class ContextBuilder
             return $payload;
         }
 
+        $now = now();
+
         return [
-            'current_time' => $payload['current_time'] ?? now()->toIso8601String(),
+            'current_time' => $payload['current_time'] ?? $now->toIso8601String(),
+            'current_date' => $payload['current_date'] ?? $now->toDateString(),
+            'timezone' => $payload['timezone'] ?? config('app.timezone', 'Asia/Manila'),
         ];
     }
 

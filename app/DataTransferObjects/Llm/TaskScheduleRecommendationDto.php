@@ -37,9 +37,8 @@ final readonly class TaskScheduleRecommendationDto
             ? DateHelper::parseOptional($source['start_datetime'])
             : null;
 
-        $end = isset($source['end_datetime'])
-            ? DateHelper::parseOptional($source['end_datetime'])
-            : null;
+        // Task scheduling: never use end_datetime from LLM; only start and/or duration.
+        $end = null;
 
         // Duration is optional; normalize to int minutes when present and valid.
         $duration = null;
@@ -55,23 +54,18 @@ final readonly class TaskScheduleRecommendationDto
             $priority = null;
         }
 
-        // Basic temporal guardrails: ignore recommendations that are wholly in the past
-        // or have an invalid ordering between start and end.
         $now = Carbon::now();
-        if ($end !== null && $end->lt($now)) {
-            return null;
-        }
-        if ($start !== null && $end !== null && $end->lte($start)) {
+        if ($start !== null && $start->lt($now)) {
             return null;
         }
 
-        if ($start === null && $end === null && $priority === null && $duration === null) {
+        if ($start === null && $duration === null && $priority === null) {
             return null;
         }
 
         return new self(
             startDatetime: $start,
-            endDatetime: $end,
+            endDatetime: null,
             durationMinutes: $duration,
             priority: $priority,
             reasoning: $reasoning,
@@ -87,7 +81,7 @@ final readonly class TaskScheduleRecommendationDto
     {
         return [
             'startDatetime' => $this->startDatetime,
-            'endDatetime' => $this->endDatetime,
+            'endDatetime' => null,
             'priority' => $this->priority,
             'duration' => $this->durationMinutes,
         ];
@@ -98,16 +92,15 @@ final readonly class TaskScheduleRecommendationDto
      *
      * @return array<string, mixed>
      */
+    /**
+     * Properties to apply to a task. Never includes endDatetime (task due/end is never changed by scheduling).
+     */
     public function proposedProperties(): array
     {
         $properties = [];
 
         if ($this->startDatetime !== null) {
             $properties['startDatetime'] = $this->startDatetime->toIso8601String();
-        }
-
-        if ($this->endDatetime !== null) {
-            $properties['endDatetime'] = $this->endDatetime->toIso8601String();
         }
 
         if ($this->durationMinutes !== null) {
