@@ -153,7 +153,7 @@ class StructuredOutputSanitizer
             }
         }
 
-        return $this->sanitizeSingleScheduleRecommendation($structured);
+        return $this->sanitizeSingleScheduleRecommendation($structured, $intent);
     }
 
     /**
@@ -161,18 +161,40 @@ class StructuredOutputSanitizer
      * (ScheduleTask, ScheduleEvent, ScheduleProject and their adjust variants).
      * If the suggested time range is wholly in the past, strip the temporal
      * fields so the UI does not present an outdated slot.
-     * Merges proposed_properties into top-level so display and appliable_changes see dates.
+     * For task intents: only start_datetime and duration are kept; end_datetime is stripped.
      *
      * @param  array<string, mixed>  $structured
      * @return array<string, mixed>
      */
-    private function sanitizeSingleScheduleRecommendation(array $structured): array
+    private function sanitizeSingleScheduleRecommendation(array $structured, LlmIntent $intent): array
     {
-        $structured = $this->mergeProposedPropertiesForSchedule($structured);
+        $isTaskSchedule = $intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline;
+
+        $structured = $this->mergeProposedPropertiesForSchedule($structured, $intent);
+
+        if ($isTaskSchedule) {
+            unset($structured['end_datetime']);
+            if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+                unset($structured['proposed_properties']['end_datetime']);
+            }
+        }
+
+        $start = $structured['start_datetime'] ?? null;
+        $end = $structured['end_datetime'] ?? null;
+        $duration = isset($structured['duration']) && is_numeric($structured['duration']) ? (int) $structured['duration'] : null;
+
+        if ($isTaskSchedule && $end === null && $start !== null && $duration !== null && $duration > 0) {
+            try {
+                $startCarbon = \Carbon\CarbonImmutable::parse($start, config('app.timezone'));
+                $end = $startCarbon->addMinutes($duration)->toIso8601String();
+            } catch (\Throwable) {
+                $end = null;
+            }
+        }
 
         $items = [[
-            'start_datetime' => $structured['start_datetime'] ?? null,
-            'end_datetime' => $structured['end_datetime'] ?? null,
+            'start_datetime' => $start,
+            'end_datetime' => $end,
         ]];
 
         $filtered = $this->applyScheduleTimeGuards($items);
@@ -194,7 +216,12 @@ class StructuredOutputSanitizer
             $structured['start_datetime'] = $first['start_datetime'];
         }
 
-        if (isset($first['end_datetime'])) {
+        if ($isTaskSchedule) {
+            unset($structured['end_datetime']);
+            if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+                unset($structured['proposed_properties']['end_datetime']);
+            }
+        } elseif (isset($first['end_datetime'])) {
             $structured['end_datetime'] = $first['end_datetime'];
         }
 
@@ -202,20 +229,22 @@ class StructuredOutputSanitizer
     }
 
     /**
-     * Merge proposed_properties (start_datetime, end_datetime, duration, priority) onto
-     * top-level structured so the UI "Proposed schedule" and appliable_changes both see them.
+     * Merge proposed_properties onto top-level structured so the UI and appliable_changes see them.
+     * For task schedule intents, only start_datetime, duration, and priority are merged (never end_datetime).
      *
      * @param  array<string, mixed>  $structured
      * @return array<string, mixed>
      */
-    private function mergeProposedPropertiesForSchedule(array $structured): array
+    private function mergeProposedPropertiesForSchedule(array $structured, ?LlmIntent $intent = null): array
     {
         $proposed = $structured['proposed_properties'] ?? null;
         if (! is_array($proposed) || $proposed === []) {
             return $structured;
         }
 
-        $keys = ['start_datetime', 'end_datetime', 'duration', 'priority'];
+        $isTaskSchedule = $intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline;
+        $keys = $isTaskSchedule ? ['start_datetime', 'duration', 'priority'] : ['start_datetime', 'end_datetime', 'duration', 'priority'];
+
         foreach ($keys as $key) {
             if (array_key_exists($key, $proposed) && $proposed[$key] !== null && $proposed[$key] !== '') {
                 if (! array_key_exists($key, $structured) || $structured[$key] === null || $structured[$key] === '') {
@@ -470,7 +499,7 @@ class StructuredOutputSanitizer
         if (is_array($scheduledTasks)) {
             $structured['scheduled_tasks'] = $allowedTaskTitles === []
                 ? []
-                : $this->applyScheduleTimeGuards(
+                : $this->applyScheduleTimeGuardsThenStripEndFromTaskItems(
                     $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
                 );
         }
@@ -512,7 +541,7 @@ class StructuredOutputSanitizer
         if (is_array($scheduledTasks)) {
             $structured['scheduled_tasks'] = $allowedTaskTitles === []
                 ? []
-                : $this->applyScheduleTimeGuards(
+                : $this->applyScheduleTimeGuardsThenStripEndFromTaskItems(
                     $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
                 );
         }
@@ -598,7 +627,7 @@ class StructuredOutputSanitizer
         if (is_array($scheduledTasks)) {
             $structured['scheduled_tasks'] = $allowedTaskTitles === []
                 ? []
-                : $this->applyScheduleTimeGuards(
+                : $this->applyScheduleTimeGuardsThenStripEndFromTaskItems(
                     $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
                 );
         }
@@ -1200,6 +1229,52 @@ class StructuredOutputSanitizer
         }
 
         return $out;
+    }
+
+    /**
+     * For scheduled_tasks (start + duration only): add temporary end_datetime for guard, run guard, then strip end.
+     *
+     * @param  array<int, array<string, mixed>>  $scheduledTasks
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyScheduleTimeGuardsThenStripEndFromTaskItems(array $scheduledTasks): array
+    {
+        if ($scheduledTasks === []) {
+            return [];
+        }
+
+        $timezone = config('app.timezone');
+
+        $withSyntheticEnd = [];
+        foreach ($scheduledTasks as $item) {
+            if (! is_array($item)) {
+                $withSyntheticEnd[] = $item;
+
+                continue;
+            }
+            $start = $item['start_datetime'] ?? null;
+            $end = $item['end_datetime'] ?? null;
+            $duration = isset($item['duration']) && is_numeric($item['duration']) ? (int) $item['duration'] : null;
+            if ($end === null && is_string($start) && $duration !== null && $duration > 0) {
+                try {
+                    $item['end_datetime'] = \Carbon\CarbonImmutable::parse($start, $timezone)->addMinutes($duration)->toIso8601String();
+                } catch (\Throwable) {
+                    // leave end_datetime unset
+                }
+            }
+            $withSyntheticEnd[] = $item;
+        }
+
+        $filtered = $this->applyScheduleTimeGuards($withSyntheticEnd);
+
+        foreach ($filtered as &$item) {
+            if (is_array($item)) {
+                unset($item['end_datetime']);
+            }
+        }
+        unset($item);
+
+        return $filtered;
     }
 
     /**

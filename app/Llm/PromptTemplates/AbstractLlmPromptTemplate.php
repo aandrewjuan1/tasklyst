@@ -37,6 +37,9 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
     /** When the user asks for a schedule, time slot, or proposed schedule: require concrete times so the app can show and apply them. */
     protected const SCHEDULE_MUST_OUTPUT_TIMES = 'When you recommend a specific time or window (e.g. "work on X today", "schedule for later", "suggest a time slot"), you MUST include start_datetime and end_datetime in ISO 8601 (e.g. 2026-03-08T14:00:00+08:00) so the student sees a proposed schedule and can apply it. Put the same times in proposed_properties.start_datetime and proposed_properties.end_datetime when you want the suggestion to be applicable. Only omit these when context has no relevant item or no availability to suggest.';
 
+    /** Task scheduling only: output start and/or duration; never suggest or change the task\'s due/end date. */
+    protected const TASK_SCHEDULE_OUTPUT_START_AND_OR_DURATION = 'For TASKS only: output only start_datetime (ISO 8601) and/or duration (minutes). Never output or change end_datetime or due date—they are read-only from context. If the user only asks when to start, output only start_datetime. If they ask when and how long, output start_datetime and duration. Put only start_datetime and/or duration in proposed_properties (no end_datetime). Only omit these when context has no relevant task or no availability to suggest.';
+
     public function version(): string
     {
         return 'v1.5';

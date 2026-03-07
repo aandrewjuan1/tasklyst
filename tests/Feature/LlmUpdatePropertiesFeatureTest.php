@@ -59,7 +59,6 @@ it('applies schedule task recommendation via unified properties pipeline', funct
 
     $properties = [
         'startDatetime' => now()->copy()->addHour()->toIso8601String(),
-        'endDatetime' => now()->copy()->addHours(2)->toIso8601String(),
         'duration' => 120,
         'priority' => 'high',
     ];
@@ -80,6 +79,8 @@ it('applies schedule task recommendation via unified properties pipeline', funct
         ],
     ];
 
+    $expectedDue = $task->end_datetime->copy();
+
     /** @var ApplyAssistantTaskRecommendationAction $action */
     $action = app(ApplyAssistantTaskRecommendationAction::class);
 
@@ -88,6 +89,9 @@ it('applies schedule task recommendation via unified properties pipeline', funct
     $task->refresh();
 
     expect($task->priority?->value)->toBe('high')
-        ->and($task->duration)->toBe(60);
+        ->and($task->duration)->toBe(120)
+        ->and($task->start_datetime)->not->toBeNull()
+        ->and($task->end_datetime)->not->toBeNull()
+        ->and($task->end_datetime->eq($expectedDue))->toBeTrue();
 }
 );

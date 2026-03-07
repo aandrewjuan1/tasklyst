@@ -7,6 +7,7 @@
         'messages' => $this->messages,
         'pendingAssistantCount' => $this->pendingAssistantCount,
         'currentTraceId' => $this->currentTraceId,
+        'appTimezone' => config('app.timezone', 'Asia/Manila'),
         'suggestedPrompts' => [
             (string) __('Prioritise my tasks for this week.'),
             (string) __('Schedule my events for the next few days.'),
@@ -484,12 +485,6 @@
                                     class="inline-flex items-center rounded-full bg-background/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground ring-1 ring-border/60"
                                     x-text="contextIntentLabel(message)"
                                 ></span>
-                                <span
-                                    x-show="isActionableIntent(message)"
-                                    class="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-500/40 dark:text-emerald-300"
-                                >
-                                    {{ __('Actionable') }}
-                                </span>
                             </div>
                         </div>
                     </template>

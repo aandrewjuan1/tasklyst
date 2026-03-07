@@ -52,7 +52,7 @@ test('build computes validation confidence for schedule task with dates and prio
             'recommended_action' => 'Schedule for Friday 2pm.',
             'reasoning' => 'Based on your calendar.',
             'start_datetime' => now()->next('Friday')->setTime(14, 0)->toIso8601String(),
-            'end_datetime' => now()->next('Friday')->setTime(15, 0)->toIso8601String(),
+            'duration' => 60,
             'priority' => 'high',
         ],
         promptVersion: '1.0',
@@ -66,8 +66,9 @@ test('build computes validation confidence for schedule task with dates and prio
 
     expect($dto->validationConfidence)->toBeGreaterThan(0.5)
         ->and($dto->structured)->toHaveKey('start_datetime')
-        ->and($dto->structured)->toHaveKey('end_datetime')
-        ->and($dto->structured)->toHaveKey('priority');
+        ->and($dto->structured)->toHaveKey('duration')
+        ->and($dto->structured)->toHaveKey('priority')
+        ->and($dto->structured)->not->toHaveKey('end_datetime');
 });
 
 test('build uses fallback flag from inference result', function (): void {
@@ -191,7 +192,7 @@ test('build for ScheduleAll with Multiple includes scheduled tasks, events and p
             'recommended_action' => 'Here are suggested times for your items.',
             'reasoning' => 'Based on your availability.',
             'scheduled_tasks' => [
-                ['title' => 'Task One', 'start_datetime' => now()->addDay()->setTime(9, 0)->toIso8601String(), 'end_datetime' => now()->addDay()->setTime(10, 0)->toIso8601String()],
+                ['title' => 'Task One', 'start_datetime' => now()->addDay()->setTime(9, 0)->toIso8601String(), 'duration' => 60],
             ],
             'scheduled_events' => [
                 ['title' => 'Event One', 'start_datetime' => now()->addDays(2)->setTime(14, 0)->toIso8601String(), 'end_datetime' => now()->addDays(2)->setTime(15, 0)->toIso8601String()],

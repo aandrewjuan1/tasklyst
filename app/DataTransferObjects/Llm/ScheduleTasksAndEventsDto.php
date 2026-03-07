@@ -5,7 +5,7 @@ namespace App\DataTransferObjects\Llm;
 final readonly class ScheduleTasksAndEventsDto
 {
     /**
-     * @param  array<int, array{title:string,start_datetime?:string|null,end_datetime?:string|null,sessions?:array<int, array{start_datetime?:string,end_datetime?:string}>|null}>  $scheduledTasks
+     * @param  array<int, array{title:string,start_datetime?:string|null,duration?:int|null,end_datetime?:string|null,sessions?:array<int, array{start_datetime?:string,end_datetime?:string}>|null}>  $scheduledTasks
      * @param  array<int, array{title:string,start_datetime?:string|null,end_datetime?:string|null}>  $scheduledEvents
      */
     public function __construct(
@@ -54,6 +54,7 @@ final readonly class ScheduleTasksAndEventsDto
             $normalizedTasks[] = [
                 'title' => $title,
                 'start_datetime' => isset($item['start_datetime']) && is_string($item['start_datetime']) ? $item['start_datetime'] : null,
+                'duration' => isset($item['duration']) && is_numeric($item['duration']) ? (int) $item['duration'] : null,
                 'end_datetime' => isset($item['end_datetime']) && is_string($item['end_datetime']) ? $item['end_datetime'] : null,
                 'sessions' => $sessions,
             ];
