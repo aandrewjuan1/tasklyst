@@ -311,12 +311,7 @@ new class extends Component
             };
         } else {
             $entity = match ($entityType) {
-                LlmEntityType::Task => Task::query()
-                    ->forUser($user->id)
-                    ->incomplete()
-                    ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
-                    ->orderBy('end_datetime')
-                    ->first(),
+                LlmEntityType::Task => $this->resolveTaskForRecommendation($user, $snapshot),
                 LlmEntityType::Event => Event::query()
                     ->forUser($user->id)
                     ->notCancelled()
@@ -329,19 +324,20 @@ new class extends Component
                     ->orderByStartTime()
                     ->orderByName()
                     ->first(),
-                LlmEntityType::Multiple => null,
+                LlmEntityType::Multiple => $this->resolveSingleTaskFromMultipleIntent($user, $snapshot),
             };
 
             if ($entity === null) {
-                return;
+                abort(404, __('The referenced item could not be found. The suggestion could not be applied.'));
             }
 
-            match ($entityType) {
-                LlmEntityType::Task => app(ApplyAssistantTaskRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
-                LlmEntityType::Event => app(ApplyAssistantEventRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
-                LlmEntityType::Project => app(ApplyAssistantProjectRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction),
-                LlmEntityType::Multiple => null,
-            };
+            if ($entity instanceof Task) {
+                app(ApplyAssistantTaskRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction);
+            } elseif ($entity instanceof Event) {
+                app(ApplyAssistantEventRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction);
+            } elseif ($entity instanceof Project) {
+                app(ApplyAssistantProjectRecommendationAction::class)->execute($user, $entity, $snapshot, $userAction);
+            }
         }
 
         $snapshot['user_action'] = $userAction;
@@ -349,5 +345,51 @@ new class extends Component
         $metadata['recommendation_snapshot'] = $snapshot;
         $message->metadata = $metadata;
         $message->save();
+    }
+
+    /**
+     * Resolve the task to apply when entity_type is task (single-entity or multi-entity with one task).
+     * Uses target_task_title from snapshot when present so the correct task is updated.
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function resolveTaskForRecommendation(User $user, array $snapshot): ?Task
+    {
+        $structured = $snapshot['structured'] ?? [];
+        $targetTitle = isset($structured['target_task_title']) && trim((string) $structured['target_task_title']) !== ''
+            ? trim((string) $structured['target_task_title'])
+            : null;
+
+        $query = Task::query()
+            ->forUser($user->id)
+            ->incomplete()
+            ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('end_datetime');
+
+        if ($targetTitle !== null) {
+            $task = (clone $query)->where('title', $targetTitle)->first();
+            if ($task instanceof Task) {
+                return $task;
+            }
+        }
+
+        return $query->first();
+    }
+
+    /**
+     * When intent is schedule_tasks_and_events or schedule_tasks_and_projects (entity Multiple)
+     * but appliable_changes targets a single task, resolve that task so Apply works.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return Task|Event|Project|null
+     */
+    private function resolveSingleTaskFromMultipleIntent(User $user, array $snapshot): Task|Event|Project|null
+    {
+        $appliable = $snapshot['appliable_changes'] ?? [];
+        if (! is_array($appliable) || ($appliable['entity_type'] ?? '') !== 'task') {
+            return null;
+        }
+
+        return $this->resolveTaskForRecommendation($user, $snapshot);
     }
 };

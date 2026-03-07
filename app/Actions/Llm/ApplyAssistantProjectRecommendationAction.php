@@ -37,9 +37,14 @@ class ApplyAssistantProjectRecommendationAction
             ? $appliable['properties']
             : [];
 
+        $reasoning = trim((string) ($snapshot['reasoning'] ?? $structured['reasoning'] ?? ''));
+        if ($reasoning === '') {
+            $reasoning = 'Schedule suggested by assistant.';
+        }
+
         $dtoStructured = [
-            'reasoning' => $structured['reasoning'] ?? '',
-            'confidence' => $structured['validation_confidence'] ?? 0.0,
+            'reasoning' => $reasoning,
+            'confidence' => (float) ($snapshot['validation_confidence'] ?? $structured['validation_confidence'] ?? 0.0),
             'properties' => $properties,
         ];
 

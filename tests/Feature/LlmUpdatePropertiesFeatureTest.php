@@ -93,5 +93,81 @@ it('applies schedule task recommendation via unified properties pipeline', funct
         ->and($task->start_datetime)->not->toBeNull()
         ->and($task->end_datetime)->not->toBeNull()
         ->and($task->end_datetime->eq($expectedDue))->toBeTrue();
-}
-);
+});
+
+it('applies schedule task when reasoning is only at snapshot top level (RecommendationDisplayDto shape)', function (): void {
+    /** @var User $user */
+    $user = User::factory()->create();
+    actingAs($user);
+
+    /** @var Task $task */
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Your Antas/Teorya ng wika',
+        'duration' => null,
+        'start_datetime' => null,
+        'end_datetime' => now()->copy()->addDays(10),
+    ]);
+
+    $snapshot = [
+        'intent' => LlmIntent::ScheduleTask->value,
+        'entity_type' => 'task',
+        'reasoning' => 'Since you asked to schedule your top task for tomorrow, I chose this task. It fits well in your availability.',
+        'validation_confidence' => 0.95,
+        'structured' => [
+            'start_datetime' => now()->copy()->addDay()->setTime(9, 0)->toIso8601String(),
+            'duration' => 60,
+        ],
+        'appliable_changes' => [
+            'entity_type' => 'task',
+            'properties' => [
+                'startDatetime' => now()->copy()->addDay()->setTime(9, 0)->toIso8601String(),
+                'duration' => 60,
+            ],
+        ],
+    ];
+
+    /** @var ApplyAssistantTaskRecommendationAction $action */
+    $action = app(ApplyAssistantTaskRecommendationAction::class);
+
+    $action->execute($user, $task, $snapshot, userAction: 'accept');
+
+    $task->refresh();
+
+    expect($task->start_datetime)->not->toBeNull()
+        ->and($task->start_datetime->format('H:i'))->toBe('09:00')
+        ->and($task->duration)->toBe(60);
+});
+
+it('throws when suggested schedule time is in the past', function (): void {
+    /** @var User $user */
+    $user = User::factory()->create();
+    actingAs($user);
+
+    /** @var Task $task */
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Past time task',
+        'start_datetime' => null,
+        'end_datetime' => now()->copy()->addWeek(),
+    ]);
+
+    $pastTime = now()->copy()->subHour()->toIso8601String();
+    $snapshot = [
+        'intent' => LlmIntent::ScheduleTask->value,
+        'entity_type' => 'task',
+        'reasoning' => 'Suggested earlier.',
+        'validation_confidence' => 0.9,
+        'structured' => [],
+        'appliable_changes' => [
+            'entity_type' => 'task',
+            'properties' => [
+                'startDatetime' => $pastTime,
+                'duration' => 60,
+            ],
+        ],
+    ];
+
+    /** @var ApplyAssistantTaskRecommendationAction $action */
+    $action = app(ApplyAssistantTaskRecommendationAction::class);
+
+    $action->execute($user, $task, $snapshot, userAction: 'accept');
+})->throws(\Illuminate\Validation\ValidationException::class);

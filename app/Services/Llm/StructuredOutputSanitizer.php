@@ -288,7 +288,15 @@ class StructuredOutputSanitizer
         $first = $filtered[0];
 
         if (isset($first['start_datetime'])) {
-            $structured['start_datetime'] = $first['start_datetime'];
+            $correctedStart = $first['start_datetime'];
+            if ($correctedStart !== $start) {
+                $structured['_time_corrected_to_future'] = true;
+                $structured['_original_start_datetime'] = $start;
+            }
+            $structured['start_datetime'] = $correctedStart;
+            if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+                $structured['proposed_properties']['start_datetime'] = $correctedStart;
+            }
         }
 
         if ($isTaskSchedule) {
@@ -1285,6 +1293,22 @@ class StructuredOutputSanitizer
             // Drop items with an end time wholly in the past.
             if ($end !== null && $end->lt($now)) {
                 continue;
+            }
+
+            // If start is in the past, push to the next 30-minute boundary from now so we never show a past time.
+            if ($start !== null && $start->lt($now)) {
+                $min = (int) $now->format('i');
+                $earliestStart = $min < 30
+                    ? $now->setMinute(30)->setSecond(0)->setMicrosecond(0)
+                    : $now->addHour()->setMinute(0)->setSecond(0)->setMicrosecond(0);
+                $item['start_datetime'] = $earliestStart->toIso8601String();
+                if ($end !== null && $end->gt($earliestStart)) {
+                    $durationMinutes = (int) $start->diffInMinutes($end, false);
+                    if ($durationMinutes > 0) {
+                        $item['end_datetime'] = $earliestStart->addMinutes($durationMinutes)->toIso8601String();
+                    }
+                }
+                $start = $earliestStart;
             }
 
             // If the model suggested a slot in the early morning (00:00–06:00)

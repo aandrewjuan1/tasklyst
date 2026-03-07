@@ -162,6 +162,9 @@ return [
         'multi_entity_schedule_all_task_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_ALL_TASK_LIMIT', 4),
         'multi_entity_schedule_all_event_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_ALL_EVENT_LIMIT', 4),
         'multi_entity_schedule_all_project_limit' => (int) env('TASKLYST_CONTEXT_MULTI_ENTITY_SCHEDULE_ALL_PROJECT_LIMIT', 3),
+        // Scheduling: how many days ahead to include; all days are listed (empty busy_windows = free).
+        'availability_days' => (int) env('TASKLYST_CONTEXT_AVAILABILITY_DAYS', 7),
+        'availability_max_windows_per_day' => (int) env('TASKLYST_CONTEXT_AVAILABILITY_MAX_WINDOWS_PER_DAY', 12),
     ],
 
 ];

@@ -11,7 +11,7 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     protected const RECURRING_CONSTRAINT = 'Do not recommend times that conflict with recurring tasks or events.';
 
-    protected const NO_PAST_TIMES = 'Do not recommend start or end times in the past; use current_time from context.';
+    protected const NO_PAST_TIMES = 'CRITICAL: The context field current_time (and current_time_human) is the exact moment "now". You MUST suggest start_datetime strictly AFTER current_time. If current_time is 22:30, do not suggest 22:00 or any earlier time—suggest 23:00 or later. Never recommend start or end times in the past.';
 
     /** Critical: output shape. Put first so the model sees required format before other rules. */
     protected const OUTPUT_FORMAT = 'Respond with only a single JSON object. Start with { and end with }. No markdown, no text before or after. Use only the field names described above.';
@@ -42,7 +42,7 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     public function version(): string
     {
-        return 'v1.5';
+        return 'v1.6';
     }
 
     /**

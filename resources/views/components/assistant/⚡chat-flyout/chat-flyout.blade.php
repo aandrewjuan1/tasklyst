@@ -1,7 +1,7 @@
 
 <div
     wire:ignore
-    x-data="assistantChatFlyout($wire, {{ \Illuminate\Support\Js::from([
+    x-data="assistantChatFlyout({{ \Illuminate\Support\Js::from([
         'threadId' => $this->threadId,
         'workspaceUrl' => route('workspace'),
         'messages' => $this->messages,
@@ -14,6 +14,7 @@
             (string) __('List tasks, events, and projects with no due date.'),
             (string) __('Filter my projects to those I should focus on today.'),
         ],
+        'timeoutMessage' => (string) __('The assistant is taking longer than expected. Please try again in a moment.'),
     ]) }})"
     class="flex h-full flex-col"
 >

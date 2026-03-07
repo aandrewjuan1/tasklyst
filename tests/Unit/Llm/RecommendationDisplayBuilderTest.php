@@ -185,6 +185,69 @@ test('build for PrioritizeAll with Multiple includes tasks, events and projects 
         ->and($dto->validationConfidence)->toBeGreaterThan(0);
 });
 
+test('build for ScheduleTasksAndEvents with Multiple and one scheduled task produces appliable_changes and target_task_title', function (): void {
+    $start = now()->addDay()->setTime(22, 0);
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'task,event',
+            'recommended_action' => 'Work on your most important task tonight at 10pm.',
+            'reasoning' => 'Your highest priority task fits well tonight.',
+            'scheduled_tasks' => [
+                ['title' => 'My Light to the Society', 'start_datetime' => $start->toIso8601String(), 'duration' => 60],
+            ],
+            'scheduled_events' => [],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 120,
+        completionTokens: 60,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ScheduleTasksAndEvents, LlmEntityType::Multiple);
+
+    expect($dto->appliableChanges)->not->toBeEmpty()
+        ->and($dto->appliableChanges['entity_type'])->toBe('task')
+        ->and($dto->appliableChanges['properties'])->toHaveKey('startDatetime')
+        ->and($dto->appliableChanges['properties'])->toHaveKey('duration')
+        ->and($dto->appliableChanges['properties']['duration'])->toBe(60)
+        ->and($dto->structured)->toHaveKey('target_task_title')
+        ->and($dto->structured['target_task_title'])->toBe('My Light to the Society');
+});
+
+test('build for ScheduleTasksAndEvents with Multiple and two scheduled tasks uses first task and top-level schedule for appliable_changes', function (): void {
+    $start = now()->addDay()->setTime(22, 0);
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'task,event',
+            'recommended_action' => 'Work on your most important tasks tonight at 10pm for 2 hours.',
+            'reasoning' => 'Starting with the two urgent tasks due soon.',
+            'start_datetime' => $start->toIso8601String(),
+            'duration' => 120,
+            'scheduled_tasks' => [
+                ['title' => 'Antas/Teorya ng wika'],
+                ['title' => 'Output # 1: My Light to the Society'],
+            ],
+            'scheduled_events' => [],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 150,
+        completionTokens: 80,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ScheduleTasksAndEvents, LlmEntityType::Multiple);
+
+    expect($dto->appliableChanges)->not->toBeEmpty()
+        ->and($dto->appliableChanges['entity_type'])->toBe('task')
+        ->and($dto->appliableChanges['properties'])->toHaveKey('startDatetime')
+        ->and($dto->appliableChanges['properties'])->toHaveKey('duration')
+        ->and($dto->appliableChanges['properties']['duration'])->toBe(120)
+        ->and($dto->structured)->toHaveKey('target_task_title')
+        ->and($dto->structured['target_task_title'])->toBe('Antas/Teorya ng wika');
+});
+
 test('build for ScheduleAll with Multiple includes scheduled tasks, events and projects sections in message', function (): void {
     $result = new LlmInferenceResult(
         structured: [
