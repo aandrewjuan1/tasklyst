@@ -1,7 +1,8 @@
 /**
  * Alpine.js component for the assistant chat flyout.
+ * Config is provided by the Livewire component (no $wire param); use this.$wire for server calls.
  *
- * @param {Object} config
+ * @param {Object} config - Initial state from server (no functions).
  * @param {number|null} config.threadId
  * @param {string} config.workspaceUrl
  * @param {Array<Object>} config.messages
@@ -9,7 +10,8 @@
  * @param {string|null} config.currentTraceId
  * @param {Array<string>} config.suggestedPrompts
  * @param {string} [config.appTimezone] Application timezone for schedule display (e.g. 'Asia/Manila')
- * @returns {Object}
+ * @param {string} [config.timeoutMessage] Message shown in chat when the assistant response times out
+ * @returns {Object} Alpine component object (state + methods).
  */
 
 /** Single source list for actionability; keep in sync with backend (RecommendationDisplayBuilder::buildAppliableChanges). */
@@ -28,9 +30,11 @@ const ACTIONABLE_INTENTS = [
     'update_project_properties',
     'resolve_dependency',
     'prioritize_tasks',
+    'schedule_tasks_and_events',
+    'schedule_tasks_and_projects',
 ];
 
-export function assistantChatFlyout($wire, config) {
+export function assistantChatFlyout(config) {
     return {
         threadId: config.threadId ?? null,
         workspaceUrl: config.workspaceUrl ?? '',
@@ -48,6 +52,7 @@ export function assistantChatFlyout($wire, config) {
         currentTraceId: config.currentTraceId ?? null,
         appTimezone: config.appTimezone ?? 'Asia/Manila',
         suggestedPrompts: Array.isArray(config.suggestedPrompts) ? config.suggestedPrompts : [],
+        timeoutMessage: typeof config.timeoutMessage === 'string' ? config.timeoutMessage : '',
         computedFollowups: [],
         resizeScheduled: false,
         pendingRecommendationIds: new Set(),
@@ -114,7 +119,15 @@ export function assistantChatFlyout($wire, config) {
                 this.pendingRecommendationIds.add(message.id);
                 this.errorMessage = '';
 
-                await $wire.$call('acceptRecommendation', message.id);
+                const messageId = Number(message.id);
+                if (!Number.isInteger(messageId) || !this.$wire) {
+                    this.messages = backupMessages;
+                    this.pendingRecommendationIds.delete(message.id);
+                    this.errorMessage = 'Unable to apply. Please refresh and try again.';
+
+                    return;
+                }
+                await this.$wire.$call('acceptRecommendation', messageId);
 
                 this.pendingRecommendationIds.delete(message.id);
             } catch (error) {
@@ -152,7 +165,15 @@ export function assistantChatFlyout($wire, config) {
                 this.pendingRecommendationIds.add(message.id);
                 this.errorMessage = '';
 
-                await $wire.$call('rejectRecommendation', message.id);
+                const messageId = Number(message.id);
+                if (!Number.isInteger(messageId) || !this.$wire) {
+                    this.messages = backupMessages;
+                    this.pendingRecommendationIds.delete(message.id);
+                    this.errorMessage = 'Unable to dismiss. Please refresh and try again.';
+
+                    return;
+                }
+                await this.$wire.$call('rejectRecommendation', messageId);
 
                 this.pendingRecommendationIds.delete(message.id);
             } catch (error) {
@@ -165,7 +186,7 @@ export function assistantChatFlyout($wire, config) {
         /**
          * Set user-visible errorMessage from a failed accept/reject call.
          * Phase 3 rules: 422 → validation message; 403/404 → specific; else → generic. No silent failures.
-         * @param {Error} error - Thrown from $wire.$call; may have .status, .data, .message (see optimistic-ui-guide).
+         * @param {Error} error - Thrown from this.$wire.$call; may have .status, .data, .message (see optimistic-ui-guide).
          * @param {'apply'|'dismiss'} action
          */
         setRecommendationErrorMessage(error, action) {
@@ -173,7 +194,10 @@ export function assistantChatFlyout($wire, config) {
             const data = error?.data;
             const isApply = action === 'apply';
 
-            if (status === 422) {
+            if (status === 419) {
+                this.errorMessage =
+                    'Session expired. Please refresh the page and try again.';
+            } else if (status === 422) {
                 this.errorMessage =
                     'Validation error: ' + (data?.message || error?.message || 'Validation failed');
             } else if (status === 403) {
@@ -638,8 +662,16 @@ export function assistantChatFlyout($wire, config) {
             this._pendingTimeoutId = window.setTimeout(() => {
                 if (this.pendingAssistantCount > 0) {
                     this.pendingAssistantCount = 0;
-                    this.errorMessage =
-                        'The assistant is taking longer than expected. Please try again in a moment.';
+                    this._pendingTimeoutId = null;
+                    const text = this.timeoutMessage || 'The assistant is taking longer than expected. Please try again in a moment.';
+                    this.messages.push({
+                        id: `timeout-${Date.now()}`,
+                        role: 'assistant',
+                        content: text,
+                        created_at: new Date().toISOString(),
+                        metadata: {},
+                    });
+                    this.$nextTick(() => this.scrollToBottom(true));
                 }
             }, 45000);
         },
@@ -664,7 +696,7 @@ export function assistantChatFlyout($wire, config) {
             this.isSending = true;
 
             try {
-                const payload = await $wire.$call('newThread');
+                const payload = await this.$wire.$call('newThread');
 
                 const threadId = payload.thread_id ?? null;
                 const messages = payload.messages ?? [];
@@ -805,11 +837,11 @@ export function assistantChatFlyout($wire, config) {
             const tasks = [];
 
             if (traceIdToCancel) {
-                tasks.push($wire.$call('cancelInference', traceIdToCancel));
+                tasks.push(this.$wire.$call('cancelInference', traceIdToCancel));
             }
 
             if (lastUserMessageId !== null) {
-                tasks.push($wire.$call('markMessageCancelled', lastUserMessageId));
+                tasks.push(this.$wire.$call('markMessageCancelled', lastUserMessageId));
             }
 
             if (tasks.length > 0) {
@@ -852,7 +884,7 @@ export function assistantChatFlyout($wire, config) {
             this.errorMessage = '';
 
             try {
-                const result = await $wire.$call('send', text, clientId);
+                const result = await this.$wire.$call('send', text, clientId);
 
                 const payload = result || {};
                 const serverThreadId = payload.thread_id ?? null;
@@ -934,7 +966,7 @@ export function assistantChatFlyout($wire, config) {
             this.errorMessage = '';
 
             try {
-                const result = await $wire.$call('send', text, clientId);
+                const result = await this.$wire.$call('send', text, clientId);
 
                 const payload = result || {};
                 const serverThreadId = payload.thread_id ?? null;

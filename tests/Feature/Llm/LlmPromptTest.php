@@ -27,7 +27,7 @@ test('returns correct prompt per intent', function (LlmIntent $intent): void {
     $result = $this->action->execute($intent);
 
     expect($result->systemPrompt)->toBeString()
-        ->and($result->version)->toBe('v1.5');
+        ->and($result->version)->toBe('v1.6');
 })->with([
     LlmIntent::ScheduleEvent,
     LlmIntent::PrioritizeTasks,
@@ -52,5 +52,5 @@ test('each intent returns unique prompt content', function (): void {
 test('template exposes version for phase 9 logging', function (): void {
     $template = app(ScheduleTaskPrompt::class);
 
-    expect($template->version())->toBe('v1.5');
+    expect($template->version())->toBe('v1.6');
 });

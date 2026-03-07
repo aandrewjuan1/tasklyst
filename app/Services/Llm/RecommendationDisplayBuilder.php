@@ -36,6 +36,16 @@ class RecommendationDisplayBuilder
         $actionForDisplay = $recommendedAction !== '' ? $recommendedAction : __('No specific action suggested.');
         $reasoningForDisplay = $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.');
 
+        if (! empty($structured['_time_corrected_to_future'])
+            && ! empty($structured['_original_start_datetime'])
+            && ! empty($structured['start_datetime'])) {
+            $actionForDisplay = $this->replaceTimeInMessageWithCorrected(
+                $actionForDisplay,
+                (string) $structured['_original_start_datetime'],
+                (string) $structured['start_datetime']
+            );
+        }
+
         $listedItems = isset($structured['listed_items']) && is_array($structured['listed_items']) ? $structured['listed_items'] : null;
 
         if ($intent === LlmIntent::GeneralQuery && $listedItems !== null && $listedItems !== []) {
@@ -58,6 +68,20 @@ class RecommendationDisplayBuilder
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
         $followupSuggestions = $this->defaultFollowupSuggestionsForIntent($intent, $entityType);
         $appliableChanges = $this->buildAppliableChanges($structured, $intent, $entityType);
+
+        if ($entityType === LlmEntityType::Multiple && $appliableChanges !== [] && ($appliableChanges['entity_type'] ?? '') === 'task') {
+            $firstTask = $structured['scheduled_tasks'][0] ?? null;
+            if (is_array($firstTask) && isset($firstTask['title']) && trim((string) $firstTask['title']) !== '') {
+                $displayStructured['target_task_title'] = trim((string) $firstTask['title']);
+            }
+        }
+
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
+            && $entityType === LlmEntityType::Task
+            && isset($structured['title'])
+            && trim((string) $structured['title']) !== '') {
+            $displayStructured['target_task_title'] = trim((string) $structured['title']);
+        }
 
         return new RecommendationDisplayDto(
             intent: $intent,
@@ -262,11 +286,18 @@ class RecommendationDisplayBuilder
             LlmIntent::UpdateTaskProperties,
             LlmIntent::UpdateEventProperties,
             LlmIntent::UpdateProjectProperties,
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::ScheduleTasksAndProjects,
         ], true)) {
             return [];
         }
 
         if ($entityType === LlmEntityType::Multiple) {
+            $singleTaskChanges = $this->buildAppliableChangesFromFirstScheduledTask($structured, $intent);
+            if ($singleTaskChanges !== []) {
+                return $singleTaskChanges;
+            }
+
             return [];
         }
 
@@ -439,6 +470,99 @@ class RecommendationDisplayBuilder
         }
 
         return [];
+    }
+
+    /**
+     * When intent is ScheduleTasksAndEvents or ScheduleTasksAndProjects with entity Multiple,
+     * build appliable_changes from the first scheduled task when at least one has valid time/duration.
+     * Uses top-level start_datetime/duration when the first item does not specify them (shared schedule).
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function buildAppliableChangesFromFirstScheduledTask(array $structured, LlmIntent $intent): array
+    {
+        if (! in_array($intent, [LlmIntent::ScheduleTasksAndEvents, LlmIntent::ScheduleTasksAndProjects], true)) {
+            return [];
+        }
+
+        $scheduledTasks = $structured['scheduled_tasks'] ?? null;
+        if (! is_array($scheduledTasks) || $scheduledTasks === []) {
+            return [];
+        }
+
+        $item = $scheduledTasks[0];
+        if (! is_array($item)) {
+            return [];
+        }
+
+        $startRaw = $item['start_datetime'] ?? $structured['start_datetime'] ?? null;
+        $duration = isset($item['duration']) && is_numeric($item['duration'])
+            ? (int) $item['duration']
+            : (isset($structured['duration']) && is_numeric($structured['duration']) ? (int) $structured['duration'] : null);
+        $priorityRaw = $item['priority'] ?? $structured['priority'] ?? null;
+        $priority = $priorityRaw !== null && $priorityRaw !== ''
+            ? strtolower((string) $priorityRaw)
+            : null;
+        if ($priority !== null && ! in_array($priority, self::PRIORITY_VALUES, true)) {
+            $priority = null;
+        }
+
+        $start = $startRaw !== null && $startRaw !== '' ? $this->parseDateTime($startRaw) : null;
+        if ($start !== null && $start->lt(Carbon::now())) {
+            return [];
+        }
+
+        if ($start === null && $duration === null && $priority === null) {
+            return [];
+        }
+
+        $properties = [];
+        if ($start !== null) {
+            $properties['startDatetime'] = $start->toIso8601String();
+        }
+        if ($duration !== null && $duration > 0) {
+            $properties['duration'] = $duration;
+        }
+        if ($priority !== null) {
+            $properties['priority'] = $priority;
+        }
+
+        return $properties !== []
+            ? [
+                'entity_type' => 'task',
+                'properties' => $properties,
+            ]
+            : [];
+    }
+
+    /**
+     * When the sanitizer corrected a past start time, replace the original time in the message
+     * with the corrected time so the displayed text matches the Proposed schedule.
+     */
+    private function replaceTimeInMessageWithCorrected(string $message, string $originalIso, string $correctedIso): string
+    {
+        try {
+            $original = Carbon::parse($originalIso)->setTimezone(config('app.timezone'));
+            $corrected = Carbon::parse($correctedIso)->setTimezone(config('app.timezone'));
+        } catch (\Throwable) {
+            return $message;
+        }
+
+        $patterns = [
+            $original->format('g:i A') => $corrected->format('g:i A'),
+            $original->format('ga') => $corrected->format('ga'),
+            $original->format('g a') => $corrected->format('g a'),
+            $original->format('H:i') => $corrected->format('H:i'),
+        ];
+
+        foreach ($patterns as $originalStr => $correctedStr) {
+            if ($originalStr !== $correctedStr && $originalStr !== '') {
+                $message = str_replace($originalStr, $correctedStr, $message);
+            }
+        }
+
+        return $message;
     }
 
     /**
@@ -805,7 +929,7 @@ class RecommendationDisplayBuilder
     {
         $out = [];
 
-        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'scheduled_tasks', 'scheduled_events', 'scheduled_projects', 'listed_items', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps', 'proposed_properties'];
+        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'scheduled_tasks', 'scheduled_events', 'scheduled_projects', 'listed_items', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps', 'proposed_properties', 'target_task_title'];
         foreach ($allowedKeys as $key) {
             if (array_key_exists($key, $structured) && $structured[$key] !== null) {
                 $out[$key] = $structured[$key];

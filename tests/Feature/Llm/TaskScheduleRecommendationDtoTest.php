@@ -46,7 +46,8 @@ it('returns null when reasoning or all actionable fields missing', function (): 
 
     $dtoWithoutReasoning = TaskScheduleRecommendationDto::fromStructured($noReasoning);
 
-    expect($dtoWithoutReasoning)->toBeNull();
+    expect($dtoWithoutReasoning)->not->toBeNull()
+        ->and($dtoWithoutReasoning->reasoning)->toBe('Schedule suggested by assistant.');
 
     $noActionableFields = [
         'reasoning' => 'Not enough context.',

@@ -115,7 +115,7 @@ class LlmSchemaFactory
             description: 'Structured schedule recommendation for a task (start and/or duration only; do not suggest end/due)',
             properties: [
                 new StringSchema('entity_type', 'Always "task"'),
-                new StringSchema('title', 'Optional: task title when proposing a new task'),
+                new StringSchema('title', 'Exact task title from context when recommending a specific task (e.g. top task) so Apply updates the correct task'),
                 new StringSchema('description', 'Optional: task description when proposing a new task'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
                 new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),

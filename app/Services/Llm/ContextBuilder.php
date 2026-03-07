@@ -430,10 +430,13 @@ class ContextBuilder
         ?string $userMessage = null
     ): array {
         $now = now();
+        $timezone = config('app.timezone', 'Asia/Manila');
         $payload = [
             'current_time' => $now->toIso8601String(),
             'current_date' => $now->toDateString(),
-            'timezone' => config('app.timezone', 'Asia/Manila'),
+            'timezone' => $timezone,
+            'current_time_human' => $now->format('Y-m-d H:i').' '.$timezone.' ('.$now->format('g:i A').')',
+            'scheduling_rule' => 'Any suggested start_datetime must be strictly after current_time. Do not suggest times in the past.',
         ];
 
         $entityPayload = match ($entityType) {
@@ -453,13 +456,7 @@ class ContextBuilder
             },
         };
 
-        if ($intent === LlmIntent::ResolveDependency) {
-            $payload = array_merge($payload, $this->buildResolveDependencyContext($user, $thread, $userMessage));
-        } else {
-            $payload = array_merge($payload, $entityPayload);
-        }
-
-        if (in_array($intent, [
+        $isScheduleIntent = in_array($intent, [
             LlmIntent::ScheduleTask,
             LlmIntent::AdjustTaskDeadline,
             LlmIntent::ScheduleEvent,
@@ -470,8 +467,16 @@ class ContextBuilder
             LlmIntent::ScheduleTasksAndProjects,
             LlmIntent::ScheduleEventsAndProjects,
             LlmIntent::ScheduleAll,
-        ], true)) {
+        ], true);
+
+        if ($intent === LlmIntent::ResolveDependency) {
+            $payload = array_merge($payload, $this->buildResolveDependencyContext($user, $thread, $userMessage));
+        } elseif ($isScheduleIntent) {
             $payload['availability'] = $this->buildAvailabilityContext($user);
+            $payload['availability_meaning'] = 'Each date lists busy_windows (when the user is busy). Empty busy_windows = free day. Suggest start_datetime in gaps between windows or on free days.';
+            $payload = array_merge($payload, $entityPayload);
+        } else {
+            $payload = array_merge($payload, $entityPayload);
         }
 
         $payload['conversation_history'] = $this->buildConversationHistory($thread, $userMessage);
@@ -552,10 +557,6 @@ class ContextBuilder
         }
 
         foreach ($daysMap as &$day) {
-            if ($day['busy_windows'] === []) {
-                continue;
-            }
-
             usort($day['busy_windows'], static function (array $a, array $b): int {
                 return strcmp((string) ($a['start'] ?? ''), (string) ($b['start'] ?? ''));
             });
@@ -566,15 +567,7 @@ class ContextBuilder
         }
         unset($day);
 
-        $out = [];
-        foreach ($daysMap as $day) {
-            if ($day['busy_windows'] === []) {
-                continue;
-            }
-            $out[] = $day;
-        }
-
-        return $out;
+        return array_values($daysMap);
     }
 
     /**
@@ -1288,11 +1281,15 @@ class ContextBuilder
         }
 
         $now = now();
+        $timezone = $payload['timezone'] ?? config('app.timezone', 'Asia/Manila');
 
         return [
             'current_time' => $payload['current_time'] ?? $now->toIso8601String(),
             'current_date' => $payload['current_date'] ?? $now->toDateString(),
-            'timezone' => $payload['timezone'] ?? config('app.timezone', 'Asia/Manila'),
+            'timezone' => $timezone,
+            'current_time_human' => $payload['current_time_human'] ?? $now->format('Y-m-d H:i').' '.$timezone.' ('.$now->format('g:i A').')',
+            'scheduling_rule' => $payload['scheduling_rule'] ?? 'Any suggested start_datetime must be strictly after current_time. Do not suggest times in the past.',
+            'conversation_history' => [],
         ];
     }
 

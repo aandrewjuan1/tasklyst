@@ -29,9 +29,6 @@ final readonly class TaskScheduleRecommendationDto
         $source = array_merge($structured, $proposed);
 
         $reasoning = trim((string) ($structured['reasoning'] ?? ''));
-        if ($reasoning === '') {
-            return null;
-        }
 
         $start = isset($source['start_datetime'])
             ? DateHelper::parseOptional($source['start_datetime'])
@@ -68,7 +65,7 @@ final readonly class TaskScheduleRecommendationDto
             endDatetime: null,
             durationMinutes: $duration,
             priority: $priority,
-            reasoning: $reasoning,
+            reasoning: $reasoning !== '' ? $reasoning : 'Schedule suggested by assistant.',
         );
     }
 

@@ -27,7 +27,12 @@ class ApplyAssistantTaskRecommendationAction
             return;
         }
 
-        if (! in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+        if (! in_array($intent, [
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::ScheduleTasksAndProjects,
+        ], true)) {
             return;
         }
 
@@ -37,9 +42,14 @@ class ApplyAssistantTaskRecommendationAction
             ? $appliable['properties']
             : [];
 
+        $reasoning = trim((string) ($snapshot['reasoning'] ?? $structured['reasoning'] ?? ''));
+        if ($reasoning === '') {
+            $reasoning = 'Schedule suggested by assistant.';
+        }
+
         $dtoStructured = [
-            'reasoning' => $structured['reasoning'] ?? '',
-            'confidence' => $structured['validation_confidence'] ?? 0.0,
+            'reasoning' => $reasoning,
+            'confidence' => (float) ($snapshot['validation_confidence'] ?? $structured['validation_confidence'] ?? 0.0),
             'properties' => $properties,
         ];
 

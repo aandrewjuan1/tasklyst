@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\ActivityLogRecorder;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class ApplyTaskPropertiesRecommendationAction
 {
@@ -71,7 +72,9 @@ class ApplyTaskPropertiesRecommendationAction
         ) {
             $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
 
-            return;
+            throw ValidationException::withMessages([
+                'schedule' => __('The suggested time has passed or is invalid. Please ask the assistant for a new time.'),
+            ]);
         }
 
         $changes = [];

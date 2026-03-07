@@ -15,7 +15,7 @@ it('includes date filter instructions for no set dates and no due date in genera
         ->and($prompt)->toContain('start_datetime and end_datetime are null or missing')
         ->and($prompt)->toContain('no due date')
         ->and($prompt)->toContain('end_datetime is null or missing')
-        ->and($prompt)->toContain('exclude any task that has end_datetime set');
+        ->and($prompt)->toContain('exclude any item that has end_datetime set');
 });
 
 it('includes guardrails and student persona in prompts', function (): void {

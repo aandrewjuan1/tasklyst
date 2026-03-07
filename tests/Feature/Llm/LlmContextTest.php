@@ -507,6 +507,23 @@ test('build context for ScheduleAll with Multiple includes tasks, events, projec
         ->and($context['availability'])->toBeArray();
 });
 
+test('schedule intent context includes availability_meaning and availability for all days', function (): void {
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::ScheduleTask,
+        LlmEntityType::Task,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKey('availability_meaning')
+        ->and($context['availability_meaning'])->toContain('busy_windows')
+        ->and($context['availability'])->toBeArray();
+    $days = (int) config('tasklyst.context.availability_days', 7);
+    expect($context['availability'])->toHaveCount($days + 1)
+        ->and($context['availability'][0])->toHaveKeys(['date', 'busy_windows']);
+});
+
 test('resolve_dependency context scopes to previous list when user says for those', function (): void {
     Task::factory()->for($this->user)->create(['title' => 'Blocked task A', 'status' => 'to_do', 'completed_at' => null]);
     Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
