@@ -161,12 +161,15 @@ class StructuredOutputSanitizer
      * (ScheduleTask, ScheduleEvent, ScheduleProject and their adjust variants).
      * If the suggested time range is wholly in the past, strip the temporal
      * fields so the UI does not present an outdated slot.
+     * Merges proposed_properties into top-level so display and appliable_changes see dates.
      *
      * @param  array<string, mixed>  $structured
      * @return array<string, mixed>
      */
     private function sanitizeSingleScheduleRecommendation(array $structured): array
     {
+        $structured = $this->mergeProposedPropertiesForSchedule($structured);
+
         $items = [[
             'start_datetime' => $structured['start_datetime'] ?? null,
             'end_datetime' => $structured['end_datetime'] ?? null,
@@ -193,6 +196,32 @@ class StructuredOutputSanitizer
 
         if (isset($first['end_datetime'])) {
             $structured['end_datetime'] = $first['end_datetime'];
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Merge proposed_properties (start_datetime, end_datetime, duration, priority) onto
+     * top-level structured so the UI "Proposed schedule" and appliable_changes both see them.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function mergeProposedPropertiesForSchedule(array $structured): array
+    {
+        $proposed = $structured['proposed_properties'] ?? null;
+        if (! is_array($proposed) || $proposed === []) {
+            return $structured;
+        }
+
+        $keys = ['start_datetime', 'end_datetime', 'duration', 'priority'];
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $proposed) && $proposed[$key] !== null && $proposed[$key] !== '') {
+                if (! array_key_exists($key, $structured) || $structured[$key] === null || $structured[$key] === '') {
+                    $structured[$key] = $proposed[$key];
+                }
+            }
         }
 
         return $structured;

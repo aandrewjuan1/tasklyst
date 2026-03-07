@@ -34,9 +34,12 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     protected const LOW_CONFIDENCE = 'If unsure, state why in reasoning and use confidence below 0.5.';
 
+    /** When the user asks for a schedule, time slot, or proposed schedule: require concrete times so the app can show and apply them. */
+    protected const SCHEDULE_MUST_OUTPUT_TIMES = 'When you recommend a specific time or window (e.g. "work on X today", "schedule for later", "suggest a time slot"), you MUST include start_datetime and end_datetime in ISO 8601 (e.g. 2026-03-08T14:00:00+08:00) so the student sees a proposed schedule and can apply it. Put the same times in proposed_properties.start_datetime and proposed_properties.end_datetime when you want the suggestion to be applicable. Only omit these when context has no relevant item or no availability to suggest.';
+
     public function version(): string
     {
-        return 'v1.4';
+        return 'v1.5';
     }
 
     /**

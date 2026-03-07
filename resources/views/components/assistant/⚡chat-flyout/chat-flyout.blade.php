@@ -128,59 +128,60 @@
                                 </div>
                             </template>
 
-                            <template x-if="isSchedulingIntent(message)">
+                            {{-- Only show "Proposed schedule" when we have actual schedule data (when/duration/priority). Avoids empty block when LLM returns narrative-only. --}}
+                            <template x-if="isSchedulingIntent(message) && hasScheduleDisplayData(message)">
                                 <div class="space-y-1">
                                     <p class="text-[11px] font-medium text-muted-foreground">
                                         {{ __('Proposed schedule') }}
                                     </p>
 
                                     <div class="space-y-0.5 text-[11px] text-muted-foreground">
-                                        <template x-if="structured.start_datetime || structured.end_datetime">
+                                        <template x-if="getScheduleDisplay(message).start_datetime || getScheduleDisplay(message).end_datetime">
                                             <p>
                                                 <span class="font-medium text-foreground">
                                                     {{ __('When:') }}
                                                 </span>
                                                 <span
-                                                    x-text="formatTimeRange(structured)"
+                                                    x-text="formatTimeRange(getScheduleDisplay(message))"
                                                 ></span>
                                             </p>
                                         </template>
 
-                                        <template x-if="structured.duration">
+                                        <template x-if="getScheduleDisplay(message).duration">
                                             <p>
                                                 <span class="font-medium text-foreground">
                                                     {{ __('Duration:') }}
                                                 </span>
-                                                <span x-text="structured.duration"></span>
+                                                <span x-text="getScheduleDisplay(message).duration"></span>
                                             </p>
                                         </template>
 
-                                        <template x-if="structured.timezone">
+                                        <template x-if="getScheduleDisplay(message).timezone">
                                             <p>
                                                 <span class="font-medium text-foreground">
                                                     {{ __('Timezone:') }}
                                                 </span>
-                                                <span x-text="structured.timezone"></span>
+                                                <span x-text="getScheduleDisplay(message).timezone"></span>
                                             </p>
                                         </template>
 
-                                        <template x-if="structured.location">
+                                        <template x-if="getScheduleDisplay(message).location">
                                             <p>
                                                 <span class="font-medium text-foreground">
                                                     {{ __('Location:') }}
                                                 </span>
-                                                <span x-text="structured.location"></span>
+                                                <span x-text="getScheduleDisplay(message).location"></span>
                                             </p>
                                         </template>
 
-                                        <template x-if="structured.priority">
+                                        <template x-if="getScheduleDisplay(message).priority">
                                             <p class="flex items-center gap-1.5">
                                                 <span class="font-medium text-foreground">
                                                     {{ __('Priority:') }}
                                                 </span>
                                                 <span
                                                     class="inline-flex rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-tight text-emerald-700 dark:text-emerald-300"
-                                                    x-text="structured.priority"
+                                                    x-text="getScheduleDisplay(message).priority"
                                                 ></span>
                                             </p>
                                         </template>
@@ -202,6 +203,19 @@
                                         </div>
                                     </template>
                                 </div>
+                            </template>
+
+                            {{-- Hint when scheduling intent but LLM didn't suggest concrete times (no Proposed schedule, no Apply/Dismiss). --}}
+                            <template
+                                x-if="
+                                    isSchedulingIntent(message)
+                                    && !hasScheduleDisplayData(message)
+                                    && !hasAppliableChanges(message)
+                                "
+                            >
+                                <p class="mt-1.5 text-[11px] text-muted-foreground">
+                                    {{ __('No specific time was suggested. Try: "Suggest a time slot for my first task" to get an applicable suggestion.') }}
+                                </p>
                             </template>
 
                             <template x-if="structured.ranked_tasks && structured.ranked_tasks.length">
@@ -414,19 +428,14 @@
                                 </p>
                             </div>
 
-                            <template
-                                x-if="
-                                    isActionableIntent(message)
-                                    && hasAppliableChanges(message)
-                                    && !isRecommendationApplied(message)
-                                "
-                            >
+                            <template x-if="showApplyDismissBar(message)">
                                 <div class="mt-2 flex flex-col gap-1.5 rounded-md bg-emerald-500/5 px-2.5 py-2 ring-1 ring-emerald-500/40 dark:bg-emerald-500/10">
                                     <div class="flex items-start gap-1.5">
                                         <flux:icon name="question-mark-circle" class="mt-0.5 size-3.5 text-emerald-600 dark:text-emerald-300" />
                                         <p class="text-[11px] text-emerald-900 dark:text-emerald-100" x-text="formatAppliableSummary(message)"></p>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-1.5">
+                                        {{-- Phase 4: Apply/Dismiss buttons – disabled when message.id is in pendingRecommendationIds --}}
                                         <flux:button
                                             type="button"
                                             size="xs"
@@ -451,17 +460,12 @@
                                 </div>
                             </template>
 
-                            <template
-                                x-if="
-                                    isActionableIntent(message)
-                                    && hasAppliableChanges(message)
-                                    && isRecommendationApplied(message)
-                                "
-                            >
+                            {{-- Phase 5: Post-action chip (mutually exclusive with Apply/Dismiss bar); driven by snapshot.user_action --}}
+                            <template x-if="showPostActionChip(message)">
                                 <div class="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-800 dark:text-emerald-100">
                                     <flux:icon name="check-circle" class="size-3" />
-                                    <span x-show="snapshot.user_action === 'accept'">{{ __('Changes applied from this suggestion') }}</span>
-                                    <span x-show="snapshot.user_action === 'reject'">{{ __('Suggestion dismissed') }}</span>
+                                    <span x-show="getSnapshot(message).user_action === 'accept'">{{ __('Changes applied from this suggestion') }}</span>
+                                    <span x-show="getSnapshot(message).user_action === 'reject'">{{ __('Suggestion dismissed') }}</span>
                                 </div>
                             </template>
 

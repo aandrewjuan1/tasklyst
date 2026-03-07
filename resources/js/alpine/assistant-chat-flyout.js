@@ -10,6 +10,25 @@
  * @param {Array<string>} config.suggestedPrompts
  * @returns {Object}
  */
+
+/** Single source list for actionability; keep in sync with backend (RecommendationDisplayBuilder::buildAppliableChanges). */
+const ACTIONABLE_INTENTS = [
+    'schedule_task',
+    'adjust_task_deadline',
+    'create_task',
+    'update_task_properties',
+    'schedule_event',
+    'adjust_event_time',
+    'create_event',
+    'update_event_properties',
+    'schedule_project',
+    'adjust_project_timeline',
+    'create_project',
+    'update_project_properties',
+    'resolve_dependency',
+    'prioritize_tasks',
+];
+
 export function assistantChatFlyout($wire, config) {
     return {
         threadId: config.threadId ?? null,
@@ -35,6 +54,11 @@ export function assistantChatFlyout($wire, config) {
             return this.messages.findIndex((m) => String(m.id) === String(id));
         },
 
+        /**
+         * Returns a shallow copy of this.messages suitable for full restore on rollback.
+         * Used by acceptRecommendation/rejectRecommendation (Phase 2 optimistic pattern).
+         * @returns {Array<Object>}
+         */
         cloneMessages() {
             return this.messages.map((m) => ({
                 ...m,
@@ -49,139 +73,148 @@ export function assistantChatFlyout($wire, config) {
 
         hasAppliableChanges(message) {
             const snap = this.getSnapshot(message);
-            const changes = snap.appliable_changes || {};
+            const changes = snap.appliable_changes ?? {};
+            const props = changes.properties;
 
-            return !!changes && Array.isArray(Object.keys(changes.properties || {})) && Object.keys(changes.properties || {}).length > 0;
+            return (
+                typeof props === 'object' &&
+                props !== null &&
+                !Array.isArray(props) &&
+                Object.keys(props).length > 0
+            );
         },
 
+        /** Optimistic apply: 5-phase pattern (snapshot → update UI → call server → rollback on error). */
         async acceptRecommendation(message) {
             if (!message || !message.id) return;
-            if (this.pendingRecommendationIds && this.pendingRecommendationIds.has(message.id)) {
-                return;
-            }
+            if (this.pendingRecommendationIds.has(message.id)) return;
 
             const backupMessages = this.cloneMessages();
 
             try {
                 const idx = this.findMessageIndexById(message.id);
-                if (idx === -1) {
-                    return;
-                }
+                if (idx === -1) return;
 
                 const current = this.messages[idx];
-                const meta = current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
-                const snapshot = meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
-                    ? { ...meta.recommendation_snapshot }
-                    : {};
+                const meta =
+                    current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
+                const snapshot =
+                    meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
+                        ? { ...meta.recommendation_snapshot }
+                        : {};
 
                 snapshot.user_action = 'accept';
                 snapshot.applied = true;
                 meta.recommendation_snapshot = snapshot;
 
-                this.messages[idx] = {
-                    ...current,
-                    metadata: meta,
-                };
+                this.messages[idx] = { ...current, metadata: { ...meta, recommendation_snapshot: snapshot } };
 
-                if (this.pendingRecommendationIds) {
-                    this.pendingRecommendationIds.add(message.id);
-                }
+                this.pendingRecommendationIds.add(message.id);
                 this.errorMessage = '';
 
                 await $wire.$call('acceptRecommendation', message.id);
 
-                if (this.pendingRecommendationIds) {
-                    this.pendingRecommendationIds.delete(message.id);
-                }
+                this.pendingRecommendationIds.delete(message.id);
             } catch (error) {
                 this.messages = backupMessages;
-                if (this.pendingRecommendationIds) {
-                    this.pendingRecommendationIds.delete(message.id);
-                }
-
-                const status = error?.status;
-                const data = error?.data;
-                if (status === 422) {
-                    const messageText = data?.message || error.message || 'Validation failed';
-                    this.errorMessage = 'Validation error: ' + messageText;
-                } else if (status === 403) {
-                    this.errorMessage = 'Permission denied while applying this suggestion.';
-                } else if (status === 404) {
-                    this.errorMessage = 'The referenced item no longer exists. The suggestion could not be applied.';
-                } else {
-                    this.errorMessage =
-                        error?.message || 'Something went wrong while applying this suggestion. Please try again.';
-                }
+                this.pendingRecommendationIds.delete(message.id);
+                this.setRecommendationErrorMessage(error, 'apply');
             }
         },
 
+        /** Optimistic dismiss: 5-phase pattern (snapshot → update UI → call server → rollback on error). */
         async rejectRecommendation(message) {
             if (!message || !message.id) return;
-            if (this.pendingRecommendationIds && this.pendingRecommendationIds.has(message.id)) {
-                return;
-            }
+            if (this.pendingRecommendationIds.has(message.id)) return;
 
             const backupMessages = this.cloneMessages();
 
             try {
                 const idx = this.findMessageIndexById(message.id);
-                if (idx === -1) {
-                    return;
-                }
+                if (idx === -1) return;
 
                 const current = this.messages[idx];
-                const meta = current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
-                const snapshot = meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
-                    ? { ...meta.recommendation_snapshot }
-                    : {};
+                const meta =
+                    current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
+                const snapshot =
+                    meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
+                        ? { ...meta.recommendation_snapshot }
+                        : {};
 
                 snapshot.user_action = 'reject';
                 snapshot.applied = false;
                 meta.recommendation_snapshot = snapshot;
 
-                this.messages[idx] = {
-                    ...current,
-                    metadata: meta,
-                };
+                this.messages[idx] = { ...current, metadata: { ...meta, recommendation_snapshot: snapshot } };
 
-                if (this.pendingRecommendationIds) {
-                    this.pendingRecommendationIds.add(message.id);
-                }
+                this.pendingRecommendationIds.add(message.id);
                 this.errorMessage = '';
 
                 await $wire.$call('rejectRecommendation', message.id);
 
-                if (this.pendingRecommendationIds) {
-                    this.pendingRecommendationIds.delete(message.id);
-                }
+                this.pendingRecommendationIds.delete(message.id);
             } catch (error) {
                 this.messages = backupMessages;
-                if (this.pendingRecommendationIds) {
-                    this.pendingRecommendationIds.delete(message.id);
-                }
+                this.pendingRecommendationIds.delete(message.id);
+                this.setRecommendationErrorMessage(error, 'dismiss');
+            }
+        },
 
-                const status = error?.status;
-                const data = error?.data;
-                if (status === 422) {
-                    const messageText = data?.message || error.message || 'Validation failed';
-                    this.errorMessage = 'Validation error: ' + messageText;
-                } else if (status === 403) {
-                    this.errorMessage = 'Permission denied while dismissing this suggestion.';
-                } else if (status === 404) {
-                    this.errorMessage = 'The referenced item no longer exists. The suggestion was not processed.';
-                } else {
-                    this.errorMessage =
-                        error?.message || 'Something went wrong while dismissing this suggestion. Please try again.';
-                }
+        /**
+         * Set user-visible errorMessage from a failed accept/reject call.
+         * Phase 3 rules: 422 → validation message; 403/404 → specific; else → generic. No silent failures.
+         * @param {Error} error - Thrown from $wire.$call; may have .status, .data, .message (see optimistic-ui-guide).
+         * @param {'apply'|'dismiss'} action
+         */
+        setRecommendationErrorMessage(error, action) {
+            const status = error?.status;
+            const data = error?.data;
+            const isApply = action === 'apply';
+
+            if (status === 422) {
+                this.errorMessage =
+                    'Validation error: ' + (data?.message || error?.message || 'Validation failed');
+            } else if (status === 403) {
+                this.errorMessage = isApply
+                    ? 'Permission denied while applying this suggestion.'
+                    : 'Permission denied while dismissing this suggestion.';
+            } else if (status === 404) {
+                this.errorMessage = isApply
+                    ? 'The referenced item no longer exists. The suggestion could not be applied.'
+                    : 'The referenced item no longer exists. The suggestion was not processed.';
+            } else {
+                this.errorMessage =
+                    error?.message ||
+                    (isApply
+                        ? 'Something went wrong while applying this suggestion. Please try again.'
+                        : 'Something went wrong while dismissing this suggestion. Please try again.');
             }
         },
 
         isRecommendationApplied(message) {
             const snap = this.getSnapshot(message);
-            if (snap.applied === true) return true;
-            if (typeof snap.user_action === 'string' && snap.user_action.length > 0) return true;
+            return (
+                snap.applied === true ||
+                (typeof snap.user_action === 'string' && snap.user_action.length > 0)
+            );
+        },
 
-            return false;
+        /** True when the Apply/Dismiss bar should be shown (actionable, has appliable changes, not yet applied/dismissed). */
+        showApplyDismissBar(message) {
+            return (
+                this.isActionableIntent(message) &&
+                this.hasAppliableChanges(message) &&
+                !this.isRecommendationApplied(message)
+            );
+        },
+
+        /** True when the post-action chip (Applied / Dismissed) should be shown. */
+        showPostActionChip(message) {
+            return (
+                this.isActionableIntent(message) &&
+                this.hasAppliableChanges(message) &&
+                this.isRecommendationApplied(message)
+            );
         },
 
         formatAppliableSummary(message) {
@@ -453,15 +486,45 @@ export function assistantChatFlyout($wire, config) {
         },
 
         getSnapshot(message) {
-            if (!message || !message.metadata) return {};
-
-            return message.metadata.recommendation_snapshot || {};
+            if (!message || typeof message.metadata !== 'object' || message.metadata === null) {
+                return {};
+            }
+            const snap = message.metadata.recommendation_snapshot;
+            return typeof snap === 'object' && snap !== null && !Array.isArray(snap) ? snap : {};
         },
 
         getStructured(message) {
             const snap = this.getSnapshot(message);
 
             return snap.structured || {};
+        },
+
+        /**
+         * Merged schedule fields for the "Proposed schedule" block (structured + proposed_properties).
+         * Use so we show dates when the LLM puts them only in proposed_properties.
+         */
+        getScheduleDisplay(message) {
+            const s = this.getStructured(message);
+            const p =
+                s?.proposed_properties && typeof s.proposed_properties === 'object'
+                    ? s.proposed_properties
+                    : {};
+            return {
+                start_datetime: s?.start_datetime ?? p?.start_datetime,
+                end_datetime: s?.end_datetime ?? p?.end_datetime,
+                duration: s?.duration ?? p?.duration,
+                priority: s?.priority ?? p?.priority,
+                timezone: s?.timezone ?? p?.timezone,
+                location: s?.location ?? p?.location,
+            };
+        },
+
+        /** True when we have at least one schedule field to show (when/duration/priority). Avoids empty "Proposed schedule" block. */
+        hasScheduleDisplayData(message) {
+            const d = this.getScheduleDisplay(message);
+            return !!(
+                (d?.start_datetime ?? d?.end_datetime ?? d?.duration ?? d?.priority ?? d?.timezone ?? d?.location)
+            );
         },
 
         isSchedulingIntent(message) {
@@ -482,26 +545,9 @@ export function assistantChatFlyout($wire, config) {
 
         isActionableIntent(message) {
             const snap = this.getSnapshot(message);
-            const intent = snap.intent || (message.metadata && message.metadata.intent) || null;
-
-            if (!intent) return false;
-
-            return [
-                'schedule_task',
-                'schedule_event',
-                'schedule_project',
-                'adjust_task_deadline',
-                'adjust_event_time',
-                'adjust_project_timeline',
-                'create_task',
-                'create_event',
-                'create_project',
-                'update_task_properties',
-                'update_event_properties',
-                'update_project_properties',
-                'resolve_dependency',
-                'prioritize_tasks',
-            ].includes(intent);
+            const intent =
+                snap.intent ?? (message?.metadata && message.metadata.intent) ?? null;
+            return typeof intent === 'string' && intent.length > 0 && ACTIONABLE_INTENTS.includes(intent);
         },
 
         contextEntityLabel(message) {
