@@ -83,7 +83,7 @@ class StructuredOutputSanitizer
             LlmIntent::ScheduleEvent,
             LlmIntent::AdjustEventTime,
             LlmIntent::ScheduleProject,
-            LlmIntent::AdjustProjectTimeline => $this->sanitizeSingleScheduleRecommendationWithContext($structured, $context, $intent),
+            LlmIntent::AdjustProjectTimeline => $this->sanitizeSingleScheduleRecommendationWithContext($structured, $context, $intent, $userMessage),
             LlmIntent::ScheduleTasksAndEvents => $this->sanitizeScheduledTasksAndEvents($structured, $context),
             LlmIntent::ScheduleTasksAndProjects => $this->sanitizeScheduledTasksAndProjects($structured, $context),
             LlmIntent::ScheduleEventsAndProjects => $this->sanitizeScheduledEventsAndProjects($structured, $context),
@@ -102,9 +102,10 @@ class StructuredOutputSanitizer
      *
      * @param  array<string, mixed>  $structured
      * @param  array<string, mixed>  $context
+     * @param  string|null  $userMessage  Last user message; used to correct same-day vs tomorrow for task schedule
      * @return array<string, mixed>
      */
-    private function sanitizeSingleScheduleRecommendationWithContext(array $structured, array $context, LlmIntent $intent): array
+    private function sanitizeSingleScheduleRecommendationWithContext(array $structured, array $context, LlmIntent $intent, ?string $userMessage = null): array
     {
         $key = match ($intent) {
             LlmIntent::ScheduleTask,
@@ -153,7 +154,81 @@ class StructuredOutputSanitizer
             }
         }
 
-        return $this->sanitizeSingleScheduleRecommendation($structured, $intent);
+        $result = $this->sanitizeSingleScheduleRecommendation($structured, $intent);
+
+        return $this->correctTaskScheduleStartToSameDayIfRequested($result, $context, $userMessage, $intent);
+    }
+
+    /** Same-day keywords: user likely means today; do not correct if they said tomorrow or a future day. */
+    private const SAME_DAY_KEYWORDS = [
+        'later', 'tonight', 'today', 'evening', 'this evening', 'later evening', 'later today',
+        'later at night', 'after lunch', 'after work', 'this afternoon', 'this morning',
+    ];
+
+    private const TOMORROW_KEYWORDS = ['tomorrow', 'next day', 'day after'];
+
+    /**
+     * If the user asked for same-day (e.g. "later", "tonight") but the LLM returned tomorrow's date,
+     * correct start_datetime (and proposed_properties) to use current_date with the same time.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function correctTaskScheduleStartToSameDayIfRequested(array $structured, array $context, ?string $userMessage, LlmIntent $intent): array
+    {
+        if ($intent !== LlmIntent::ScheduleTask && $intent !== LlmIntent::AdjustTaskDeadline) {
+            return $structured;
+        }
+
+        $currentDate = $context['current_date'] ?? null;
+        if (! is_string($currentDate) || $currentDate === '') {
+            return $structured;
+        }
+
+        $startRaw = $structured['start_datetime'] ?? null;
+        if (! is_string($startRaw) || $startRaw === '') {
+            return $structured;
+        }
+
+        $msg = $userMessage !== null && $userMessage !== '' ? mb_strtolower($userMessage, 'UTF-8') : '';
+        $hasSameDay = false;
+        foreach (self::SAME_DAY_KEYWORDS as $keyword) {
+            if (str_contains($msg, $keyword)) {
+                $hasSameDay = true;
+                break;
+            }
+        }
+        foreach (self::TOMORROW_KEYWORDS as $keyword) {
+            if (str_contains($msg, $keyword)) {
+                return $structured;
+            }
+        }
+        if (! $hasSameDay) {
+            return $structured;
+        }
+
+        try {
+            $startDt = \Carbon\CarbonImmutable::parse($startRaw, config('app.timezone'));
+        } catch (\Throwable) {
+            return $structured;
+        }
+
+        $startDateStr = $startDt->toDateString();
+        $currentDateNormalized = \Carbon\CarbonImmutable::parse($currentDate, config('app.timezone'))->toDateString();
+        $nextDay = \Carbon\CarbonImmutable::parse($currentDate, config('app.timezone'))->addDay()->toDateString();
+
+        if ($startDateStr !== $nextDay) {
+            return $structured;
+        }
+
+        $corrected = $currentDateNormalized.'T'.$startDt->format('H:i:s').$startDt->format('P');
+        $structured['start_datetime'] = $corrected;
+        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties']) && array_key_exists('start_datetime', $structured['proposed_properties'])) {
+            $structured['proposed_properties']['start_datetime'] = $corrected;
+        }
+
+        return $structured;
     }
 
     /**
