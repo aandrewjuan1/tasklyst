@@ -20,6 +20,27 @@ test('classifies schedule task intent', function (): void {
         ->and($result->confidence)->toBeGreaterThan(0.5);
 });
 
+test('classifies schedule the top 1 for later as schedule_task not schedule_event', function (): void {
+    $result = $this->action->execute('schedule the top 1 for later');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+test('classifies previous list schedule top 1 for today as schedule_task (not prioritize)', function (): void {
+    $result = $this->action->execute('in previous list schedule the top 1 for today');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+test('schedule intent wins over list language when both are present', function (): void {
+    $result = $this->action->execute('show me my tasks and schedule the top 1 for later');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
 test('classifies schedule event intent', function (): void {
     $result = $this->action->execute('Schedule a team meeting for next Tuesday');
 
@@ -39,6 +60,30 @@ test('classifies prioritize tasks intent', function (): void {
 
     expect($result->intent)->toBe(LlmIntent::PrioritizeTasks)
         ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+test('classifies list my top tasks ASAP as prioritize_tasks (not general_query)', function (): void {
+    $result = $this->action->execute('list me my top 5 tasks that i need to do ASAP');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeTasks)
+        ->and($result->entityType)->toBe(LlmEntityType::Task)
+        ->and($result->confidence)->toBeGreaterThan(0.5);
+});
+
+test('classifies list my top events ASAP as prioritize_events (not general_query)', function (): void {
+    $result = $this->action->execute('list me my top 5 events that i need to attend ASAP');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeEvents)
+        ->and($result->entityType)->toBe(LlmEntityType::Event)
+        ->and($result->confidence)->toBeGreaterThan(0.5);
+});
+
+test('classifies list my top projects ASAP as prioritize_projects (not general_query)', function (): void {
+    $result = $this->action->execute('list me my top 3 projects that i need to do ASAP');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeProjects)
+        ->and($result->entityType)->toBe(LlmEntityType::Project)
+        ->and($result->confidence)->toBeGreaterThan(0.5);
 });
 
 test('classifies prioritize events intent', function (): void {

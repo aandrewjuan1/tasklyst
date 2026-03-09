@@ -186,7 +186,7 @@ class LlmInferenceService
 
         $normalized = match ($intent) {
             LlmIntent::ScheduleTask,
-            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::AdjustTaskDeadline => 'task',
             LlmIntent::PrioritizeTasks => in_array($raw, ['task', 'tasks'], true) || $raw === ''
                 ? 'task'
                 : $raw,

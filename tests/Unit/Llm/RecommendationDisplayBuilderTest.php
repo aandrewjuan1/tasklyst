@@ -71,6 +71,32 @@ test('build computes validation confidence for schedule task with dates and prio
         ->and($dto->structured)->not->toHaveKey('end_datetime');
 });
 
+test('build for ScheduleTask prefixes missing target title into recommended action when structured has title', function (): void {
+    $start = now()->addDay()->setTime(19, 0);
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'task',
+            'id' => 123,
+            'title' => 'PRELIM DEPT EXAM: Komunikasyon Sa Akademikong Filipino',
+            'recommended_action' => 'Schedule for tonight at 7pm for 60 minutes.',
+            'reasoning' => 'I chose 7pm because your evening is free.',
+            'start_datetime' => $start->toIso8601String(),
+            'duration' => 60,
+        ],
+        promptVersion: '1.0',
+        promptTokens: 80,
+        completionTokens: 40,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ScheduleTask, LlmEntityType::Task);
+
+    expect($dto->recommendedAction)->toContain('PRELIM DEPT EXAM')
+        ->and($dto->message)->toContain('PRELIM DEPT EXAM')
+        ->and($dto->recommendedAction)->toContain('Schedule for tonight at 7pm');
+});
+
 test('build uses fallback flag from inference result', function (): void {
     $result = new LlmInferenceResult(
         structured: [
@@ -185,7 +211,7 @@ test('build for PrioritizeAll with Multiple includes tasks, events and projects 
         ->and($dto->validationConfidence)->toBeGreaterThan(0);
 });
 
-test('build for ScheduleTasksAndEvents with Multiple and one scheduled task produces appliable_changes and target_task_title', function (): void {
+test('build for ScheduleTasksAndEvents with Multiple and one scheduled task produces appliable_changes and target_task_title and target_task_id', function (): void {
     $start = now()->addDay()->setTime(22, 0);
     $result = new LlmInferenceResult(
         structured: [
@@ -193,7 +219,7 @@ test('build for ScheduleTasksAndEvents with Multiple and one scheduled task prod
             'recommended_action' => 'Work on your most important task tonight at 10pm.',
             'reasoning' => 'Your highest priority task fits well tonight.',
             'scheduled_tasks' => [
-                ['title' => 'My Light to the Society', 'start_datetime' => $start->toIso8601String(), 'duration' => 60],
+                ['id' => 42, 'title' => 'My Light to the Society', 'start_datetime' => $start->toIso8601String(), 'duration' => 60],
             ],
             'scheduled_events' => [],
         ],
@@ -212,7 +238,36 @@ test('build for ScheduleTasksAndEvents with Multiple and one scheduled task prod
         ->and($dto->appliableChanges['properties'])->toHaveKey('duration')
         ->and($dto->appliableChanges['properties']['duration'])->toBe(60)
         ->and($dto->structured)->toHaveKey('target_task_title')
-        ->and($dto->structured['target_task_title'])->toBe('My Light to the Society');
+        ->and($dto->structured['target_task_title'])->toBe('My Light to the Society')
+        ->and($dto->structured)->toHaveKey('target_task_id')
+        ->and($dto->structured['target_task_id'])->toBe(42);
+});
+
+test('build for ScheduleTask without id does not set target_task_id but still builds appliable_changes from schedule', function (): void {
+    $start = now()->addDay()->setTime(17, 0);
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'task',
+            'recommended_action' => 'Schedule your "My Light to the Society" output for later today at 5pm for 1 hour.',
+            'reasoning' => 'I chose 5pm because your afternoon is free.',
+            'start_datetime' => $start->toIso8601String(),
+            'duration' => 60,
+        ],
+        promptVersion: '1.0',
+        promptTokens: 80,
+        completionTokens: 40,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ScheduleTask, LlmEntityType::Task);
+
+    expect($dto->appliableChanges)->toBeArray()
+        ->and($dto->appliableChanges['entity_type'] ?? null)->toBe('task')
+        ->and($dto->appliableChanges)->toHaveKey('properties')
+        ->and($dto->appliableChanges)->not->toHaveKey('target_task_id')
+        ->and($dto->structured)->not->toHaveKey('target_task_id')
+        ->and($dto->structured)->not->toHaveKey('target_task_title');
 });
 
 test('build for ScheduleTasksAndEvents with Multiple and two scheduled tasks uses first task and top-level schedule for appliable_changes', function (): void {

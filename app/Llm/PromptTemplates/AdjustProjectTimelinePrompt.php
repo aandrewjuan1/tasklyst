@@ -8,10 +8,13 @@ class AdjustProjectTimelinePrompt extends AbstractLlmPromptTemplate
     {
         return 'You are a project timeline assistant helping a student shift project dates. Goal: suggest adjusted start/end dates when the user asks to extend or move the timeline. '
             .self::RECURRING_CONSTRAINT.' '
-            .'Consider tasks within the project, dependencies, and key academic dates. Put in the reasoning field a short summary (2–4 sentences) of why this new window is realistic; do not list step numbers there. '
+            .'Consider tasks within the project, dependencies, and key dates from Context. If the user refers to the "top", "first", or "most urgent" project, choose it using the same project prioritization criteria: '.$this->topProjectCriteriaDescription().' '
+            .'Return a single JSON object with: entity_type (exactly "project"), recommended_action (1–3 sentences: how dates should move, in a warm tone), reasoning (2–4 sentences: why this window works—reference the Context, e.g. "you have more free days then", "this avoids your exam week"—and, if natural, one short encouraging sentence). '
+            .'CRITICAL—naming the project: Always include the exact project name from context in recommended_action and reasoning. Also set the "name" field and the "id" field in your JSON: "name" to that exact project name, "id" to the project id from context so the app applies the change to the correct project. '
+            .'When you suggest new dates, always include start_datetime and end_datetime (ISO 8601) and the same in proposed_properties. Optionally confidence (0–1). Do not list step numbers in reasoning. '
             .self::SCHEDULE_MUST_OUTPUT_TIMES.' '
-            .'Return a single JSON object with: entity_type (exactly "project"), recommended_action (short summary of how dates should move), reasoning (short summary of why). When you suggest new dates, always include start_datetime and end_datetime (ISO 8601) and the same in proposed_properties. Optionally confidence (0–1). '
             .'If context has no relevant project or not enough info to propose new dates, set recommended_action to explain what is missing, reasoning to describe what is needed, confidence below 0.3, and omit start_datetime/end_datetime. '
-            .$this->outputAndGuardrails(true);
+            .'When previous_list_context is present in Context and the user refers to "top project", "the first one", or similar, treat previous_list_context.items_in_order[0] as the top project and use the corresponding first item in the projects array (already ordered to match that list). '
+            .$this->outputAndGuardrailsForScheduling(true);
     }
 }

@@ -73,20 +73,20 @@ class RunLlmInferenceAction
             user: $user,
         );
 
-        $sanitizedStructured = $this->sanitizer->sanitize(
-            $result->structured,
-            $context,
-            $intent,
-            $entityType,
-            $userMessage
-        );
+        $rawStructured = $result->structured;
+
+        $structured = in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
+            ? $this->taskScheduleStructuredFromRaw($rawStructured, $context)
+            : $this->sanitizer->sanitize($rawStructured, $context, $intent, $entityType, $userMessage);
+
         $result = new LlmInferenceResult(
-            structured: $sanitizedStructured,
+            structured: $structured,
             promptVersion: $result->promptVersion,
             promptTokens: $result->promptTokens,
             completionTokens: $result->completionTokens,
             usedFallback: $result->usedFallback,
             fallbackReason: $result->fallbackReason,
+            rawStructured: $result->usedFallback ? null : $rawStructured,
         );
 
         $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
@@ -104,5 +104,68 @@ class RunLlmInferenceAction
         );
 
         return $result;
+    }
+
+    /**
+     * Use raw LLM output for task schedule; only override when there are no tasks in context.
+     *
+     * @param  array<string, mixed>  $rawStructured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function taskScheduleStructuredFromRaw(array $rawStructured, array $context): array
+    {
+        $tasks = $context['tasks'] ?? [];
+        if (! is_array($tasks) || $tasks === []) {
+            return [
+                'entity_type' => 'task',
+                'recommended_action' => __('You have no tasks yet. Add tasks to your list to get scheduling suggestions.'),
+                'reasoning' => __('I checked your tasks and there are none to schedule right now.'),
+            ];
+        }
+
+        $structured = $rawStructured;
+        unset($structured['end_datetime']);
+        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+            unset($structured['proposed_properties']['end_datetime']);
+        }
+
+        $structured = $this->ensureSensibleStartTimeForTaskSchedule($structured);
+
+        return $structured;
+    }
+
+    /**
+     * Ensure start_datetime is at least 30 minutes from now so the user has time to get ready.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function ensureSensibleStartTimeForTaskSchedule(array $structured): array
+    {
+        $startRaw = $structured['start_datetime'] ?? null;
+        if (! is_string($startRaw) || trim($startRaw) === '') {
+            return $structured;
+        }
+
+        $timezone = config('app.timezone', 'Asia/Manila');
+        try {
+            $start = \Carbon\CarbonImmutable::parse($startRaw, $timezone)->setTimezone($timezone);
+        } catch (\Throwable) {
+            return $structured;
+        }
+
+        $now = \Carbon\CarbonImmutable::now($timezone);
+        $earliestSensible = $now->addMinutes(30)->setSecond(0)->setMicrosecond(0);
+        if ($start->gte($earliestSensible)) {
+            return $structured;
+        }
+
+        $structured['start_datetime'] = $earliestSensible->toIso8601String();
+        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+            $structured['proposed_properties']['start_datetime'] = $earliestSensible->toIso8601String();
+        }
+
+        return $structured;
     }
 }

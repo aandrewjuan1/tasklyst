@@ -431,13 +431,30 @@ class ContextBuilder
     ): array {
         $now = now();
         $timezone = config('app.timezone', 'Asia/Manila');
-        $payload = [
-            'current_time' => $now->toIso8601String(),
-            'current_date' => $now->toDateString(),
-            'timezone' => $timezone,
-            'current_time_human' => $now->format('Y-m-d H:i').' '.$timezone.' ('.$now->format('g:i A').')',
-            'scheduling_rule' => 'Any suggested start_datetime must be strictly after current_time. Do not suggest times in the past.',
-        ];
+        $currentDate = $now->toDateString();
+        $currentTimeIso = $now->toIso8601String();
+
+        // Most important context first: user's current request, then multiturn/previous-list reference.
+        $payload = [];
+        if ($userMessage !== null && trim($userMessage) !== '') {
+            $payload['user_current_request'] = trim($userMessage);
+        }
+        $payload['multiturn_instruction'] = 'This Context supports multiturn. The user_current_request may refer to your previous reply (e.g. "top task", "schedule the first one", "those 2"). When they do, use the previous_list_context and the ordered tasks/events/projects arrays—the first item is #1 (top). Never assume a different item is "top" based on urgency alone; respect the order from the previous list.';
+
+        $payload['current_time'] = $currentTimeIso;
+        $payload['current_date'] = $currentDate;
+        $payload['timezone'] = $timezone;
+        $payload['current_time_human'] = $now->format('Y-m-d H:i').' '.$timezone.' ('.$now->format('g:i A').')';
+        $payload['scheduling_rule'] = 'Any suggested start_datetime must be strictly after current_time. Do not suggest times in the past. When the user says "later", suggest a time at least 30 minutes after current_time so they have time to get ready (e.g. if it is 3:00 PM, suggest 4:00 PM or later, not 3:15 or 3:30).';
+
+        if (in_array($intent, [LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects], true)
+            && $userMessage !== null && trim($userMessage) !== '') {
+            $requestedTopN = $this->extractRequestedTopN($userMessage);
+            if ($requestedTopN !== null) {
+                $payload['requested_top_n'] = $requestedTopN;
+                $payload['requested_top_n_instruction'] = 'The user asked for the top '.$requestedTopN.' items. Return at most '.$requestedTopN.' ranked_* items (or fewer if fewer exist).';
+            }
+        }
 
         $entityPayload = match ($entityType) {
             LlmEntityType::Task => $this->buildTaskContext($user, $intent, $entityId, $userMessage, $thread),
@@ -474,12 +491,30 @@ class ContextBuilder
         } elseif ($isScheduleIntent) {
             $payload['availability'] = $this->buildAvailabilityContext($user);
             $payload['availability_meaning'] = 'Each date lists busy_windows (when the user is busy). Empty busy_windows = free day. Suggest start_datetime in gaps between windows or on free days.';
+            $payload['date_anchor'] = 'When the user says "later", "today", "tonight", "this evening", or "after lunch", the date for start_datetime MUST be current_date ('.$payload['current_date'].'). The year in start_datetime MUST match the year in current_time. Never use a past year (e.g. 2023). Suggest start_datetime at least 30 minutes after current_time so the user has time to get ready (e.g. if current_time is 15:00, suggest 16:00 or later, not 15:15 or 15:30).';
+            if ($userMessage !== null && $userMessage !== '') {
+                $payload['user_scheduling_request'] = trim($userMessage);
+            }
             $payload = array_merge($payload, $entityPayload);
+
+            if ($userMessage !== null && $userMessage !== '' && $this->userMessageReferencesTopOrFirstTask($userMessage)
+                && isset($payload['tasks']) && is_array($payload['tasks']) && $payload['tasks'] !== []) {
+                $payload['scheduling_hint'] = 'The user asked to schedule their top 1 / top task / most important task. The first task in the tasks list is the recommended one. You MUST name that task by its exact title in recommended_action and in reasoning—never say only "your top task" or "the one due on [date]" without stating the task title. Set the title field in your JSON to that exact title.';
+            }
         } else {
             $payload = array_merge($payload, $entityPayload);
         }
 
+        $previousListContext = $this->buildPreviousListContext($thread, $entityType, $userMessage);
+        if ($previousListContext !== null) {
+            $payload['previous_list_context'] = $previousListContext;
+        }
+
         $payload['conversation_history'] = $this->buildConversationHistory($thread, $userMessage);
+
+        if ($isScheduleIntent) {
+            $payload['context_authority'] = 'The tasks, events, and projects arrays in this Context are the ONLY source of truth. You MUST only reference items that appear in these arrays. Never invent or assume task, event, or project names. The "id" and "title" (or "name") in your JSON must exactly match an entry in the corresponding context array. When previous_list_context is present, the user is referring to that list—the #1 (position 1) item is what they mean by "top task" or "the first one". Use the first item in the tasks/events/projects array (it is already ordered to match the previous list).';
+        }
 
         return $this->enforceTokenAwareness($payload);
     }
@@ -603,6 +638,7 @@ class ContextBuilder
             LlmIntent::AdjustTaskDeadline,
             LlmIntent::GeneralQuery,
         ], true);
+        $previousTitles = null;
         if ($intentUsesPreviousList && $thread !== null && $userMessage !== null && $userMessage !== ''
             && $this->userMessageReferencesPreviousList($userMessage)) {
             $previousTitles = $this->getPreviousListTitlesFromThread($thread, LlmEntityType::Task);
@@ -613,11 +649,279 @@ class ContextBuilder
 
         $tasks = $query->limit($limit)->get();
 
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
+            && $userMessage !== null && $userMessage !== '') {
+            $mentionedFirst = $this->getTasksMentionedInMessageNotInList($user, $userMessage, $tasks);
+            $mentionedIds = $mentionedFirst->pluck('id')->all();
+            $remaining = $tasks->filter(fn (Task $t): bool => ! in_array($t->id, $mentionedIds, true))->values();
+            $tasks = $mentionedFirst->merge($remaining);
+        }
+
+        if ($previousTitles !== null && $previousTitles !== []) {
+            $tasks = $this->orderTasksByOrderedTitles($tasks, $previousTitles);
+        } elseif (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
+            && $userMessage !== null && $userMessage !== ''
+            && $this->userMessageReferencesTopOrFirstTask($userMessage)) {
+            $tasks = $this->orderTasksByUrgency($tasks);
+        } elseif (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
+            && $userMessage !== null && $userMessage !== '') {
+            $tasks = $this->orderTasksByUserMessageTitleMatch($tasks, $userMessage);
+        }
+
         $tasksPayload = $tasks->map(fn (Task $t) => $this->taskPayloadItem($t, $intent))->values()->all();
 
         return [
             'tasks' => $tasksPayload,
         ];
+    }
+
+    /**
+     * Order tasks by urgency so the first is the natural "top" task when user says "top 1" or "top task".
+     * Order: overdue first, then due today, then by priority (Urgent > High > Medium > Low), then by end_datetime ASC.
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $tasks
+     * @return \Illuminate\Support\Collection<int, Task>
+     */
+    private function orderTasksByUrgency(\Illuminate\Support\Collection $tasks): \Illuminate\Support\Collection
+    {
+        $now = now();
+        $startOfToday = $now->copy()->startOfDay();
+
+        $priorityWeight = function (?string $priority): int {
+            return match ($priority) {
+                'urgent' => 4,
+                'high' => 3,
+                'medium' => 2,
+                'low' => 1,
+                default => 0,
+            };
+        };
+
+        $sorted = $tasks->sort(function (Task $a, Task $b) use ($startOfToday, $priorityWeight): int {
+            $aOverdue = $a->end_datetime !== null && $a->end_datetime->lt($startOfToday);
+            $bOverdue = $b->end_datetime !== null && $b->end_datetime->lt($startOfToday);
+            if ($aOverdue !== $bOverdue) {
+                return $aOverdue ? -1 : 1;
+            }
+            $aDueToday = $a->end_datetime !== null && $a->end_datetime->isSameDay($startOfToday);
+            $bDueToday = $b->end_datetime !== null && $b->end_datetime->isSameDay($startOfToday);
+            if ($aDueToday !== $bDueToday) {
+                return $aDueToday ? -1 : 1;
+            }
+            $aWeight = $priorityWeight($a->priority?->value);
+            $bWeight = $priorityWeight($b->priority?->value);
+            if ($aWeight !== $bWeight) {
+                return $bWeight <=> $aWeight;
+            }
+            $aEnd = $a->end_datetime?->getTimestamp() ?? PHP_INT_MAX;
+            $bEnd = $b->end_datetime?->getTimestamp() ?? PHP_INT_MAX;
+
+            return $aEnd <=> $bEnd;
+        });
+
+        return $sorted->values();
+    }
+
+    /**
+     * Order tasks to match the previous ranked/list order so "top task" is consistent across intents.
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $tasks
+     * @param  array<int, string>  $orderedTitles
+     * @return \Illuminate\Support\Collection<int, Task>
+     */
+    private function orderTasksByOrderedTitles(\Illuminate\Support\Collection $tasks, array $orderedTitles): \Illuminate\Support\Collection
+    {
+        $byTitle = [];
+        foreach ($tasks as $task) {
+            $key = mb_strtolower(trim($task->title));
+            $byTitle[$key] = $task;
+        }
+        $ordered = [];
+        foreach ($orderedTitles as $title) {
+            $key = mb_strtolower(trim($title));
+            if (isset($byTitle[$key])) {
+                $ordered[] = $byTitle[$key];
+                unset($byTitle[$key]);
+            }
+        }
+        foreach ($byTitle as $task) {
+            $ordered[] = $task;
+        }
+
+        return new \Illuminate\Support\Collection($ordered);
+    }
+
+    /**
+     * For ScheduleTask/AdjustTaskDeadline: put the task whose title (or core) appears in the user message first.
+     * Matches full core/title, or any substring of core (min 6 chars) so "antas/teorya task" matches "Antas/Teorya ng wika".
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $tasks
+     * @return \Illuminate\Support\Collection<int, Task>
+     */
+    private function orderTasksByUserMessageTitleMatch(\Illuminate\Support\Collection $tasks, string $userMessage): \Illuminate\Support\Collection
+    {
+        $msgLower = ' '.mb_strtolower(preg_replace('/\s+/', ' ', $userMessage)).' ';
+        $minSubstringLen = 6;
+        $withPos = [];
+        foreach ($tasks as $task) {
+            $title = trim((string) $task->title);
+            $core = $this->taskTitleCoreForMatch($title);
+            $pos = $this->earliestTaskTitlePositionInMessage($msgLower, $title, $core, $minSubstringLen);
+            $withPos[] = ['task' => $task, 'pos' => $pos === null ? PHP_INT_MAX : $pos];
+        }
+        usort($withPos, static fn (array $a, array $b): int => $a['pos'] <=> $b['pos']);
+
+        return new \Illuminate\Support\Collection(array_column($withPos, 'task'));
+    }
+
+    /**
+     * Tasks whose title is mentioned in the user message but not in the given list (e.g. not in top 12).
+     * Prepending these ensures narrative resolution can find the task the user asked about.
+     *
+     * @param  \Illuminate\Support\Collection<int, Task>  $existingTasks
+     * @return \Illuminate\Support\Collection<int, Task>
+     */
+    private function getTasksMentionedInMessageNotInList(User $user, string $userMessage, \Illuminate\Support\Collection $existingTasks): \Illuminate\Support\Collection
+    {
+        $existingIds = $existingTasks->pluck('id')->all();
+        $msgLower = ' '.mb_strtolower(preg_replace('/\s+/', ' ', $userMessage)).' ';
+        $minSubstringLen = 6;
+
+        $candidates = Task::query()
+            ->forUser($user->id)
+            ->incomplete()
+            ->whereIn('status', [TaskStatus::ToDo->value, TaskStatus::Doing->value])
+            ->whereNotIn('id', $existingIds)
+            ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
+            ->orderBy('end_datetime')
+            ->limit(50)
+            ->get();
+
+        $withPos = [];
+        foreach ($candidates as $task) {
+            $title = trim((string) $task->title);
+            $core = $this->taskTitleCoreForMatch($title);
+            $pos = $this->earliestTaskTitlePositionInMessage($msgLower, $title, $core, $minSubstringLen);
+            if ($pos !== null) {
+                $withPos[] = ['task' => $task, 'pos' => $pos];
+            }
+        }
+        usort($withPos, static fn (array $a, array $b): int => $a['pos'] <=> $b['pos']);
+
+        return new \Illuminate\Support\Collection(array_column($withPos, 'task'));
+    }
+
+    /**
+     * Earliest position in message where the task title (or core, or any 6+ char substring of core) appears.
+     */
+    private function earliestTaskTitlePositionInMessage(string $msgLower, string $title, string $core, int $minSubstringLen): ?int
+    {
+        if ($core !== '' && mb_strlen($core) >= 2) {
+            $needle = mb_strtolower($core);
+            $p = mb_strpos($msgLower, $needle);
+            if ($p !== false) {
+                return $p;
+            }
+            // Message may say "antas/teorya task" without "ng wika" - match substring of core (min 6 chars).
+            $coreLower = mb_strtolower($core);
+            $len = mb_strlen($coreLower);
+            $best = null;
+            for ($n = $minSubstringLen; $n <= $len; $n++) {
+                for ($i = 0; $i <= $len - $n; $i++) {
+                    $sub = mb_substr($coreLower, $i, $n);
+                    $p = mb_strpos($msgLower, $sub);
+                    if ($p !== false && ($best === null || $p < $best)) {
+                        $best = $p;
+                    }
+                }
+            }
+            if ($best !== null) {
+                return $best;
+            }
+        }
+        if ($title !== '') {
+            $needle = mb_strtolower($title);
+            $p = mb_strpos($msgLower, $needle);
+            if ($p !== false) {
+                return $p;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Core part of a task title for matching (strip trailing " - ...") so "Antas/Teorya ng wika" matches "Antas/Teorya ng wika - Due".
+     */
+    private function taskTitleCoreForMatch(string $title): string
+    {
+        $trimmed = trim($title);
+        if (preg_match('/^(.+?)\s*[-–—]\s+/u', $trimmed, $m)) {
+            return trim($m[1]);
+        }
+        if (preg_match('/^(.+?)\s*\([^)]*\)\s*$/u', $trimmed, $m)) {
+            return trim($m[1]);
+        }
+
+        return $trimmed;
+    }
+
+    /**
+     * Order events to match the previous ranked/list order so "top event" is consistent across intents.
+     *
+     * @param  \Illuminate\Support\Collection<int, Event>  $events
+     * @param  array<int, string>  $orderedTitles
+     * @return \Illuminate\Support\Collection<int, Event>
+     */
+    private function orderEventsByOrderedTitles(\Illuminate\Support\Collection $events, array $orderedTitles): \Illuminate\Support\Collection
+    {
+        $byTitle = [];
+        foreach ($events as $event) {
+            $key = mb_strtolower(trim($event->title));
+            $byTitle[$key] = $event;
+        }
+        $ordered = [];
+        foreach ($orderedTitles as $title) {
+            $key = mb_strtolower(trim($title));
+            if (isset($byTitle[$key])) {
+                $ordered[] = $byTitle[$key];
+                unset($byTitle[$key]);
+            }
+        }
+        foreach ($byTitle as $event) {
+            $ordered[] = $event;
+        }
+
+        return new \Illuminate\Support\Collection($ordered);
+    }
+
+    /**
+     * Order projects to match the previous ranked/list order so "top project" is consistent across intents.
+     *
+     * @param  \Illuminate\Support\Collection<int, Project>  $projects
+     * @param  array<int, string>  $orderedNames
+     * @return \Illuminate\Support\Collection<int, Project>
+     */
+    private function orderProjectsByOrderedNames(\Illuminate\Support\Collection $projects, array $orderedNames): \Illuminate\Support\Collection
+    {
+        $byName = [];
+        foreach ($projects as $project) {
+            $key = mb_strtolower(trim($project->name));
+            $byName[$key] = $project;
+        }
+        $ordered = [];
+        foreach ($orderedNames as $name) {
+            $key = mb_strtolower(trim($name));
+            if (isset($byName[$key])) {
+                $ordered[] = $byName[$key];
+                unset($byName[$key]);
+            }
+        }
+        foreach ($byName as $project) {
+            $ordered[] = $project;
+        }
+
+        return new \Illuminate\Support\Collection($ordered);
     }
 
     /**
@@ -779,6 +1083,7 @@ class ContextBuilder
             LlmIntent::AdjustEventTime,
             LlmIntent::GeneralQuery,
         ], true);
+        $previousTitles = null;
         if ($intentUsesPreviousList && $thread !== null && $userMessage !== null && $userMessage !== ''
             && $this->userMessageReferencesPreviousList($userMessage)) {
             $previousTitles = $this->getPreviousListTitlesFromThread($thread, LlmEntityType::Event);
@@ -788,6 +1093,10 @@ class ContextBuilder
         }
 
         $events = $query->limit($limit)->get();
+
+        if ($previousTitles !== null && $previousTitles !== []) {
+            $events = $this->orderEventsByOrderedTitles($events, $previousTitles);
+        }
 
         $eventsPayload = $events->map(fn (Event $e) => $this->eventPayloadItem($e, $intent))->values()->all();
 
@@ -1005,6 +1314,7 @@ class ContextBuilder
             LlmIntent::AdjustProjectTimeline,
             LlmIntent::GeneralQuery,
         ], true);
+        $previousNames = null;
         if ($intentUsesPreviousList && $thread !== null && $userMessage !== null && $userMessage !== ''
             && $this->userMessageReferencesPreviousList($userMessage)) {
             $previousNames = $this->getPreviousListTitlesFromThread($thread, LlmEntityType::Project);
@@ -1013,7 +1323,12 @@ class ContextBuilder
             }
         }
 
-        $projects = $query->limit($projectLimit * 2)->get()->take($projectLimit);
+        $projects = $query->limit($projectLimit * 2)->get();
+
+        if ($previousNames !== null && $previousNames !== []) {
+            $projects = $this->orderProjectsByOrderedNames($projects, $previousNames);
+        }
+        $projects = $projects->take($projectLimit);
 
         $projectsPayload = $projects->map(fn (Project $p) => $this->projectPayloadItem($p, $user, $intent, $tasksPerProject))->values()->all();
 
@@ -1080,6 +1395,63 @@ class ContextBuilder
     }
 
     /**
+     * Build explicit previous-list reference for multiturn. When the user says "top task", "schedule the first one",
+     * etc., this tells the LLM exactly which items are in the previous list and that position 1 = top.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function buildPreviousListContext(?AssistantThread $thread, LlmEntityType $entityType, ?string $userMessage): ?array
+    {
+        if ($thread === null || $userMessage === null || trim($userMessage) === ''
+            || ! $this->userMessageReferencesPreviousList($userMessage)) {
+            return null;
+        }
+
+        $entityTypes = match ($entityType) {
+            LlmEntityType::Task => [LlmEntityType::Task],
+            LlmEntityType::Event => [LlmEntityType::Event],
+            LlmEntityType::Project => [LlmEntityType::Project],
+            LlmEntityType::Multiple => [LlmEntityType::Task, LlmEntityType::Event, LlmEntityType::Project],
+        };
+
+        $itemsInOrder = [];
+        $usedEntityType = null;
+
+        foreach ($entityTypes as $et) {
+            $titles = $this->getPreviousListTitlesFromThread($thread, $et);
+            if ($titles !== null && $titles !== []) {
+                $usedEntityType = $et;
+                $position = 1;
+                foreach ($titles as $title) {
+                    $itemsInOrder[] = [
+                        'position' => $position,
+                        'title' => $title,
+                    ];
+                    $position++;
+                }
+                break;
+            }
+        }
+
+        if ($itemsInOrder === [] || $usedEntityType === null) {
+            return null;
+        }
+
+        $entityLabel = match ($usedEntityType) {
+            LlmEntityType::Task => 'task',
+            LlmEntityType::Event => 'event',
+            LlmEntityType::Project => 'project',
+            default => 'item',
+        };
+
+        return [
+            'entity_type' => $usedEntityType->value,
+            'instruction' => 'The user is referring to the list from your previous reply. When they say "top '.$entityLabel.'", "schedule the top one", "the first one", etc., they mean position 1 below. The tasks/events/projects array in this Context is already ordered to match—the first item is #1 (top). You MUST use that exact item.',
+            'items_in_order' => $itemsInOrder,
+        ];
+    }
+
+    /**
      * Whether the user message refers to a list from the previous assistant reply (e.g. "in those 2", "of those",
      * "schedule that event", "those tasks", "these events").
      */
@@ -1101,7 +1473,9 @@ class ContextBuilder
             'those tasks', 'those events', 'those projects', 'these tasks', 'these events', 'these projects',
             'about those', 'about these', 'for those', 'for these', 'with those', 'with these',
             // Explicit references to the top item from a previous list.
-            'top 1', 'top one', 'top task', 'top item', 'top from that list', 'top from the list',
+            'top 1', 'top one', 'top task', 'top item', 'top event', 'top project',
+            'top from that list', 'top from the list', 'schedule the top', 'the top one', 'the top task',
+            'the first one', 'first task', 'first event', 'first project', 'number 1', 'number one',
         ];
 
         foreach ($phrases as $phrase) {
@@ -1115,6 +1489,70 @@ class ContextBuilder
         }
 
         return false;
+    }
+
+    /**
+     * Whether the user message references scheduling their "top 1", "top task", "first task", or "most important" task.
+     * Used to add scheduling_hint and urgency ordering so the model names the task and treats the first in list as top.
+     */
+    private function userMessageReferencesTopOrFirstTask(string $userMessage): bool
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $userMessage) ?? $userMessage));
+        $normalized = (string) preg_replace('/\s+/', ' ', $normalized);
+
+        if ($normalized === '') {
+            return false;
+        }
+
+        $phrases = [
+            'top 1', 'top one', 'top task', 'first task', 'most important task', 'main task', 'priority task',
+            'number one', 'the one due', 'my top', 'schedule my top', 'schedule the top', 'schedule my first',
+            'schedule the first', 'my first task', 'the first task', 'top item', 'first one',
+        ];
+
+        foreach ($phrases as $phrase) {
+            if (str_contains($normalized, $phrase)) {
+                return true;
+            }
+        }
+
+        if (preg_match('/#\s*1\b|\bno\.\s*1\b/', $normalized)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function extractRequestedTopN(string $userMessage): ?int
+    {
+        $normalized = mb_strtolower(trim($userMessage));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (preg_match('/\btop\s+(\d{1,2})\b/', $normalized, $m)) {
+            $n = (int) $m[1];
+
+            return $n > 0 ? min($n, 20) : null;
+        }
+
+        $wordMap = [
+            'one' => 1,
+            'two' => 2,
+            'three' => 3,
+            'four' => 4,
+            'five' => 5,
+            'six' => 6,
+            'seven' => 7,
+            'eight' => 8,
+            'nine' => 9,
+            'ten' => 10,
+        ];
+        if (preg_match('/\btop\s+(one|two|three|four|five|six|seven|eight|nine|ten)\b/', $normalized, $m)) {
+            return $wordMap[$m[1]] ?? null;
+        }
+
+        return null;
     }
 
     /**
@@ -1221,6 +1659,9 @@ class ContextBuilder
     }
 
     /**
+     * Build conversation history for multiturn. Prioritizes the last exchange (most recent user + assistant)
+     * with a higher char limit so the LLM sees the previous list/reply clearly.
+     *
      * @return array<int, array{role: string, content: string}>
      */
     private function buildConversationHistory(?AssistantThread $thread, ?string $currentUserMessage = null): array
@@ -1229,20 +1670,33 @@ class ContextBuilder
             return [];
         }
 
-        $limit = (int) config('tasklyst.context.conversation_history_limit', 5);
-        $maxChars = (int) config('tasklyst.context.conversation_history_message_max_chars', 200);
-        $messages = $thread->lastMessages($limit + 1);
+        $limit = (int) config('tasklyst.context.conversation_history_limit', 6);
+        $maxCharsDefault = (int) config('tasklyst.context.conversation_history_message_max_chars', 200);
+        $maxCharsLastAssistant = (int) config('tasklyst.context.conversation_history_last_assistant_max_chars', 600);
+        $messages = $thread->lastMessages($limit + 2);
 
         if ($messages->isNotEmpty() && $messages->last()->role === 'user') {
             $messages = $messages->slice(0, -1);
         }
 
-        $messages = $messages->take($limit);
+        $messages = $messages->take($limit)->values();
+        $lastAssistantIndex = null;
+        foreach ($messages->reverse()->values() as $i => $m) {
+            if ($m->role === 'assistant') {
+                $lastAssistantIndex = $messages->count() - 1 - $i;
+                break;
+            }
+        }
 
-        return $messages->map(fn ($m) => [
-            'role' => $m->role,
-            'content' => $this->limitText($m->content, $maxChars) ?? '',
-        ])->values()->all();
+        return $messages->map(function ($m, $i) use ($maxCharsDefault, $maxCharsLastAssistant, $lastAssistantIndex) {
+            $isLastAssistant = $lastAssistantIndex !== null && $i === $lastAssistantIndex;
+            $maxChars = $isLastAssistant ? $maxCharsLastAssistant : $maxCharsDefault;
+
+            return [
+                'role' => $m->role,
+                'content' => $this->limitText($m->content, $maxChars) ?? '',
+            ];
+        })->values()->all();
     }
 
     /**
@@ -1282,8 +1736,7 @@ class ContextBuilder
 
         $now = now();
         $timezone = $payload['timezone'] ?? config('app.timezone', 'Asia/Manila');
-
-        return [
+        $minimal = [
             'current_time' => $payload['current_time'] ?? $now->toIso8601String(),
             'current_date' => $payload['current_date'] ?? $now->toDateString(),
             'timezone' => $timezone,
@@ -1291,6 +1744,25 @@ class ContextBuilder
             'scheduling_rule' => $payload['scheduling_rule'] ?? 'Any suggested start_datetime must be strictly after current_time. Do not suggest times in the past.',
             'conversation_history' => [],
         ];
+        if (isset($payload['user_current_request'])) {
+            $minimal['user_current_request'] = $payload['user_current_request'];
+        }
+        if (isset($payload['previous_list_context'])) {
+            $minimal['previous_list_context'] = $payload['previous_list_context'];
+        }
+        foreach (['tasks', 'events', 'projects'] as $key) {
+            if (isset($payload[$key]) && is_array($payload[$key]) && $payload[$key] !== []) {
+                $minimal[$key] = $payload[$key];
+            }
+        }
+        if (isset($payload['availability']) && is_array($payload['availability'])) {
+            $minimal['availability'] = $payload['availability'];
+        }
+        if (isset($payload['context_authority'])) {
+            $minimal['context_authority'] = $payload['context_authority'];
+        }
+
+        return $minimal;
     }
 
     /**

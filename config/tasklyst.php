@@ -135,9 +135,11 @@ return [
         'event_limit' => (int) env('TASKLYST_CONTEXT_EVENT_LIMIT', 10),
         'project_limit' => (int) env('TASKLYST_CONTEXT_PROJECT_LIMIT', 5),
         'project_tasks_limit' => (int) env('TASKLYST_CONTEXT_PROJECT_TASKS_LIMIT', 10),
-        'conversation_history_limit' => (int) env('TASKLYST_CONTEXT_CONVERSATION_HISTORY_LIMIT', 5),
+        'conversation_history_limit' => (int) env('TASKLYST_CONTEXT_CONVERSATION_HISTORY_LIMIT', 6),
         // Max characters per message in conversation_history to avoid blowing token budget.
         'conversation_history_message_max_chars' => (int) env('TASKLYST_CONTEXT_CONVERSATION_HISTORY_MESSAGE_MAX_CHARS', 200),
+        // Last assistant message gets more chars so the LLM sees the previous list (e.g. ranked tasks) for multiturn.
+        'conversation_history_last_assistant_max_chars' => (int) env('TASKLYST_CONTEXT_CONVERSATION_HISTORY_LAST_ASSISTANT_MAX_CHARS', 600),
         // resolve_dependency and adjust_* intents use smaller entity sets to keep prompts lean.
         'resolve_dependency_entity_limit' => (int) env('TASKLYST_CONTEXT_RESOLVE_DEPENDENCY_LIMIT', 5),
         // Smaller limits for general_query so the LLM has task/event/project awareness without blowing token budget.

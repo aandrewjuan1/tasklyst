@@ -126,6 +126,7 @@ class StructuredOutputSanitizer
                     $structured['duration'],
                     $structured['sessions']
                 );
+                unset($structured['proposed_properties']);
 
                 $structured['recommended_action'] = match ($key) {
                     'tasks' => __('You have no tasks yet. Add tasks to your list to get scheduling suggestions.'),
@@ -154,81 +155,16 @@ class StructuredOutputSanitizer
             }
         }
 
-        $result = $this->sanitizeSingleScheduleRecommendation($structured, $intent);
-
-        return $this->correctTaskScheduleStartToSameDayIfRequested($result, $context, $userMessage, $intent);
-    }
-
-    /** Same-day keywords: user likely means today; do not correct if they said tomorrow or a future day. */
-    private const SAME_DAY_KEYWORDS = [
-        'later', 'tonight', 'today', 'evening', 'this evening', 'later evening', 'later today',
-        'later at night', 'after lunch', 'after work', 'this afternoon', 'this morning',
-    ];
-
-    private const TOMORROW_KEYWORDS = ['tomorrow', 'next day', 'day after'];
-
-    /**
-     * If the user asked for same-day (e.g. "later", "tonight") but the LLM returned tomorrow's date,
-     * correct start_datetime (and proposed_properties) to use current_date with the same time.
-     *
-     * @param  array<string, mixed>  $structured
-     * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
-     */
-    private function correctTaskScheduleStartToSameDayIfRequested(array $structured, array $context, ?string $userMessage, LlmIntent $intent): array
-    {
-        if ($intent !== LlmIntent::ScheduleTask && $intent !== LlmIntent::AdjustTaskDeadline) {
-            return $structured;
-        }
-
-        $currentDate = $context['current_date'] ?? null;
-        if (! is_string($currentDate) || $currentDate === '') {
-            return $structured;
-        }
-
-        $startRaw = $structured['start_datetime'] ?? null;
-        if (! is_string($startRaw) || $startRaw === '') {
-            return $structured;
-        }
-
-        $msg = $userMessage !== null && $userMessage !== '' ? mb_strtolower($userMessage, 'UTF-8') : '';
-        $hasSameDay = false;
-        foreach (self::SAME_DAY_KEYWORDS as $keyword) {
-            if (str_contains($msg, $keyword)) {
-                $hasSameDay = true;
-                break;
+        if ($intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline) {
+            unset($structured['end_datetime']);
+            if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+                unset($structured['proposed_properties']['end_datetime']);
             }
-        }
-        foreach (self::TOMORROW_KEYWORDS as $keyword) {
-            if (str_contains($msg, $keyword)) {
-                return $structured;
-            }
-        }
-        if (! $hasSameDay) {
+
             return $structured;
         }
 
-        try {
-            $startDt = \Carbon\CarbonImmutable::parse($startRaw, config('app.timezone'));
-        } catch (\Throwable) {
-            return $structured;
-        }
-
-        $startDateStr = $startDt->toDateString();
-        $currentDateNormalized = \Carbon\CarbonImmutable::parse($currentDate, config('app.timezone'))->toDateString();
-        $nextDay = \Carbon\CarbonImmutable::parse($currentDate, config('app.timezone'))->addDay()->toDateString();
-
-        if ($startDateStr !== $nextDay) {
-            return $structured;
-        }
-
-        $corrected = $currentDateNormalized.'T'.$startDt->format('H:i:s').$startDt->format('P');
-        $structured['start_datetime'] = $corrected;
-        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties']) && array_key_exists('start_datetime', $structured['proposed_properties'])) {
-            $structured['proposed_properties']['start_datetime'] = $corrected;
-        }
-
-        return $structured;
+        return $this->sanitizeSingleScheduleRecommendation($structured, $intent);
     }
 
     /**
@@ -289,10 +225,6 @@ class StructuredOutputSanitizer
 
         if (isset($first['start_datetime'])) {
             $correctedStart = $first['start_datetime'];
-            if ($correctedStart !== $start) {
-                $structured['_time_corrected_to_future'] = true;
-                $structured['_original_start_datetime'] = $start;
-            }
             $structured['start_datetime'] = $correctedStart;
             if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
                 $structured['proposed_properties']['start_datetime'] = $correctedStart;
@@ -580,11 +512,11 @@ class StructuredOutputSanitizer
 
         $scheduledTasks = $structured['scheduled_tasks'] ?? [];
         if (is_array($scheduledTasks)) {
-            $structured['scheduled_tasks'] = $allowedTaskTitles === []
+            $filtered = $allowedTaskTitles === []
                 ? []
-                : $this->applyScheduleTimeGuardsThenStripEndFromTaskItems(
-                    $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
-                );
+                : $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title');
+            $withIds = $this->injectTaskIdsIntoScheduledTasks($filtered, $context['tasks'] ?? []);
+            $structured['scheduled_tasks'] = $this->applyScheduleTimeGuardsThenStripEndFromTaskItems($withIds);
         }
 
         $scheduledEvents = $structured['scheduled_events'] ?? [];
@@ -622,11 +554,11 @@ class StructuredOutputSanitizer
 
         $scheduledTasks = $structured['scheduled_tasks'] ?? [];
         if (is_array($scheduledTasks)) {
-            $structured['scheduled_tasks'] = $allowedTaskTitles === []
+            $filtered = $allowedTaskTitles === []
                 ? []
-                : $this->applyScheduleTimeGuardsThenStripEndFromTaskItems(
-                    $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
-                );
+                : $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title');
+            $withIds = $this->injectTaskIdsIntoScheduledTasks($filtered, $context['tasks'] ?? []);
+            $structured['scheduled_tasks'] = $this->applyScheduleTimeGuardsThenStripEndFromTaskItems($withIds);
         }
 
         $scheduledProjects = $structured['scheduled_projects'] ?? [];
@@ -708,11 +640,11 @@ class StructuredOutputSanitizer
 
         $scheduledTasks = $structured['scheduled_tasks'] ?? [];
         if (is_array($scheduledTasks)) {
-            $structured['scheduled_tasks'] = $allowedTaskTitles === []
+            $filtered = $allowedTaskTitles === []
                 ? []
-                : $this->applyScheduleTimeGuardsThenStripEndFromTaskItems(
-                    $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title')
-                );
+                : $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title');
+            $withIds = $this->injectTaskIdsIntoScheduledTasks($filtered, $context['tasks'] ?? []);
+            $structured['scheduled_tasks'] = $this->applyScheduleTimeGuardsThenStripEndFromTaskItems($withIds);
         }
 
         $scheduledEvents = $structured['scheduled_events'] ?? [];
@@ -734,6 +666,49 @@ class StructuredOutputSanitizer
         }
 
         return $structured;
+    }
+
+    /**
+     * Inject task id from context into each scheduled task by matching title, so Apply can update the correct task.
+     *
+     * @param  array<int, array<string, mixed>>  $scheduledTasks
+     * @param  array<int, mixed>  $contextTasks
+     * @return array<int, array<string, mixed>>
+     */
+    private function injectTaskIdsIntoScheduledTasks(array $scheduledTasks, array $contextTasks): array
+    {
+        $allowedTitles = $this->titlesFromContextItems($contextTasks);
+        if ($allowedTitles === []) {
+            return $scheduledTasks;
+        }
+
+        $titleToId = [];
+        foreach ($contextTasks as $t) {
+            if (! is_array($t) || ! isset($t['title'], $t['id']) || ! is_numeric($t['id'])) {
+                continue;
+            }
+            $title = trim((string) $t['title']);
+            if ($title !== '' && ! array_key_exists($title, $titleToId)) {
+                $titleToId[$title] = (int) $t['id'];
+            }
+        }
+
+        $out = [];
+        foreach ($scheduledTasks as $item) {
+            if (! is_array($item)) {
+                $out[] = $item;
+
+                continue;
+            }
+            $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+            $matchedTitle = $title !== '' ? $this->bestMatchingTitle($title, $allowedTitles) : null;
+            if ($matchedTitle !== null && isset($titleToId[$matchedTitle])) {
+                $item['id'] = $titleToId[$matchedTitle];
+            }
+            $out[] = $item;
+        }
+
+        return $out;
     }
 
     /**
@@ -1474,18 +1449,36 @@ class StructuredOutputSanitizer
      */
     private function bestMatchingTitle(string $title, array $allowedTitles): ?string
     {
-        $lower = mb_strtolower($title);
+        $normalized = (string) preg_replace('/\s+/', ' ', trim($title));
+        $lower = mb_strtolower($normalized);
         foreach ($allowedTitles as $allowed) {
-            $allowedTrimmed = trim($allowed);
+            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', $allowed));
             if (mb_strtolower($allowedTrimmed) === $lower) {
                 return $allowedTrimmed;
             }
         }
 
+        $bestPrefixMatch = null;
+        foreach ($allowedTitles as $allowed) {
+            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', $allowed));
+            $allowedLower = mb_strtolower($allowedTrimmed);
+            if ($allowedLower === '' || $lower === '') {
+                continue;
+            }
+            if (str_starts_with($lower, $allowedLower) || str_starts_with($allowedLower, $lower)) {
+                if ($bestPrefixMatch === null || mb_strlen($allowedTrimmed) > mb_strlen($bestPrefixMatch)) {
+                    $bestPrefixMatch = $allowedTrimmed;
+                }
+            }
+        }
+        if ($bestPrefixMatch !== null) {
+            return $bestPrefixMatch;
+        }
+
         $bestSimilarity = 0;
         $bestTitle = null;
         foreach ($allowedTitles as $allowed) {
-            $allowedTrimmed = trim($allowed);
+            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', $allowed));
             similar_text($lower, mb_strtolower($allowedTrimmed), $percent);
 
             if ($percent >= self::TITLE_SIMILARITY_THRESHOLD && $percent > $bestSimilarity) {
