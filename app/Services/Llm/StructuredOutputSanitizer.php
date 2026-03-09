@@ -1412,8 +1412,11 @@ class StructuredOutputSanitizer
         return array_values(array_unique($names));
     }
 
-    /** Minimum similarity (0-100) to accept a model title as matching a context title (handles minor typos). */
-    private const TITLE_SIMILARITY_THRESHOLD = 85;
+    /**
+     * Minimum similarity (0-100) to accept a model title as matching a context title (handles minor typos).
+     * Slightly relaxed so small differences (e.g. emojis, punctuation) do not cause valid context items to be dropped.
+     */
+    private const TITLE_SIMILARITY_THRESHOLD = 70;
 
     /**
      * @param  array<int, mixed>  $ranked

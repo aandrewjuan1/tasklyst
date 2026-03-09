@@ -270,6 +270,42 @@ new class extends Component
         return ['messages' => $this->messages];
     }
 
+    public function debugStructuredOutput(int $assistantMessageId): void
+    {
+        /** @var User|null $user */
+        $user = Auth::user();
+
+        if (! $user instanceof User) {
+            abort(403);
+        }
+
+        if ($this->threadId === null) {
+            abort(404);
+        }
+
+        /** @var AssistantMessage|null $message */
+        $message = AssistantMessage::query()
+            ->where('assistant_thread_id', $this->threadId)
+            ->where('id', $assistantMessageId)
+            ->where('role', 'assistant')
+            ->first();
+
+        if (! $message instanceof AssistantMessage) {
+            abort(404);
+        }
+
+        $metadata = $message->metadata ?? [];
+        if (! is_array($metadata)) {
+            $metadata = [];
+        }
+
+        dd([
+            'structured' => $metadata['structured'] ?? null,
+            'raw_structured_from_llm' => $metadata['raw_structured_from_llm'] ?? null,
+            'recommendation_snapshot' => $metadata['recommendation_snapshot'] ?? null,
+        ]);
+    }
+
     /**
      * Apply or reject a recommendation associated with a given assistant message.
      */

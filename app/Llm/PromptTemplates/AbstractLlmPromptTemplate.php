@@ -43,15 +43,17 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
     /**
      * Scheduling intents: when the user explicitly specifies an exact date and/or time
      * (e.g. "tomorrow at 3pm", "on March 10 at 15:00", "for 90 minutes starting at 7pm"),
-     * treat that as a hard constraint, not a suggestion.
+     * treat that as a hard constraint, not a suggestion, for BOTH JSON fields and narrative text.
      *
      * You MUST:
      * - Use that exact day and clock time for start_datetime (and duration if given), instead of choosing your own "better" time.
-     * - Only deviate when it is impossible due to obvious contradictions in Context (e.g. no such date exists);
+     * - Keep recommended_action and reasoning consistent with that exact slot. If start_datetime is tomorrow at 14:00,
+     *   do not talk about "tonight", "later today", or any other time window in the text.
+     * - Only deviate when it is impossible due to obvious contradictions in Context (e.g. no such date exists or there is literally no free time at that date/time);
      *   in that case, explain clearly in recommended_action and reasoning and ask the user to pick another time.
      * - Never silently move the time earlier or later (for example, do not change "tomorrow at 3pm" to "tonight at 8pm" or "tomorrow at 7pm").
      */
-    protected const RESPECT_EXPLICIT_USER_TIME = 'When the user explicitly requests a concrete date or time (for example: "tomorrow at 3pm", "March 10 at 14:00", "for 90 minutes starting at 7pm"), you MUST schedule at exactly that requested moment and duration. Do not choose a different time just because it looks better with their availability—treat the user-specified time as a hard constraint. Only if the requested time is impossible or invalid should you refuse and explain why, asking the user to choose a new time instead of silently changing it.';
+    protected const RESPECT_EXPLICIT_USER_TIME = 'When the user explicitly requests a concrete date or time (for example: "tomorrow at 3pm", "March 10 at 14:00", "for 90 minutes starting at 7pm"), you MUST schedule at exactly that requested moment and duration, and describe that same slot consistently in recommended_action and reasoning. Do not choose or describe a different time just because it looks better with their availability—treat the user-specified time as a hard constraint. Only if the requested time is impossible or invalid should you refuse and explain why, asking the user to choose a new time instead of silently changing it.';
 
     /**
      * Scheduling intents only: reasoning must reference Context and sound like a task coach.
