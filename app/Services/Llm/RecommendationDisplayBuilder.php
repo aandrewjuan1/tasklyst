@@ -19,6 +19,8 @@ use Carbon\Carbon;
 
 /**
  * Builds validated RecommendationDisplayDto from Phase 5 inference result.
+ * Uses the canonical structured output (derived from raw LLM output in RunLlmInferenceAction
+ * with minimal transforms) as the single reference for display and appliable_changes.
  * Computes validation-based confidence (required fields, date parse, enums) for UI; do not use model self-reported confidence.
  */
 class RecommendationDisplayBuilder
@@ -27,6 +29,7 @@ class RecommendationDisplayBuilder
 
     public function build(LlmInferenceResult $result, LlmIntent $intent, LlmEntityType $entityType): RecommendationDisplayDto
     {
+        /** @var array<string, mixed> Canonical structured output from LLM (raw with minimal transforms). */
         $structured = $result->structured;
         $validationScore = $this->computeValidationConfidence($structured, $intent, $entityType);
 
@@ -35,16 +38,6 @@ class RecommendationDisplayBuilder
 
         $actionForDisplay = $recommendedAction !== '' ? $recommendedAction : __('No specific action suggested.');
         $reasoningForDisplay = $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.');
-
-        if (! empty($structured['_time_corrected_to_future'])
-            && ! empty($structured['_original_start_datetime'])
-            && ! empty($structured['start_datetime'])) {
-            $actionForDisplay = $this->replaceTimeInMessageWithCorrected(
-                $actionForDisplay,
-                (string) $structured['_original_start_datetime'],
-                (string) $structured['start_datetime']
-            );
-        }
 
         $listedItems = isset($structured['listed_items']) && is_array($structured['listed_items']) ? $structured['listed_items'] : null;
 
@@ -62,6 +55,19 @@ class RecommendationDisplayBuilder
             ]);
         }
 
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+            $structured = $this->ensureScheduleFromNarrativeWhenMissing($structured);
+        }
+
+        // If the model provided the target title/name in structured output but forgot to mention it in the
+        // narrative recommended_action, inject it so the UI always shows which entity the suggestion targets.
+        if ($this->isScheduleOrAdjustIntent($intent) && in_array($entityType, [LlmEntityType::Task, LlmEntityType::Event, LlmEntityType::Project], true)) {
+            $targetLabel = $this->targetLabelFromStructured($structured, $entityType);
+            if ($targetLabel !== '' && mb_stripos($actionForDisplay, $targetLabel) === false) {
+                $actionForDisplay = $targetLabel.' — '.trim($actionForDisplay);
+            }
+        }
+
         $rankedLines = $this->formatRankedListForMessage($structured, $intent);
         $nextStepsLines = $this->formatNextStepsForMessage($structured);
         $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);
@@ -71,16 +77,61 @@ class RecommendationDisplayBuilder
 
         if ($entityType === LlmEntityType::Multiple && $appliableChanges !== [] && ($appliableChanges['entity_type'] ?? '') === 'task') {
             $firstTask = $structured['scheduled_tasks'][0] ?? null;
-            if (is_array($firstTask) && isset($firstTask['title']) && trim((string) $firstTask['title']) !== '') {
-                $displayStructured['target_task_title'] = trim((string) $firstTask['title']);
+            if (is_array($firstTask)) {
+                if (isset($firstTask['title']) && trim((string) $firstTask['title']) !== '') {
+                    $displayStructured['target_task_title'] = trim((string) $firstTask['title']);
+                }
+                if (isset($firstTask['id']) && is_numeric($firstTask['id'])) {
+                    $displayStructured['target_task_id'] = (int) $firstTask['id'];
+                }
             }
         }
 
+        // ScheduleTask/AdjustTaskDeadline: use id and title from LLM structured output.
         if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
-            && $entityType === LlmEntityType::Task
-            && isset($structured['title'])
-            && trim((string) $structured['title']) !== '') {
-            $displayStructured['target_task_title'] = trim((string) $structured['title']);
+            && $entityType === LlmEntityType::Task) {
+            if (isset($structured['title']) && trim((string) $structured['title']) !== '') {
+                $displayStructured['target_task_title'] = trim((string) $structured['title']);
+            } elseif (isset($structured['target_task_title']) && trim((string) $structured['target_task_title']) !== '') {
+                $displayStructured['target_task_title'] = trim((string) $structured['target_task_title']);
+            }
+            if (isset($structured['id']) && is_numeric($structured['id'])) {
+                $displayStructured['target_task_id'] = (int) $structured['id'];
+            } elseif (isset($structured['target_task_id']) && is_numeric($structured['target_task_id'])) {
+                $displayStructured['target_task_id'] = (int) $structured['target_task_id'];
+            }
+        }
+
+        // ScheduleEvent/AdjustEventTime: use id and title from LLM structured output.
+        if (in_array($intent, [LlmIntent::ScheduleEvent, LlmIntent::AdjustEventTime], true)
+            && $entityType === LlmEntityType::Event) {
+            if (isset($structured['title']) && trim((string) $structured['title']) !== '') {
+                $displayStructured['target_event_title'] = trim((string) $structured['title']);
+            } elseif (isset($structured['target_event_title']) && trim((string) $structured['target_event_title']) !== '') {
+                $displayStructured['target_event_title'] = trim((string) $structured['target_event_title']);
+            }
+            if (isset($structured['id']) && is_numeric($structured['id'])) {
+                $displayStructured['target_event_id'] = (int) $structured['id'];
+            } elseif (isset($structured['target_event_id']) && is_numeric($structured['target_event_id'])) {
+                $displayStructured['target_event_id'] = (int) $structured['target_event_id'];
+            }
+        }
+
+        // ScheduleProject/AdjustProjectTimeline: use id and name from LLM structured output.
+        if (in_array($intent, [LlmIntent::ScheduleProject, LlmIntent::AdjustProjectTimeline], true)
+            && $entityType === LlmEntityType::Project) {
+            if (isset($structured['name']) && trim((string) $structured['name']) !== '') {
+                $displayStructured['target_project_name'] = trim((string) $structured['name']);
+            } elseif (isset($structured['target_project_name']) && trim((string) $structured['target_project_name']) !== '') {
+                $displayStructured['target_project_name'] = trim((string) $structured['target_project_name']);
+            } elseif (isset($structured['title']) && trim((string) $structured['title']) !== '') {
+                $displayStructured['target_project_name'] = trim((string) $structured['title']);
+            }
+            if (isset($structured['id']) && is_numeric($structured['id'])) {
+                $displayStructured['target_project_id'] = (int) $structured['id'];
+            } elseif (isset($structured['target_project_id']) && is_numeric($structured['target_project_id'])) {
+                $displayStructured['target_project_id'] = (int) $structured['target_project_id'];
+            }
         }
 
         return new RecommendationDisplayDto(
@@ -96,6 +147,28 @@ class RecommendationDisplayBuilder
             followupSuggestions: $followupSuggestions,
             appliableChanges: $appliableChanges,
         );
+    }
+
+    private function isScheduleOrAdjustIntent(LlmIntent $intent): bool
+    {
+        return in_array($intent, [
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+        ], true);
+    }
+
+    private function targetLabelFromStructured(array $structured, LlmEntityType $entityType): string
+    {
+        return match ($entityType) {
+            LlmEntityType::Task => trim((string) ($structured['title'] ?? $structured['target_task_title'] ?? '')),
+            LlmEntityType::Event => trim((string) ($structured['title'] ?? $structured['target_event_title'] ?? '')),
+            LlmEntityType::Project => trim((string) ($structured['name'] ?? $structured['target_project_name'] ?? $structured['title'] ?? '')),
+            default => '',
+        };
     }
 
     /**
@@ -303,18 +376,17 @@ class RecommendationDisplayBuilder
 
         if ($intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline) {
             $dto = TaskScheduleRecommendationDto::fromStructured($structured);
-            if ($dto === null) {
-                return [];
+            $properties = $dto !== null ? $dto->proposedProperties() : $this->schedulePropertiesFromStructured($structured);
+
+            $result = [
+                'entity_type' => 'task',
+                'properties' => $properties,
+            ];
+            if (isset($structured['id']) && is_numeric($structured['id'])) {
+                $result['target_task_id'] = (int) $structured['id'];
             }
 
-            $properties = $dto->proposedProperties();
-
-            return $properties !== []
-                ? [
-                    'entity_type' => 'task',
-                    'properties' => $properties,
-                ]
-                : [];
+            return $properties !== [] ? $result : [];
         }
 
         if ($intent === LlmIntent::CreateTask) {
@@ -352,13 +424,15 @@ class RecommendationDisplayBuilder
             }
 
             $properties = $dto->proposedProperties();
+            $result = [
+                'entity_type' => 'event',
+                'properties' => $properties,
+            ];
+            if (isset($structured['id']) && is_numeric($structured['id'])) {
+                $result['target_event_id'] = (int) $structured['id'];
+            }
 
-            return $properties !== []
-                ? [
-                    'entity_type' => 'event',
-                    'properties' => $properties,
-                ]
-                : [];
+            return $properties !== [] ? $result : [];
         }
 
         if ($intent === LlmIntent::CreateEvent) {
@@ -390,13 +464,15 @@ class RecommendationDisplayBuilder
             }
 
             $properties = $dto->proposedProperties();
+            $result = [
+                'entity_type' => 'project',
+                'properties' => $properties,
+            ];
+            if (isset($structured['id']) && is_numeric($structured['id'])) {
+                $result['target_project_id'] = (int) $structured['id'];
+            }
 
-            return $properties !== []
-                ? [
-                    'entity_type' => 'project',
-                    'properties' => $properties,
-                ]
-                : [];
+            return $properties !== [] ? $result : [];
         }
 
         if ($intent === LlmIntent::CreateProject) {
@@ -528,41 +604,19 @@ class RecommendationDisplayBuilder
             $properties['priority'] = $priority;
         }
 
-        return $properties !== []
-            ? [
-                'entity_type' => 'task',
-                'properties' => $properties,
-            ]
-            : [];
-    }
-
-    /**
-     * When the sanitizer corrected a past start time, replace the original time in the message
-     * with the corrected time so the displayed text matches the Proposed schedule.
-     */
-    private function replaceTimeInMessageWithCorrected(string $message, string $originalIso, string $correctedIso): string
-    {
-        try {
-            $original = Carbon::parse($originalIso)->setTimezone(config('app.timezone'));
-            $corrected = Carbon::parse($correctedIso)->setTimezone(config('app.timezone'));
-        } catch (\Throwable) {
-            return $message;
+        if ($properties === []) {
+            return [];
         }
 
-        $patterns = [
-            $original->format('g:i A') => $corrected->format('g:i A'),
-            $original->format('ga') => $corrected->format('ga'),
-            $original->format('g a') => $corrected->format('g a'),
-            $original->format('H:i') => $corrected->format('H:i'),
+        $result = [
+            'entity_type' => 'task',
+            'properties' => $properties,
         ];
-
-        foreach ($patterns as $originalStr => $correctedStr) {
-            if ($originalStr !== $correctedStr && $originalStr !== '') {
-                $message = str_replace($originalStr, $correctedStr, $message);
-            }
+        if (isset($item['id']) && is_numeric($item['id'])) {
+            $result['target_task_id'] = (int) $item['id'];
         }
 
-        return $message;
+        return $result;
     }
 
     /**
@@ -908,6 +962,40 @@ class RecommendationDisplayBuilder
         return implode("\n\n", $parts);
     }
 
+    /**
+     * Build schedule properties from structured when DTO is null (e.g. LLM put time only in text or in non-standard place).
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function schedulePropertiesFromStructured(array $structured): array
+    {
+        $proposed = isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])
+            ? $structured['proposed_properties']
+            : [];
+        $source = array_merge($structured, $proposed);
+
+        $properties = [];
+        $startRaw = $source['start_datetime'] ?? $source['startDatetime'] ?? null;
+        if (is_string($startRaw) && trim($startRaw) !== '') {
+            $start = $this->parseDateTime(trim($startRaw));
+            if ($start !== null) {
+                $properties['startDatetime'] = $start->toIso8601String();
+            }
+        }
+        if (isset($source['duration']) && is_numeric($source['duration']) && (int) $source['duration'] > 0) {
+            $properties['duration'] = (int) $source['duration'];
+        }
+        if (isset($source['priority']) && is_string($source['priority'])) {
+            $p = strtolower(trim($source['priority']));
+            if (in_array($p, self::PRIORITY_VALUES, true)) {
+                $properties['priority'] = $p;
+            }
+        }
+
+        return $properties;
+    }
+
     private function parseDateTime(mixed $value): ?Carbon
     {
         if (! is_string($value) && ! is_numeric($value)) {
@@ -923,13 +1011,125 @@ class RecommendationDisplayBuilder
     }
 
     /**
+     * When the LLM mentions a time in the narrative but omits start_datetime in JSON, infer from text
+     * so the Proposed schedule section can show and we support the LLM instead of contradicting it.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function ensureScheduleFromNarrativeWhenMissing(array $structured): array
+    {
+        $startRaw = isset($structured['start_datetime']) && is_string($structured['start_datetime'])
+            ? trim($structured['start_datetime'])
+            : '';
+        if ($startRaw !== '' && $this->parseDateTime($startRaw) !== null) {
+            return $structured;
+        }
+
+        $text = trim((string) ($structured['recommended_action'] ?? '').' '.(string) ($structured['reasoning'] ?? ''));
+        if ($text === '') {
+            return $structured;
+        }
+
+        $inferred = $this->inferScheduleFromNarrative($text);
+        if ($inferred === []) {
+            return $structured;
+        }
+
+        return array_merge($structured, $inferred);
+    }
+
+    /**
+     * Parse time (e.g. "11pm", "8pm", "20:00") and duration (e.g. "for 1 hour") from narrative text.
+     *
+     * @return array{start_datetime?: string, duration?: int}
+     */
+    private function inferScheduleFromNarrative(string $text): array
+    {
+        $timezone = config('app.timezone', 'Asia/Manila');
+        $now = Carbon::now($timezone);
+
+        $hour = null;
+        $minute = 0;
+
+        if (preg_match('/\b(\d{1,2})\s*:\s*(\d{2})\s*(?:\s*[ap]\.?m\.?)?\b/iu', $text, $m)) {
+            $hour = (int) $m[1];
+            $minute = (int) $m[2];
+            if (preg_match('/\s*[p]\.?m\.?\b/iu', $m[0]) && $hour >= 1 && $hour <= 12) {
+                $hour = $hour === 12 ? 12 : $hour + 12;
+            } elseif (preg_match('/\s*[a]\.?m\.?\b/iu', $m[0]) && $hour === 12) {
+                $hour = 0;
+            }
+        } elseif (preg_match('/\b(\d{1,2})\s*[ap]\.?m\.?\b/iu', $text, $m)) {
+            $hour = (int) $m[1];
+            $isPm = preg_match('/\b\d{1,2}\s*p\.?m\.?\b/iu', $text);
+            $isAm = preg_match('/\b\d{1,2}\s*a\.?m\.?\b/iu', $text);
+            if ($isPm && $hour >= 1 && $hour <= 12) {
+                $hour = $hour === 12 ? 12 : $hour + 12;
+            } elseif ($isAm && $hour === 12) {
+                $hour = 0;
+            } elseif (! $isAm && ! $isPm && $hour >= 1 && $hour <= 12 && $hour < 7) {
+                $hour += 12;
+            }
+        } elseif (preg_match('/\b(2[0-3]|[01]?\d)\s*:\s*(\d{2})\b/', $text, $m)) {
+            $hour = (int) $m[1];
+            $minute = (int) $m[2];
+        }
+
+        if ($hour === null || $hour < 0 || $hour > 23) {
+            return [];
+        }
+
+        $start = $now->copy()->setTime($hour, $minute, 0);
+        if ($start->lte($now)) {
+            $start = $start->addDay();
+        }
+        $startIso = $start->toIso8601String();
+
+        $duration = null;
+        if (preg_match('/\b(?:for\s+)?(\d+)\s*(?:hour|hr)s?\b/iu', $text, $m)) {
+            $duration = (int) $m[1] * 60;
+        } elseif (preg_match('/\b(?:for\s+)?(\d+)\s*(?:min(?:ute)?s?)\b/iu', $text, $m)) {
+            $duration = (int) $m[1];
+        }
+
+        $out = ['start_datetime' => $startIso];
+        if ($duration !== null && $duration > 0) {
+            $out['duration'] = $duration;
+        }
+
+        return $out;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function sanitizeStructuredForDisplay(array $structured, LlmIntent $intent): array
     {
         $out = [];
 
-        $allowedKeys = ['ranked_tasks', 'ranked_events', 'ranked_projects', 'scheduled_tasks', 'scheduled_events', 'scheduled_projects', 'listed_items', 'start_datetime', 'end_datetime', 'priority', 'duration', 'timezone', 'location', 'blockers', 'next_steps', 'proposed_properties', 'target_task_title'];
+        $allowedKeys = [
+            'ranked_tasks',
+            'ranked_events',
+            'ranked_projects',
+            'scheduled_tasks',
+            'scheduled_events',
+            'scheduled_projects',
+            'listed_items',
+            'start_datetime',
+            'end_datetime',
+            'priority',
+            'duration',
+            'timezone',
+            'location',
+            'blockers',
+            'next_steps',
+            'proposed_properties',
+            'target_task_title',
+            'target_task_id',
+            'id',
+            'title',
+        ];
         foreach ($allowedKeys as $key) {
             if (array_key_exists($key, $structured) && $structured[$key] !== null) {
                 $out[$key] = $structured[$key];

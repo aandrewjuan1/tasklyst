@@ -123,13 +123,6 @@
                                 </div>
                             </template>
 
-                            <template x-if="snapshot.reasoning === 'social_closing'">
-                                <div class="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-[10px] text-muted-foreground">
-                                    <flux:icon name="hand-thumb-up" class="size-3" />
-                                    <span>{{ __('Closing reply') }}</span>
-                                </div>
-                            </template>
-
                             {{-- Only show "Proposed schedule" when we have actual schedule data (when/duration/priority). Avoids empty block when LLM returns narrative-only. --}}
                             <template x-if="isSchedulingIntent(message) && hasScheduleDisplayData(message)">
                                 <div class="space-y-1">
@@ -462,11 +455,19 @@
                                 </div>
                             </template>
 
-                            {{-- Phase 5: Post-action chip (mutually exclusive with Apply/Dismiss bar); driven by snapshot.user_action --}}
+                            {{-- Phase 5: Post-action chip (mutually exclusive with Apply/Dismiss bar); driven by snapshot.user_action and snapshot.applied --}}
                             <template x-if="showPostActionChip(message)">
-                                <div class="mt-2 inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-[10px] text-emerald-800 dark:text-emerald-100">
-                                    <flux:icon name="check-circle" class="size-3" />
-                                    <span x-show="getSnapshot(message).user_action === 'accept'">{{ __('Changes applied from this suggestion') }}</span>
+                                <div class="mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px]"
+                                    :class="getSnapshot(message).user_action === 'accept' && getSnapshot(message).applied
+                                        ? 'bg-emerald-500/10 text-emerald-800 dark:text-emerald-100'
+                                        : getSnapshot(message).user_action === 'reject'
+                                            ? 'bg-muted text-muted-foreground'
+                                            : 'bg-amber-500/10 text-amber-800 dark:text-amber-100'">
+                                    <flux:icon name="check-circle" class="size-3" x-show="getSnapshot(message).user_action === 'accept' && getSnapshot(message).applied" />
+                                    <flux:icon name="x-circle" class="size-3" x-show="getSnapshot(message).user_action === 'reject'" />
+                                    <flux:icon name="information-circle" class="size-3" x-show="getSnapshot(message).user_action === 'accept' && !getSnapshot(message).applied" />
+                                    <span x-show="getSnapshot(message).user_action === 'accept' && getSnapshot(message).applied">{{ __('Changes applied from this suggestion') }}</span>
+                                    <span x-show="getSnapshot(message).user_action === 'accept' && !getSnapshot(message).applied">{{ __('No changes were applied') }}</span>
                                     <span x-show="getSnapshot(message).user_action === 'reject'">{{ __('Suggestion dismissed') }}</span>
                                 </div>
                             </template>
@@ -538,35 +539,6 @@
 
     <div class="border-t border-border/60 px-3 py-2">
         <div class="flex flex-col gap-1.5">
-            <div
-                x-show="computedFollowups.length > 0 && !isSending && pendingAssistantCount === 0"
-                x-cloak
-                class="mb-1.5 rounded-md bg-emerald-500/5 px-2.5 py-2 ring-1 ring-emerald-500/40 dark:bg-emerald-500/10"
-            >
-                <div class="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-emerald-800 dark:text-emerald-100">
-                    <flux:icon name="sparkles" class="size-3.5 text-emerald-600 dark:text-emerald-300" />
-                    <span>{{ __('Follow-up suggestions') }}</span>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-1.5">
-                    <template x-for="item in computedFollowups" :key="item.prompt">
-                        <flux:button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            class="text-[11px]! px-2.5 py-1! whitespace-normal text-left cursor-pointer border-emerald-500/60 text-emerald-800 hover:bg-emerald-500/10 dark:text-emerald-100 dark:border-emerald-400/70"
-                            x-bind:disabled="isRateLimited || isSending || pendingAssistantCount > 0"
-                            @click="submitPrompt(item.prompt)"
-                        >
-                            <span class="inline-flex items-center gap-1">
-                                <flux:icon name="arrow-up" class="size-3 text-emerald-600 dark:text-emerald-300" />
-                                <span x-text="item.prompt"></span>
-                            </span>
-                        </flux:button>
-                    </template>
-                </div>
-            </div>
-
             <div
                 x-show="errorMessage"
                 x-cloak

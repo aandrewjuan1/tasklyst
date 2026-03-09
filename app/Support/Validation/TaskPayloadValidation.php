@@ -161,6 +161,16 @@ final class TaskPayloadValidation
         }
 
         if ($end < $start) {
+            // For overdue tasks, endDatetime represents the due date. It's still valid to plan a
+            // startDatetime after the due date when the task is already overdue.
+            try {
+                if ($end < now()) {
+                    return null;
+                }
+            } catch (\Throwable) {
+                // If "now" isn't available for some reason, fall back to strict validation below.
+            }
+
             return __('End date must be the same as or after the start date.');
         }
 

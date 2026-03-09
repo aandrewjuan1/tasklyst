@@ -21,14 +21,23 @@ class LlmIntentClassificationService
         'paper',
         'study session',
         'revision',
+        // References to "first in list" or "top task" (e.g. "schedule the top 1 for later", "schedule my top task").
+        'top 1',
+        'top one',
+        'first one',
+        'the first',
+        'top task',
+        'first task',
+        'most important task',
+        'main task',
     ];
 
+    /** Do not include "schedule" here: as a verb it signals intent, not entity. Otherwise "schedule the top 1" is misclassified as event. */
     private const ENTITY_EVENT = [
         'event',
         'meeting',
         'appointment',
         'calendar',
-        'schedule',
         'events',
         'meetings',
         'class',
@@ -171,6 +180,20 @@ class LlmIntentClassificationService
         'show me my tasks', 'show me all my tasks', 'show all my tasks', 'show my tasks', 'show tasks', 'show my events', 'show all my events',
     ];
 
+    /**
+     * Requests that *sound like list/filter* but are actually prioritization, e.g.
+     * "list my top 5 tasks ASAP", "show me the most urgent tasks".
+     */
+    private const INTENT_LIST_TOP_OR_ASAP = [
+        'top',
+        'asap',
+        'urgent',
+        'most urgent',
+        'most important',
+        'highest priority',
+        'need to do asap',
+    ];
+
     /** Meta-questions or complaints about the assistant → general_query so the model can respond conversationally. */
     private const INTENT_META_OR_COMPLAINT = ['why did you not', 'why did you not answer', 'are you hallucinating', 'too complex', 'too hard for you', 'repeat it twice', 'answer it the first time', 'could not produce', 'unavailable'];
 
@@ -202,15 +225,28 @@ class LlmIntentClassificationService
             return LlmIntent::GeneralQuery;
         }
 
-        if ($this->hasAnyKeyword($normalized, self::INTENT_LIST_OR_FILTER)) {
+        // Whole-prompt scoring: consider all signals, then choose the best intent group.
+        // Tie-breaker priority: adjust > schedule > prioritize > general.
+        $adjustHits = $this->countKeywordHits($normalized, self::INTENT_ADJUST);
+        $scheduleHits = $this->countKeywordHits($normalized, self::INTENT_SCHEDULE);
+        $prioritizeHits = $this->countKeywordHits($normalized, self::INTENT_PRIORITIZE);
+        $listFilterHits = $this->countKeywordHits($normalized, self::INTENT_LIST_OR_FILTER);
+        $isTopAsapList = $this->isTopOrAsapListRequest($normalized);
+
+        $adjustScore = $adjustHits * 10;
+        $scheduleScore = ($this->hasAnyKeyword($normalized, ['schedule']) ? 12 : 0) + ($scheduleHits * 8);
+        $prioritizeScore = ($prioritizeHits * 6) + ($isTopAsapList ? 14 : 0);
+        // List/filter requests should remain GeneralQuery unless schedule/adjust signals are stronger,
+        // or the user explicitly asks for a "top/urgent/asap" prioritised list (handled by prioritizeScore).
+        $generalScore = $listFilterHits > 0 ? 10 : 0;
+
+        $max = max($adjustScore, $scheduleScore, $prioritizeScore, $generalScore);
+
+        if ($max <= 0) {
             return LlmIntent::GeneralQuery;
         }
 
-        $hasAdjust = $this->hasAnyKeyword($normalized, self::INTENT_ADJUST);
-        $hasSchedule = $this->hasAnyKeyword($normalized, self::INTENT_SCHEDULE);
-        $hasPrioritize = $this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE);
-
-        if ($hasAdjust) {
+        if ($adjustScore === $max) {
             return match ($entityType) {
                 LlmEntityType::Task => LlmIntent::AdjustTaskDeadline,
                 LlmEntityType::Event => LlmIntent::AdjustEventTime,
@@ -218,7 +254,7 @@ class LlmIntentClassificationService
             };
         }
 
-        if ($hasSchedule) {
+        if ($scheduleScore === $max) {
             if ($this->hasAnyKeyword($normalized, self::INTENT_SCHEDULE_ALL)) {
                 return LlmIntent::ScheduleAll;
             }
@@ -245,7 +281,12 @@ class LlmIntentClassificationService
             };
         }
 
-        if ($hasPrioritize) {
+        if ($prioritizeScore === $max) {
+            // "List my top/ASAP/urgent ..." should follow prioritization flow for consistency.
+            if ($entityType === LlmEntityType::Task && $isTopAsapList) {
+                return LlmIntent::PrioritizeTasks;
+            }
+
             if ($this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE_ALL)) {
                 return LlmIntent::PrioritizeAll;
             }
@@ -275,8 +316,59 @@ class LlmIntentClassificationService
         return LlmIntent::GeneralQuery;
     }
 
+    private function isTopOrAsapListRequest(string $normalized): bool
+    {
+        // Require task + a "top/urgent/asap" signal + a list/show verb.
+        $hasTopSignal = $this->hasAnyKeyword($normalized, self::INTENT_LIST_TOP_OR_ASAP)
+            || (bool) preg_match('/\btop\s+\d+\b/', $normalized);
+
+        if (! $hasTopSignal) {
+            return false;
+        }
+
+        $hasListVerb = $this->hasAnyKeyword($normalized, [
+            'list',
+            'show',
+            'give me',
+            'what are',
+            'which are',
+            'tell me',
+        ]);
+
+        // Also treat "tasks i need to do asap" (no explicit list verb) as prioritize.
+        $hasNeedToDo = $this->hasAnyKeyword($normalized, ['need to do', 'should i do', 'do next']);
+
+        return $hasListVerb || $hasNeedToDo;
+    }
+
     private function computeConfidence(string $normalized, LlmIntent $intent, LlmEntityType $entityType): float
     {
+        $adjustHits = $this->countKeywordHits($normalized, self::INTENT_ADJUST);
+        $scheduleHits = $this->countKeywordHits($normalized, self::INTENT_SCHEDULE);
+        $prioritizeHits = $this->countKeywordHits($normalized, self::INTENT_PRIORITIZE);
+
+        if (in_array($intent, [LlmIntent::AdjustTaskDeadline, LlmIntent::AdjustEventTime, LlmIntent::AdjustProjectTimeline], true) && $adjustHits > 0) {
+            return 0.85;
+        }
+        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::ScheduleEvent, LlmIntent::ScheduleProject], true)
+            && ($this->hasAnyKeyword($normalized, ['schedule']) || $scheduleHits > 0)) {
+            return 0.85;
+        }
+        if (in_array($intent, [LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects], true) && $prioritizeHits > 0) {
+            return 0.85;
+        }
+
+        if ($intent === LlmIntent::PrioritizeTasks && $entityType === LlmEntityType::Task && $this->isTopOrAsapListRequest($normalized)) {
+            // Treat "top/ASAP list" as a strong prioritization signal.
+            return 0.75;
+        }
+        if ($intent === LlmIntent::PrioritizeEvents && $entityType === LlmEntityType::Event && $this->isTopOrAsapListRequest($normalized)) {
+            return 0.75;
+        }
+        if ($intent === LlmIntent::PrioritizeProjects && $entityType === LlmEntityType::Project && $this->isTopOrAsapListRequest($normalized)) {
+            return 0.75;
+        }
+
         if ($intent === LlmIntent::PrioritizeTasksAndEvents) {
             $taskHits = $this->countKeywordHits($normalized, self::ENTITY_TASK);
             $eventHits = $this->countKeywordHits($normalized, self::ENTITY_EVENT);

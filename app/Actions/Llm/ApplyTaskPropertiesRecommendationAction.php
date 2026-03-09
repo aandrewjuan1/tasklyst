@@ -11,7 +11,6 @@ use App\Models\User;
 use App\Services\ActivityLogRecorder;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 class ApplyTaskPropertiesRecommendationAction
 {
@@ -27,7 +26,6 @@ class ApplyTaskPropertiesRecommendationAction
         'duration',
         'startDatetime',
         'endDatetime',
-        'tagNames',
     ];
 
     public function __construct(
@@ -36,7 +34,7 @@ class ApplyTaskPropertiesRecommendationAction
     ) {}
 
     /**
-     * Apply a generic task property update recommendation to the given task.
+     * Apply a task property update recommendation to the given task.
      *
      * @param  array<string, mixed>  $overrides  Optional user-modified values for properties.
      */
@@ -47,45 +45,26 @@ class ApplyTaskPropertiesRecommendationAction
         LlmIntent $intent,
         string $userAction,
         array $overrides = []
-    ): void {
+    ): bool {
         if ($userAction === 'reject') {
             $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
 
-            return;
-        }
-
-        $properties = array_merge($recommendation->proposedProperties(), $overrides);
-        $properties = array_intersect_key($properties, array_flip(self::ALLOWED_PROPERTIES));
-
-        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
-            unset($properties['endDatetime']);
-        }
-
-        if ($properties === []) {
-            $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
-
-            return;
-        }
-
-        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
-            && ! $this->isScheduleAcceptableFromProperties($task, $properties, $intent)
-        ) {
-            $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
-
-            throw ValidationException::withMessages([
-                'schedule' => __('The suggested time has passed or is invalid. Please ask the assistant for a new time.'),
-            ]);
+            return false;
         }
 
         $changes = [];
 
+        $properties = array_merge($recommendation->proposedProperties(), $overrides);
+        $properties = array_intersect_key($properties, array_flip(self::ALLOWED_PROPERTIES));
+
+        if ($properties === []) {
+            $this->recordAudit($task, $user, $intent, $userAction, $recommendation, []);
+
+            return false;
+        }
+
         DB::transaction(function () use (&$changes, $task, $user, $properties): void {
             foreach ($properties as $property => $newValue) {
-                if ($property === 'tagNames') {
-                    // tagNames is translated into tagIds elsewhere; skip direct application here.
-                    continue;
-                }
-
                 $oldValue = $task->getPropertyValueForUpdate($property);
 
                 if ($this->valuesAreEquivalent($oldValue, $newValue)) {
@@ -104,6 +83,8 @@ class ApplyTaskPropertiesRecommendationAction
         });
 
         $this->recordAudit($task, $user, $intent, $userAction, $recommendation, $changes);
+
+        return $changes !== [];
     }
 
     /**
@@ -143,53 +124,5 @@ class ApplyTaskPropertiesRecommendationAction
         }
 
         return $oldValue === $newValue;
-    }
-
-    /**
-     * Basic temporal guardrails for schedule/adjust intents using proposed properties.
-     * For task intents: only start and duration are applied; validate start + duration does not exceed task due.
-     *
-     * @param  array<string, mixed>  $properties
-     */
-    private function isScheduleAcceptableFromProperties(Task $task, array $properties, LlmIntent $intent): bool
-    {
-        $now = now();
-
-        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
-            $startRaw = $properties['startDatetime'] ?? null;
-            $start = is_string($startRaw) ? \App\Support\DateHelper::parseOptional($startRaw) : null;
-            if ($start !== null && $start->lt($now)) {
-                return false;
-            }
-            if ($task->end_datetime !== null && $start !== null) {
-                $duration = isset($properties['duration']) && is_numeric($properties['duration'])
-                    ? (int) $properties['duration']
-                    : null;
-                if ($duration !== null && $duration > 0) {
-                    $blockEnd = $start->copy()->addMinutes($duration);
-                    if ($blockEnd->gt($task->end_datetime->copy()->endOfDay())) {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        }
-
-        $endRaw = $properties['endDatetime'] ?? null;
-        $end = is_string($endRaw) ? \App\Support\DateHelper::parseOptional($endRaw) : null;
-
-        if ($end !== null && $end->lt($now)) {
-            return false;
-        }
-
-        if ($task->end_datetime !== null
-            && $end !== null
-            && $end->gt($task->end_datetime->copy()->endOfDay())
-        ) {
-            return false;
-        }
-
-        return true;
     }
 }

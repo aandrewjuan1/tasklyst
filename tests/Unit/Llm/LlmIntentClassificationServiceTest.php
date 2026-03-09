@@ -75,6 +75,36 @@ it('classifies show me my tasks for this week as general_query', function (): vo
         ->and($result->entityType)->toBe(LlmEntityType::Task);
 });
 
+it('classifies previous list schedule the top 1 for today as schedule_task', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('in previous list schedule the top 1 for today');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+it('classifies show me my tasks and schedule top 1 as schedule_task', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('show me my tasks and schedule the top 1 for later');
+
+    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
+it('classifies list my top tasks asap as prioritize_tasks', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('list me my top 5 tasks that i need to do asap');
+
+    expect($result->intent)->toBe(LlmIntent::PrioritizeTasks)
+        ->and($result->entityType)->toBe(LlmEntityType::Task);
+});
+
 it('classifies give me all low priority tasks as general_query with high confidence', function (): void {
     /** @var LlmIntentClassificationService $service */
     $service = app(LlmIntentClassificationService::class);

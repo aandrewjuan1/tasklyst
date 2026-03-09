@@ -507,7 +507,7 @@ test('build context for ScheduleAll with Multiple includes tasks, events, projec
         ->and($context['availability'])->toBeArray();
 });
 
-test('schedule intent context includes availability_meaning and availability for all days', function (): void {
+test('schedule intent context includes availability_meaning, availability and context_authority', function (): void {
     $context = $this->action->execute(
         $this->user,
         LlmIntent::ScheduleTask,
@@ -518,7 +518,10 @@ test('schedule intent context includes availability_meaning and availability for
 
     expect($context)->toHaveKey('availability_meaning')
         ->and($context['availability_meaning'])->toContain('busy_windows')
-        ->and($context['availability'])->toBeArray();
+        ->and($context['availability'])->toBeArray()
+        ->and($context)->toHaveKey('context_authority')
+        ->and($context['context_authority'])->toContain('ONLY source of truth')
+        ->and($context['context_authority'])->toContain('Never invent');
     $days = (int) config('tasklyst.context.availability_days', 7);
     expect($context['availability'])->toHaveCount($days + 1)
         ->and($context['availability'][0])->toHaveKeys(['date', 'busy_windows']);

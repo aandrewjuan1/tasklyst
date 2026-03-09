@@ -53,7 +53,6 @@ export function assistantChatFlyout(config) {
         appTimezone: config.appTimezone ?? 'Asia/Manila',
         suggestedPrompts: Array.isArray(config.suggestedPrompts) ? config.suggestedPrompts : [],
         timeoutMessage: typeof config.timeoutMessage === 'string' ? config.timeoutMessage : '',
-        computedFollowups: [],
         resizeScheduled: false,
         pendingRecommendationIds: new Set(),
 
@@ -78,17 +77,36 @@ export function assistantChatFlyout(config) {
             this.$nextTick(() => this.$refs.input && this.$refs.input.focus());
         },
 
+        /** LLM output has suggested properties we can apply (e.g. startDatetime, duration). Uses raw as reference when present. */
         hasAppliableChanges(message) {
             const snap = this.getSnapshot(message);
-            const changes = snap.appliable_changes ?? {};
+            const changes = snap.appliable_changes ?? snap.appliableChanges ?? {};
             const props = changes.properties;
-
-            return (
+            const structured = snap.structured || {};
+            const raw = this.getRawStructuredFromLlm(message);
+            const hasProps =
                 typeof props === 'object' &&
                 props !== null &&
                 !Array.isArray(props) &&
-                Object.keys(props).length > 0
-            );
+                Object.keys(props).length > 0;
+            if (hasProps) return true;
+            const startDt = structured.start_datetime ?? structured.startDatetime ?? raw?.start_datetime;
+            const duration = structured.duration ?? raw?.duration;
+            return !!(startDt && (duration != null || startDt));
+        },
+
+        /** LLM output has the item id so we can update the correct task (required for Apply to work). Uses raw as reference when present. */
+        hasTaskIdInSnapshot(message) {
+            const snap = this.getSnapshot(message);
+            const s = snap.structured || {};
+            const raw = this.getRawStructuredFromLlm(message);
+            const id = s.target_task_id ?? s.id ?? raw?.id ?? raw?.target_task_id;
+            return id != null && !Number.isNaN(Number(id)) && Number(id) > 0;
+        },
+
+        /** True when this message has an actionable task suggestion: id + suggested properties. */
+        hasSuggestedTaskUpdate(message) {
+            return this.hasTaskIdInSnapshot(message) && this.hasAppliableChanges(message);
         },
 
         /** Optimistic apply: 5-phase pattern (snapshot → update UI → call server → rollback on error). */
@@ -127,7 +145,10 @@ export function assistantChatFlyout(config) {
 
                     return;
                 }
-                await this.$wire.$call('acceptRecommendation', messageId);
+                const result = await this.$wire.$call('acceptRecommendation', messageId);
+                if (result && Array.isArray(result.messages)) {
+                    this.messages = result.messages;
+                }
 
                 this.pendingRecommendationIds.delete(message.id);
             } catch (error) {
@@ -173,7 +194,10 @@ export function assistantChatFlyout(config) {
 
                     return;
                 }
-                await this.$wire.$call('rejectRecommendation', messageId);
+                const result = await this.$wire.$call('rejectRecommendation', messageId);
+                if (result && Array.isArray(result.messages)) {
+                    this.messages = result.messages;
+                }
 
                 this.pendingRecommendationIds.delete(message.id);
             } catch (error) {
@@ -225,13 +249,11 @@ export function assistantChatFlyout(config) {
             );
         },
 
-        /** True when the Apply/Dismiss bar should be shown (actionable, has appliable changes, not yet applied/dismissed). */
+        /** True when the Apply/Dismiss bar should be shown: has task id + suggested properties, not yet applied/dismissed. */
         showApplyDismissBar(message) {
-            return (
-                this.isActionableIntent(message) &&
-                this.hasAppliableChanges(message) &&
-                !this.isRecommendationApplied(message)
-            );
+            const hasActionable = this.hasSuggestedTaskUpdate(message) || (this.isActionableIntent(message) && this.hasAppliableChanges(message));
+
+            return hasActionable && !this.isRecommendationApplied(message);
         },
 
         /** True when the post-action chip (Applied / Dismissed) should be shown. */
@@ -295,39 +317,6 @@ export function assistantChatFlyout(config) {
             }
 
             return null;
-        },
-
-        followupSuggestions() {
-            const msg = this.lastAssistant();
-            if (!msg || !msg.metadata) return [];
-            const snap = msg.metadata.recommendation_snapshot || {};
-            const raw = Array.isArray(snap.followup_suggestions) ? snap.followup_suggestions : [];
-            const intent = snap.intent || (msg.metadata && msg.metadata.intent) || null;
-            const reasoning = snap.reasoning || null;
-
-            if (reasoning === 'social_closing') {
-                return [];
-            }
-
-            let cleaned = raw
-                .filter((item) => typeof item === 'string')
-                .map((item) => item.trim())
-                .filter((item) => item.length > 0);
-
-            const seen = new Set();
-            cleaned = cleaned.filter((item) => {
-                const key = item.toLowerCase();
-                if (seen.has(key)) return false;
-                seen.add(key);
-
-                return true;
-            });
-
-            if (cleaned.length === 0 && intent) {
-                cleaned = this.defaultFollowupsForIntent(intent);
-            }
-
-            return cleaned.slice(0, 3).map((prompt) => ({ prompt }));
         },
 
         formatInAppTimezone(isoString) {
@@ -504,22 +493,37 @@ export function assistantChatFlyout(config) {
         },
 
         /**
-         * Merged schedule fields for the "Proposed schedule" block (structured + proposed_properties).
-         * Use so we show dates when the LLM puts them only in proposed_properties.
+         * Raw structured output from the LLM (single reference for display and rule-based logic).
+         * Normalized to a single object (backend may send array from Prism).
+         */
+        getRawStructuredFromLlm(message) {
+            const snap = this.getSnapshot(message);
+            const raw = snap.raw_structured_from_llm;
+            if (!raw || typeof raw !== 'object') return {};
+            if (Array.isArray(raw) && raw[0] && typeof raw[0] === 'object') return raw[0];
+            return raw;
+        },
+
+        /**
+         * Merged schedule fields for the "Proposed schedule" block.
+         * Uses canonical structured + proposed_properties, then falls back to raw LLM output
+         * so we never show "No specific time" when the LLM suggested a time.
          */
         getScheduleDisplay(message) {
-            const s = this.getStructured(message);
+            const snap = this.getSnapshot(message);
+            const s = snap.structured || {};
+            const raw = this.getRawStructuredFromLlm(message);
             const p =
                 s?.proposed_properties && typeof s.proposed_properties === 'object'
                     ? s.proposed_properties
                     : {};
             return {
-                start_datetime: s?.start_datetime ?? p?.start_datetime,
-                end_datetime: s?.end_datetime ?? p?.end_datetime,
-                duration: s?.duration ?? p?.duration,
-                priority: s?.priority ?? p?.priority,
-                timezone: s?.timezone ?? p?.timezone,
-                location: s?.location ?? p?.location,
+                start_datetime: s?.start_datetime ?? p?.start_datetime ?? raw?.start_datetime,
+                end_datetime: s?.end_datetime ?? p?.end_datetime ?? raw?.end_datetime,
+                duration: s?.duration ?? p?.duration ?? raw?.duration,
+                priority: s?.priority ?? p?.priority ?? raw?.priority,
+                timezone: s?.timezone ?? p?.timezone ?? raw?.timezone,
+                location: s?.location ?? p?.location ?? raw?.location,
             };
         },
 
@@ -704,7 +708,6 @@ export function assistantChatFlyout(config) {
                 this.threadId = threadId;
                 this.messages = messages;
                 this.pendingAssistantCount = 0;
-                this.computedFollowups = this.followupSuggestions();
 
                 if (this.threadId) {
                     this.subscribeToThread();
@@ -795,8 +798,6 @@ export function assistantChatFlyout(config) {
                     this.$nextTick(() => {
                         this.scrollToBottom(true);
                     });
-
-                    this.computedFollowups = this.followupSuggestions();
                 });
 
             this._subscribedThreadId = threadId;
@@ -923,8 +924,6 @@ export function assistantChatFlyout(config) {
                     }
 
                     this.currentTraceId = null;
-
-                    this.computedFollowups = this.followupSuggestions();
                 }
             } catch (error) {
                 console.error(error);
@@ -1005,8 +1004,6 @@ export function assistantChatFlyout(config) {
                     }
 
                     this.currentTraceId = null;
-
-                    this.computedFollowups = this.followupSuggestions();
                 }
             } catch (error) {
                 console.error(error);
@@ -1041,7 +1038,6 @@ export function assistantChatFlyout(config) {
                     this.resizeInput();
                 }
 
-                this.computedFollowups = this.followupSuggestions();
             });
         },
     };

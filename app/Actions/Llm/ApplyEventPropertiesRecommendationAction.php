@@ -42,11 +42,11 @@ class ApplyEventPropertiesRecommendationAction
         LlmIntent $intent,
         string $userAction,
         array $overrides = []
-    ): void {
+    ): bool {
         if ($userAction === 'reject') {
             $this->recordAudit($event, $user, $intent, $userAction, $recommendation, []);
 
-            return;
+            return false;
         }
 
         $changes = [];
@@ -57,7 +57,7 @@ class ApplyEventPropertiesRecommendationAction
         if ($properties === []) {
             $this->recordAudit($event, $user, $intent, $userAction, $recommendation, []);
 
-            return;
+            return false;
         }
 
         DB::transaction(function () use (&$changes, $event, $user, $properties): void {
@@ -80,6 +80,8 @@ class ApplyEventPropertiesRecommendationAction
         });
 
         $this->recordAudit($event, $user, $intent, $userAction, $recommendation, $changes);
+
+        return $changes !== [];
     }
 
     /**

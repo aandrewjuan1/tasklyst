@@ -51,11 +51,6 @@ final readonly class TaskScheduleRecommendationDto
             $priority = null;
         }
 
-        $now = Carbon::now();
-        if ($start !== null && $start->lt($now)) {
-            return null;
-        }
-
         if ($start === null && $duration === null && $priority === null) {
             return null;
         }

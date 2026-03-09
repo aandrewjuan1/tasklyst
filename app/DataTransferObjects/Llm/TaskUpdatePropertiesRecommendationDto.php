@@ -46,6 +46,8 @@ final readonly class TaskUpdatePropertiesRecommendationDto
                 'startDatetime',
                 'endDatetime',
                 'tagNames' => $key,
+                'start_datetime' => 'startDatetime',
+                'end_datetime' => 'endDatetime',
                 default => null,
             };
 

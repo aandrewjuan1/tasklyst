@@ -188,13 +188,22 @@ test('rules for property duration accepts positive integer', function (): void {
 });
 
 test('validate task date range for update returns error when end is before start', function (): void {
-    $start = Carbon::parse('2025-02-10 10:00');
-    $end = Carbon::parse('2025-02-10 09:00');
+    $start = Carbon::now()->addDay()->setTime(10, 0);
+    $end = Carbon::now()->addDay()->setTime(9, 0);
 
     $error = TaskPayloadValidation::validateTaskDateRangeForUpdate($start, $end, 60);
 
     expect($error)->not->toBeNull()
         ->and($error)->toContain('End date');
+});
+
+test('validate task date range for update allows start after end when end is overdue', function (): void {
+    $start = Carbon::now()->addHours(2);
+    $end = Carbon::now()->subDays(3);
+
+    $error = TaskPayloadValidation::validateTaskDateRangeForUpdate($start, $end, 60);
+
+    expect($error)->toBeNull();
 });
 
 test('validate task date range for update returns error when same day end is before start plus duration', function (): void {

@@ -11,7 +11,8 @@ use Prism\Prism\Schema\StringSchema;
 
 /**
  * Builds Prism ObjectSchema per intent for structured LLM output.
- * Entity ID is never in the schema; resolve server-side from context.
+ * Single-entity responses include id and title so the LLM identifies the entity;
+ * list responses include id (and title/name) per item so we can target many entities.
  */
 class LlmSchemaFactory
 {
@@ -22,11 +23,11 @@ class LlmSchemaFactory
             LlmIntent::AdjustTaskDeadline => $this->taskScheduleRecommendationSchema(),
             LlmIntent::CreateTask => $this->taskRecommendationSchema(),
             LlmIntent::ScheduleEvent,
-            LlmIntent::AdjustEventTime,
-            LlmIntent::CreateEvent => $this->eventRecommendationSchema(),
+            LlmIntent::AdjustEventTime => $this->eventScheduleRecommendationSchema(),
+            LlmIntent::CreateEvent => $this->eventCreateRecommendationSchema(),
             LlmIntent::ScheduleProject,
-            LlmIntent::AdjustProjectTimeline,
-            LlmIntent::CreateProject => $this->projectRecommendationSchema(),
+            LlmIntent::AdjustProjectTimeline => $this->projectTimelineRecommendationSchema(),
+            LlmIntent::CreateProject => $this->projectCreateRecommendationSchema(),
             LlmIntent::PrioritizeTasks,
             LlmIntent::PrioritizeEvents,
             LlmIntent::PrioritizeProjects => $this->prioritizationSchemaForIntent($intent),
@@ -115,7 +116,8 @@ class LlmSchemaFactory
             description: 'Structured schedule recommendation for a task (start and/or duration only; do not suggest end/due)',
             properties: [
                 new StringSchema('entity_type', 'Always "task"'),
-                new StringSchema('title', 'Exact task title from context when recommending a specific task (e.g. top task) so Apply updates the correct task'),
+                new NumberSchema('id', 'Task id from context. Required: copy the id of the task you are recommending from the context tasks array so Apply updates the correct task.'),
+                new StringSchema('title', 'Task title from context. Required: copy the exact title of the task you are recommending so it matches the correct task.'),
                 new StringSchema('description', 'Optional: task description when proposing a new task'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
                 new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
@@ -158,7 +160,7 @@ class LlmSchemaFactory
                     requiredFields: []
                 ),
             ],
-            requiredFields: ['entity_type', 'recommended_action', 'reasoning']
+            requiredFields: ['entity_type', 'id', 'title', 'recommended_action', 'reasoning']
         );
     }
 
@@ -169,6 +171,7 @@ class LlmSchemaFactory
             description: 'Structured recommendation for an event',
             properties: [
                 new StringSchema('entity_type', 'Always "event"'),
+                new NumberSchema('id', 'Event id from context when updating/scheduling (never invent)'),
                 new StringSchema('title', 'Optional: event title when proposing a new event'),
                 new StringSchema('description', 'Optional: event description when proposing a new event'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
@@ -194,6 +197,59 @@ class LlmSchemaFactory
         );
     }
 
+    private function eventScheduleRecommendationSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'event_schedule_recommendation',
+            description: 'Structured schedule/adjust recommendation for a specific existing event',
+            properties: [
+                new StringSchema('entity_type', 'Always "event"'),
+                new NumberSchema('id', 'Event id from context (required; never invent)'),
+                new StringSchema('title', 'Event title from context (required; never invent)'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
+                new NumberSchema('confidence', 'Self-reported 0-1'),
+                new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                new StringSchema('timezone', 'Timezone identifier'),
+                new StringSchema('location', 'Location if applicable'),
+                new ObjectSchema(
+                    name: 'proposed_properties',
+                    description: 'Optional: explicit properties to update on the event (mirrors top-level fields)',
+                    properties: [
+                        new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('timezone', 'Timezone identifier'),
+                        new StringSchema('location', 'Location if applicable'),
+                    ],
+                    requiredFields: []
+                ),
+            ],
+            requiredFields: ['entity_type', 'id', 'title', 'recommended_action', 'reasoning']
+        );
+    }
+
+    private function eventCreateRecommendationSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'event_create_recommendation',
+            description: 'Structured recommendation for creating a new event',
+            properties: [
+                new StringSchema('entity_type', 'Always "event"'),
+                new StringSchema('title', 'Event title (required)'),
+                new StringSchema('description', 'Optional: event description'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
+                new NumberSchema('confidence', 'Self-reported 0-1'),
+                new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                new StringSchema('timezone', 'Timezone identifier'),
+                new StringSchema('location', 'Location if applicable'),
+            ],
+            requiredFields: ['entity_type', 'title', 'recommended_action', 'reasoning']
+        );
+    }
+
     private function projectRecommendationSchema(): ObjectSchema
     {
         return new ObjectSchema(
@@ -201,6 +257,7 @@ class LlmSchemaFactory
             description: 'Structured recommendation for a project timeline',
             properties: [
                 new StringSchema('entity_type', 'Always "project"'),
+                new NumberSchema('id', 'Project id from context when updating/scheduling (never invent)'),
                 new StringSchema('name', 'Optional: project name when proposing a new project'),
                 new StringSchema('description', 'Optional: project description when proposing a new project'),
                 new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
@@ -222,6 +279,53 @@ class LlmSchemaFactory
         );
     }
 
+    private function projectTimelineRecommendationSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'project_timeline_recommendation',
+            description: 'Structured schedule/adjust recommendation for a specific existing project timeline',
+            properties: [
+                new StringSchema('entity_type', 'Always "project"'),
+                new NumberSchema('id', 'Project id from context (required; never invent)'),
+                new StringSchema('name', 'Project name from context (required; never invent)'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
+                new NumberSchema('confidence', 'Self-reported 0-1'),
+                new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                new ObjectSchema(
+                    name: 'proposed_properties',
+                    description: 'Optional: explicit properties to update on the project (mirrors top-level fields)',
+                    properties: [
+                        new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                        new StringSchema('end_datetime', 'ISO 8601 datetime'),
+                    ],
+                    requiredFields: []
+                ),
+            ],
+            requiredFields: ['entity_type', 'id', 'name', 'recommended_action', 'reasoning']
+        );
+    }
+
+    private function projectCreateRecommendationSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'project_create_recommendation',
+            description: 'Structured recommendation for creating a new project',
+            properties: [
+                new StringSchema('entity_type', 'Always "project"'),
+                new StringSchema('name', 'Project name (required)'),
+                new StringSchema('description', 'Optional: project description'),
+                new StringSchema('recommended_action', 'Short, student-facing recommendation (1-3 sentences)'),
+                new StringSchema('reasoning', 'Brief explanation of why (2-4 sentences in natural language)'),
+                new NumberSchema('confidence', 'Self-reported 0-1'),
+                new StringSchema('start_datetime', 'ISO 8601 datetime'),
+                new StringSchema('end_datetime', 'ISO 8601 datetime'),
+            ],
+            requiredFields: ['entity_type', 'name', 'recommended_action', 'reasoning']
+        );
+    }
+
     private function genericRecommendationSchema(): ObjectSchema
     {
         return new ObjectSchema(
@@ -234,12 +338,13 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'listed_items',
-                    description: 'Optional: when user asks for a list or filter (e.g. tasks with low priority, no due date), list matching items from context',
+                    description: 'Optional: when user asks for a list or filter (e.g. tasks with low priority, no due date), list matching items from context; each item: id and title/name from context',
                     items: new ObjectSchema(
                         name: 'listed_item',
-                        description: 'One matching item; use exact title from context',
+                        description: 'One matching item; use exact id and title from context',
                         properties: [
-                            new StringSchema('title', 'Item title'),
+                            new NumberSchema('id', 'Entity id from context'),
+                            new StringSchema('title', 'Item title (or name for projects)'),
                             new StringSchema('priority', 'Optional: low|medium|high|urgent'),
                             new StringSchema('end_datetime', 'Optional: ISO 8601'),
                         ],
@@ -273,13 +378,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_tasks',
-                    description: 'Ranked list of tasks',
+                    description: 'Ranked list of tasks (each item: id and title from context so we can target the correct entities)',
                     items: new ObjectSchema(
                         name: 'ranked_task',
                         description: 'Single ranked task item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Task title'),
+                            new NumberSchema('id', 'Task id from context'),
+                            new StringSchema('title', 'Task title from context'),
                             new StringSchema('end_datetime', 'ISO 8601 due datetime, optional'),
                         ],
                         requiredFields: ['rank', 'title']
@@ -302,13 +408,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_events',
-                    description: 'Ranked list of events',
+                    description: 'Ranked list of events (each item: id and title from context)',
                     items: new ObjectSchema(
                         name: 'ranked_event',
                         description: 'Single ranked event item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Event title'),
+                            new NumberSchema('id', 'Event id from context'),
+                            new StringSchema('title', 'Event title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime, optional'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
                         ],
@@ -332,13 +439,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_projects',
-                    description: 'Ranked list of projects',
+                    description: 'Ranked list of projects (each item: id and name from context)',
                     items: new ObjectSchema(
                         name: 'ranked_project',
                         description: 'Single ranked project item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('name', 'Project name'),
+                            new NumberSchema('id', 'Project id from context'),
+                            new StringSchema('name', 'Project name from context'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
                         ],
                         requiredFields: ['rank', 'name']
@@ -361,13 +469,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_tasks',
-                    description: 'Ranked list of tasks (can be empty if no tasks in context)',
+                    description: 'Ranked list of tasks (can be empty if no tasks in context); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'ranked_task',
                         description: 'Single ranked task item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Task title'),
+                            new NumberSchema('id', 'Task id from context'),
+                            new StringSchema('title', 'Task title from context'),
                             new StringSchema('end_datetime', 'ISO 8601 due datetime, optional'),
                         ],
                         requiredFields: ['rank', 'title']
@@ -375,13 +484,14 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'ranked_events',
-                    description: 'Ranked list of events (can be empty if no events in context)',
+                    description: 'Ranked list of events (can be empty if no events in context); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'ranked_event',
                         description: 'Single ranked event item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Event title'),
+                            new NumberSchema('id', 'Event id from context'),
+                            new StringSchema('title', 'Event title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime, optional'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
                         ],
@@ -405,13 +515,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_tasks',
-                    description: 'Ranked list of tasks (can be empty if no tasks in context)',
+                    description: 'Ranked list of tasks (can be empty if no tasks in context); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'ranked_task',
                         description: 'Single ranked task item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Task title'),
+                            new NumberSchema('id', 'Task id from context'),
+                            new StringSchema('title', 'Task title from context'),
                             new StringSchema('end_datetime', 'ISO 8601 due datetime, optional'),
                         ],
                         requiredFields: ['rank', 'title']
@@ -419,13 +530,14 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'ranked_projects',
-                    description: 'Ranked list of projects (can be empty if no projects in context)',
+                    description: 'Ranked list of projects (can be empty if no projects in context); each item: id and name from context',
                     items: new ObjectSchema(
                         name: 'ranked_project',
                         description: 'Single ranked project item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('name', 'Project name'),
+                            new NumberSchema('id', 'Project id from context'),
+                            new StringSchema('name', 'Project name from context'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
                         ],
                         requiredFields: ['rank', 'name']
@@ -492,13 +604,14 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'ranked_tasks',
-                    description: 'Ranked list of tasks (can be empty if no tasks in context)',
+                    description: 'Ranked list of tasks (can be empty if no tasks in context); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'ranked_task',
                         description: 'Single ranked task item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Task title'),
+                            new NumberSchema('id', 'Task id from context'),
+                            new StringSchema('title', 'Task title from context'),
                             new StringSchema('end_datetime', 'ISO 8601 due datetime, optional'),
                         ],
                         requiredFields: ['rank', 'title']
@@ -506,13 +619,14 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'ranked_events',
-                    description: 'Ranked list of events (can be empty if no events in context)',
+                    description: 'Ranked list of events (can be empty if no events in context); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'ranked_event',
                         description: 'Single ranked event item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('title', 'Event title'),
+                            new NumberSchema('id', 'Event id from context'),
+                            new StringSchema('title', 'Event title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime, optional'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
                         ],
@@ -521,13 +635,14 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'ranked_projects',
-                    description: 'Ranked list of projects (can be empty if no projects in context)',
+                    description: 'Ranked list of projects (can be empty if no projects in context); each item: id and name from context',
                     items: new ObjectSchema(
                         name: 'ranked_project',
                         description: 'Single ranked project item',
                         properties: [
                             new NumberSchema('rank', '1-based ranking'),
-                            new StringSchema('name', 'Project name'),
+                            new NumberSchema('id', 'Project id from context'),
+                            new StringSchema('name', 'Project name from context'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
                         ],
                         requiredFields: ['rank', 'name']
@@ -550,11 +665,12 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_tasks',
-                    description: 'Scheduled task items (can be empty); each task: title, start_datetime, optional duration only (no end_datetime)',
+                    description: 'Scheduled task items (can be empty); each task: id from context, title, start_datetime, optional duration only (no end_datetime)',
                     items: new ObjectSchema(
                         name: 'scheduled_task',
-                        description: 'Single scheduled task (start and/or duration; do not include end_datetime)',
+                        description: 'Single scheduled task (start and/or duration; do not include end_datetime). Include id from context so Apply updates the correct task.',
                         properties: [
+                            new NumberSchema('id', 'Task id from context (required so Apply updates the correct task)'),
                             new StringSchema('title', 'Task title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
                             new NumberSchema('duration', 'Duration in minutes, optional'),
@@ -577,11 +693,12 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'scheduled_events',
-                    description: 'Scheduled event items (can be empty)',
+                    description: 'Scheduled event items (can be empty); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'scheduled_event',
                         description: 'Single scheduled event',
                         properties: [
+                            new NumberSchema('id', 'Event id from context'),
                             new StringSchema('title', 'Event title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
@@ -606,11 +723,12 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_tasks',
-                    description: 'Scheduled task items (can be empty); each task: title, start_datetime, optional duration only (no end_datetime)',
+                    description: 'Scheduled task items (can be empty); each task: id from context, title, start_datetime, optional duration only (no end_datetime)',
                     items: new ObjectSchema(
                         name: 'scheduled_task',
-                        description: 'Single scheduled task (start and/or duration; do not include end_datetime)',
+                        description: 'Single scheduled task (start and/or duration; do not include end_datetime). Include id from context so Apply updates the correct task.',
                         properties: [
+                            new NumberSchema('id', 'Task id from context (required so Apply updates the correct task)'),
                             new StringSchema('title', 'Task title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
                             new NumberSchema('duration', 'Duration in minutes, optional'),
@@ -620,11 +738,12 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'scheduled_projects',
-                    description: 'Scheduled project items (can be empty)',
+                    description: 'Scheduled project items (can be empty); each item: id and name from context',
                     items: new ObjectSchema(
                         name: 'scheduled_project',
                         description: 'Single scheduled project',
                         properties: [
+                            new NumberSchema('id', 'Project id from context'),
                             new StringSchema('name', 'Project name from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime, optional'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
@@ -649,11 +768,12 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_events',
-                    description: 'Scheduled event items (can be empty)',
+                    description: 'Scheduled event items (can be empty); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'scheduled_event',
                         description: 'Single scheduled event',
                         properties: [
+                            new NumberSchema('id', 'Event id from context'),
                             new StringSchema('title', 'Event title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
@@ -663,11 +783,12 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'scheduled_projects',
-                    description: 'Scheduled project items (can be empty)',
+                    description: 'Scheduled project items (can be empty); each item: id and name from context',
                     items: new ObjectSchema(
                         name: 'scheduled_project',
                         description: 'Single scheduled project',
                         properties: [
+                            new NumberSchema('id', 'Project id from context'),
                             new StringSchema('name', 'Project name from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime, optional'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
@@ -692,11 +813,12 @@ class LlmSchemaFactory
                 new NumberSchema('confidence', 'Self-reported 0-1'),
                 new ArraySchema(
                     name: 'scheduled_tasks',
-                    description: 'Scheduled task items (can be empty); each task: title, start_datetime, optional duration only (no end_datetime)',
+                    description: 'Scheduled task items (can be empty); each task: id from context, title, start_datetime, optional duration only (no end_datetime)',
                     items: new ObjectSchema(
                         name: 'scheduled_task',
-                        description: 'Single scheduled task (start and/or duration; do not include end_datetime)',
+                        description: 'Single scheduled task (start and/or duration; do not include end_datetime). Include id from context so Apply updates the correct task.',
                         properties: [
+                            new NumberSchema('id', 'Task id from context (required so Apply updates the correct task)'),
                             new StringSchema('title', 'Task title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
                             new NumberSchema('duration', 'Duration in minutes, optional'),
@@ -706,11 +828,12 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'scheduled_events',
-                    description: 'Scheduled event items (can be empty)',
+                    description: 'Scheduled event items (can be empty); each item: id and title from context',
                     items: new ObjectSchema(
                         name: 'scheduled_event',
                         description: 'Single scheduled event',
                         properties: [
+                            new NumberSchema('id', 'Event id from context'),
                             new StringSchema('title', 'Event title from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),
@@ -720,11 +843,12 @@ class LlmSchemaFactory
                 ),
                 new ArraySchema(
                     name: 'scheduled_projects',
-                    description: 'Scheduled project items (can be empty)',
+                    description: 'Scheduled project items (can be empty); each item: id and name from context',
                     items: new ObjectSchema(
                         name: 'scheduled_project',
                         description: 'Single scheduled project',
                         properties: [
+                            new NumberSchema('id', 'Project id from context'),
                             new StringSchema('name', 'Project name from context'),
                             new StringSchema('start_datetime', 'ISO 8601 start datetime, optional'),
                             new StringSchema('end_datetime', 'ISO 8601 end datetime, optional'),

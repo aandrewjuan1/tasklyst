@@ -11,6 +11,8 @@ final readonly class LlmInferenceResult
         public int $completionTokens,
         public bool $usedFallback = false,
         public ?string $fallbackReason = null,
+        /** Raw structured output from Prism/Ollama/Hermes before sanitization (null when fallback). */
+        public ?array $rawStructured = null,
     ) {}
 
     public function toArray(): array
