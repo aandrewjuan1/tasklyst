@@ -488,6 +488,20 @@
                                     x-text="contextIntentLabel(message)"
                                 ></span>
                             </div>
+
+                            @env('local')
+                                <div class="mt-2">
+                                    <flux:button
+                                        type="button"
+                                        size="xs"
+                                        variant="ghost"
+                                        class="text-[10px]! px-2 py-0.5!"
+                                        @click="$wire.debugStructuredOutput(message.id)"
+                                    >
+                                        {{ __('Show structured output') }}
+                                    </flux:button>
+                                </div>
+                            @endenv
                         </div>
                     </template>
                     </div>

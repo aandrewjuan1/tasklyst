@@ -452,7 +452,7 @@ class ContextBuilder
             $requestedTopN = $this->extractRequestedTopN($userMessage);
             if ($requestedTopN !== null) {
                 $payload['requested_top_n'] = $requestedTopN;
-                $payload['requested_top_n_instruction'] = 'The user asked for the top '.$requestedTopN.' items. Return at most '.$requestedTopN.' ranked_* items (or fewer if fewer exist).';
+                $payload['requested_top_n_instruction'] = 'The user asked for the top '.$requestedTopN.' items. If the relevant context array (tasks/events/projects) contains at least '.$requestedTopN.' items, you MUST return exactly '.$requestedTopN.' ranked_* items (no fewer). Only when there are fewer than '.$requestedTopN.' items available in context may you return fewer ranked_* entries.';
             }
         }
 

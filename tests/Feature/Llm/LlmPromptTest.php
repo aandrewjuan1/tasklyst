@@ -77,3 +77,12 @@ test('template exposes version for phase 9 logging', function (): void {
 
     expect($template->version())->toBe('v1.7');
 });
+
+test('prioritize tasks prompt enforces exact requested_top_n when possible', function (): void {
+    $result = $this->action->execute(LlmIntent::PrioritizeTasks);
+
+    expect($result->systemPrompt)
+        ->toContain('requested_top_n')
+        ->and($result->systemPrompt)
+        ->toContain('you MUST return exactly requested_top_n items in ranked_tasks');
+});
