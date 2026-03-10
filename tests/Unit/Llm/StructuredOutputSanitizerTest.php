@@ -86,7 +86,7 @@ test('sanitize PrioritizeTasksAndEvents filters both ranked_tasks and ranked_eve
         ],
         'ranked_events' => [
             ['rank' => 1, 'title' => 'Real Event'],
-            ['rank' => 2, 'title' => 'Fake Event'],
+            ['rank' => 2, 'title' => 'Completely unrelated meeting'],
         ],
     ];
     $context = [
@@ -113,7 +113,7 @@ test('sanitize PrioritizeTasksAndProjects filters ranked_tasks and ranked_projec
         ],
         'ranked_projects' => [
             ['rank' => 1, 'name' => 'Real Project'],
-            ['rank' => 2, 'name' => 'Fake Project'],
+            ['rank' => 2, 'name' => 'Totally different initiative name'],
         ],
     ];
     $context = [
@@ -143,7 +143,7 @@ test('sanitize PrioritizeAll filters all three ranked lists by context', functio
         ],
         'ranked_projects' => [
             ['rank' => 1, 'name' => 'Real Project'],
-            ['rank' => 2, 'name' => 'Fake Project'],
+            ['rank' => 2, 'name' => 'Completely different capstone'],
         ],
     ];
     $context = [
@@ -163,17 +163,19 @@ test('sanitize PrioritizeAll filters all three ranked lists by context', functio
 });
 
 test('sanitize ScheduleTasksAndEvents keeps only tasks and events that exist in context', function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-01 10:00:00', config('app.timezone')));
+
     $structured = [
         'entity_type' => 'task,event',
         'recommended_action' => 'Suggested times below.',
         'reasoning' => 'Based on availability.',
         'scheduled_tasks' => [
-            ['title' => 'Real Task', 'start_datetime' => '2026-03-10T09:00:00+00:00', 'end_datetime' => '2026-03-10T10:00:00+00:00'],
-            ['title' => 'Hallucinated Task', 'start_datetime' => '2026-03-11T09:00:00+00:00', 'end_datetime' => '2026-03-11T10:00:00+00:00'],
+            ['title' => 'Real Task', 'start_datetime' => '2026-03-10T09:00:00+08:00', 'end_datetime' => '2026-03-10T10:00:00+08:00'],
+            ['title' => 'Hallucinated Task', 'start_datetime' => '2026-03-11T09:00:00+08:00', 'end_datetime' => '2026-03-11T10:00:00+08:00'],
         ],
         'scheduled_events' => [
-            ['title' => 'Real Event', 'start_datetime' => '2026-03-12T14:00:00+00:00', 'end_datetime' => '2026-03-12T15:00:00+00:00'],
-            ['title' => 'Fake Event', 'start_datetime' => '2026-03-13T14:00:00+00:00', 'end_datetime' => '2026-03-13T15:00:00+00:00'],
+            ['title' => 'Real Event', 'start_datetime' => '2026-03-12T14:00:00+08:00', 'end_datetime' => '2026-03-12T15:00:00+08:00'],
+            ['title' => 'Completely unrelated meeting', 'start_datetime' => '2026-03-13T14:00:00+08:00', 'end_datetime' => '2026-03-13T15:00:00+08:00'],
         ],
     ];
     $context = [
@@ -185,11 +187,11 @@ test('sanitize ScheduleTasksAndEvents keeps only tasks and events that exist in 
 
     expect($out['scheduled_tasks'])->toHaveCount(1)
         ->and($out['scheduled_tasks'][0]['title'])->toBe('Real Task')
-        ->and($out['scheduled_tasks'][0]['start_datetime'])->toBe('2026-03-10T09:00:00+00:00')
+        ->and($out['scheduled_tasks'][0]['start_datetime'])->toBe('2026-03-10T09:00:00+08:00')
         ->and($out['scheduled_tasks'][0]['id'])->toBe(1)
         ->and($out['scheduled_events'])->toHaveCount(1)
         ->and($out['scheduled_events'][0]['title'])->toBe('Real Event')
-        ->and($out['scheduled_events'][0]['start_datetime'])->toBe('2026-03-12T14:00:00+00:00');
+        ->and($out['scheduled_events'][0]['start_datetime'])->toBe('2026-03-12T14:00:00+08:00');
 });
 
 test('sanitize ScheduleAll keeps only scheduled items that exist in context', function (): void {
@@ -206,7 +208,7 @@ test('sanitize ScheduleAll keeps only scheduled items that exist in context', fu
         ],
         'scheduled_projects' => [
             ['name' => 'Real Project', 'start_datetime' => '2026-03-15T09:00:00+00:00', 'end_datetime' => '2026-03-17T17:00:00+00:00'],
-            ['name' => 'Fake Project', 'start_datetime' => '2026-03-18T09:00:00+00:00', 'end_datetime' => '2026-03-19T17:00:00+00:00'],
+            ['name' => 'Completely different capstone', 'start_datetime' => '2026-03-18T09:00:00+00:00', 'end_datetime' => '2026-03-19T17:00:00+00:00'],
         ],
     ];
     $context = [
@@ -335,6 +337,36 @@ test('sanitize general_query with no due date and empty result overrides message
         ->and($out['reasoning'])->toContain('every one has');
 });
 
+test('sanitize general_query with no due date and low priority uses AND semantics in empty message', function (): void {
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Here are your low priority tasks without due dates.',
+        'reasoning' => 'Filtered.',
+        'listed_items' => [],
+    ];
+    $context = [
+        'tasks' => [
+            // No-due-date task exists, but is medium priority (so the intersection is empty).
+            ['id' => 1, 'title' => 'Undated medium task', 'start_datetime' => '2026-03-10T10:00:00+08:00', 'end_datetime' => null, 'priority' => 'medium'],
+            // Low priority exists, but has a due date.
+            ['id' => 2, 'title' => 'Low prio with due', 'start_datetime' => null, 'end_datetime' => '2026-03-20T00:00:00+08:00', 'priority' => 'low'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::GeneralQuery,
+        LlmEntityType::Task,
+        'List all my tasks that have no due date and low priority.'
+    );
+
+    expect($out['listed_items'])->toBeArray()->toBeEmpty()
+        ->and($out['recommended_action'])->toContain('low priority')
+        ->and($out['recommended_action'])->toContain('without a due date')
+        ->and($out['recommended_action'])->not->toContain('All your tasks have due dates');
+});
+
 test('sanitize general_query with recurring filter builds list from context', function (): void {
     $structured = [
         'entity_type' => 'task',
@@ -359,6 +391,34 @@ test('sanitize general_query with recurring filter builds list from context', fu
 
     expect($out['listed_items'])->toHaveCount(1)
         ->and($out['listed_items'][0]['title'])->toBe('Recurring task');
+});
+
+test('sanitize general_query with recurring and no due date uses human reasoning', function (): void {
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Here are your recurring tasks without due dates.',
+        'reasoning' => 'I found tasks where end_datetime is null and is_recurring is true.',
+        'listed_items' => [],
+    ];
+    $context = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'long walk 10km', 'start_datetime' => '2026-03-10T10:00:00+08:00', 'end_datetime' => null, 'priority' => 'medium', 'is_recurring' => true],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::GeneralQuery,
+        LlmEntityType::Task,
+        'List all my tasks that are recurring and have no due date.'
+    );
+
+    expect($out['listed_items'])->toHaveCount(1)
+        ->and((string) ($out['reasoning'] ?? ''))->toContain('recurring')
+        ->and((string) ($out['reasoning'] ?? ''))->toContain('no due date')
+        ->and((string) ($out['reasoning'] ?? ''))->not->toContain('end_datetime')
+        ->and((string) ($out['reasoning'] ?? ''))->not->toContain('is_recurring');
 });
 
 test('sanitize general_query with all-day filter builds list from context', function (): void {
@@ -772,6 +832,53 @@ test('sanitize schedule_event with empty context overrides message for no events
         ->and($out)->not->toHaveKey('end_datetime')
         ->and($out)->not->toHaveKey('duration')
         ->and($out)->not->toHaveKey('proposed_properties');
+});
+
+test('sanitize adjust_event_time binds id and title to real context event and drops invented titles', function (): void {
+    $structured = [
+        'entity_type' => 'event',
+        'id' => 999,
+        'title' => 'Math Exam',
+        'recommended_action' => 'Schedule your next exam for this Friday at 9:00 AM.',
+        'reasoning' => 'It avoids conflicts.',
+    ];
+
+    $context = [
+        'events' => [
+            ['id' => 1, 'title' => 'Math Exam'],
+            ['id' => 2, 'title' => 'Physics quiz'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::AdjustEventTime);
+
+    expect($out['id'])->toBe(1)
+        ->and($out['title'])->toBe('Math Exam')
+        ->and($out['target_event_id'])->toBe(1)
+        ->and($out['target_event_title'])->toBe('Math Exam');
+});
+
+test('sanitize adjust_event_time drops id and title when no matching context event exists', function (): void {
+    $structured = [
+        'entity_type' => 'event',
+        'id' => 123,
+        'title' => 'Completely invented event',
+        'recommended_action' => 'Move this event.',
+        'reasoning' => 'Narrative only.',
+    ];
+
+    $context = [
+        'events' => [
+            ['id' => 1, 'title' => 'Real Event A'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::AdjustEventTime);
+
+    expect($out)->not->toHaveKey('id')
+        ->and($out)->not->toHaveKey('title')
+        ->and($out)->not->toHaveKey('target_event_id')
+        ->and($out)->not->toHaveKey('target_event_title');
 });
 
 test('sanitize schedule_task with empty context overrides message and strips proposed_properties', function (): void {

@@ -7,6 +7,7 @@ use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use App\Models\AssistantThread;
 use App\Models\User;
+use App\Services\Llm\ExplicitUserTimeParser;
 use App\Services\Llm\LlmHealthCheck;
 use App\Services\Llm\LlmInteractionLogger;
 use App\Services\Llm\StructuredOutputSanitizer;
@@ -22,6 +23,7 @@ class RunLlmInferenceAction
         private LlmHealthCheck $healthCheck,
         private LlmInteractionLogger $interactionLogger,
         private StructuredOutputSanitizer $sanitizer,
+        private ExplicitUserTimeParser $explicitUserTimeParser,
     ) {}
 
     public function execute(
@@ -79,6 +81,18 @@ class RunLlmInferenceAction
             ? $this->taskScheduleStructuredFromRaw($rawStructured, $context)
             : $this->sanitizer->sanitize($rawStructured, $context, $intent, $entityType, $userMessage);
 
+        // Backend safety net for explicit user time across all single-entity schedule/adjust intents.
+        if (in_array($intent, [
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+        ], true)) {
+            $structured = $this->overrideStartFromExplicitUserTime($structured, $context, $userMessage);
+        }
+
         $result = new LlmInferenceResult(
             structured: $structured,
             promptVersion: $result->promptVersion,
@@ -111,6 +125,7 @@ class RunLlmInferenceAction
      *
      * @param  array<string, mixed>  $rawStructured
      * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $context
      * @return array<string, mixed>
      */
     private function taskScheduleStructuredFromRaw(array $rawStructured, array $context): array
@@ -131,6 +146,35 @@ class RunLlmInferenceAction
         }
 
         $structured = $this->ensureSensibleStartTimeForTaskSchedule($structured);
+
+        return $structured;
+    }
+
+    /**
+     * When the user explicitly specifies a concrete date/time (e.g. "Friday at 9am"),
+     * treat that as the primary source of truth for start_datetime and override any
+     * conflicting start time from the model. This mirrors the RESPECT_EXPLICIT_USER_TIME
+     * guardrail at the prompt layer with a backend safety net.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function overrideStartFromExplicitUserTime(array $structured, array $context, ?string $userMessage): array
+    {
+        $candidate = $this->explicitUserTimeParser->parseStartDatetime(
+            $userMessage ?? ($context['user_scheduling_request'] ?? null),
+            $context
+        );
+
+        if ($candidate === null) {
+            return $structured;
+        }
+
+        $structured['start_datetime'] = $candidate->toIso8601String();
+        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
+            $structured['proposed_properties']['start_datetime'] = $candidate->toIso8601String();
+        }
 
         return $structured;
     }

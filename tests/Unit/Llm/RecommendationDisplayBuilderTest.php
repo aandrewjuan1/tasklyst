@@ -71,6 +71,29 @@ test('build computes validation confidence for schedule task with dates and prio
         ->and($dto->structured)->not->toHaveKey('end_datetime');
 });
 
+test('build infers schedule for adjust_event_time from narrative when JSON omits times', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'event',
+            'recommended_action' => 'Reschedule your exam to 9pm.',
+            'reasoning' => 'Later this evening works best.',
+            // no explicit start_datetime/end_datetime in JSON
+        ],
+        promptVersion: '1.0',
+        promptTokens: 60,
+        completionTokens: 30,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::AdjustEventTime, LlmEntityType::Event);
+
+    expect($dto->appliableChanges)->toBeArray()
+        ->and($dto->appliableChanges['entity_type'] ?? null)->toBe('event')
+        ->and($dto->appliableChanges)->toHaveKey('properties')
+        ->and($dto->appliableChanges['properties'])->not->toBeEmpty();
+});
+
 test('build for ScheduleTask prefixes missing target title into recommended action when structured has title', function (): void {
     $start = now()->addDay()->setTime(19, 0);
     $result = new LlmInferenceResult(

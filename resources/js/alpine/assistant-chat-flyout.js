@@ -531,7 +531,7 @@ export function assistantChatFlyout(config) {
         hasScheduleDisplayData(message) {
             const d = this.getScheduleDisplay(message);
             return !!(
-                (d?.start_datetime ?? d?.end_datetime ?? d?.duration ?? d?.priority ?? d?.timezone ?? d?.location)
+                (d?.start_datetime ?? d?.end_datetime ?? d?.duration ?? d?.priority)
             );
         },
 

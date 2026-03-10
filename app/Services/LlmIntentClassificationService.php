@@ -21,6 +21,9 @@ class LlmIntentClassificationService
         'paper',
         'study session',
         'revision',
+        'exam',
+        'quiz',
+        'test',
         // References to "first in list" or "top task" (e.g. "schedule the top 1 for later", "schedule my top task").
         'top 1',
         'top one',
@@ -42,9 +45,6 @@ class LlmIntentClassificationService
         'meetings',
         'class',
         'lecture',
-        'exam',
-        'quiz',
-        'test',
     ];
 
     private const ENTITY_PROJECT = [
@@ -59,7 +59,7 @@ class LlmIntentClassificationService
 
     /** Event keywords for schedule multi-entity detection only; excludes "schedule" so "schedule tasks and projects" is not treated as tasks+events. */
     private const ENTITY_EVENT_FOR_SCHEDULE_MULTI = [
-        'event', 'events', 'meeting', 'meetings', 'appointment', 'calendar', 'class', 'lecture', 'exam', 'quiz', 'test',
+        'event', 'events', 'meeting', 'meetings', 'appointment', 'calendar', 'class', 'lecture',
     ];
 
     private const INTENT_RESOLVE_DEPENDENCY = ['blocked', 'waiting', 'depends', 'after', 'blocking', 'dependency'];

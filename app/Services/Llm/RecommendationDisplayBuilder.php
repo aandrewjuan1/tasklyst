@@ -55,7 +55,14 @@ class RecommendationDisplayBuilder
             ]);
         }
 
-        if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)) {
+        if (in_array($intent, [
+            LlmIntent::ScheduleTask,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+        ], true)) {
             $structured = $this->ensureScheduleFromNarrativeWhenMissing($structured);
         }
 
