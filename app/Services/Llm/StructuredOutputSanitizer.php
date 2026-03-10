@@ -153,6 +153,10 @@ class StructuredOutputSanitizer
 
                 return $structured;
             }
+
+            if ($intent === LlmIntent::ScheduleEvent || $intent === LlmIntent::AdjustEventTime) {
+                $structured = $this->bindSingleEventToContext($structured, $items);
+            }
         }
 
         if ($intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline) {
@@ -238,6 +242,95 @@ class StructuredOutputSanitizer
             }
         } elseif (isset($first['end_datetime'])) {
             $structured['end_datetime'] = $first['end_datetime'];
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Ensure schedule/adjust event recommendations point to a real event from context.
+     * Normalises id/title to the exact context values and avoids letting the model
+     * invent arbitrary event titles that do not exist in the current calendar.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<int, mixed>  $eventsContext
+     * @return array<string, mixed>
+     */
+    private function bindSingleEventToContext(array $structured, array $eventsContext): array
+    {
+        if ($eventsContext === []) {
+            return $structured;
+        }
+
+        $byId = [];
+        foreach ($eventsContext as $event) {
+            if (! is_array($event) || ! isset($event['id']) || ! is_numeric($event['id'])) {
+                continue;
+            }
+
+            $byId[(int) $event['id']] = $event;
+        }
+
+        $allowedTitles = $this->titlesFromContextItems($eventsContext);
+
+        $id = null;
+        if (isset($structured['id']) && is_numeric($structured['id'])) {
+            $id = (int) $structured['id'];
+        } elseif (isset($structured['target_event_id']) && is_numeric($structured['target_event_id'])) {
+            $id = (int) $structured['target_event_id'];
+        }
+
+        $target = null;
+        if ($id !== null && isset($byId[$id])) {
+            $target = $byId[$id];
+        } else {
+            $title = null;
+            if (isset($structured['title']) && is_string($structured['title'])) {
+                $title = trim($structured['title']);
+            } elseif (isset($structured['target_event_title']) && is_string($structured['target_event_title'])) {
+                $title = trim($structured['target_event_title']);
+            }
+
+            if ($title !== null && $title !== '' && $allowedTitles !== []) {
+                $matchedTitle = $this->bestMatchingTitle($title, $allowedTitles);
+                if ($matchedTitle !== null) {
+                    foreach ($eventsContext as $event) {
+                        if (! is_array($event) || ! isset($event['title']) || ! is_string($event['title'])) {
+                            continue;
+                        }
+
+                        if (trim($event['title']) === $matchedTitle) {
+                            $target = $event;
+
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if ($target === null) {
+            unset(
+                $structured['id'],
+                $structured['target_event_id'],
+                $structured['title'],
+                $structured['target_event_title']
+            );
+
+            return $structured;
+        }
+
+        $trueId = isset($target['id']) && is_numeric($target['id']) ? (int) $target['id'] : null;
+        $trueTitle = isset($target['title']) && is_string($target['title']) ? trim($target['title']) : null;
+
+        if ($trueId !== null && $trueId > 0) {
+            $structured['id'] = $trueId;
+            $structured['target_event_id'] = $trueId;
+        }
+
+        if ($trueTitle !== null && $trueTitle !== '') {
+            $structured['title'] = $trueTitle;
+            $structured['target_event_title'] = $trueTitle;
         }
 
         return $structured;
@@ -782,6 +875,7 @@ class StructuredOutputSanitizer
             || $allDayFilter !== null;
         if ($hasFilter) {
             $filtered = $this->buildListFromContext($contextItems, $dateFilter, $priorityFilter, $recurringFilter, $allDayFilter, $complexityFilter);
+            $structured['reasoning'] = $this->humanReasoningForFilters($entityType, $dateFilter, $priorityFilter, $complexityFilter, $recurringFilter, $allDayFilter);
         } else {
             $filtered = $this->filterListedItemsByContextAndDate($listedItems, $contextItems, null);
         }
@@ -790,6 +884,60 @@ class StructuredOutputSanitizer
         $this->applyEmptyListMessageIfNeeded($structured, $dateFilter, $priorityFilter, $recurringFilter, $allDayFilter, $entityType, $complexityFilter);
 
         return $structured;
+    }
+
+    private function humanReasoningForFilters(
+        ?LlmEntityType $entityType,
+        ?string $dateFilter,
+        ?string $priorityFilter,
+        ?string $complexityFilter,
+        ?string $recurringFilter,
+        ?string $allDayFilter
+    ): string {
+        $entityLabel = match ($entityType) {
+            LlmEntityType::Event => __('events'),
+            LlmEntityType::Project => __('projects'),
+            LlmEntityType::Multiple => __('items'),
+            default => __('tasks'),
+        };
+
+        $parts = [];
+        if ($recurringFilter !== null) {
+            $parts[] = __('recurring');
+        }
+        if ($allDayFilter !== null) {
+            $parts[] = __('all-day');
+        }
+        if ($priorityFilter !== null && ($entityType === null || $entityType === LlmEntityType::Task)) {
+            $parts[] = match ($priorityFilter) {
+                self::PRIORITY_LOW => __('low priority'),
+                self::PRIORITY_MEDIUM => __('medium priority'),
+                self::PRIORITY_HIGH => __('high priority'),
+                self::PRIORITY_URGENT => __('urgent priority'),
+                default => $priorityFilter,
+            };
+        }
+        if ($complexityFilter !== null && ($entityType === null || $entityType === LlmEntityType::Task)) {
+            $parts[] = __(':complexity complexity', ['complexity' => $complexityFilter]);
+        }
+        if ($dateFilter !== null) {
+            $parts[] = match ($dateFilter) {
+                'no_set_dates' => __('with no start or end dates'),
+                'no_due_date' => __('with no due date'),
+                'no_start_date' => __('with no start date'),
+                'upcoming_week' => __('due within the next 7 days'),
+                default => __('matching your date filter'),
+            };
+        }
+
+        if ($parts === []) {
+            return (string) __('I filtered your :entity to match your request.', ['entity' => $entityLabel]);
+        }
+
+        return (string) __('I filtered your :entity to those that are :filters.', [
+            'entity' => $entityLabel,
+            'filters' => implode(' '.__('and').' ', $parts),
+        ]);
     }
 
     /**
@@ -858,6 +1006,49 @@ class StructuredOutputSanitizer
             LlmEntityType::Project => 'projects',
             default => 'tasks',
         };
+
+        // Combined filters: avoid misleading "All your tasks have due dates" when the intersection is empty.
+        if ($dateFilter !== null && ($priorityFilter !== null || $complexityFilter !== null || $recurringFilter !== null || $allDayFilter !== null)) {
+            $parts = [];
+            if ($priorityFilter !== null && $entityType === LlmEntityType::Task) {
+                $parts[] = match ($priorityFilter) {
+                    'low' => __('low priority'),
+                    'medium' => __('medium priority'),
+                    'high' => __('high priority'),
+                    'urgent' => __('urgent priority'),
+                    default => $priorityFilter,
+                };
+            }
+            if ($complexityFilter !== null && $entityType === LlmEntityType::Task) {
+                $parts[] = __(':complexity complexity', ['complexity' => $complexityFilter]);
+            }
+            if ($recurringFilter !== null && $entityType === LlmEntityType::Task) {
+                $parts[] = __('recurring');
+            }
+            if ($allDayFilter !== null && $entityType === LlmEntityType::Event) {
+                $parts[] = __('all-day');
+            }
+
+            $dateLabel = match ($dateFilter) {
+                'no_set_dates' => __('without start or end dates'),
+                'no_due_date' => __('without a due date'),
+                'no_start_date' => __('without a start date'),
+                'upcoming_week' => __('due within the next 7 days'),
+                default => __('matching that date filter'),
+            };
+
+            $filterLabel = $parts !== [] ? implode(' '.__('and').' ', $parts).' '.__('items').' '.$dateLabel : $dateLabel;
+
+            $structured['recommended_action'] = __('You don\'t have any :entity :filter.', [
+                'entity' => $entityLabel,
+                'filter' => $filterLabel,
+            ]);
+            $structured['reasoning'] = __('I checked your :entity and none match all of the requested filters.', [
+                'entity' => $entityLabel,
+            ]);
+
+            return;
+        }
 
         if ($dateFilter !== null) {
             $structured['recommended_action'] = match ($dateFilter) {
