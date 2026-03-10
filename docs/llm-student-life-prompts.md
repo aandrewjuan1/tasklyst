@@ -31,25 +31,23 @@ Each example below includes:
 - **Expected behaviour**
   - Filter tasks to:
     - Subject `CS 220 – Data Structures` and `MATH 201 – Discrete Mathematics`.
-    - Tasks whose due/end datetimes fall within approximately the next 3 days (relative to “now” in the seeder).
+    - Tasks whose due/end datetimes fall within approximately the next 3 days (relative to “now” in the seeder) **and are not yet completed**.
   - Rank by:
     - Hard deadlines (e.g. quiz date/time, take-home exam submission).
     - Workload (`duration` and `complexity`).
     - Status/priority (e.g. `urgent`/`high` over `medium`/`low`).
 
 - **Expected result (ordered list example)**
-  1. **`MATH 201 – Take-home Exam 1 Submission`**  
-     - High workload (300 minutes), `urgent`, exam-level importance, already close to or past due window.
-  2. **`CS 220 – Project Milestone 2: Dynamic Arrays`**  
+  1. **`CS 220 – Project Milestone 2: Dynamic Arrays`**  
      - Complex, high priority, multi-hour deliverable due within the 3–7 day range.
-  3. **`MATH 201 – Quiz 3: Graph Theory`**  
+  2. **`MATH 201 – Quiz 3: Graph Theory`**  
      - Time-bound quiz; short duration but high impact; should be prepared for before the quiz window.
-  4. **`CS 220 – Lab 5: Linked Lists`**  
-     - Complex lab that often precedes quizzes/projects; medium-term but substantial work.
-  5. **`MATH 201 – Problem Set 4: Relations`**  
-     - Significant homework but slightly more flexible than exam/quiz deadlines.
+  3. **`CS 220 – Lab 5: Linked Lists`**  
+     - Complex lab that often precedes quizzes/projects; substantial work within the same window.
+  4. **`MATH 201 – Problem Set 4: Relations`**  
+     - Significant homework with a near-term deadline but slightly more flexible than the quiz and project milestone.
 
-The explanation should explicitly reference course names, due windows, and why exams/major milestones are above readings or lighter work.
+The explanation should explicitly reference course names, due windows, and why upcoming exams/major milestones are above readings or lighter, more flexible work. Completed exam items like **`MATH 201 – Take-home Exam 1 Submission`** may still appear in the data but should not be scheduled again.
 
 ---
 
@@ -63,7 +61,7 @@ The explanation should explicitly reference course names, due windows, and why e
 
 - **Expected behaviour**
   - Restrict to:
-    - Tasks with course `subject_name` (ITCS 101, MATH 201, CS 220, ENG 105, ITEL 210) and manual student tasks like:
+    - Tasks with course `subject_name` (e.g. `ITCS 101 – Intro to Programming`, `MATH 201 – Discrete Mathematics`, `CS 220 – Data Structures`, `ENG 105 – Academic Writing`, `ITEL 210 – Web Development`) and manual student tasks like:
       - `Library research for history essay`
       - `Group project planning slides`
       - `Practice coding interview problems`
@@ -71,14 +69,15 @@ The explanation should explicitly reference course names, due windows, and why e
   - Rank by:
     - Imminent deadlines (today/overdue).
     - Priority (urgent/high first).
+    - Only include tasks that are not completed.
 
 - **Expected result (example set)**
   - A list containing 5 items drawn from:
-    - `MATH 201 – Take-home Exam 1 Submission`
     - `ITCS 101 – Programming Exercise: Functions`
     - `CS 220 – Lab 5: Linked Lists`
     - `ENG 105 – Draft 2: Comparative Essay`
-    - `Library research for history essay` or `Practice coding interview problems`
+    - `Library research for history essay`
+    - `Practice coding interview problems` or `ITEL 210 – Lab 2: Flexbox Layout`
   - Each line should mention why it’s above others (e.g. “due tonight”, “exam-related”, “feeds into project milestone”).
 
 ---
@@ -96,6 +95,7 @@ The explanation should explicitly reference course names, due windows, and why e
     - Tasks like `ITCS 101 – Quiz 2: Conditions`, `MATH 201 – Quiz 3: Graph Theory`, `MATH 201 – Take-home Exam 1 Submission`.
     - Event `Math exam review session`.
   - Order by proximity of due/start time; treat the review session as supporting work around the exam window.
+  - Clearly distinguish between **completed** exam items (e.g. the take-home exam and possibly the ITCS quiz) and upcoming ones; when prioritizing what to do next, focus on the upcoming, incomplete work.
 
 - **Expected result**
   - A ranked list where the take-home exam and imminent quiz come first, followed by the review session.
@@ -164,16 +164,15 @@ The explanation should explicitly reference course names, due windows, and why e
 
 - **Expected behaviour**
   - Pick exam-tagged tasks/events:
-    - `ITCS 101 – Quiz 2: Conditions`
     - `MATH 201 – Quiz 3: Graph Theory`
-    - `MATH 201 – Take-home Exam 1 Submission`
     - `Math exam review session`
+    - Optionally mention that `ITCS 101 – Quiz 2: Conditions` and `MATH 201 – Take-home Exam 1 Submission` exist in the data but are already completed and should **not** be scheduled again.
   - Spread preparation time before each exam:
     - Allocate problem-solving practice and reading on earlier days.
     - Use the review session as part of the plan, not the only prep.
 
 - **Expected result**
-  - A 3-day schedule that explicitly names these tasks/events and explains sequencing (e.g. “Day 1: submit take-home exam; Day 2: review graph theory notes; Day 3: attend review session and do a small quiz warm-up”).
+  - A 3-day schedule that explicitly names these tasks/events and explains sequencing (e.g. “Day 1: review graph theory notes; Day 2: attend the math exam review session; Day 3: light quiz-style warm-up problems”), without trying to reschedule already-completed exams.
 
 ---
 
@@ -199,6 +198,7 @@ The explanation should explicitly reference course names, due windows, and why e
     - `MATH 201 – Quiz 3: Graph Theory`
     - `MATH 201 – Take-home Exam 1 Submission`
     - `Math exam review session`
+  - It is acceptable (and expected, given the seed data) that some of these may already be completed; the assistant should surface that status rather than treating them as new work.
   - And excludes:
     - Non-exam tasks (labs, readings, chores, CV updates, etc.).
 
