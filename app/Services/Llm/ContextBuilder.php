@@ -671,6 +671,23 @@ class ContextBuilder
 
         $tasks = $query->limit($limit)->get();
 
+        if ($constraints !== null
+            && $constraints->schoolOnly
+            && $constraints->subjectNames === []
+            && $tasks->isEmpty()
+        ) {
+            $fallbackQuery = Task::query()
+                ->forUser($user->id)
+                ->incomplete()
+                ->whereIn('status', [TaskStatus::ToDo->value, TaskStatus::Doing->value])
+                ->whereNotNull('subject_name')
+                ->with('recurringTask')
+                ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('end_datetime');
+
+            $tasks = $fallbackQuery->limit($limit)->get();
+        }
+
         if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
             && $userMessage !== null && $userMessage !== '') {
             $mentionedFirst = $this->getTasksMentionedInMessageNotInList($user, $userMessage, $tasks);
@@ -1063,8 +1080,13 @@ class ContextBuilder
         }
 
         if ($constraints->hasTimeWindow()) {
-            $query->whereNotNull('end_datetime')
-                ->whereBetween('end_datetime', [$constraints->windowStart, $constraints->windowEnd]);
+            $query->whereNotNull('end_datetime');
+
+            if ($constraints->includeOverdueInWindow) {
+                $query->where('end_datetime', '<=', $constraints->windowEnd);
+            } else {
+                $query->whereBetween('end_datetime', [$constraints->windowStart, $constraints->windowEnd]);
+            }
         }
 
         if ($constraints->requiredTagNames !== []) {
