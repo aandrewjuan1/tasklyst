@@ -375,8 +375,8 @@ class StructuredOutputSanitizer
 
         if ($allowedTitles === []) {
             $structured['ranked_tasks'] = [];
-            $structured['recommended_action'] = __('You have no tasks yet. Add tasks to get prioritization suggestions.');
-            $structured['reasoning'] = __('No tasks are in your list to rank.');
+            $structured['recommended_action'] = __('I couldn\'t find any tasks that match this request.');
+            $structured['reasoning'] = __('I checked the tasks available in this context and none matched the filters for this prompt (for example, date range or school-only vs chores).');
             $structured['confidence'] = min($structured['confidence'] ?? 0, 0.3);
 
             return $structured;
@@ -388,6 +388,62 @@ class StructuredOutputSanitizer
         }
 
         $filtered = $this->filterRankedByTitle($ranked, $allowedTitles, 'title');
+
+        $requestedTopN = null;
+        if (isset($context['requested_top_n']) && is_int($context['requested_top_n']) && $context['requested_top_n'] > 0) {
+            $requestedTopN = $context['requested_top_n'];
+        }
+
+        if ($requestedTopN !== null) {
+            $contextTasks = $context['tasks'] ?? [];
+            $totalAvailable = is_array($contextTasks) ? count($contextTasks) : 0;
+            $targetCount = min($requestedTopN, $totalAvailable);
+
+            if ($targetCount > 0 && count($filtered) < $targetCount) {
+                $alreadyTitles = [];
+                foreach ($filtered as $item) {
+                    if (is_array($item) && isset($item['title']) && is_string($item['title'])) {
+                        $alreadyTitles[trim($item['title'])] = true;
+                    }
+                }
+
+                foreach ($contextTasks as $taskCtx) {
+                    if (! is_array($taskCtx) || ! isset($taskCtx['title']) || ! is_string($taskCtx['title'])) {
+                        continue;
+                    }
+
+                    $title = trim($taskCtx['title']);
+                    if ($title === '' || isset($alreadyTitles[$title])) {
+                        continue;
+                    }
+
+                    $newItem = [
+                        'title' => $title,
+                    ];
+
+                    if (isset($taskCtx['end_datetime']) && is_string($taskCtx['end_datetime'])) {
+                        $newItem['end_datetime'] = $taskCtx['end_datetime'];
+                    }
+
+                    $filtered[] = $newItem;
+                    $alreadyTitles[$title] = true;
+
+                    if (count($filtered) >= $targetCount) {
+                        break;
+                    }
+                }
+
+                if ($targetCount < $requestedTopN) {
+                    $reason = $structured['reasoning'] ?? '';
+                    $suffix = (string) __(' You asked for the top :requested tasks, but only :available matched your filters, so I showed all of them.', [
+                        'requested' => $requestedTopN,
+                        'available' => $targetCount,
+                    ]);
+                    $structured['reasoning'] = trim(rtrim((string) $reason).$suffix);
+                }
+            }
+        }
+
         $structured['ranked_tasks'] = $this->rerank($filtered);
 
         return $structured;
@@ -404,8 +460,8 @@ class StructuredOutputSanitizer
 
         if ($allowedTitles === []) {
             $structured['ranked_events'] = [];
-            $structured['recommended_action'] = __('You have no events yet. Add events to your calendar to get prioritization suggestions.');
-            $structured['reasoning'] = __('No events are in your calendar to rank.');
+            $structured['recommended_action'] = __('I couldn\'t find any events that match this request.');
+            $structured['reasoning'] = __('I checked the events available in this context and none matched the filters for this prompt (for example, date range or exam-related only).');
             $structured['confidence'] = min($structured['confidence'] ?? 0, 0.3);
 
             return $structured;
@@ -815,8 +871,8 @@ class StructuredOutputSanitizer
 
         if ($allowedNames === []) {
             $structured['ranked_projects'] = [];
-            $structured['recommended_action'] = __('You have no projects yet. Add projects to get prioritization suggestions.');
-            $structured['reasoning'] = __('No projects are in your list to rank.');
+            $structured['recommended_action'] = __('I couldn\'t find any projects that match this request.');
+            $structured['reasoning'] = __('I checked the projects available in this context and none matched the filters for this prompt (for example, active projects in the requested timeframe).');
             $structured['confidence'] = min($structured['confidence'] ?? 0, 0.3);
 
             return $structured;

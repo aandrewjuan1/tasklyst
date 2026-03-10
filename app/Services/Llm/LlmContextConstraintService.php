@@ -116,6 +116,7 @@ class LlmContextConstraintService
         ) {
             $constraints->windowStart = $now->startOfDay();
             $constraints->windowEnd = $now->endOfDay();
+            $constraints->includeOverdueInWindow = true;
 
             return;
         }

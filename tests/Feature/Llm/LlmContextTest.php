@@ -11,6 +11,7 @@ use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Llm\StructuredOutputSanitizer;
 use Database\Seeders\StudentLifeSampleSeeder;
 
 beforeEach(function (): void {
@@ -678,6 +679,79 @@ test('student life prompt 1_1 restricts tasks to CS 220 and MATH 201 within next
 
         expect($end->between($now->copy()->startOfDay(), $windowEnd))->toBeTrue();
     }
+});
+
+test('student life prompt 1_2 returns school tasks even when strict today window is empty', function (): void {
+    $user = User::factory()->create([
+        'email' => 'andrew.juan.cvt@eac.edu.ph',
+    ]);
+
+    $this->be($user);
+
+    $seeder = new StudentLifeSampleSeeder;
+    $seeder->run();
+
+    $action = app(BuildLlmContextAction::class);
+
+    $prompt = 'What are the top 5 tasks I should focus on for today that are school-related only? Ignore chores and personal stuff.';
+
+    $context = $action->execute(
+        $user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null,
+        $prompt
+    );
+
+    expect($context)->toHaveKey('tasks');
+
+    $tasks = collect($context['tasks']);
+
+    expect($tasks->count())->toBeGreaterThan(0);
+
+    foreach ($tasks as $taskPayload) {
+        $model = Task::query()->where('title', $taskPayload['title'] ?? '')->first();
+        expect($model)->not->toBeNull();
+        expect($model->subject_name)->not->toBeNull();
+    }
+});
+
+test('prioritize_tasks sanitizer fills up to requested_top_n from context when LLM returns fewer tasks', function (): void {
+    $sanitizer = new StructuredOutputSanitizer;
+
+    $context = [
+        'tasks' => [
+            ['title' => 'Task A'],
+            ['title' => 'Task B'],
+            ['title' => 'Task C'],
+            ['title' => 'Task D'],
+            ['title' => 'Task E'],
+        ],
+        'requested_top_n' => 5,
+    ];
+
+    $structured = [
+        'ranked_tasks' => [
+            ['rank' => 1, 'title' => 'Task A'],
+            ['rank' => 2, 'title' => 'Task C'],
+        ],
+        'reasoning' => 'Initial reasoning.',
+    ];
+
+    $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeTasks);
+
+    expect($sanitized)->toHaveKey('ranked_tasks');
+
+    $ranked = $sanitized['ranked_tasks'];
+    expect($ranked)->toHaveCount(5);
+
+    $titles = collect($ranked)->pluck('title')->values()->all();
+    expect($titles)->toContain('Task A')
+        ->and($titles)->toContain('Task C')
+        ->and($titles)->toContain('Task B')
+        ->and($titles)->toContain('Task D')
+        ->and($titles)->toContain('Task E');
 });
 
 test('general_query task context includes full set with description and complexity', function (): void {

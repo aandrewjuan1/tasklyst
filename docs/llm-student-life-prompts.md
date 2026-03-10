@@ -67,7 +67,7 @@ The explanation should explicitly reference course names, due windows, and why u
 
 ---
 
-### 1.2 Top 5 tasks for today (school-only)
+### 1.2 Top 5 tasks for today (school-only) ✅
 
 - **User prompt**
 
@@ -95,6 +95,35 @@ The explanation should explicitly reference course names, due windows, and why u
     - `Library research for history essay`
     - `Practice coding interview problems` or `ITEL 210 – Lab 2: Flexbox Layout`
   - Each line should mention why it’s above others (e.g. “due tonight”, “exam-related”, “feeds into project milestone”).
+
+- **Implementation notes (current backend behaviour)**
+  - **Intent & prompt**:
+    - The user message is classified as `prioritize_tasks` on `task` entities and routed to the shared `PrioritizeTasksPrompt` template (same family as 1.1).
+    - The prompt wiring reads `requested_top_n` from the user message (e.g. “top 5”) and records it in the context so downstream layers know how many items to return.
+  - **Context constraints (school-only + “today”)**:
+    - `LlmContextConstraintService` parses the message and sets a `LlmContextConstraints` DTO:
+      - Phrases like “school-related”, “school only”, “ignore chores and personal stuff” set `schoolOnly = true` and add `excludedTagNames = ['Health', 'Household']`, so health/household chores are dropped.
+      - “For today only” / “today” sets a time window of `windowStart = today.startOfDay`, `windowEnd = today.endOfDay`, and `includeOverdueInWindow = true`, so overdue school tasks are treated as part of “today’s” work.
+    - In `ContextBuilder::applyTaskConstraintsToQuery`:
+      - When `includeOverdueInWindow` is true, we filter to `end_datetime <= windowEnd` (due today or earlier) instead of a strict `whereBetween`.
+      - We also apply tag-based `requiredTagNames` / `excludedTagNames` when present.
+  - **Empty “today-only” slice bug & fallback**:
+    - Initial behaviour for 1.2 sometimes produced an empty `tasks` array for the StudentLife user, which triggered a generic “no tasks yet” guardrail message even though many school tasks existed.
+    - Fix:
+      - When `schoolOnly` is true, `subjectNames` is empty, and the strict constrained query yields **no tasks**, `ContextBuilder` now falls back to a second query that:
+        - Keeps the same user and incomplete/status filters.
+        - Requires `subject_name` to be non-null (i.e. any school task).
+        - Drops the overly strict “today-only” filter so we can still show a meaningful school-only list.
+      - This guarantees 1.2 returns at least some school tasks for the seeded StudentLife user instead of an empty result.
+  - **Top N enforcement & sanitizer behaviour**:
+    - The context includes `requested_top_n` (e.g. `5`) when the user explicitly asks for “top 5”.
+    - `StructuredOutputSanitizer` now:
+      - Filters `ranked_tasks` down to titles that actually exist in the context (no hallucinated items).
+      - If there are at least N tasks in context but the model returns fewer than N ranked tasks, it **auto-fills** the remaining slots from the context task list (avoiding duplicates) until it reaches N, then reassigns ranks `1..N`.
+      - If the context truly has fewer than N matching tasks, it keeps the shorter list and appends an explanation to `reasoning` like “You asked for the top 5 tasks, but only 2 matched your filters, so I showed all of them.”
+  - **Copy accuracy & wording guardrails**:
+    - The shared `topTaskCriteriaDescription` now tells the model **not** to say items are “both due today” or “all due today” unless each of those tasks actually has `due_today = true`, and to otherwise describe mixed deadlines using their real dates (e.g. one due today, another due Friday at 10:00 AM).
+    - This, combined with the sanitized ranked list, keeps the natural-language explanation consistent with the actual due dates surfaced in the UI.
 
 ---
 
