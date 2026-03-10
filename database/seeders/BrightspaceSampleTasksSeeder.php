@@ -18,7 +18,7 @@ class BrightspaceSampleTasksSeeder extends Seeder
     /**
      * @var array<int, array<string, mixed>>
      */
-    private const TASKS = [
+    public const TASKS = [
         // ITCS 101 – Intro to Programming
         [
             'title' => 'ITCS 101 – Lab 3: Loops',

@@ -309,11 +309,12 @@ trait HandlesFiltering
     }
 
     /**
-     * Whether search should run across all items (no date filter). True only when scope is 'all_items' and there is a search query.
+     * Whether lists should run across all items (no date filter).
+     * When scope is 'all_items', date-based scoping is disabled regardless of whether a search query is present.
      */
     public function shouldSearchAllItems(): bool
     {
-        return $this->searchScope === 'all_items' && $this->getTrimmedSearchQuery() !== null;
+        return $this->searchScope === 'all_items';
     }
 
     /**
