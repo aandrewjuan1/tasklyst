@@ -11,6 +11,7 @@ use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
+use Database\Seeders\StudentLifeSampleSeeder;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -73,7 +74,7 @@ test('build context for prioritize_events includes events array', function (): v
 
     expect($context)->toHaveKeys(['current_time', 'events', 'conversation_history'])
         ->and($context['events'])->toBeArray()
-        ->and($context['events'][0])->toHaveKeys(['id', 'title', 'is_recurring', 'start_datetime']);
+        ->and($context['events'][0])->toHaveKeys(['title', 'is_recurring', 'start_datetime']);
 });
 
 test('build context for PrioritizeTasksAndEvents with Multiple includes both tasks and events', function (): void {
@@ -100,8 +101,8 @@ test('build context for PrioritizeTasksAndEvents with Multiple includes both tas
         ->and($context['events'])->toBeArray()
         ->and($context['tasks'])->toHaveCount(2)
         ->and($context['events'])->toHaveCount(2)
-        ->and($context['tasks'][0])->toHaveKeys(['id', 'title', 'end_datetime', 'priority'])
-        ->and($context['events'][0])->toHaveKeys(['id', 'title', 'start_datetime', 'end_datetime']);
+        ->and($context['tasks'][0])->toHaveKeys(['title', 'end_datetime', 'priority'])
+        ->and($context['events'][0])->toHaveKeys(['title', 'start_datetime', 'end_datetime']);
 });
 
 test('build context for prioritize_projects includes projects with tasks', function (): void {
@@ -320,8 +321,7 @@ test('task context marks is_recurring true when recurringTask exists', function 
         null
     );
 
-    expect($context['tasks'][0]['id'])->toBe($task->id)
-        ->and($context['tasks'][0]['is_recurring'])->toBeTrue();
+    expect($context['tasks'][0]['is_recurring'])->toBeTrue();
 });
 
 test('event context marks is_recurring true when recurringEvent exists', function (): void {
@@ -339,8 +339,7 @@ test('event context marks is_recurring true when recurringEvent exists', functio
         null
     );
 
-    expect($context['events'][0]['id'])->toBe($event->id)
-        ->and($context['events'][0]['is_recurring'])->toBeTrue();
+    expect($context['events'][0]['is_recurring'])->toBeTrue();
 });
 
 test('resolve_dependency context includes tasks and events', function (): void {
@@ -627,9 +626,58 @@ test('prioritize_tasks task context does not include complexity or project_id', 
     );
 
     $task = $context['tasks'][0];
-    expect($task)->toHaveKeys(['id', 'title', 'end_datetime', 'priority', 'is_recurring', 'status'])
+    expect($task)->toHaveKeys(['title', 'end_datetime', 'priority', 'is_recurring', 'status'])
         ->and($task)->not->toHaveKey('project_id')
         ->and($task)->not->toHaveKey('description');
+});
+
+test('student life prompt 1_1 restricts tasks to CS 220 and MATH 201 within next three days', function (): void {
+    $user = User::factory()->create([
+        'email' => 'andrew.juan.cvt@eac.edu.ph',
+    ]);
+
+    $this->be($user);
+
+    $seeder = new StudentLifeSampleSeeder;
+    $seeder->run();
+
+    $action = app(BuildLlmContextAction::class);
+
+    $prompt = 'I’m overwhelmed. Looking only at my CS 220 and MATH 201 work for the next three days, which tasks should I tackle first and why?';
+
+    $context = $action->execute(
+        $user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null,
+        $prompt
+    );
+
+    expect($context)->toHaveKey('tasks');
+
+    $titles = collect($context['tasks'])->pluck('title')->values();
+
+    expect($titles->count())->toBeGreaterThan(0);
+
+    $allowedSubjects = [
+        'CS 220 – Data Structures',
+        'MATH 201 – Discrete Mathematics',
+    ];
+
+    foreach ($context['tasks'] as $task) {
+        $model = Task::query()->where('title', $task['title'] ?? '')->first();
+        expect($model)->not->toBeNull();
+        expect($model->subject_name)->toBeIn($allowedSubjects);
+
+        $end = $model->end_datetime;
+        expect($end)->not->toBeNull();
+
+        $now = now();
+        $windowEnd = $now->copy()->addDays(3)->endOfDay();
+
+        expect($end->between($now->copy()->startOfDay(), $windowEnd))->toBeTrue();
+    }
 });
 
 test('general_query task context includes full set with description and complexity', function (): void {
@@ -690,7 +738,6 @@ test('prioritize_events event context does not include description or status', f
 
     $event = $context['events'][0];
     expect($event)->toHaveKeys([
-        'id',
         'title',
         'start_datetime',
         'end_datetime',

@@ -2,6 +2,7 @@
 
 namespace App\Services\Llm;
 
+use App\DataTransferObjects\Llm\LlmContextConstraints;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
 use App\Enums\TaskComplexity;
@@ -57,7 +58,6 @@ class ContextBuilder
      * @var list<string>
      */
     private const TASK_FIELDS_PRIORITIZE = [
-        'id',
         'title',
         'end_datetime',
         'priority',
@@ -99,7 +99,6 @@ class ContextBuilder
      * @var list<string>
      */
     private const EVENT_FIELDS_PRIORITIZE = [
-        'id',
         'title',
         'start_datetime',
         'end_datetime',
@@ -126,7 +125,6 @@ class ContextBuilder
      * @var list<string>
      */
     private const PROJECT_FIELDS_PRIORITIZE = [
-        'id',
         'name',
         'tasks',
         // Aggregate helper flags.
@@ -156,6 +154,10 @@ class ContextBuilder
         'priority',
         'is_recurring',
     ];
+
+    public function __construct(
+        private LlmContextConstraintService $constraintService,
+    ) {}
 
     /**
      * @return list<string>
@@ -447,6 +449,13 @@ class ContextBuilder
         $payload['current_time_human'] = $now->format('Y-m-d H:i').' '.$timezone.' ('.$now->format('g:i A').')';
         $payload['scheduling_rule'] = 'Any suggested start_datetime must be strictly after current_time. Do not suggest times in the past. When the user says "later", suggest a time at least 30 minutes after current_time so they have time to get ready (e.g. if it is 3:00 PM, suggest 4:00 PM or later, not 3:15 or 3:30).';
 
+        $constraints = $this->constraintService->parse(
+            $userMessage ?? '',
+            $intent,
+            $entityType,
+            \Carbon\CarbonImmutable::instance($now)
+        );
+
         if (in_array($intent, [LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects], true)
             && $userMessage !== null && trim($userMessage) !== '') {
             $requestedTopN = $this->extractRequestedTopN($userMessage);
@@ -457,19 +466,19 @@ class ContextBuilder
         }
 
         $entityPayload = match ($entityType) {
-            LlmEntityType::Task => $this->buildTaskContext($user, $intent, $entityId, $userMessage, $thread),
-            LlmEntityType::Event => $this->buildEventContext($user, $intent, $entityId, $userMessage, $thread),
-            LlmEntityType::Project => $this->buildProjectContext($user, $intent, $entityId, $userMessage, $thread),
+            LlmEntityType::Task => $this->buildTaskContext($user, $intent, $entityId, $userMessage, $thread, null, $constraints),
+            LlmEntityType::Event => $this->buildEventContext($user, $intent, $entityId, $userMessage, $thread, null, $constraints),
+            LlmEntityType::Project => $this->buildProjectContext($user, $intent, $entityId, $userMessage, $thread, null, null, $constraints),
             LlmEntityType::Multiple => match ($intent) {
-                LlmIntent::PrioritizeTasksAndEvents => $this->buildTasksAndEventsContext($user, $thread, $userMessage),
-                LlmIntent::PrioritizeTasksAndProjects => $this->buildTasksAndProjectsContext($user, $thread, $userMessage),
-                LlmIntent::PrioritizeEventsAndProjects => $this->buildEventsAndProjectsContext($user, $thread, $userMessage),
-                LlmIntent::PrioritizeAll => $this->buildAllContext($user, $thread, $userMessage),
-                LlmIntent::ScheduleTasksAndEvents => $this->buildScheduleTasksAndEventsContext($user, $thread, $userMessage),
-                LlmIntent::ScheduleTasksAndProjects => $this->buildScheduleTasksAndProjectsContext($user, $thread, $userMessage),
-                LlmIntent::ScheduleEventsAndProjects => $this->buildScheduleEventsAndProjectsContext($user, $thread, $userMessage),
-                LlmIntent::ScheduleAll => $this->buildScheduleAllContext($user, $thread, $userMessage),
-                default => $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, $entityId, $userMessage, $thread),
+                LlmIntent::PrioritizeTasksAndEvents => $this->buildTasksAndEventsContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::PrioritizeTasksAndProjects => $this->buildTasksAndProjectsContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::PrioritizeEventsAndProjects => $this->buildEventsAndProjectsContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::PrioritizeAll => $this->buildAllContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::ScheduleTasksAndEvents => $this->buildScheduleTasksAndEventsContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::ScheduleTasksAndProjects => $this->buildScheduleTasksAndProjectsContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::ScheduleEventsAndProjects => $this->buildScheduleEventsAndProjectsContext($user, $thread, $userMessage, $constraints),
+                LlmIntent::ScheduleAll => $this->buildScheduleAllContext($user, $thread, $userMessage, $constraints),
+                default => $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, $entityId, $userMessage, $thread, null, $constraints),
             },
         };
 
@@ -608,13 +617,22 @@ class ContextBuilder
     /**
      * @return array<string, mixed>
      */
-    private function buildTaskContext(User $user, LlmIntent $intent, ?int $entityId, ?string $userMessage = null, ?AssistantThread $thread = null, ?int $limitOverride = null): array
-    {
+    private function buildTaskContext(
+        User $user,
+        LlmIntent $intent,
+        ?int $entityId,
+        ?string $userMessage = null,
+        ?AssistantThread $thread = null,
+        ?int $limitOverride = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $limit = $limitOverride ?? match (true) {
             $intent === LlmIntent::AdjustTaskDeadline => 5,
             $intent === LlmIntent::GeneralQuery => config('tasklyst.context.general_query_task_limit', 8),
             default => config('tasklyst.context.task_limit', 12),
         };
+
+        $now = now();
 
         $query = Task::query()
             ->forUser($user->id)
@@ -630,6 +648,10 @@ class ContextBuilder
 
         if ($intent === LlmIntent::GeneralQuery && $userMessage !== null && $userMessage !== '') {
             $this->applyTaskListFilterToQuery($query, $userMessage);
+        }
+
+        if ($constraints !== null) {
+            $this->applyTaskConstraintsToQuery($query, $constraints, $now);
         }
 
         $intentUsesPreviousList = in_array($intent, [
@@ -1031,6 +1053,76 @@ class ContextBuilder
         }
     }
 
+    private function applyTaskConstraintsToQuery(
+        \Illuminate\Database\Eloquent\Builder $query,
+        LlmContextConstraints $constraints,
+        \Carbon\CarbonInterface $now
+    ): void {
+        if ($constraints->subjectNames !== []) {
+            $query->whereIn('subject_name', $constraints->subjectNames);
+        }
+
+        if ($constraints->hasTimeWindow()) {
+            $query->whereNotNull('end_datetime')
+                ->whereBetween('end_datetime', [$constraints->windowStart, $constraints->windowEnd]);
+        }
+
+        if ($constraints->requiredTagNames !== []) {
+            $required = array_map(
+                static fn (string $name): string => mb_strtolower(trim($name)),
+                $constraints->requiredTagNames
+            );
+
+            $query->whereHas('tags', static function (\Illuminate\Database\Eloquent\Builder $tagQuery) use ($required): void {
+                $tagQuery->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), $required);
+            });
+        }
+
+        if ($constraints->excludedTagNames !== []) {
+            $excluded = array_map(
+                static fn (string $name): string => mb_strtolower(trim($name)),
+                $constraints->excludedTagNames
+            );
+
+            $query->whereDoesntHave('tags', static function (\Illuminate\Database\Eloquent\Builder $tagQuery) use ($excluded): void {
+                $tagQuery->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), $excluded);
+            });
+        }
+    }
+
+    private function applyEventConstraintsToQuery(
+        \Illuminate\Database\Eloquent\Builder $query,
+        LlmContextConstraints $constraints,
+        \Carbon\CarbonInterface $now
+    ): void {
+        if ($constraints->hasTimeWindow()) {
+            $query->whereNotNull('start_datetime')
+                ->whereBetween('start_datetime', [$constraints->windowStart, $constraints->windowEnd]);
+        }
+
+        if ($constraints->requiredTagNames !== []) {
+            $required = array_map(
+                static fn (string $name): string => mb_strtolower(trim($name)),
+                $constraints->requiredTagNames
+            );
+
+            $query->whereHas('tags', static function (\Illuminate\Database\Eloquent\Builder $tagQuery) use ($required): void {
+                $tagQuery->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), $required);
+            });
+        }
+
+        if ($constraints->excludedTagNames !== []) {
+            $excluded = array_map(
+                static fn (string $name): string => mb_strtolower(trim($name)),
+                $constraints->excludedTagNames
+            );
+
+            $query->whereDoesntHave('tags', static function (\Illuminate\Database\Eloquent\Builder $tagQuery) use ($excluded): void {
+                $tagQuery->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(name)'), $excluded);
+            });
+        }
+    }
+
     /**
      * Pre-filter project query for GeneralQuery list/filter intents.
      */
@@ -1054,13 +1146,22 @@ class ContextBuilder
     /**
      * @return array<string, mixed>
      */
-    private function buildEventContext(User $user, LlmIntent $intent, ?int $entityId, ?string $userMessage = null, ?AssistantThread $thread = null, ?int $limitOverride = null): array
-    {
+    private function buildEventContext(
+        User $user,
+        LlmIntent $intent,
+        ?int $entityId,
+        ?string $userMessage = null,
+        ?AssistantThread $thread = null,
+        ?int $limitOverride = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $limit = $limitOverride ?? match (true) {
             $intent === LlmIntent::AdjustEventTime => 5,
             $intent === LlmIntent::GeneralQuery => config('tasklyst.context.general_query_event_limit', 6),
             default => config('tasklyst.context.event_limit', 10),
         };
+
+        $now = now();
 
         $query = Event::query()
             ->forUser($user->id)
@@ -1075,6 +1176,10 @@ class ContextBuilder
 
         if ($intent === LlmIntent::GeneralQuery && $userMessage !== null && $userMessage !== '') {
             $this->applyEventListFilterToQuery($query, $userMessage);
+        }
+
+        if ($constraints !== null) {
+            $this->applyEventConstraintsToQuery($query, $constraints, $now);
         }
 
         $intentUsesPreviousList = in_array($intent, [
@@ -1111,8 +1216,12 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildTasksAndEventsContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildTasksAndEventsContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $taskLimit = (int) config('tasklyst.context.multi_entity_task_limit', 6);
         $eventLimit = (int) config('tasklyst.context.multi_entity_event_limit', 6);
 
@@ -1122,7 +1231,8 @@ class ContextBuilder
             null,
             $userMessage,
             $thread,
-            $taskLimit
+            $taskLimit,
+            $constraints
         );
         $eventContext = $this->buildEventContext(
             $user,
@@ -1130,7 +1240,8 @@ class ContextBuilder
             null,
             $userMessage,
             $thread,
-            $eventLimit
+            $eventLimit,
+            $constraints
         );
 
         return [
@@ -1144,14 +1255,18 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildTasksAndProjectsContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildTasksAndProjectsContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $taskLimit = (int) config('tasklyst.context.multi_entity_task_limit', 6);
         $projectLimit = (int) config('tasklyst.context.multi_entity_project_limit', 4);
         $tasksPerProject = (int) config('tasklyst.context.multi_entity_project_tasks_limit', 3);
 
-        $taskContext = $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, null, $userMessage, $thread, $taskLimit);
-        $projectContext = $this->buildProjectContext($user, LlmIntent::PrioritizeProjects, null, $userMessage, $thread, $projectLimit, $tasksPerProject);
+        $taskContext = $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, null, $userMessage, $thread, $taskLimit, $constraints);
+        $projectContext = $this->buildProjectContext($user, LlmIntent::PrioritizeProjects, null, $userMessage, $thread, $projectLimit, $tasksPerProject, $constraints);
 
         return [
             'tasks' => $taskContext['tasks'] ?? [],
@@ -1164,14 +1279,18 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildEventsAndProjectsContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildEventsAndProjectsContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $eventLimit = (int) config('tasklyst.context.multi_entity_event_limit', 6);
         $projectLimit = (int) config('tasklyst.context.multi_entity_project_limit', 4);
         $tasksPerProject = (int) config('tasklyst.context.multi_entity_project_tasks_limit', 3);
 
-        $eventContext = $this->buildEventContext($user, LlmIntent::PrioritizeEvents, null, $userMessage, $thread, $eventLimit);
-        $projectContext = $this->buildProjectContext($user, LlmIntent::PrioritizeProjects, null, $userMessage, $thread, $projectLimit, $tasksPerProject);
+        $eventContext = $this->buildEventContext($user, LlmIntent::PrioritizeEvents, null, $userMessage, $thread, $eventLimit, $constraints);
+        $projectContext = $this->buildProjectContext($user, LlmIntent::PrioritizeProjects, null, $userMessage, $thread, $projectLimit, $tasksPerProject, $constraints);
 
         return [
             'events' => $eventContext['events'] ?? [],
@@ -1184,16 +1303,20 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildAllContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildAllContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $taskLimit = (int) config('tasklyst.context.multi_entity_all_task_limit', 4);
         $eventLimit = (int) config('tasklyst.context.multi_entity_all_event_limit', 4);
         $projectLimit = (int) config('tasklyst.context.multi_entity_all_project_limit', 3);
         $tasksPerProject = (int) config('tasklyst.context.multi_entity_project_tasks_limit', 3);
 
-        $taskContext = $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, null, $userMessage, $thread, $taskLimit);
-        $eventContext = $this->buildEventContext($user, LlmIntent::PrioritizeEvents, null, $userMessage, $thread, $eventLimit);
-        $projectContext = $this->buildProjectContext($user, LlmIntent::PrioritizeProjects, null, $userMessage, $thread, $projectLimit, $tasksPerProject);
+        $taskContext = $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, null, $userMessage, $thread, $taskLimit, $constraints);
+        $eventContext = $this->buildEventContext($user, LlmIntent::PrioritizeEvents, null, $userMessage, $thread, $eventLimit, $constraints);
+        $projectContext = $this->buildProjectContext($user, LlmIntent::PrioritizeProjects, null, $userMessage, $thread, $projectLimit, $tasksPerProject, $constraints);
 
         return [
             'tasks' => $taskContext['tasks'] ?? [],
@@ -1207,13 +1330,17 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildScheduleTasksAndEventsContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildScheduleTasksAndEventsContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $taskLimit = (int) config('tasklyst.context.multi_entity_schedule_task_limit', 5);
         $eventLimit = (int) config('tasklyst.context.multi_entity_schedule_event_limit', 5);
 
-        $taskContext = $this->buildTaskContext($user, LlmIntent::ScheduleTask, null, $userMessage, $thread, $taskLimit);
-        $eventContext = $this->buildEventContext($user, LlmIntent::ScheduleEvent, null, $userMessage, $thread, $eventLimit);
+        $taskContext = $this->buildTaskContext($user, LlmIntent::ScheduleTask, null, $userMessage, $thread, $taskLimit, $constraints);
+        $eventContext = $this->buildEventContext($user, LlmIntent::ScheduleEvent, null, $userMessage, $thread, $eventLimit, $constraints);
 
         return [
             'tasks' => $taskContext['tasks'] ?? [],
@@ -1226,14 +1353,18 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildScheduleTasksAndProjectsContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildScheduleTasksAndProjectsContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $taskLimit = (int) config('tasklyst.context.multi_entity_schedule_task_limit', 5);
         $projectLimit = (int) config('tasklyst.context.multi_entity_schedule_project_limit', 3);
         $tasksPerProject = (int) config('tasklyst.context.multi_entity_project_tasks_limit', 3);
 
-        $taskContext = $this->buildTaskContext($user, LlmIntent::ScheduleTask, null, $userMessage, $thread, $taskLimit);
-        $projectContext = $this->buildProjectContext($user, LlmIntent::ScheduleProject, null, $userMessage, $thread, $projectLimit, $tasksPerProject);
+        $taskContext = $this->buildTaskContext($user, LlmIntent::ScheduleTask, null, $userMessage, $thread, $taskLimit, $constraints);
+        $projectContext = $this->buildProjectContext($user, LlmIntent::ScheduleProject, null, $userMessage, $thread, $projectLimit, $tasksPerProject, $constraints);
 
         return [
             'tasks' => $taskContext['tasks'] ?? [],
@@ -1246,14 +1377,18 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildScheduleEventsAndProjectsContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildScheduleEventsAndProjectsContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $eventLimit = (int) config('tasklyst.context.multi_entity_schedule_event_limit', 5);
         $projectLimit = (int) config('tasklyst.context.multi_entity_schedule_project_limit', 3);
         $tasksPerProject = (int) config('tasklyst.context.multi_entity_project_tasks_limit', 3);
 
-        $eventContext = $this->buildEventContext($user, LlmIntent::ScheduleEvent, null, $userMessage, $thread, $eventLimit);
-        $projectContext = $this->buildProjectContext($user, LlmIntent::ScheduleProject, null, $userMessage, $thread, $projectLimit, $tasksPerProject);
+        $eventContext = $this->buildEventContext($user, LlmIntent::ScheduleEvent, null, $userMessage, $thread, $eventLimit, $constraints);
+        $projectContext = $this->buildProjectContext($user, LlmIntent::ScheduleProject, null, $userMessage, $thread, $projectLimit, $tasksPerProject, $constraints);
 
         return [
             'events' => $eventContext['events'] ?? [],
@@ -1266,16 +1401,20 @@ class ContextBuilder
      *
      * @return array<string, mixed>
      */
-    private function buildScheduleAllContext(User $user, ?AssistantThread $thread = null, ?string $userMessage = null): array
-    {
+    private function buildScheduleAllContext(
+        User $user,
+        ?AssistantThread $thread = null,
+        ?string $userMessage = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $taskLimit = (int) config('tasklyst.context.multi_entity_schedule_all_task_limit', 4);
         $eventLimit = (int) config('tasklyst.context.multi_entity_schedule_all_event_limit', 4);
         $projectLimit = (int) config('tasklyst.context.multi_entity_schedule_all_project_limit', 3);
         $tasksPerProject = (int) config('tasklyst.context.multi_entity_project_tasks_limit', 3);
 
-        $taskContext = $this->buildTaskContext($user, LlmIntent::ScheduleTask, null, $userMessage, $thread, $taskLimit);
-        $eventContext = $this->buildEventContext($user, LlmIntent::ScheduleEvent, null, $userMessage, $thread, $eventLimit);
-        $projectContext = $this->buildProjectContext($user, LlmIntent::ScheduleProject, null, $userMessage, $thread, $projectLimit, $tasksPerProject);
+        $taskContext = $this->buildTaskContext($user, LlmIntent::ScheduleTask, null, $userMessage, $thread, $taskLimit, $constraints);
+        $eventContext = $this->buildEventContext($user, LlmIntent::ScheduleEvent, null, $userMessage, $thread, $eventLimit, $constraints);
+        $projectContext = $this->buildProjectContext($user, LlmIntent::ScheduleProject, null, $userMessage, $thread, $projectLimit, $tasksPerProject, $constraints);
 
         return [
             'tasks' => $taskContext['tasks'] ?? [],
@@ -1287,8 +1426,16 @@ class ContextBuilder
     /**
      * @return array<string, mixed>
      */
-    private function buildProjectContext(User $user, LlmIntent $intent, ?int $entityId, ?string $userMessage = null, ?AssistantThread $thread = null, ?int $limitOverride = null, ?int $tasksPerProjectOverride = null): array
-    {
+    private function buildProjectContext(
+        User $user,
+        LlmIntent $intent,
+        ?int $entityId,
+        ?string $userMessage = null,
+        ?AssistantThread $thread = null,
+        ?int $limitOverride = null,
+        ?int $tasksPerProjectOverride = null,
+        ?LlmContextConstraints $constraints = null
+    ): array {
         $projectLimit = $limitOverride ?? ($intent === LlmIntent::GeneralQuery
             ? config('tasklyst.context.general_query_project_limit', 3)
             : config('tasklyst.context.project_limit', 5));
@@ -1306,6 +1453,11 @@ class ContextBuilder
 
         if ($intent === LlmIntent::GeneralQuery && $userMessage !== null && $userMessage !== '') {
             $this->applyProjectListFilterToQuery($query, $userMessage);
+        }
+
+        if ($constraints !== null && $constraints->hasTimeWindow()) {
+            $query->whereNotNull('end_datetime')
+                ->whereBetween('end_datetime', [$constraints->windowStart, $constraints->windowEnd]);
         }
 
         $intentUsesPreviousList = in_array($intent, [

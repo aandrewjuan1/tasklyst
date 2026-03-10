@@ -8,6 +8,8 @@ class PrioritizeTasksPrompt extends AbstractLlmPromptTemplate
     {
         return 'You are a task prioritization expert helping a student decide what to work on first. Goal: rank tasks by true urgency and impact (deadlines, dependencies, effort vs impact, realistic energy management). '
             .'Each task in the "tasks" context may include: end_datetime (ISO 8601), priority (low/medium/high/urgent), complexity (simple/moderate/complex), duration (minutes), is_recurring (boolean), status, helper flags is_overdue/due_today/is_someday, and optional project_name/event_title. '
+            .'The "tasks" array already reflects any filters from the student\'s request (for example: only certain courses, only exam-tagged items, school-only vs chores, or a specific time window like today or the next few days). You MUST treat it as the full universe of candidates and must not imagine tasks outside this array. '
+            .'In recommended_action and reasoning, never mention internal database IDs such as "ID: 12" or numeric primary keys; use only human-readable titles and dates. IDs are only for JSON fields when explicitly required, not for user-facing text. '
             .$this->topTaskCriteriaDescription().' '
             .'If Context includes requested_top_n and the "tasks" array has at least that many items, you MUST return exactly requested_top_n items in ranked_tasks (no fewer). Only when there are fewer than requested_top_n tasks in context may you return fewer items (one entry per available task). '
             .'Put in the reasoning field a short summary (2–4 sentences) of why this order; do not list step numbers there, and do not talk about past dates as if they are still in the future. '

@@ -20,7 +20,7 @@ Each example below includes:
 
 ## 1. Smart prioritization
 
-### 1.1 Prioritize CS 220 and MATH 201 work
+### 1.1 Prioritize CS 220 and MATH 201 work ✅
 
 - **User prompt**
 
@@ -48,6 +48,22 @@ Each example below includes:
      - Significant homework with a near-term deadline but slightly more flexible than the quiz and project milestone.
 
 The explanation should explicitly reference course names, due windows, and why upcoming exams/major milestones are above readings or lighter, more flexible work. Completed exam items like **`MATH 201 – Take-home Exam 1 Submission`** may still appear in the data but should not be scheduled again.
+
+- **Implementation notes (current backend behaviour)**
+  - **Intent & prompt**:
+    - The user message is classified as `prioritize_tasks` on `task` entities and routed to the `PrioritizeTasksPrompt` template.
+    - The shared `topTaskCriteriaDescription` now explicitly ranks **quizzes/exams highest**, then **major projects/labs/milestones**, then **problem sets**, then lower-impact items like readings/reflections (within the same time window and urgency).
+  - **Context constraints**:
+    - A dedicated constraint layer (`LlmContextConstraintService`) parses the user message and passes a `LlmContextConstraints` DTO into `ContextBuilder`.
+    - For this prompt, the task context is restricted to:
+      - `subject_name` in {`CS 220 – Data Structures`, `MATH 201 – Discrete Mathematics`}.
+      - `end_datetime` within the next ≈3 days from the seeded “now”.
+      - Incomplete tasks only.
+  - **Prioritization context shape**:
+    - For prioritization intents, the LLM sees only **human-readable fields**: `title`, `end_datetime`, `priority`, `complexity`, `duration`, recurrence flags, and helper flags (`is_overdue`, `due_today`, `is_someday`, `project_name`, `event_title`).
+    - Internal database IDs are **not exposed** in prioritize contexts, and the prompt instructs the model **not** to mention IDs like “ID: 12” in natural language; IDs are used only in structured JSON where necessary.
+  - **Result**:
+    - The ranked list is now always drawn from CS 220 + MATH 201 tasks in the 3‑day window, with exams/quizzes and major deliverables favoured over reflections/readings, matching the intent of this test even if the exact ordering differs from the example.
 
 ---
 
