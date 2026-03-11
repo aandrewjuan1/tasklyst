@@ -24,6 +24,8 @@ class StudentLifeSampleSeeder extends Seeder
 {
     private const TARGET_EMAIL = 'andrew.juan.cvt@eac.edu.ph';
 
+    private const DUE_DATE_FLOOR = '2026-03-13';
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -532,12 +534,13 @@ class StudentLifeSampleSeeder extends Seeder
         }
 
         $now = Carbon::now();
+        $dueDateFloor = Carbon::parse(self::DUE_DATE_FLOOR, $now->getTimezone())->startOfDay();
 
-        $this->seedBrightspaceTasks($user, $now);
-        $this->seedRecurringChores($user, $now);
-        $this->seedStudentTasks($user, $now);
-        $this->seedStressTestTasks($user, $now);
-        $projects = $this->seedProjects($user, $now);
+        $this->seedBrightspaceTasks($user, $now, $dueDateFloor);
+        $this->seedRecurringChores($user, $now, $dueDateFloor);
+        $this->seedStudentTasks($user, $now, $dueDateFloor);
+        $this->seedStressTestTasks($user, $now, $dueDateFloor);
+        $projects = $this->seedProjects($user, $now, $dueDateFloor);
         $tags = $this->seedTags($user);
         $this->attachProjectsToTasks($user, $projects);
         $this->attachTagsToItems($user, $tags);
@@ -545,7 +548,7 @@ class StudentLifeSampleSeeder extends Seeder
         $this->seedRecurringEvents($user, $now);
     }
 
-    private function seedBrightspaceTasks(User $user, Carbon $now): void
+    private function seedBrightspaceTasks(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::BRIGHTSPACE_TASKS as $spec) {
             $start = null;
@@ -568,6 +571,13 @@ class StudentLifeSampleSeeder extends Seeder
             if (! empty($spec['completed']) && $end !== null) {
                 $completedAt = $end->copy()->addMinutes(10);
             }
+
+            $end = $this->clampTaskDueDate(
+                $end,
+                $completedAt,
+                $dueDateFloor,
+                (string) ($spec['source_id'] ?? $spec['title'])
+            );
 
             Task::create([
                 'user_id' => $user->id,
@@ -592,11 +602,12 @@ class StudentLifeSampleSeeder extends Seeder
         }
     }
 
-    private function seedRecurringChores(User $user, Carbon $now): void
+    private function seedRecurringChores(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::RECURRING_CHORES as $index => $spec) {
             $start = $now->copy()->setTime(20, 0)->addMinutes($index * 5);
             $end = $start->copy()->addMinutes((int) $spec['duration']);
+            $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['title']);
 
             $task = Task::create([
                 'user_id' => $user->id,
@@ -642,13 +653,14 @@ class StudentLifeSampleSeeder extends Seeder
         }
     }
 
-    private function seedStudentTasks(User $user, Carbon $now): void
+    private function seedStudentTasks(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::STUDENT_TASKS as $spec) {
             $start = $now->copy()
                 ->addDays((int) $spec['days_from_now'])
                 ->setTime(10, 0);
             $end = $start->copy()->addHours(2);
+            $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['title']);
 
             Task::create([
                 'user_id' => $user->id,
@@ -673,7 +685,7 @@ class StudentLifeSampleSeeder extends Seeder
         }
     }
 
-    private function seedStressTestTasks(User $user, Carbon $now): void
+    private function seedStressTestTasks(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::STRESS_TEST_TASKS as $spec) {
             if (isset($spec['start_offset_minutes'], $spec['end_offset_minutes'])) {
@@ -685,6 +697,8 @@ class StudentLifeSampleSeeder extends Seeder
                     ->setTime(18, 0);
                 $end = $start->copy()->addHours(4);
             }
+
+            $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['title']);
 
             Task::create([
                 'user_id' => $user->id,
@@ -712,13 +726,14 @@ class StudentLifeSampleSeeder extends Seeder
     /**
      * @return array<int, Project>
      */
-    private function seedProjects(User $user, Carbon $now): array
+    private function seedProjects(User $user, Carbon $now, Carbon $dueDateFloor): array
     {
         $projects = [];
 
         foreach (self::PROJECTS as $index => $spec) {
             $start = $now->copy()->addDays($index)->setTime(9, 0);
             $end = $start->copy()->addWeeks(3);
+            $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['name']);
 
             $projects[] = Project::create([
                 'user_id' => $user->id,
@@ -952,5 +967,37 @@ class StudentLifeSampleSeeder extends Seeder
             'start_datetime' => $event->start_datetime,
             'end_datetime' => $event->start_datetime?->copy()->addMonths(2),
         ]);
+    }
+
+    private function clampTaskDueDate(?Carbon $end, ?Carbon $completedAt, Carbon $dueDateFloor, string $entropyKey): ?Carbon
+    {
+        if ($end === null) {
+            return null;
+        }
+
+        if ($completedAt !== null) {
+            return $end;
+        }
+
+        if ($end->greaterThanOrEqualTo($dueDateFloor)) {
+            return $end;
+        }
+
+        $jitterDays = $this->stableJitterDays($entropyKey, 21);
+
+        return $dueDateFloor->copy()
+            ->addDays($jitterDays)
+            ->setTime($end->hour, $end->minute, $end->second);
+    }
+
+    private function stableJitterDays(string $key, int $range): int
+    {
+        if ($range <= 0) {
+            return 0;
+        }
+
+        $hash = crc32($key);
+
+        return (int) (abs($hash) % $range);
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\User;
 use Database\Seeders\StudentLifeSampleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 
 uses(RefreshDatabase::class);
 
@@ -16,6 +17,8 @@ it('seeds brightspace tasks chores extra tasks and events for the demo user', fu
     ]);
 
     (new StudentLifeSampleSeeder)->run();
+
+    $dueDateFloor = Carbon::parse('2026-03-13')->startOfDay();
 
     $brightspaceTasks = Task::query()
         ->where('user_id', $user->id)
@@ -67,4 +70,21 @@ it('seeds brightspace tasks chores extra tasks and events for the demo user', fu
         ->get();
 
     expect($events->count())->toBeGreaterThanOrEqual(3);
+
+    $pendingDueDates = Task::query()
+        ->where('user_id', $user->id)
+        ->whereNull('completed_at')
+        ->whereNotNull('end_datetime')
+        ->pluck('end_datetime')
+        ->map(fn ($dt) => Carbon::parse($dt));
+
+    expect($pendingDueDates)->not->toBeEmpty();
+    expect($pendingDueDates->every(fn (Carbon $dt) => $dt->greaterThanOrEqualTo($dueDateFloor)))->toBeTrue();
+
+    $uniqueDueDates = $pendingDueDates
+        ->map(fn (Carbon $dt) => $dt->toDateString())
+        ->unique()
+        ->values();
+
+    expect($uniqueDueDates->count())->toBeGreaterThan(1);
 });
