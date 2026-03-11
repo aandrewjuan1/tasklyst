@@ -63,64 +63,101 @@ Each example below includes:
 
 ---
 
-### 1.2 Top 5 tasks for today (school-only)
+### 1.2 Top 5 tasks for today (school-only) ✅
 
 - **User prompt**
 
   > For today only, what are the top 5 school-related tasks I should focus on? Ignore chores and personal stuff.
 
-- **Focus**: Smart prioritization + domain filtering (school vs life).
+- **Focus**: Smart prioritization + domain filtering (school vs life) **with hard “top 5” enforcement.**
 
 - **Expected behaviour**
   - Restrict to:
-    - Tasks with course `subject_name` (e.g. `ITCS 101 – Intro to Programming`, `MATH 201 – Discrete Mathematics`, `CS 220 – Data Structures`, `ENG 105 – Academic Writing`, `ITEL 210 – Web Development`) and manual student tasks like:
-      - `Library research for history essay`
-      - `Group project planning slides`
-      - `Practice coding interview problems`
-    - Exclude chores (`Wash dishes after dinner`, `Walk 10k steps`, etc.) and household/health-only items.
+    - Tasks with course `subject_name` (e.g. `ITCS 101 – Intro to Programming`, `MATH 201 – Discrete Mathematics`, `CS 220 – Data Structures`, `ENG 105 – Academic Writing`, `ITEL 210 – Web Development`) and manual student tasks that are clearly school work (e.g. research, project prep, coding practice).
+    - Exclude chores / life tasks, especially those tagged `Health` / `Household` (e.g. `Wash dishes after dinner`, `Walk 10k steps`, `Prepare tomorrow’s school bag`).
   - Rank by:
-    - Imminent deadlines (today/overdue).
+    - Imminent deadlines (today + overdue first, then near-term).
     - Priority (urgent/high first).
     - Only include tasks that are not completed.
+  - **Always return 5 ranked tasks** when at least 5 school tasks exist in the constrained context slice.
 
-- **Expected result (example set)**
-  - A list containing 5 items drawn from:
-    - `ITCS 101 – Programming Exercise: Functions`
-    - `CS 220 – Lab 5: Linked Lists`
-    - `ENG 105 – Draft 2: Comparative Essay`
-    - `Library research for history essay`
-    - `Practice coding interview problems` or `ITEL 210 – Lab 2: Flexbox Layout`
-  - Each line should mention why it’s above others (e.g. “due tonight”, “exam-related”, “feeds into project milestone”).
+- **Expected result (seed-data-based for StudentLife user)**
 
-- **Implementation notes (current backend behaviour)**
-  - **Intent & prompt**:
-    - The user message is classified as `prioritize_tasks` on `task` entities and routed to the shared `PrioritizeTasksPrompt` template (same family as 1.1).
-    - The prompt wiring reads `requested_top_n` from the user message (e.g. “top 5”) and records it in the context so downstream layers know how many items to return.
-  - **Context constraints (school-only + “today”)**:
-    - `LlmContextConstraintService` parses the message and sets a `LlmContextConstraints` DTO:
-      - Phrases like “school-related”, “school only”, “ignore chores and personal stuff” set `schoolOnly = true` and add `excludedTagNames = ['Health', 'Household']`, so health/household chores are dropped.
-      - “For today only” / “today” sets a time window of `windowStart = today.startOfDay`, `windowEnd = today.endOfDay`, and `includeOverdueInWindow = true`, so overdue school tasks are treated as part of “today’s” work.
-    - In `ContextBuilder::applyTaskConstraintsToQuery`:
-      - When `includeOverdueInWindow` is true, we filter to `end_datetime <= windowEnd` (due today or earlier) instead of a strict `whereBetween`.
-      - We also apply tag-based `requiredTagNames` / `excludedTagNames` when present.
-  - **Empty “today-only” slice bug & fallback**:
-    - Initial behaviour for 1.2 sometimes produced an empty `tasks` array for the StudentLife user, which triggered a generic “no tasks yet” guardrail message even though many school tasks existed.
-    - Fix:
-      - When `schoolOnly` is true, `subjectNames` is empty, and the strict constrained query yields **no tasks**, `ContextBuilder` now falls back to a second query that:
-        - Keeps the same user and incomplete/status filters.
-        - Requires `subject_name` to be non-null (i.e. any school task).
-        - Drops the overly strict “today-only” filter so we can still show a meaningful school-only list.
-      - This guarantees 1.2 returns at least some school tasks for the seeded StudentLife user instead of an empty result.
-  - **Top N enforcement & sanitizer behaviour**:
-    - The context includes `requested_top_n` (e.g. `5`) when the user explicitly asks for “top 5”.
-    - The LLM is expected to return exactly `requested_top_n` items in `ranked_tasks` when there are at least N tasks in the context slice.
-    - `StructuredOutputSanitizer`:
-      - Filters `ranked_tasks` down to titles that actually exist in the context (no hallucinated items).
-      - Canonicalizes `ranked_tasks[*].end_datetime` from the context slice to prevent AM/PM/timezone drift.
-      - Does **not** auto-fill missing ranked items; completeness is enforced via context + prompt.
-  - **Copy accuracy & wording guardrails**:
-    - The shared `topTaskCriteriaDescription` now tells the model **not** to say items are “both due today” or “all due today” unless each of those tasks actually has `due_today = true`, and to otherwise describe mixed deadlines using their real dates (e.g. one due today, another due Friday at 10:00 AM).
-    - `RecommendationDisplayBuilder` applies narrow narrative corrections when context facts are available, binding ambiguous/relative due wording to the canonical due datetime so the explanation stays consistent with the due dates surfaced in the UI.
+  A ranked list of **exactly 5** school tasks taken from the seed data, for example:
+
+  1. `MATH 201 – Problem Set 4: Relations` — due **Fri, Mar 13, 2026 11:00 PM**  
+  2. `CS 220 – Lab 5: Linked Lists` — due **Fri, Mar 13, 2026 11:59 PM**  
+  3. `MATH 201 – Quiz 3: Graph Theory` — due **Sat, Mar 14, 2026 10:00 AM**  
+  4. `ENG 105 – Reading Response #3` — due **Sat, Mar 14, 2026 10:00 PM**  
+  5. `ITCS 101 – Midterm Project Checkpoint` — due **Sat, Mar 14, 2026 11:59 PM**  
+
+  All due dates/times must match the canonical task records (no AM/PM drift or day-of-week mistakes). The explanation should mention **why** each is in the top 5 (assessment vs prep, proximity of deadlines, contribution to bigger projects), without inventing new tasks.
+
+- **Bugs encountered during manual testing**
+
+  - **Bug 1: “Top 5” prompt returning only 2 items**
+    - Symptom: For the exact 1.2 prompt, the assistant replied with only:
+      - `MATH 201 – Problem Set 4: Relations`
+      - `CS 220 – Lab 5: Linked Lists`  
+      even though many more school tasks existed and the user explicitly asked for “top 5”.
+    - Root cause:
+      - `ContextBuilder` correctly:
+        - Classified intent as `prioritize_tasks` / `task`.
+        - Built a school-only task slice of 12 items for the StudentLife user.
+        - Parsed “top 5” and set `requested_top_n = 5`.
+      - When enforcing the token cap, `ContextBuilder::enforceTokenAwareness()` shrank the payload to a minimal payload and **dropped `requested_top_n` and `requested_top_n_instruction`**.
+      - `StructuredOutputSanitizer::sanitizeRankedTasks()` only enforces “fill up to N” when `requested_top_n` is present, so with that key missing it let the 2-item list through.
+
+  - **Bug 2: Sanitizer didn’t enforce top N even when possible**
+    - Symptom: Even when the context slice contained enough tasks (≥ 5) and `requested_top_n` had been set earlier, the final `ranked_tasks` could still have fewer items than requested.
+    - Root cause:
+      - Original `StructuredOutputSanitizer` for `PrioritizeTasks`:
+        - Filtered `ranked_tasks` to titles in context.
+        - Deduped by title.
+        - Canonicalized `end_datetime`.
+        - **Never added missing items**; it trusted the model to obey the prompt’s “you MUST return requested_top_n items”.
+
+- **Fixes implemented for 1.2 (and all single-entity prioritize intents)**
+
+  - **Fix 1: Preserve `requested_top_n` through token shrinking**
+    - In `ContextBuilder::enforceTokenAwareness()`:
+      - When building the minimal payload under the token cap, we now **keep `requested_top_n` and `requested_top_n_instruction`** alongside core keys like `current_time`, `tasks`, etc.
+      - This ensures every downstream layer still knows the user requested “top 5”.
+
+  - **Fix 2: Hard “fill up to N” logic for tasks**
+    - In `StructuredOutputSanitizer::sanitizeRankedTasks()`:
+      - Read `requested_top_n` from context.
+      - Compute `available = min(requested_top_n, count(context.tasks))`.
+      - After filter + dedupe, if `count(filtered) < available`:
+        - Collect titles already ranked.
+        - Iterate the context `tasks` slice in order and **append extra items** (canonical `title` + `end_datetime`) for tasks not yet ranked.
+        - Stop once `filtered` reaches `available`.
+      - Re-run `rerank()` so ranks are 1..N in sequence.
+    - Effect: for 1.2, if there are at least 5 school tasks, `ranked_tasks` in the final snapshot will **always** contain 5 items, even if the raw LLM only produced 2–3.
+
+  - **Fix 3: Extend top‑N enforcement to events and projects for consistency**
+    - `sanitizeRankedEvents()` and `sanitizeRankedProjects()` now mirror the same pattern:
+      - Honor `requested_top_n` when present.
+      - Backfill `ranked_events` / `ranked_projects` from their context slices when the model under‑returns.
+    - Multi‑entity prioritize intents (`PrioritizeTasksAndEvents`, etc.) still rely on per-entity limits and do not currently enforce a single cross-entity `requested_top_n`, which is fine for the current 1.x StudentLife prompts.
+
+- **Post‑fix behaviour for 1.2 (verified)**
+
+  - For `andrew.juan.cvt@eac.edu.ph` seeded by `StudentLifeSampleSeeder` on 2026‑03‑11:
+    - `BuildLlmContextAction` for this prompt now yields:
+      - `requested_top_n = 5`
+      - `tasks` slice of 12 school tasks (no chores).
+    - After inference + sanitization, the stored `recommendation_snapshot` shows:
+      - `intent = prioritize_tasks`, `entity_type = task`.
+      - `structured.ranked_tasks` with exactly these 5 items and ISO datetimes:
+        - `MATH 201 – Problem Set 4: Relations` — `2026-03-13T23:00:00+08:00`
+        - `CS 220 – Lab 5: Linked Lists` — `2026-03-13T23:59:00+08:00`
+        - `MATH 201 – Quiz 3: Graph Theory` — `2026-03-14T10:00:00+08:00`
+        - `ENG 105 – Reading Response #3` — `2026-03-14T22:00:00+08:00`
+        - `ITCS 101 – Midterm Project Checkpoint` — `2026-03-14T23:59:00+08:00`
+      - All `end_datetime` values are canonicalized from the context / DB.
+
+  - The UI now correctly shows a **top 5, school-only** list with factually accurate due dates, matching this spec.
 
 ---
 

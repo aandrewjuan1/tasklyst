@@ -769,20 +769,19 @@ test('student life prompt 1_2 returns school tasks even when strict today window
     }
 });
 
-test('prioritize_tasks sanitizer preserves LLM ranked_tasks without filling up to requested_top_n', function (): void {
+test('prioritize_tasks sanitizer fills missing ranked tasks up to requested_top_n from context slice', function (): void {
     $sanitizer = new StructuredOutputSanitizer;
 
     $context = [
         'tasks' => [
-            ['title' => 'Task A'],
-            ['title' => 'Task B'],
-            ['title' => 'Task C'],
-            ['title' => 'Task D'],
-            ['title' => 'Task E'],
+            ['title' => 'Task A', 'end_datetime' => '2026-03-10T10:00:00+08:00'],
+            ['title' => 'Task B', 'end_datetime' => '2026-03-11T10:00:00+08:00'],
+            ['title' => 'Task C', 'end_datetime' => '2026-03-12T10:00:00+08:00'],
+            ['title' => 'Task D', 'end_datetime' => '2026-03-13T10:00:00+08:00'],
+            ['title' => 'Task E', 'end_datetime' => '2026-03-14T10:00:00+08:00'],
         ],
         'requested_top_n' => 5,
     ];
-
     $structured = [
         'ranked_tasks' => [
             ['rank' => 1, 'title' => 'Task A'],
@@ -794,13 +793,81 @@ test('prioritize_tasks sanitizer preserves LLM ranked_tasks without filling up t
     $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeTasks);
 
     expect($sanitized)->toHaveKey('ranked_tasks');
-
     $ranked = $sanitized['ranked_tasks'];
-    expect($ranked)->toHaveCount(2);
+    expect($ranked)->toHaveCount(5);
 
     $titles = collect($ranked)->pluck('title')->values()->all();
-    expect($titles)->toContain('Task A')
-        ->and($titles)->toContain('Task C');
+    expect($titles)->toEqual([
+        'Task A',
+        'Task C',
+        'Task B',
+        'Task D',
+        'Task E',
+    ]);
+});
+
+test('prioritize_events sanitizer fills missing ranked events up to requested_top_n from context slice', function (): void {
+    $sanitizer = new StructuredOutputSanitizer;
+
+    $context = [
+        'events' => [
+            ['title' => 'Event A', 'start_datetime' => '2026-03-10T09:00:00+08:00', 'end_datetime' => '2026-03-10T10:00:00+08:00'],
+            ['title' => 'Event B', 'start_datetime' => '2026-03-11T09:00:00+08:00', 'end_datetime' => '2026-03-11T10:00:00+08:00'],
+            ['title' => 'Event C', 'start_datetime' => '2026-03-12T09:00:00+08:00', 'end_datetime' => '2026-03-12T10:00:00+08:00'],
+        ],
+        'requested_top_n' => 3,
+    ];
+
+    $structured = [
+        'ranked_events' => [
+            ['rank' => 1, 'title' => 'Event A'],
+        ],
+        'reasoning' => 'Initial reasoning.',
+    ];
+
+    $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeEvents);
+
+    expect($sanitized)->toHaveKey('ranked_events');
+    $ranked = $sanitized['ranked_events'];
+    expect($ranked)->toHaveCount(3);
+
+    $titles = collect($ranked)->pluck('title')->values()->all();
+    expect($titles)->toEqual([
+        'Event A',
+        'Event B',
+        'Event C',
+    ]);
+});
+
+test('prioritize_projects sanitizer fills missing ranked projects up to requested_top_n from context slice', function (): void {
+    $sanitizer = new StructuredOutputSanitizer;
+
+    $context = [
+        'projects' => [
+            ['name' => 'Project A', 'start_datetime' => '2026-03-10T09:00:00+08:00', 'end_datetime' => '2026-03-20T10:00:00+08:00'],
+            ['name' => 'Project B', 'start_datetime' => '2026-03-11T09:00:00+08:00', 'end_datetime' => '2026-03-21T10:00:00+08:00'],
+        ],
+        'requested_top_n' => 2,
+    ];
+
+    $structured = [
+        'ranked_projects' => [
+            ['rank' => 1, 'name' => 'Project B'],
+        ],
+        'reasoning' => 'Initial reasoning.',
+    ];
+
+    $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeProjects);
+
+    expect($sanitized)->toHaveKey('ranked_projects');
+    $ranked = $sanitized['ranked_projects'];
+    expect($ranked)->toHaveCount(2);
+
+    $names = collect($ranked)->pluck('name')->values()->all();
+    expect($names)->toEqual([
+        'Project B',
+        'Project A',
+    ]);
 });
 
 test('general_query task context includes full set with description and complexity', function (): void {
