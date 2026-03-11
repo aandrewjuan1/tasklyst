@@ -697,6 +697,12 @@ class StructuredOutputSanitizer
                 $structured['ranked_tasks'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
+                $filtered = array_map(static function (array $item): array {
+                    // For prioritization, ids are not part of the context contract; drop any hallucinated id fields.
+                    unset($item['id']);
+
+                    return $item;
+                }, $filtered);
                 $structured['ranked_tasks'] = $this->rerank($filtered);
             }
         }
