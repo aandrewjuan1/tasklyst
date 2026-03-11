@@ -213,74 +213,7 @@
                                 </p>
                             </template>
 
-                            <template x-if="structured.ranked_tasks && structured.ranked_tasks.length">
-                                <div class="space-y-1">
-                                    <p class="text-[11px] font-medium text-muted-foreground">
-                                        {{ __('Prioritised tasks') }}
-                                    </p>
-                                    <ol class="list-decimal pl-4 space-y-0.5">
-                                        <template
-                                            x-for="item in structured.ranked_tasks"
-                                            :key="`${item.rank}-${item.title}`"
-                                        >
-                                            <li class="text-[11px]">
-                                                <span x-text="`#${item.rank} ${item.title}`"></span>
-                                                <span
-                                                    x-show="item.end_datetime"
-                                                    class="text-[11px] text-muted-foreground"
-                                                    x-text="formatItemEnd(item)"
-                                                ></span>
-                                            </li>
-                                        </template>
-                                    </ol>
-                                </div>
-                            </template>
-
-                            <template x-if="structured.ranked_events && structured.ranked_events.length">
-                                <div class="space-y-1">
-                                    <p class="text-[11px] font-medium text-muted-foreground">
-                                        {{ __('Prioritised events') }}
-                                    </p>
-                                    <ol class="list-decimal pl-4 space-y-0.5">
-                                        <template
-                                            x-for="event in structured.ranked_events"
-                                            :key="`${event.rank}-${event.title}`"
-                                        >
-                                            <li class="text-[11px]">
-                                                <span x-text="`#${event.rank} ${event.title}`"></span>
-                                                <span
-                                                    x-show="event.start_datetime || event.end_datetime"
-                                                    class="text-[11px] text-muted-foreground"
-                                                    x-text="formatItemRange(event)"
-                                                ></span>
-                                            </li>
-                                        </template>
-                                    </ol>
-                                </div>
-                            </template>
-
-                            <template x-if="structured.ranked_projects && structured.ranked_projects.length">
-                                <div class="space-y-1">
-                                    <p class="text-[11px] font-medium text-muted-foreground">
-                                        {{ __('Prioritised projects') }}
-                                    </p>
-                                    <ol class="list-decimal pl-4 space-y-0.5">
-                                        <template
-                                            x-for="project in structured.ranked_projects"
-                                            :key="`${project.rank}-${project.name}`"
-                                        >
-                                            <li class="text-[11px]">
-                                                <span x-text="`#${project.rank} ${project.name}`"></span>
-                                                <span
-                                                    x-show="project.end_datetime"
-                                                    class="text-[11px] text-muted-foreground"
-                                                    x-text="formatItemEnd(project)"
-                                                ></span>
-                                            </li>
-                                        </template>
-                                    </ol>
-                                </div>
-                            </template>
+                            {{-- Ranked list is already in message content; no separate "Prioritised tasks/events/projects" section. --}}
 
                             <template x-if="structured.scheduled_tasks && structured.scheduled_tasks.length">
                                 <div class="space-y-1">

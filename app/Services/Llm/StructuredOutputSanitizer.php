@@ -157,6 +157,8 @@ class StructuredOutputSanitizer
             if ($intent === LlmIntent::ScheduleEvent || $intent === LlmIntent::AdjustEventTime) {
                 $structured = $this->bindSingleEventToContext($structured, $items);
             }
+
+            $structured = $this->normalizeScheduleFromSessions($structured, $intent);
         }
 
         if ($intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline) {
@@ -332,6 +334,67 @@ class StructuredOutputSanitizer
             $structured['title'] = $trueTitle;
             $structured['target_event_title'] = $trueTitle;
         }
+
+        return $structured;
+    }
+
+    /**
+     * When the LLM returns schedule in "sessions" only, copy first session's start_datetime, duration,
+     * and (for event/project) end_datetime to top-level and proposed_properties so appliable_changes
+     * and the builder see them. Used for ScheduleTask, ScheduleEvent, ScheduleProject and adjust variants.
+     *
+     * @param  array<string, mixed>  $structured
+     * @return array<string, mixed>
+     */
+    private function normalizeScheduleFromSessions(array $structured, LlmIntent $intent): array
+    {
+        $sessions = $structured['sessions'] ?? null;
+        if (! is_array($sessions) || $sessions === [] || ! is_array($sessions[0] ?? null)) {
+            return $structured;
+        }
+
+        $isTask = $intent === LlmIntent::ScheduleTask || $intent === LlmIntent::AdjustTaskDeadline;
+        $first = $sessions[0];
+        $start = $first['start_datetime'] ?? null;
+        $end = $first['end_datetime'] ?? null;
+        if ($end === 'null' || $end === '') {
+            $end = null;
+        }
+        $duration = isset($first['duration']) && is_numeric($first['duration']) ? (int) $first['duration'] : null;
+        $priority = isset($first['priority']) && $first['priority'] !== '' ? $first['priority'] : null;
+
+        if ($start === null && $end === null && $duration === null && $priority === null) {
+            return $structured;
+        }
+
+        if ($start !== null && $start !== '' && (! array_key_exists('start_datetime', $structured) || $structured['start_datetime'] === null || $structured['start_datetime'] === '')) {
+            $structured['start_datetime'] = $start;
+        }
+        if (! $isTask && $end !== null && $end !== '' && (! array_key_exists('end_datetime', $structured) || $structured['end_datetime'] === null || $structured['end_datetime'] === '')) {
+            $structured['end_datetime'] = $end;
+        }
+        if ($duration !== null && $duration > 0 && (! array_key_exists('duration', $structured) || $structured['duration'] === null || $structured['duration'] === '')) {
+            $structured['duration'] = $duration;
+        }
+        if ($priority !== null && (! array_key_exists('priority', $structured) || $structured['priority'] === null || $structured['priority'] === '')) {
+            $structured['priority'] = $priority;
+        }
+
+        $proposed = $structured['proposed_properties'] ?? [];
+        $proposed = is_array($proposed) ? $proposed : [];
+        if ($start !== null && $start !== '' && ($proposed['start_datetime'] ?? null) === null) {
+            $proposed['start_datetime'] = $start;
+        }
+        if (! $isTask && $end !== null && $end !== '' && ($proposed['end_datetime'] ?? null) === null) {
+            $proposed['end_datetime'] = $end;
+        }
+        if ($duration !== null && $duration > 0 && ($proposed['duration'] ?? null) === null) {
+            $proposed['duration'] = $duration;
+        }
+        if ($priority !== null && ($proposed['priority'] ?? null) === null) {
+            $proposed['priority'] = $priority;
+        }
+        $structured['proposed_properties'] = $proposed;
 
         return $structured;
     }
