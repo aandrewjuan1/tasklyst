@@ -61,6 +61,29 @@ class LlmContextConstraintService
             $constraints->requiredTagNames[] = 'Exam';
         }
 
+        // Generic "tagged as X" support so prompts like
+        // "everything tagged as \"Homework\"" or "with the \"Health\" tag"
+        // correctly drive tag-based filtering beyond the special-cased Exam tag.
+        $mentionsTagging = str_contains($normalized, 'tagged') || str_contains($normalized, ' tag ');
+        if ($mentionsTagging) {
+            // Extract quoted tag names, e.g. "Exam", "Homework".
+            $matches = [];
+            if (preg_match_all('/"([^"]+)"/u', $normalized, $matches) > 0) {
+                foreach ($matches[1] as $rawTag) {
+                    $tag = trim($rawTag);
+                    if ($tag !== '') {
+                        // Preserve original capitalization for user-facing tags, but
+                        // normalize common variants to match seed data.
+                        if (mb_strtolower($tag) === 'exam') {
+                            $tag = 'Exam';
+                        }
+
+                        $constraints->requiredTagNames[] = $tag;
+                    }
+                }
+            }
+        }
+
         $wantsHealthOrHousehold = str_contains($normalized, 'health')
             || str_contains($normalized, 'household')
             || str_contains($normalized, 'chores')

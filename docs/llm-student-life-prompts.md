@@ -169,6 +169,31 @@ Each example below includes:
 
 - **Focus**: Tag-based prioritization.
 
+- **Bugs encountered (and fixes) (verified ✅)**
+
+  - **Bug: Mis-classification to `prioritize_all` produced non‑Exam narrative + empty rankings**
+    - **Symptom**: Response came back as `intent = prioritize_all`, with a narrative recommending non‑Exam school tasks (e.g. `MATH 201 – Problem Set 4: Relations`, `CS 220 – Lab 5: Linked Lists`) while `structured.ranked_tasks/events/projects` were all `[]`.
+    - **Root cause**:
+      - The model pulled items from conversation history instead of the **tag-filtered** context.
+      - Sanitization correctly stripped hallucinated items from `ranked_*`, but intent validation still passed because `recommended_action`/`reasoning` were non‑empty.
+    - **Fix**:
+      - Hardened prioritize prompts (especially `PrioritizeAllPrompt`) to forbid referencing items not present in the current Context arrays.
+      - Added a backend guard for `PrioritizeAll` so if Context has items but all `ranked_*` arrays are empty, we deterministically rank from Context instead of returning an empty list.
+
+  - **Bug: Tag filtering only worked via the special-cased word “exam”**
+    - **Symptom**: Only messages containing “exam” reliably triggered `requiredTagNames = ['Exam']`; generic phrasing like `tagged as "Homework"` was not consistently interpreted.
+    - **Fix**: Extended `LlmContextConstraintService` to parse quoted tags from “tagged as …”/“with the … tag” phrasing and add them to `requiredTagNames`, so tag filtering works generically for tasks/events.
+
+  - **Bug: Narrative text could mention non-context items even when ranked lists were correct**
+    - **Symptom**: `ranked_tasks` was correct (Exam-only), but the narrative still referenced unrelated projects/tasks (e.g. `CS 220 Final Project`, `ENG 105 Comparative Essay`) that were not in the filtered context.
+    - **Fix**:
+      - Added consistent “do not mention anything outside Context” guardrails across all prioritize prompt templates.
+      - Appended an explicit runtime guidance line to prioritize prompts at inference time: only mention items present in Context arrays.
+
+  - **Bug: Hallucinated `id` field inside `ranked_tasks` (e.g. `id => 0`)**
+    - **Symptom**: Some LLM responses included a bogus `id` key in ranked items even though prioritize context doesn’t provide IDs.
+    - **Fix**: In `StructuredOutputSanitizer` for `PrioritizeAll`, strip any `id` fields from `ranked_tasks` items during sanitization.
+
 - **Expected behaviour**
   - Filter to tasks/events with the `Exam` tag:
     - Tasks like `ITCS 101 – Quiz 2: Conditions`, `MATH 201 – Quiz 3: Graph Theory`, `MATH 201 – Take-home Exam 1 Submission`.

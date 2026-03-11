@@ -65,6 +65,21 @@ class RunLlmInferenceAction
         $contextJson = json_encode($context, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $userPrompt = Str::limit($userMessage, 2000)."\n\nContext:\n".$contextJson;
 
+        $isPrioritizeIntent = in_array($intent, [
+            LlmIntent::PrioritizeTasks,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::PrioritizeProjects,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll,
+        ], true);
+
+        if ($isPrioritizeIntent) {
+            $userPrompt .= "\n\nGuidance:\n";
+            $userPrompt .= 'Only mention tasks, events, and projects that appear in the Context arrays. Do not mention or compare to any other items from conversation history or outside this Context.'; // explicit narrative guard
+        }
+
         $startedAt = microtime(true);
 
         $result = $this->inferenceService->infer(
@@ -80,6 +95,10 @@ class RunLlmInferenceAction
         $structured = in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
             ? $this->taskScheduleStructuredFromRaw($rawStructured, $context)
             : $this->sanitizer->sanitize($rawStructured, $context, $intent, $entityType, $userMessage);
+
+        if ($intent === LlmIntent::PrioritizeAll) {
+            $structured = $this->ensurePrioritizeAllHasRankedItems($structured, $context);
+        }
 
         // Backend safety net for explicit user time across all single-entity schedule/adjust intents.
         if (in_array($intent, [
@@ -121,6 +140,262 @@ class RunLlmInferenceAction
         );
 
         return $result;
+    }
+
+    /**
+     * Backend safety net for PrioritizeAll so we never return an empty ranked_*
+     * payload when there are items in context (e.g. tag-filtered Exam items).
+     *
+     * If sanitization strips all ranked items but Context still has tasks/events/projects,
+     * this method synthesizes a deterministic ranking based purely on Context.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function ensurePrioritizeAllHasRankedItems(array $structured, array $context): array
+    {
+        $tasksContext = $context['tasks'] ?? [];
+        $eventsContext = $context['events'] ?? [];
+        $projectsContext = $context['projects'] ?? [];
+
+        $hasAnyContext = (is_array($tasksContext) && $tasksContext !== [])
+            || (is_array($eventsContext) && $eventsContext !== [])
+            || (is_array($projectsContext) && $projectsContext !== []);
+
+        if (! $hasAnyContext) {
+            return $structured;
+        }
+
+        $rankedTasks = $structured['ranked_tasks'] ?? [];
+        $rankedEvents = $structured['ranked_events'] ?? [];
+        $rankedProjects = $structured['ranked_projects'] ?? [];
+
+        $hasAnyRanked = (is_array($rankedTasks) && $rankedTasks !== [])
+            || (is_array($rankedEvents) && $rankedEvents !== [])
+            || (is_array($rankedProjects) && $rankedProjects !== []);
+
+        if ($hasAnyRanked) {
+            return $structured;
+        }
+
+        $structured['ranked_tasks'] = $this->buildDeterministicTaskRankingFromContext($tasksContext);
+        $structured['ranked_events'] = $this->buildDeterministicEventRankingFromContext($eventsContext);
+        $structured['ranked_projects'] = $this->buildDeterministicProjectRankingFromContext($projectsContext);
+
+        $structured['recommended_action'] = __('I ranked your items by due date and priority using the filtered context from your request.');
+        $structured['reasoning'] = __(
+            'The AI output did not produce a usable ranked list, so I deterministically ordered your current context items by urgency instead.'
+        );
+
+        if (! isset($structured['entity_type']) || ! is_string($structured['entity_type']) || trim($structured['entity_type']) === '') {
+            $structured['entity_type'] = 'all';
+        }
+
+        return $structured;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $tasksContext
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildDeterministicTaskRankingFromContext(array $tasksContext): array
+    {
+        if ($tasksContext === []) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($tasksContext as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+
+            $status = isset($task['status']) && is_string($task['status'])
+                ? mb_strtolower(trim($task['status']))
+                : null;
+
+            if ($status === 'done') {
+                continue;
+            }
+
+            $title = isset($task['title']) && is_string($task['title']) ? trim($task['title']) : '';
+            if ($title === '') {
+                continue;
+            }
+
+            $end = isset($task['end_datetime']) && is_string($task['end_datetime']) ? $task['end_datetime'] : null;
+            $priority = isset($task['priority']) && is_string($task['priority'])
+                ? mb_strtolower(trim($task['priority']))
+                : null;
+
+            $items[] = [
+                'title' => $title,
+                'end_datetime' => $end,
+                'priority' => $priority,
+            ];
+        }
+
+        if ($items === []) {
+            return [];
+        }
+
+        usort($items, static function (array $a, array $b): int {
+            $aEnd = $a['end_datetime'] ?? null;
+            $bEnd = $b['end_datetime'] ?? null;
+
+            if ($aEnd !== null && $bEnd !== null && $aEnd !== $bEnd) {
+                return strcmp($aEnd, $bEnd);
+            }
+
+            $priorityWeight = static function (?string $priority): int {
+                return match ($priority) {
+                    'urgent' => 1,
+                    'high' => 2,
+                    'medium' => 3,
+                    'low' => 4,
+                    default => 5,
+                };
+            };
+
+            $aWeight = $priorityWeight($a['priority'] ?? null);
+            $bWeight = $priorityWeight($b['priority'] ?? null);
+
+            if ($aWeight !== $bWeight) {
+                return $aWeight <=> $bWeight;
+            }
+
+            return strcmp($a['title'], $b['title']);
+        });
+
+        $ranked = [];
+        $rank = 1;
+        foreach ($items as $item) {
+            $ranked[] = [
+                'rank' => $rank++,
+                'title' => $item['title'],
+                'end_datetime' => $item['end_datetime'] ?? null,
+            ];
+        }
+
+        return $ranked;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $eventsContext
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildDeterministicEventRankingFromContext(array $eventsContext): array
+    {
+        if ($eventsContext === []) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($eventsContext as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
+
+            $title = isset($event['title']) && is_string($event['title']) ? trim($event['title']) : '';
+            if ($title === '') {
+                continue;
+            }
+
+            $start = isset($event['start_datetime']) && is_string($event['start_datetime']) ? $event['start_datetime'] : null;
+            $end = isset($event['end_datetime']) && is_string($event['end_datetime']) ? $event['end_datetime'] : null;
+
+            $items[] = [
+                'title' => $title,
+                'start_datetime' => $start,
+                'end_datetime' => $end,
+            ];
+        }
+
+        if ($items === []) {
+            return [];
+        }
+
+        usort($items, static function (array $a, array $b): int {
+            $aStart = $a['start_datetime'] ?? null;
+            $bStart = $b['start_datetime'] ?? null;
+
+            if ($aStart !== null && $bStart !== null && $aStart !== $bStart) {
+                return strcmp($aStart, $bStart);
+            }
+
+            return strcmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
+        });
+
+        $ranked = [];
+        $rank = 1;
+        foreach ($items as $item) {
+            $ranked[] = [
+                'rank' => $rank++,
+                'title' => $item['title'],
+                'start_datetime' => $item['start_datetime'] ?? null,
+                'end_datetime' => $item['end_datetime'] ?? null,
+            ];
+        }
+
+        return $ranked;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $projectsContext
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildDeterministicProjectRankingFromContext(array $projectsContext): array
+    {
+        if ($projectsContext === []) {
+            return [];
+        }
+
+        $items = [];
+        foreach ($projectsContext as $project) {
+            if (! is_array($project)) {
+                continue;
+            }
+
+            $name = isset($project['name']) && is_string($project['name']) ? trim($project['name']) : '';
+            if ($name === '') {
+                continue;
+            }
+
+            $end = isset($project['end_datetime']) && is_string($project['end_datetime']) ? $project['end_datetime'] : null;
+
+            $items[] = [
+                'name' => $name,
+                'end_datetime' => $end,
+            ];
+        }
+
+        if ($items === []) {
+            return [];
+        }
+
+        usort($items, static function (array $a, array $b): int {
+            $aEnd = $a['end_datetime'] ?? null;
+            $bEnd = $b['end_datetime'] ?? null;
+
+            if ($aEnd !== null && $bEnd !== null && $aEnd !== $bEnd) {
+                return strcmp($aEnd, $bEnd);
+            }
+
+            return strcmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
+        });
+
+        $ranked = [];
+        $rank = 1;
+        foreach ($items as $item) {
+            $ranked[] = [
+                'rank' => $rank++,
+                'name' => $item['name'],
+                'end_datetime' => $item['end_datetime'] ?? null,
+            ];
+        }
+
+        return $ranked;
     }
 
     /**
