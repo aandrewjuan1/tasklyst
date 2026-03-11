@@ -60,11 +60,14 @@ class ContextBuilder
     private const TASK_FIELDS_PRIORITIZE = [
         'title',
         'end_datetime',
+        'end_datetime_human',
         'priority',
         'complexity',
         'duration',
         'is_recurring',
         'status',
+        // Direct signal so the model does not need to guess from title patterns.
+        'is_assessment',
         // Derived helper flags and relationship hints for smarter prioritization.
         'is_overdue',
         'due_today',
@@ -101,7 +104,11 @@ class ContextBuilder
     private const EVENT_FIELDS_PRIORITIZE = [
         'title',
         'start_datetime',
+        'start_datetime_human',
         'end_datetime',
+        'end_datetime_human',
+        // Direct signal so the model does not need to guess from title patterns.
+        'is_assessment',
         'is_recurring',
         'status',
         'all_day',
@@ -126,9 +133,15 @@ class ContextBuilder
      */
     private const PROJECT_FIELDS_PRIORITIZE = [
         'name',
+        'start_datetime',
+        'start_datetime_human',
+        'end_datetime',
+        'end_datetime_human',
         'tasks',
         // Aggregate helper flags.
         'has_incomplete_tasks',
+        // Direct signal for projects that contain quiz/exam/test work.
+        'has_assessment_task',
         'is_overdue',
         'starts_soon',
     ];
@@ -151,6 +164,7 @@ class ContextBuilder
         'id',
         'title',
         'end_datetime',
+        'end_datetime_human',
         'priority',
         'is_recurring',
     ];
@@ -229,6 +243,7 @@ class ContextBuilder
         $maxDesc = $this->descriptionMaxCharsForIntent($intent);
         $out = [];
         $now = now();
+        $timezone = config('app.timezone', 'Asia/Manila');
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $task->id;
@@ -257,6 +272,9 @@ class ContextBuilder
         if (in_array('end_datetime', $fields, true)) {
             $out['end_datetime'] = $task->end_datetime?->toIso8601String();
         }
+        if (in_array('end_datetime_human', $fields, true)) {
+            $out['end_datetime_human'] = $task->end_datetime?->copy()->setTimezone($timezone)->toDayDateTimeString();
+        }
         if (in_array('project_id', $fields, true)) {
             $out['project_id'] = $task->project_id;
         }
@@ -265,6 +283,9 @@ class ContextBuilder
         }
         if (in_array('is_recurring', $fields, true)) {
             $out['is_recurring'] = $this->isTaskRecurring($task);
+        }
+        if (in_array('is_assessment', $fields, true)) {
+            $out['is_assessment'] = $this->isTaskAssessmentFromTitle($task->title);
         }
         if (in_array('is_overdue', $fields, true)) {
             $out['is_overdue'] = $task->end_datetime !== null && $task->end_datetime->lt($now);
@@ -292,6 +313,19 @@ class ContextBuilder
         return $out;
     }
 
+    private function isTaskAssessmentFromTitle(?string $title): bool
+    {
+        $t = is_string($title) ? mb_strtolower(trim($title)) : '';
+        if ($t === '') {
+            return false;
+        }
+
+        return str_contains($t, 'quiz')
+            || str_contains($t, 'exam')
+            || str_contains($t, 'test')
+            || str_contains($t, 'take-home');
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -301,6 +335,7 @@ class ContextBuilder
         $maxDesc = $this->descriptionMaxCharsForIntent($intent);
         $out = [];
         $now = now();
+        $timezone = config('app.timezone', 'Asia/Manila');
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $event->id;
@@ -314,8 +349,14 @@ class ContextBuilder
         if (in_array('start_datetime', $fields, true)) {
             $out['start_datetime'] = $event->start_datetime?->toIso8601String();
         }
+        if (in_array('start_datetime_human', $fields, true)) {
+            $out['start_datetime_human'] = $event->start_datetime?->copy()->setTimezone($timezone)->toDayDateTimeString();
+        }
         if (in_array('end_datetime', $fields, true)) {
             $out['end_datetime'] = $event->end_datetime?->toIso8601String();
+        }
+        if (in_array('end_datetime_human', $fields, true)) {
+            $out['end_datetime_human'] = $event->end_datetime?->copy()->setTimezone($timezone)->toDayDateTimeString();
         }
         if (in_array('all_day', $fields, true)) {
             $out['all_day'] = $event->all_day;
@@ -325,6 +366,9 @@ class ContextBuilder
         }
         if (in_array('is_recurring', $fields, true)) {
             $out['is_recurring'] = $this->isEventRecurring($event);
+        }
+        if (in_array('is_assessment', $fields, true)) {
+            $out['is_assessment'] = $this->isTaskAssessmentFromTitle($event->title);
         }
         if (in_array('all_day', $fields, true)) {
             $out['all_day'] = $event->all_day;
@@ -350,6 +394,7 @@ class ContextBuilder
     {
         $fields = $this->projectTaskFieldsForIntent($intent);
         $out = [];
+        $timezone = config('app.timezone', 'Asia/Manila');
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $task->id;
@@ -359,6 +404,9 @@ class ContextBuilder
         }
         if (in_array('end_datetime', $fields, true)) {
             $out['end_datetime'] = $task->end_datetime?->toIso8601String();
+        }
+        if (in_array('end_datetime_human', $fields, true)) {
+            $out['end_datetime_human'] = $task->end_datetime?->copy()->setTimezone($timezone)->toDayDateTimeString();
         }
         if (in_array('priority', $fields, true)) {
             $out['priority'] = $task->priority?->value;
@@ -379,6 +427,7 @@ class ContextBuilder
         $maxDesc = $this->descriptionMaxCharsForIntent($intent);
         $out = [];
         $now = now();
+        $timezone = config('app.timezone', 'Asia/Manila');
 
         if (in_array('id', $fields, true)) {
             $out['id'] = $project->id;
@@ -392,8 +441,14 @@ class ContextBuilder
         if (in_array('start_datetime', $fields, true)) {
             $out['start_datetime'] = $project->start_datetime?->toIso8601String();
         }
+        if (in_array('start_datetime_human', $fields, true)) {
+            $out['start_datetime_human'] = $project->start_datetime?->copy()->setTimezone($timezone)->toDayDateTimeString();
+        }
         if (in_array('end_datetime', $fields, true)) {
             $out['end_datetime'] = $project->end_datetime?->toIso8601String();
+        }
+        if (in_array('end_datetime_human', $fields, true)) {
+            $out['end_datetime_human'] = $project->end_datetime?->copy()->setTimezone($timezone)->toDayDateTimeString();
         }
         if (in_array('tasks', $fields, true)) {
             $tasks = $project->tasks()
@@ -408,6 +463,9 @@ class ContextBuilder
             $out['tasks'] = $tasks->map(fn (Task $t) => $this->projectTaskPayloadItem($t, $intent))->values()->all();
             if (in_array('has_incomplete_tasks', $fields, true)) {
                 $out['has_incomplete_tasks'] = $tasks->isNotEmpty();
+            }
+            if (in_array('has_assessment_task', $fields, true)) {
+                $out['has_assessment_task'] = $tasks->contains(fn (Task $t): bool => $this->isTaskAssessmentFromTitle($t->title));
             }
         }
         if (in_array('is_overdue', $fields, true)) {
@@ -481,6 +539,25 @@ class ContextBuilder
                 default => $this->buildTaskContext($user, LlmIntent::PrioritizeTasks, $entityId, $userMessage, $thread, null, $constraints),
             },
         };
+
+        // For single-entity prioritize intents: if the user did not ask for a specific "top N",
+        // force the LLM to rank the entire context slice so the UI gets a complete ranked list.
+        // (We intentionally do this in the context/prompt layer rather than server-side filling.)
+        $isSingleEntityPrioritizeIntent = in_array($intent, [LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects], true)
+            && in_array($entityType, [LlmEntityType::Task, LlmEntityType::Event, LlmEntityType::Project], true);
+        if ($isSingleEntityPrioritizeIntent && ! isset($payload['requested_top_n'])) {
+            $count = match ($entityType) {
+                LlmEntityType::Task => isset($entityPayload['tasks']) && is_array($entityPayload['tasks']) ? count($entityPayload['tasks']) : 0,
+                LlmEntityType::Event => isset($entityPayload['events']) && is_array($entityPayload['events']) ? count($entityPayload['events']) : 0,
+                LlmEntityType::Project => isset($entityPayload['projects']) && is_array($entityPayload['projects']) ? count($entityPayload['projects']) : 0,
+                default => 0,
+            };
+
+            if ($count > 0) {
+                $payload['requested_top_n'] = $count;
+                $payload['requested_top_n_instruction'] = 'The user did not ask for a specific top N. You MUST rank every item in the relevant context array, so return exactly '.$count.' ranked_* items (one per item in the context array).';
+            }
+        }
 
         $isScheduleIntent = in_array($intent, [
             LlmIntent::ScheduleTask,

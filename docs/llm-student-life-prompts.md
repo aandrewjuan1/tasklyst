@@ -26,48 +26,44 @@ Each example below includes:
 
   > I’m overwhelmed. Looking only at my CS 220 and MATH 201 work for the next three days, which tasks should I tackle first and why?
 
-- **Focus**: Smart prioritization (by course + near-term window).
+- **Focus**: Smart prioritization (course filter + “next three days” window) with strict due-date correctness.
 
 - **Expected behaviour**
   - Filter tasks to:
     - Subject `CS 220 – Data Structures` and `MATH 201 – Discrete Mathematics`.
-    - Tasks whose due/end datetimes fall within approximately the next 3 days (relative to “now” in the seeder) **and are not yet completed**.
-  - Rank by:
-    - Hard deadlines (e.g. quiz date/time, take-home exam submission).
-    - Workload (`duration` and `complexity`).
-    - Status/priority (e.g. `urgent`/`high` over `medium`/`low`).
+    - Tasks whose `end_datetime` falls within approximately the next 3 days (relative to “now” in the app) **and are not yet completed**.
+  - Rank tasks in a reasonable way using:
+    - Deadlines (earlier due first when otherwise comparable).
+    - Workload (`duration` and `complexity`) so long/complex tasks due soon are not left until the last minute.
+    - Priority and status.
+  - Produce a **complete** ranked list for the filtered slice (not “top 2” by accident).
+  - Ensure the response is **factually accurate** about due dates/times (no AM/PM drift).
 
-- **Expected result (ordered list example)**
-  1. **`CS 220 – Project Milestone 2: Dynamic Arrays`**  
-     - Complex, high priority, multi-hour deliverable due within the 3–7 day range.
-  2. **`MATH 201 – Quiz 3: Graph Theory`**  
-     - Time-bound quiz; short duration but high impact; should be prepared for before the quiz window.
-  3. **`CS 220 – Lab 5: Linked Lists`**  
-     - Complex lab that often precedes quizzes/projects; substantial work within the same window.
-  4. **`MATH 201 – Problem Set 4: Relations`**  
-     - Significant homework with a near-term deadline but slightly more flexible than the quiz and project milestone.
+- **Expected result (seed-data-based)**
+  - The ranked list should include exactly these 3 tasks (titles must match exactly):
+    1. **`CS 220 – Lab 5: Linked Lists`** — due **Fri, Mar 13, 2026 11:59 PM**
+    2. **`MATH 201 – Problem Set 4: Relations`** — due **Fri, Mar 13, 2026 11:00 PM**
+    3. **`MATH 201 – Quiz 3: Graph Theory`** — due **Sat, Mar 14, 2026 10:00 AM**
 
-The explanation should explicitly reference course names, due windows, and why upcoming exams/major milestones are above readings or lighter, more flexible work. Completed exam items like **`MATH 201 – Take-home Exam 1 Submission`** may still appear in the data but should not be scheduled again.
+  The explanation should reference why the top item is #1 (deadline + complexity/duration + priority), and it must not invent different due times (for example, the problem set is **11:00 PM**, not 11:00 AM).
 
-- **Implementation notes (current backend behaviour)**
-  - **Intent & prompt**:
-    - The user message is classified as `prioritize_tasks` on `task` entities and routed to the `PrioritizeTasksPrompt` template.
-    - The shared `topTaskCriteriaDescription` now explicitly ranks **quizzes/exams highest**, then **major projects/labs/milestones**, then **problem sets**, then lower-impact items like readings/reflections (within the same time window and urgency).
-  - **Context constraints**:
-    - A dedicated constraint layer (`LlmContextConstraintService`) parses the user message and passes a `LlmContextConstraints` DTO into `ContextBuilder`.
-    - For this prompt, the task context is restricted to:
-      - `subject_name` in {`CS 220 – Data Structures`, `MATH 201 – Discrete Mathematics`}.
-      - `end_datetime` within the next ≈3 days from the seeded “now”.
-      - Incomplete tasks only.
-  - **Prioritization context shape**:
-    - For prioritization intents, the LLM sees only **human-readable fields**: `title`, `end_datetime`, `priority`, `complexity`, `duration`, recurrence flags, and helper flags (`is_overdue`, `due_today`, `is_someday`, `project_name`, `event_title`).
-    - Internal database IDs are **not exposed** in prioritize contexts, and the prompt instructs the model **not** to mention IDs like “ID: 12” in natural language; IDs are used only in structured JSON where necessary.
-  - **Result**:
-    - The ranked list is now always drawn from CS 220 + MATH 201 tasks in the 3‑day window, with exams/quizzes and major deliverables favoured over reflections/readings, matching the intent of this test even if the exact ordering differs from the example.
+- **Implementation notes (bug fix summary)**
+  - **Context constraints (course + window)**:
+    - `LlmContextConstraintService` detects `CS 220`, `MATH 201`, and “next three days” and constrains the context query accordingly.
+  - **Context “completeness” guarantee (prevents “only 2 ranked tasks”)**:
+    - For single-entity prioritize intents, when the user does **not** request “top N”, `ContextBuilder` now sets `requested_top_n` to the size of the context slice so the model must return **every** item in `ranked_tasks`.
+  - **Context signals (reduce guessing)**:
+    - Tasks now include `is_assessment` in prioritize context so the model doesn’t have to infer quizzes/exams from title wording.
+  - **Prompt consistency rule (prevents narrative/rank mismatch)**:
+    - `PrioritizeTasksPrompt` includes a hard rule: `recommended_action` must explicitly recommend the same task as `ranked_tasks[0]` (rank #1), using the exact title string.
+  - **Structured output canonicalization (prevents time drift)**:
+    - `StructuredOutputSanitizer` canonicalizes `ranked_tasks[*].end_datetime` from the context slice so the LLM can’t accidentally shift times (AM/PM/timezone mistakes).
+  - **Narrative date binding (fixes wrong wording while keeping ordering)**:
+    - `RecommendationDisplayBuilder` applies narrow narrative corrections when context facts are available, binding relative phrases (like “tomorrow”) and ambiguous time phrases to the canonical due datetime—without changing which tasks were ranked.
 
 ---
 
-### 1.2 Top 5 tasks for today (school-only) ✅
+### 1.2 Top 5 tasks for today (school-only)
 
 - **User prompt**
 
@@ -117,13 +113,14 @@ The explanation should explicitly reference course names, due windows, and why u
       - This guarantees 1.2 returns at least some school tasks for the seeded StudentLife user instead of an empty result.
   - **Top N enforcement & sanitizer behaviour**:
     - The context includes `requested_top_n` (e.g. `5`) when the user explicitly asks for “top 5”.
-    - `StructuredOutputSanitizer` now:
+    - The LLM is expected to return exactly `requested_top_n` items in `ranked_tasks` when there are at least N tasks in the context slice.
+    - `StructuredOutputSanitizer`:
       - Filters `ranked_tasks` down to titles that actually exist in the context (no hallucinated items).
-      - If there are at least N tasks in context but the model returns fewer than N ranked tasks, it **auto-fills** the remaining slots from the context task list (avoiding duplicates) until it reaches N, then reassigns ranks `1..N`.
-      - If the context truly has fewer than N matching tasks, it keeps the shorter list and appends an explanation to `reasoning` like “You asked for the top 5 tasks, but only 2 matched your filters, so I showed all of them.”
+      - Canonicalizes `ranked_tasks[*].end_datetime` from the context slice to prevent AM/PM/timezone drift.
+      - Does **not** auto-fill missing ranked items; completeness is enforced via context + prompt.
   - **Copy accuracy & wording guardrails**:
     - The shared `topTaskCriteriaDescription` now tells the model **not** to say items are “both due today” or “all due today” unless each of those tasks actually has `due_today = true`, and to otherwise describe mixed deadlines using their real dates (e.g. one due today, another due Friday at 10:00 AM).
-    - This, combined with the sanitized ranked list, keeps the natural-language explanation consistent with the actual due dates surfaced in the UI.
+    - `RecommendationDisplayBuilder` applies narrow narrative corrections when context facts are available, binding ambiguous/relative due wording to the canonical due datetime so the explanation stays consistent with the due dates surfaced in the UI.
 
 ---
 

@@ -39,6 +39,57 @@ test('build context for prioritize_tasks includes current_time and tasks array',
         ->and($context['conversation_history'])->toBeArray();
 });
 
+test('prioritize_tasks sets requested_top_n to context size when user does not request top N', function (): void {
+    Task::factory()->for($this->user)->count(3)->create([
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null,
+        'Rank my tasks'
+    );
+
+    expect($context['tasks'])->toHaveCount(3)
+        ->and($context)->toHaveKey('requested_top_n')
+        ->and($context['requested_top_n'])->toBe(3)
+        ->and($context)->toHaveKey('requested_top_n_instruction');
+});
+
+test('prioritize_tasks context includes is_assessment flag for quiz/exam titles', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'MATH 201 – Quiz 3: Graph Theory',
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+    Task::factory()->for($this->user)->create([
+        'title' => 'CS 220 – Lab 5: Linked Lists',
+        'completed_at' => null,
+        'status' => 'to_do',
+    ]);
+
+    $context = $this->action->execute(
+        $this->user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null
+    );
+
+    expect($context)->toHaveKey('tasks')
+        ->and($context['tasks'])->toHaveCount(2)
+        ->and($context['tasks'][0])->toHaveKey('is_assessment')
+        ->and($context['tasks'][1])->toHaveKey('is_assessment');
+
+    $byTitle = collect($context['tasks'])->keyBy('title');
+    expect($byTitle['MATH 201 – Quiz 3: Graph Theory']['is_assessment'])->toBeTrue()
+        ->and($byTitle['CS 220 – Lab 5: Linked Lists']['is_assessment'])->toBeFalse();
+});
+
 test('task context includes is_recurring and minimal fields', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'Recurring task',
@@ -75,7 +126,7 @@ test('build context for prioritize_events includes events array', function (): v
 
     expect($context)->toHaveKeys(['current_time', 'events', 'conversation_history'])
         ->and($context['events'])->toBeArray()
-        ->and($context['events'][0])->toHaveKeys(['title', 'is_recurring', 'start_datetime']);
+        ->and($context['events'][0])->toHaveKeys(['title', 'is_recurring', 'start_datetime', 'is_assessment']);
 });
 
 test('build context for PrioritizeTasksAndEvents with Multiple includes both tasks and events', function (): void {
@@ -121,7 +172,8 @@ test('build context for prioritize_projects includes projects with tasks', funct
     expect($context)->toHaveKeys(['current_time', 'projects', 'conversation_history'])
         ->and($context['projects'])->toHaveCount(1)
         ->and($context['projects'][0]['name'])->toBe('My project')
-        ->and($context['projects'][0]['tasks'])->toBeArray();
+        ->and($context['projects'][0]['tasks'])->toBeArray()
+        ->and($context['projects'][0])->toHaveKey('has_assessment_task');
 });
 
 test('general_query with entity task includes tasks so LLM is aware of user items', function (): void {
@@ -717,7 +769,7 @@ test('student life prompt 1_2 returns school tasks even when strict today window
     }
 });
 
-test('prioritize_tasks sanitizer fills up to requested_top_n from context when LLM returns fewer tasks', function (): void {
+test('prioritize_tasks sanitizer preserves LLM ranked_tasks without filling up to requested_top_n', function (): void {
     $sanitizer = new StructuredOutputSanitizer;
 
     $context = [
@@ -744,14 +796,11 @@ test('prioritize_tasks sanitizer fills up to requested_top_n from context when L
     expect($sanitized)->toHaveKey('ranked_tasks');
 
     $ranked = $sanitized['ranked_tasks'];
-    expect($ranked)->toHaveCount(5);
+    expect($ranked)->toHaveCount(2);
 
     $titles = collect($ranked)->pluck('title')->values()->all();
     expect($titles)->toContain('Task A')
-        ->and($titles)->toContain('Task C')
-        ->and($titles)->toContain('Task B')
-        ->and($titles)->toContain('Task D')
-        ->and($titles)->toContain('Task E');
+        ->and($titles)->toContain('Task C');
 });
 
 test('general_query task context includes full set with description and complexity', function (): void {

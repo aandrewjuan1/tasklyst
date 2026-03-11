@@ -94,8 +94,10 @@ class RunLlmInferenceJob implements ShouldQueue
         $display = $displayBuilder->build($inferenceResult, $intent, $entityType);
 
         $snapshot = $display->toArray();
-        // Single source of truth: store raw LLM structured output only (no separate derived "structured").
-        $snapshot['structured'] = $inferenceResult->rawStructured ?? $inferenceResult->structured;
+        // Store the same structured payload that the UI renders from (post-display corrections).
+        // This keeps message and structured consistent (e.g. filled ranked lists, canonicalized datetimes,
+        // and corrected narrative for structured.recommended_action/reasoning).
+        $snapshot['structured'] = $display->structured;
 
         $metadata = [
             'intent' => $intent->value,
