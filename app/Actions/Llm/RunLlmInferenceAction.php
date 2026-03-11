@@ -93,6 +93,8 @@ class RunLlmInferenceAction
             $structured = $this->overrideStartFromExplicitUserTime($structured, $context, $userMessage);
         }
 
+        $contextFacts = $this->contextFactsForDisplay($context, $intent, $entityType);
+
         $result = new LlmInferenceResult(
             structured: $structured,
             promptVersion: $result->promptVersion,
@@ -101,6 +103,7 @@ class RunLlmInferenceAction
             usedFallback: $result->usedFallback,
             fallbackReason: $result->fallbackReason,
             rawStructured: $result->usedFallback ? null : $rawStructured,
+            contextFacts: $contextFacts,
         );
 
         $durationMs = (int) ((microtime(true) - $startedAt) * 1000);
@@ -118,6 +121,116 @@ class RunLlmInferenceAction
         );
 
         return $result;
+    }
+
+    /**
+     * Minimal, display-focused facts derived from the context we sent to the LLM.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>|null
+     */
+    private function contextFactsForDisplay(array $context, LlmIntent $intent, LlmEntityType $entityType): ?array
+    {
+        $isPrioritizeIntent = in_array($intent, [
+            LlmIntent::PrioritizeTasks,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::PrioritizeProjects,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll,
+        ], true);
+        if (! $isPrioritizeIntent) {
+            return null;
+        }
+
+        $timezone = $context['timezone'] ?? config('app.timezone');
+
+        $facts = [
+            'timezone' => $timezone,
+            'current_time' => $context['current_time'] ?? null,
+            'current_date' => $context['current_date'] ?? null,
+        ];
+
+        $tasks = $context['tasks'] ?? null;
+        if (is_array($tasks) && $tasks !== []) {
+            $byTitle = [];
+            foreach ($tasks as $task) {
+                if (! is_array($task)) {
+                    continue;
+                }
+                $title = isset($task['title']) && is_string($task['title']) ? trim($task['title']) : '';
+                if ($title === '') {
+                    continue;
+                }
+
+                $byTitle[$title] = [
+                    'end_datetime' => isset($task['end_datetime']) && is_string($task['end_datetime']) ? $task['end_datetime'] : null,
+                    'duration' => isset($task['duration']) && is_numeric($task['duration']) ? (int) $task['duration'] : null,
+                    'priority' => isset($task['priority']) && is_string($task['priority']) ? $task['priority'] : null,
+                    'complexity' => isset($task['complexity']) && is_string($task['complexity']) ? $task['complexity'] : null,
+                    'due_today' => isset($task['due_today']) ? (bool) $task['due_today'] : null,
+                    'is_overdue' => isset($task['is_overdue']) ? (bool) $task['is_overdue'] : null,
+                ];
+            }
+            if ($byTitle !== []) {
+                $facts['task_facts_by_title'] = $byTitle;
+            }
+        }
+
+        $events = $context['events'] ?? null;
+        if (is_array($events) && $events !== []) {
+            $byTitle = [];
+            foreach ($events as $event) {
+                if (! is_array($event)) {
+                    continue;
+                }
+                $title = isset($event['title']) && is_string($event['title']) ? trim($event['title']) : '';
+                if ($title === '') {
+                    continue;
+                }
+
+                $byTitle[$title] = [
+                    'start_datetime' => isset($event['start_datetime']) && is_string($event['start_datetime']) ? $event['start_datetime'] : null,
+                    'end_datetime' => isset($event['end_datetime']) && is_string($event['end_datetime']) ? $event['end_datetime'] : null,
+                    'starts_within_24h' => isset($event['starts_within_24h']) ? (bool) $event['starts_within_24h'] : null,
+                    'starts_within_7_days' => isset($event['starts_within_7_days']) ? (bool) $event['starts_within_7_days'] : null,
+                    'all_day' => isset($event['all_day']) ? (bool) $event['all_day'] : null,
+                ];
+            }
+            if ($byTitle !== []) {
+                $facts['event_facts_by_title'] = $byTitle;
+            }
+        }
+
+        $projects = $context['projects'] ?? null;
+        if (is_array($projects) && $projects !== []) {
+            $byName = [];
+            foreach ($projects as $project) {
+                if (! is_array($project)) {
+                    continue;
+                }
+                $name = isset($project['name']) && is_string($project['name']) ? trim($project['name']) : '';
+                if ($name === '') {
+                    continue;
+                }
+
+                $byName[$name] = [
+                    'start_datetime' => isset($project['start_datetime']) && is_string($project['start_datetime']) ? $project['start_datetime'] : null,
+                    'end_datetime' => isset($project['end_datetime']) && is_string($project['end_datetime']) ? $project['end_datetime'] : null,
+                    'is_overdue' => isset($project['is_overdue']) ? (bool) $project['is_overdue'] : null,
+                    'starts_soon' => isset($project['starts_soon']) ? (bool) $project['starts_soon'] : null,
+                    'has_incomplete_tasks' => isset($project['has_incomplete_tasks']) ? (bool) $project['has_incomplete_tasks'] : null,
+                ];
+            }
+            if ($byName !== []) {
+                $facts['project_facts_by_name'] = $byName;
+            }
+        }
+
+        $hasAny = isset($facts['task_facts_by_title']) || isset($facts['event_facts_by_title']) || isset($facts['project_facts_by_name']);
+
+        return $hasAny ? $facts : null;
     }
 
     /**

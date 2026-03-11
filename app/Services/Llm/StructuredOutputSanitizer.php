@@ -452,61 +452,55 @@ class StructuredOutputSanitizer
 
         $filtered = $this->filterRankedByTitle($ranked, $allowedTitles, 'title');
 
-        $requestedTopN = null;
-        if (isset($context['requested_top_n']) && is_int($context['requested_top_n']) && $context['requested_top_n'] > 0) {
-            $requestedTopN = $context['requested_top_n'];
+        // Deduplicate by title (LLMs sometimes repeat the same task twice).
+        $seen = [];
+        $deduped = [];
+        foreach ($filtered as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+            if ($title === '' || isset($seen[$title])) {
+                continue;
+            }
+            $seen[$title] = true;
+            $deduped[] = $item;
         }
+        $filtered = $deduped;
 
-        if ($requestedTopN !== null) {
-            $contextTasks = $context['tasks'] ?? [];
-            $totalAvailable = is_array($contextTasks) ? count($contextTasks) : 0;
-            $targetCount = min($requestedTopN, $totalAvailable);
-
-            if ($targetCount > 0 && count($filtered) < $targetCount) {
-                $alreadyTitles = [];
-                foreach ($filtered as $item) {
-                    if (is_array($item) && isset($item['title']) && is_string($item['title'])) {
-                        $alreadyTitles[trim($item['title'])] = true;
-                    }
+        // Canonicalize datetime fields from context to prevent time drift (AM/PM or timezone mistakes).
+        $contextTasks = $context['tasks'] ?? [];
+        if (is_array($contextTasks) && $contextTasks !== []) {
+            $endByTitle = [];
+            foreach ($contextTasks as $t) {
+                if (! is_array($t) || ! isset($t['title']) || ! is_string($t['title'])) {
+                    continue;
                 }
-
-                foreach ($contextTasks as $taskCtx) {
-                    if (! is_array($taskCtx) || ! isset($taskCtx['title']) || ! is_string($taskCtx['title'])) {
+                $title = trim($t['title']);
+                if ($title === '') {
+                    continue;
+                }
+                if (isset($t['end_datetime']) && is_string($t['end_datetime']) && trim($t['end_datetime']) !== '') {
+                    $endByTitle[$title] = trim($t['end_datetime']);
+                }
+            }
+            if ($endByTitle !== []) {
+                foreach ($filtered as &$item) {
+                    if (! is_array($item)) {
                         continue;
                     }
-
-                    $title = trim($taskCtx['title']);
-                    if ($title === '' || isset($alreadyTitles[$title])) {
-                        continue;
-                    }
-
-                    $newItem = [
-                        'title' => $title,
-                    ];
-
-                    if (isset($taskCtx['end_datetime']) && is_string($taskCtx['end_datetime'])) {
-                        $newItem['end_datetime'] = $taskCtx['end_datetime'];
-                    }
-
-                    $filtered[] = $newItem;
-                    $alreadyTitles[$title] = true;
-
-                    if (count($filtered) >= $targetCount) {
-                        break;
+                    $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+                    if ($title !== '' && isset($endByTitle[$title])) {
+                        $item['end_datetime'] = $endByTitle[$title];
                     }
                 }
-
-                if ($targetCount < $requestedTopN) {
-                    $reason = $structured['reasoning'] ?? '';
-                    $suffix = (string) __(' You asked for the top :requested tasks, but only :available matched your filters, so I showed all of them.', [
-                        'requested' => $requestedTopN,
-                        'available' => $targetCount,
-                    ]);
-                    $structured['reasoning'] = trim(rtrim((string) $reason).$suffix);
-                }
+                unset($item);
             }
         }
 
+        // Keep LLM ordering as the source of truth.
+        // We only filter/deduplicate to ensure each item is present in the context slice,
+        // then normalize rank numbers to be sequential after filtering.
         $structured['ranked_tasks'] = $this->rerank($filtered);
 
         return $structured;
@@ -536,6 +530,45 @@ class StructuredOutputSanitizer
         }
 
         $filtered = $this->filterRankedByTitle($ranked, $allowedTitles, 'title');
+
+        // Canonicalize start/end datetimes from context to prevent time drift.
+        $eventsContext = $context['events'] ?? [];
+        if (is_array($eventsContext) && $eventsContext !== []) {
+            $startByTitle = [];
+            $endByTitle = [];
+            foreach ($eventsContext as $e) {
+                if (! is_array($e) || ! isset($e['title']) || ! is_string($e['title'])) {
+                    continue;
+                }
+                $title = trim($e['title']);
+                if ($title === '') {
+                    continue;
+                }
+                if (isset($e['start_datetime']) && is_string($e['start_datetime']) && trim($e['start_datetime']) !== '') {
+                    $startByTitle[$title] = trim($e['start_datetime']);
+                }
+                if (isset($e['end_datetime']) && is_string($e['end_datetime']) && trim($e['end_datetime']) !== '') {
+                    $endByTitle[$title] = trim($e['end_datetime']);
+                }
+            }
+            foreach ($filtered as &$item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+                if ($title === '') {
+                    continue;
+                }
+                if (isset($startByTitle[$title])) {
+                    $item['start_datetime'] = $startByTitle[$title];
+                }
+                if (isset($endByTitle[$title])) {
+                    $item['end_datetime'] = $endByTitle[$title];
+                }
+            }
+            unset($item);
+        }
+
         $structured['ranked_events'] = $this->rerank($filtered);
 
         return $structured;
@@ -947,6 +980,45 @@ class StructuredOutputSanitizer
         }
 
         $filtered = $this->filterRankedByTitle($ranked, $allowedNames, 'name');
+
+        // Canonicalize start/end datetimes from context to prevent time drift.
+        $projectsContext = $context['projects'] ?? [];
+        if (is_array($projectsContext) && $projectsContext !== []) {
+            $startByName = [];
+            $endByName = [];
+            foreach ($projectsContext as $p) {
+                if (! is_array($p) || ! isset($p['name']) || ! is_string($p['name'])) {
+                    continue;
+                }
+                $name = trim($p['name']);
+                if ($name === '') {
+                    continue;
+                }
+                if (isset($p['start_datetime']) && is_string($p['start_datetime']) && trim($p['start_datetime']) !== '') {
+                    $startByName[$name] = trim($p['start_datetime']);
+                }
+                if (isset($p['end_datetime']) && is_string($p['end_datetime']) && trim($p['end_datetime']) !== '') {
+                    $endByName[$name] = trim($p['end_datetime']);
+                }
+            }
+            foreach ($filtered as &$item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $name = isset($item['name']) && is_string($item['name']) ? trim($item['name']) : '';
+                if ($name === '') {
+                    continue;
+                }
+                if (isset($startByName[$name])) {
+                    $item['start_datetime'] = $startByName[$name];
+                }
+                if (isset($endByName[$name])) {
+                    $item['end_datetime'] = $endByName[$name];
+                }
+            }
+            unset($item);
+        }
+
         $structured['ranked_projects'] = $this->rerank($filtered);
 
         return $structured;

@@ -13,11 +13,18 @@ final readonly class LlmInferenceResult
         public ?string $fallbackReason = null,
         /** Raw structured output from Prism/Ollama/Hermes before sanitization (null when fallback). */
         public ?array $rawStructured = null,
+        /**
+         * Minimal context facts (derived from ContextBuilder) for display-layer validation.
+         * Intended for guarding narrative consistency (e.g. due_today/is_overdue/duration) without re-querying.
+         *
+         * @var array<string, mixed>|null
+         */
+        public ?array $contextFacts = null,
     ) {}
 
     public function toArray(): array
     {
-        return [
+        $out = [
             'structured' => $this->structured,
             'prompt_version' => $this->promptVersion,
             'prompt_tokens' => $this->promptTokens,
@@ -25,5 +32,11 @@ final readonly class LlmInferenceResult
             'used_fallback' => $this->usedFallback,
             'fallback_reason' => $this->fallbackReason,
         ];
+
+        if (is_array($this->contextFacts) && $this->contextFacts !== []) {
+            $out['context_facts'] = $this->contextFacts;
+        }
+
+        return $out;
     }
 }

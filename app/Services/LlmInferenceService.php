@@ -67,6 +67,18 @@ class LlmInferenceService
         $numCtx = (int) config('tasklyst.llm.num_ctx', 4096);
         $maxTokens = (int) config('tasklyst.llm.max_tokens', 700);
 
+        if (in_array($intent, [
+            LlmIntent::PrioritizeTasks,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::PrioritizeProjects,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll,
+        ], true)) {
+            $temperature = 0.0;
+        }
+
         for ($attempt = 0; $attempt < $maxAttempts; $attempt++) {
             try {
                 $response = Prism::structured()

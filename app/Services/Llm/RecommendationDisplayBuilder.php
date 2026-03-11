@@ -36,6 +36,47 @@ class RecommendationDisplayBuilder
         $recommendedAction = (string) ($structured['recommended_action'] ?? '');
         $reasoning = (string) ($structured['reasoning'] ?? '');
 
+        // For prioritize intents, we treat the model's ordering as source-of-truth,
+        // but we still apply narrow narrative corrections when Context facts are available
+        // (e.g. bind "tomorrow" / ambiguous weekday-only times to the canonical due datetime).
+        if ($intent === LlmIntent::PrioritizeTasks && $entityType === LlmEntityType::Task) {
+            [$recommendedAction, $reasoning] = $this->enforcePrioritizeTasksNarrativeConsistency(
+                $recommendedAction,
+                $reasoning,
+                $structured,
+                $result->contextFacts
+            );
+        }
+        if ($intent === LlmIntent::PrioritizeEvents && $entityType === LlmEntityType::Event) {
+            [$recommendedAction, $reasoning] = $this->enforcePrioritizeEventsNarrativeConsistency(
+                $recommendedAction,
+                $reasoning,
+                $structured,
+                $result->contextFacts
+            );
+        }
+        if ($intent === LlmIntent::PrioritizeProjects && $entityType === LlmEntityType::Project) {
+            [$recommendedAction, $reasoning] = $this->enforcePrioritizeProjectsNarrativeConsistency(
+                $recommendedAction,
+                $reasoning,
+                $structured,
+                $result->contextFacts
+            );
+        }
+        if (in_array($intent, [
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll,
+        ], true) && $entityType === LlmEntityType::Multiple) {
+            [$recommendedAction, $reasoning] = $this->enforcePrioritizeMultiNarrativeConsistency(
+                $recommendedAction,
+                $reasoning,
+                $structured,
+                $result->contextFacts
+            );
+        }
+
         $actionForDisplay = $recommendedAction !== '' ? $recommendedAction : __('No specific action suggested.');
         $reasoningForDisplay = $reasoning !== '' ? $reasoning : __('The assistant could not provide detailed reasoning.');
 
@@ -66,19 +107,17 @@ class RecommendationDisplayBuilder
             $structured = $this->ensureScheduleFromNarrativeWhenMissing($structured);
         }
 
-        // If the model provided the target title/name in structured output but forgot to mention it in the
-        // narrative recommended_action, inject it so the UI always shows which entity the suggestion targets.
-        if ($this->isScheduleOrAdjustIntent($intent) && in_array($entityType, [LlmEntityType::Task, LlmEntityType::Event, LlmEntityType::Project], true)) {
-            $targetLabel = $this->targetLabelFromStructured($structured, $entityType);
-            if ($targetLabel !== '' && mb_stripos($actionForDisplay, $targetLabel) === false) {
-                $actionForDisplay = $targetLabel.' — '.trim($actionForDisplay);
-            }
-        }
-
         $rankedLines = $this->formatRankedListForMessage($structured, $intent);
         $nextStepsLines = $this->formatNextStepsForMessage($structured);
         $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
+
+        // Persist the corrected narrative in structured so snapshots remain internally consistent.
+        if (in_array($intent, [LlmIntent::PrioritizeTasks, LlmIntent::PrioritizeEvents, LlmIntent::PrioritizeProjects], true)) {
+            $displayStructured['recommended_action'] = $actionForDisplay;
+            $displayStructured['reasoning'] = $reasoningForDisplay;
+        }
+
         $appliableChanges = $this->buildAppliableChanges($structured, $intent, $entityType);
 
         if ($entityType === LlmEntityType::Multiple && $appliableChanges !== [] && ($appliableChanges['entity_type'] ?? '') === 'task') {
@@ -153,6 +192,673 @@ class RecommendationDisplayBuilder
             followupSuggestions: [],
             appliableChanges: $appliableChanges,
         );
+    }
+
+    /**
+     * Ensure prioritize-tasks narrative does not contradict context-derived facts.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>|null  $contextFacts
+     * @return array{0: string, 1: string} [recommended_action, reasoning]
+     */
+    private function enforcePrioritizeTasksNarrativeConsistency(
+        string $recommendedAction,
+        string $reasoning,
+        array $structured,
+        ?array $contextFacts
+    ): array {
+        if (! is_array($contextFacts)) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $taskFactsByTitle = $contextFacts['task_facts_by_title'] ?? null;
+        if (! is_array($taskFactsByTitle) || $taskFactsByTitle === []) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $ranked = $structured['ranked_tasks'] ?? null;
+        if (! is_array($ranked) || $ranked === []) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $timezone = is_string($contextFacts['timezone'] ?? null) && trim((string) $contextFacts['timezone']) !== ''
+            ? (string) $contextFacts['timezone']
+            : config('app.timezone');
+
+        $contradiction = $this->prioritizeTasksNarrativeHasContradiction(
+            $recommendedAction.' '.$reasoning,
+            $ranked,
+            $taskFactsByTitle,
+            $timezone,
+            isset($contextFacts['current_time']) && is_string($contextFacts['current_time']) ? $contextFacts['current_time'] : null
+        );
+        if (! $contradiction) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        return $this->correctPrioritizeTasksNarrativeFacts(
+            $recommendedAction,
+            $reasoning,
+            $ranked,
+            $taskFactsByTitle,
+            $timezone
+        );
+    }
+
+    /**
+     * Keep the LLM's tone, but correct factual phrases (today/tomorrow/overdue + duration claims).
+     *
+     * @param  array<int, mixed>  $ranked
+     * @param  array<string, mixed>  $taskFactsByTitle
+     * @return array{0: string, 1: string}
+     */
+    private function correctPrioritizeTasksNarrativeFacts(
+        string $recommendedAction,
+        string $reasoning,
+        array $ranked,
+        array $taskFactsByTitle,
+        string $timezone
+    ): array {
+        $topTitle = isset($ranked[0]['title']) && is_string($ranked[0]['title']) ? trim($ranked[0]['title']) : '';
+
+        $fullText = $recommendedAction.' '.$reasoning;
+        $anchorTitle = $this->firstRankedTaskTitleMentionedInText($ranked, $fullText) ?? $topTitle;
+
+        // We intentionally do NOT rewrite which task the model recommends.
+        // If there is a factual contradiction (wrong due date/time phrasing), we correct the date/time only.
+
+        $anchorEnd = null;
+        foreach ($ranked as $item) {
+            if (! is_array($item) || ! isset($item['title']) || ! is_string($item['title'])) {
+                continue;
+            }
+            if (trim($item['title']) === $anchorTitle) {
+                $anchorEnd = isset($item['end_datetime']) && is_string($item['end_datetime']) ? trim($item['end_datetime']) : null;
+                break;
+            }
+        }
+
+        $anchorFacts = $anchorTitle !== '' ? ($taskFactsByTitle[$anchorTitle] ?? null) : null;
+        $topFacts = $topTitle !== '' ? ($taskFactsByTitle[$topTitle] ?? null) : null;
+
+        $anchorDuration = is_array($anchorFacts) && isset($anchorFacts['duration']) && is_numeric($anchorFacts['duration'])
+            ? (int) $anchorFacts['duration']
+            : null;
+        $anchorPriority = is_array($anchorFacts) && isset($anchorFacts['priority']) && is_string($anchorFacts['priority']) && trim($anchorFacts['priority']) !== ''
+            ? strtolower(trim($anchorFacts['priority']))
+            : null;
+
+        $topPriority = is_array($topFacts) && isset($topFacts['priority']) && is_string($topFacts['priority']) && trim($topFacts['priority']) !== ''
+            ? strtolower(trim($topFacts['priority']))
+            : null;
+
+        $anchorDueString = null;
+        if (is_string($anchorEnd) && $anchorEnd !== '') {
+            try {
+                $anchorDueString = Carbon::parse($anchorEnd)->setTimezone($timezone)->toDayDateTimeString();
+            } catch (\Throwable) {
+                $anchorDueString = null;
+            }
+        }
+
+        $secondDueString = null;
+        if (isset($ranked[1]) && is_array($ranked[1]) && isset($ranked[1]['end_datetime']) && is_string($ranked[1]['end_datetime'])) {
+            $secondEnd = trim($ranked[1]['end_datetime']);
+            if ($secondEnd !== '') {
+                try {
+                    $secondDueString = Carbon::parse($secondEnd)->setTimezone($timezone)->toDayDateTimeString();
+                } catch (\Throwable) {
+                    $secondDueString = null;
+                }
+            }
+        }
+
+        $prioritySummary = $this->prioritySummaryForRankedTasks($ranked, $taskFactsByTitle);
+        $topIsEarliestDue = $this->topRankedTaskIsEarliestDue($ranked);
+
+        $fix = function (string $text) use ($anchorTitle, $anchorDueString, $secondDueString, $anchorDuration, $prioritySummary, $anchorPriority, $topIsEarliestDue): string {
+            $out = $text;
+
+            // If the model states an explicit wrong due date for the anchor task in the same sentence,
+            // replace it with the canonical due datetime.
+            if ($anchorDueString !== null && $anchorTitle !== '') {
+                $quotedTitle = preg_quote($anchorTitle, '/');
+                $out = preg_replace(
+                    '/('.$quotedTitle.'[^.?!]*?\bdue\s+)([A-Za-z]{3},\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}(?:\s+\d{1,2}:\d{2}\s*[AP]M)?)\b/i',
+                    '${1}'.$anchorDueString,
+                    $out
+                ) ?? $out;
+            }
+
+            // Replace relative deadline phrasing with explicit due date when we have it.
+            if ($anchorDueString !== null) {
+                // Phrases like "11:59 PM Friday" (weekday without date) are too ambiguous; bind to canonical due string.
+                $out = preg_replace('/\b\d{1,2}:\d{2}\s*[AP]M\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i', $anchorDueString, $out) ?? $out;
+
+                // If the model states a bare date without time (e.g., "due Sat, Mar 14, 2026"),
+                // bind it to the anchor due datetime to avoid incorrect day/date claims.
+                $out = preg_replace(
+                    '/\bdue\s+([A-Za-z]{3},\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4})\b(?!\s+\d{1,2}:\d{2})/i',
+                    'due '.$anchorDueString,
+                    $out
+                ) ?? $out;
+
+                $out = preg_replace('/\bdue\s+today\b/i', 'due '.$anchorDueString, $out) ?? $out;
+                $out = preg_replace('/\bdue\s+tomorrow\b/i', 'due '.$anchorDueString, $out) ?? $out;
+                $out = preg_replace('/\bdeadline\s+of\s+tomorrow\b/i', 'deadline of '.$anchorDueString, $out) ?? $out;
+                $out = preg_replace('/\bby\s+tomorrow\b/i', 'by '.$anchorDueString, $out) ?? $out;
+                $out = preg_replace('/\btomorrow\b/i', $anchorDueString, $out) ?? $out;
+                $out = preg_replace('/\bend\s+of\s+today\b/i', $anchorDueString, $out) ?? $out;
+                $out = preg_replace('/\bbefore\s+the\s+end\s+of\s+today\b/i', 'before '.$anchorDueString, $out) ?? $out;
+            } else {
+                // If we cannot safely bind to a date, remove relative phrases rather than risk misinformation.
+                $out = preg_replace('/\b(due\s+today|due\s+tomorrow|end\s+of\s+today|before\s+the\s+end\s+of\s+today)\b/i', '', $out) ?? $out;
+            }
+
+            // If we know the top task is not overdue, strip "overdue" language.
+            $out = preg_replace('/\boverdue\b/i', 'due soon', $out) ?? $out;
+
+            // If the LLM says "urgent" but the actual priority isn't urgent, use the real label.
+            if ($anchorPriority !== null && $anchorPriority !== 'urgent') {
+                $replacement = $anchorPriority === 'high' ? 'high-priority' : ($anchorPriority === 'medium' ? 'medium-priority' : ($anchorPriority === 'low' ? 'low-priority' : 'important'));
+                $out = preg_replace('/\burgent\b/i', $replacement, $out) ?? $out;
+            }
+
+            // Clean up malformed 24h+AM/PM mixes like "at 23:59 PM" or "23:59 PM".
+            $out = preg_replace('/\bat\s*(?:[01]?\d|2[0-3]):[0-5]\d\s*[ap]\.?m\.?\b/i', '', $out) ?? $out;
+            $out = preg_replace('/\b(?:[01]?\d|2[0-3]):[0-5]\d\s*[ap]\.?m\.?\b/i', '', $out) ?? $out;
+
+            // If the model used vague future phrasing like "next Friday", bind it to the actual #2 due date when available.
+            if ($secondDueString !== null) {
+                $out = preg_replace('/\bnext\s+friday\b/i', $secondDueString, $out) ?? $out;
+            }
+
+            // If the model says the next item has "no deadline yet", but it does, bind to #2 due date.
+            if ($secondDueString !== null) {
+                $out = preg_replace('/\b(has\s+)?no\s+(deadline|due\s+date)\s+yet\b/i', 'is due '.$secondDueString, $out) ?? $out;
+                $out = preg_replace('/\bno\s+(deadline|due\s+date)\s+yet\b/i', 'due '.$secondDueString, $out) ?? $out;
+            }
+
+            // Replace concrete duration mentions with canonical minutes for the top task when present.
+            if ($anchorDuration !== null && $anchorDuration > 0) {
+                $out = preg_replace('/\babout\s+\d+\s*(hours?|hrs?|minutes?|mins?)\b/i', '~'.$anchorDuration.' min', $out) ?? $out;
+                $out = preg_replace('/\b(\d+)\s*(hours?|hrs?)\b/i', '~'.$anchorDuration.' min', $out) ?? $out;
+                $out = preg_replace('/\b(\d+)\s*(minutes?|mins?)\b/i', '~'.$anchorDuration.' min', $out) ?? $out;
+            }
+
+            // Fix common priority phrasing drift (e.g. "both medium priority") using context-backed facts.
+            if ($prioritySummary !== null) {
+                $out = preg_replace('/\bboth\s+medium\s+priority\b/i', $prioritySummary, $out) ?? $out;
+            }
+
+            if (! $topIsEarliestDue) {
+                $out = preg_replace('/\bit\'?s\s+due\s+first\b/i', 'It’s worth doing first because it’s a time-bound assessment and it’s high-impact, even if another item is due sooner.', $out) ?? $out;
+                $out = preg_replace(
+                    '/\bit\s+is\s+also\s+due\s+first\s+among\s+these\s+tasks\b\.?/i',
+                    'It’s worth doing first because it’s a time-bound assessment and it’s high-impact, even if another item is due sooner.',
+                    $out
+                ) ?? $out;
+            }
+
+            // Normalize whitespace and remove spaces before punctuation.
+            $out = (string) preg_replace('/\s{2,}/', ' ', $out);
+            $out = (string) preg_replace('/\s+([.,;:])/', '${1}', $out);
+
+            return trim($out);
+        };
+
+        $actionOut = $fix($recommendedAction);
+        $reasonOut = $fix($reasoning);
+
+        // Preserve LLM voice, but add a tiny factual anchor if we had to edit a lot.
+        if ($anchorTitle !== '' && $anchorDueString !== null && (mb_stripos($actionOut.' '.$reasonOut, $anchorDueString) === false)) {
+            $reasonOut = trim($reasonOut);
+            $reasonOut .= ($reasonOut !== '' ? ' ' : '').__('(Quick check: ":title" is due :date.)', [
+                'title' => $anchorTitle,
+                'date' => $anchorDueString,
+            ]);
+        }
+
+        return [$actionOut, $reasonOut];
+    }
+
+    /**
+     * @param  array<int, mixed>  $ranked
+     */
+    private function firstRankedTaskTitleMentionedInText(array $ranked, string $text): ?string
+    {
+        $haystack = mb_strtolower($text);
+        foreach ($ranked as $item) {
+            if (! is_array($item) || ! isset($item['title']) || ! is_string($item['title'])) {
+                continue;
+            }
+            $title = trim($item['title']);
+            if ($title === '') {
+                continue;
+            }
+            if (str_contains($haystack, mb_strtolower($title))) {
+                return $title;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Apply task/event/project narrative corrections for multi-entity prioritize intents.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>|null  $contextFacts
+     * @return array{0: string, 1: string}
+     */
+    private function enforcePrioritizeMultiNarrativeConsistency(
+        string $recommendedAction,
+        string $reasoning,
+        array $structured,
+        ?array $contextFacts
+    ): array {
+        if (! is_array($contextFacts)) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $timezone = is_string($contextFacts['timezone'] ?? null) && trim((string) $contextFacts['timezone']) !== ''
+            ? (string) $contextFacts['timezone']
+            : config('app.timezone');
+
+        $outAction = $recommendedAction;
+        $outReason = $reasoning;
+
+        $rankedTasks = $structured['ranked_tasks'] ?? null;
+        $taskFacts = $contextFacts['task_facts_by_title'] ?? null;
+        if (is_array($rankedTasks) && $rankedTasks !== [] && is_array($taskFacts) && $taskFacts !== []) {
+            [$outAction, $outReason] = $this->correctPrioritizeTasksNarrativeFacts($outAction, $outReason, $rankedTasks, $taskFacts, $timezone);
+        }
+
+        $rankedEvents = $structured['ranked_events'] ?? null;
+        if (is_array($rankedEvents) && $rankedEvents !== []) {
+            [$outAction, $outReason] = $this->enforcePrioritizeEventsNarrativeConsistency(
+                $outAction,
+                $outReason,
+                ['ranked_events' => $rankedEvents],
+                $contextFacts
+            );
+        }
+
+        $rankedProjects = $structured['ranked_projects'] ?? null;
+        if (is_array($rankedProjects) && $rankedProjects !== []) {
+            [$outAction, $outReason] = $this->enforcePrioritizeProjectsNarrativeConsistency(
+                $outAction,
+                $outReason,
+                ['ranked_projects' => $rankedProjects],
+                $contextFacts
+            );
+        }
+
+        return [$outAction, $outReason];
+    }
+
+    /**
+     * @param  array<int, mixed>  $ranked
+     * @param  array<string, mixed>  $taskFactsByTitle
+     */
+    private function prioritySummaryForRankedTasks(array $ranked, array $taskFactsByTitle): ?string
+    {
+        if (count($ranked) < 2) {
+            return null;
+        }
+
+        $titles = [];
+        foreach (array_slice($ranked, 1, 2) as $item) {
+            if (is_array($item) && isset($item['title']) && is_string($item['title'])) {
+                $titles[] = trim($item['title']);
+            }
+        }
+        if ($titles === []) {
+            return null;
+        }
+
+        $priorities = [];
+        foreach ($titles as $t) {
+            $facts = $taskFactsByTitle[$t] ?? null;
+            if (is_array($facts) && isset($facts['priority']) && is_string($facts['priority']) && trim($facts['priority']) !== '') {
+                $priorities[] = strtolower(trim($facts['priority']));
+            }
+        }
+        $priorities = array_values(array_unique($priorities));
+        if ($priorities === []) {
+            return null;
+        }
+
+        $map = [
+            'low' => 'low-priority',
+            'medium' => 'medium-priority',
+            'high' => 'high-priority',
+            'urgent' => 'urgent-priority',
+        ];
+        $labels = array_values(array_unique(array_map(fn ($p) => $map[$p] ?? $p, $priorities)));
+
+        if (count($labels) === 1) {
+            return $labels[0];
+        }
+
+        if (count($labels) === 2) {
+            return $labels[0].' and '.$labels[1];
+        }
+
+        return implode(', ', array_slice($labels, 0, -1)).', and '.end($labels);
+    }
+
+    /**
+     * Whether the top-ranked task is the earliest due by end_datetime.
+     *
+     * @param  array<int, mixed>  $ranked
+     */
+    private function topRankedTaskIsEarliestDue(array $ranked): bool
+    {
+        $top = $ranked[0] ?? null;
+        if (! is_array($top) || ! isset($top['end_datetime']) || ! is_string($top['end_datetime']) || trim($top['end_datetime']) === '') {
+            return true;
+        }
+        $topEnd = trim($top['end_datetime']);
+
+        $min = $topEnd;
+        foreach ($ranked as $item) {
+            if (! is_array($item) || ! isset($item['end_datetime']) || ! is_string($item['end_datetime'])) {
+                continue;
+            }
+            $end = trim($item['end_datetime']);
+            if ($end !== '' && strcmp($end, $min) < 0) {
+                $min = $end;
+            }
+        }
+
+        return $topEnd === $min;
+    }
+
+    /**
+     * Detect obvious narrative contradictions (relative due phrases or wrong duration claims).
+     *
+     * @param  array<int, mixed>  $ranked
+     * @param  array<string, mixed>  $taskFactsByTitle
+     */
+    private function prioritizeTasksNarrativeHasContradiction(
+        string $text,
+        array $ranked,
+        array $taskFactsByTitle,
+        string $timezone,
+        ?string $currentTimeRaw = null
+    ): bool {
+        $lower = mb_strtolower($text);
+        if (trim($lower) === '') {
+            return false;
+        }
+
+        // If the narrative recommends a ranked task that is not #1, force alignment.
+        $topTitle = isset($ranked[0]) && is_array($ranked[0]) && isset($ranked[0]['title']) && is_string($ranked[0]['title'])
+            ? trim($ranked[0]['title'])
+            : '';
+        if ($topTitle !== '') {
+            $mentionsTop = str_contains($lower, mb_strtolower($topTitle));
+            if (! $mentionsTop) {
+                foreach (array_slice($ranked, 1, 4) as $item) {
+                    if (! is_array($item) || ! isset($item['title']) || ! is_string($item['title'])) {
+                        continue;
+                    }
+                    $title = trim($item['title']);
+                    if ($title !== '' && str_contains($lower, mb_strtolower($title))) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // If the model provides a bare "due Day, Mon DD, YYYY" without time,
+        // we treat it as contradictory-risky and force canonical binding.
+        if (preg_match('/\bdue\s+[A-Za-z]{3},\s+[A-Za-z]{3}\s+\d{1,2},\s+\d{4}\b(?!\s+\d{1,2}:\d{2})/i', $text) === 1) {
+            return true;
+        }
+
+        // Weekday-only time phrases like "11:59 PM Friday" are ambiguous and often wrong—force canonical binding.
+        if (preg_match('/\b\d{1,2}:\d{2}\s*[AP]M\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i', $text) === 1) {
+            return true;
+        }
+
+        $mentionsRelative = str_contains($lower, 'due today')
+            || str_contains($lower, 'due tomorrow')
+            || str_contains($lower, 'tomorrow')
+            || str_contains($lower, 'end of today')
+            || str_contains($lower, 'before the end of today')
+            || str_contains($lower, 'no deadline yet')
+            || str_contains($lower, 'no due date yet')
+            || str_contains($lower, 'has no deadline yet')
+            || str_contains($lower, 'has no due date yet');
+
+        if ($mentionsRelative) {
+            foreach (array_slice($ranked, 0, 3) as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+                if ($title === '') {
+                    continue;
+                }
+                $facts = $taskFactsByTitle[$title] ?? null;
+
+                $dueTodayFlag = is_array($facts) && isset($facts['due_today']) ? (bool) $facts['due_today'] : null;
+                if (str_contains($lower, 'due today') && $dueTodayFlag === false) {
+                    return true;
+                }
+                $overdueFlag = is_array($facts) && isset($facts['is_overdue']) ? (bool) $facts['is_overdue'] : null;
+                if (str_contains($lower, 'overdue') && $overdueFlag === false) {
+                    return true;
+                }
+
+                if (str_contains($lower, 'tomorrow')) {
+                    $endRaw = isset($item['end_datetime']) && is_string($item['end_datetime']) ? trim($item['end_datetime']) : '';
+                    if ($endRaw === '' && is_array($facts) && isset($facts['end_datetime']) && is_string($facts['end_datetime'])) {
+                        $endRaw = trim($facts['end_datetime']);
+                    }
+                    if ($endRaw !== '') {
+                        try {
+                            $end = Carbon::parse($endRaw)->setTimezone($timezone);
+                            $now = $currentTimeRaw !== null && trim($currentTimeRaw) !== ''
+                                ? Carbon::parse($currentTimeRaw)->setTimezone($timezone)
+                                : Carbon::now($timezone);
+                            $isTomorrow = $end->isSameDay($now->copy()->addDay());
+                            if (! $isTomorrow && str_contains($lower, 'tomorrow')) {
+                                return true;
+                            }
+                        } catch (\Throwable) {
+                            // if we can't parse, don't treat as contradiction here
+                        }
+                    }
+                }
+            }
+        }
+
+        // If the narrative claims a ranked follow-up item has no deadline yet, but it has an end_datetime, treat as contradiction.
+        if (str_contains($lower, 'no deadline yet') || str_contains($lower, 'no due date yet')) {
+            $second = $ranked[1] ?? null;
+            if (is_array($second) && isset($second['end_datetime']) && is_string($second['end_datetime']) && trim($second['end_datetime']) !== '') {
+                return true;
+            }
+        }
+
+        // Duration contradictions: if the text mentions a specific number of hours/minutes and we have a duration, prefer to rewrite.
+        if (preg_match('/\b(\d+)\s*(hours?|hrs?|minutes?|mins?)\b/i', $text)) {
+            foreach (array_slice($ranked, 0, 2) as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+                if ($title === '') {
+                    continue;
+                }
+                $facts = $taskFactsByTitle[$title] ?? null;
+                if (! is_array($facts)) {
+                    continue;
+                }
+                $duration = isset($facts['duration']) && is_numeric($facts['duration']) ? (int) $facts['duration'] : null;
+                if ($duration !== null && $duration > 0) {
+                    // If model mentions any concrete duration number, we treat as risky and rewrite to canonical minutes.
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Ensure prioritize-events narrative does not contradict context-derived facts.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>|null  $contextFacts
+     * @return array{0: string, 1: string} [recommended_action, reasoning]
+     */
+    private function enforcePrioritizeEventsNarrativeConsistency(
+        string $recommendedAction,
+        string $reasoning,
+        array $structured,
+        ?array $contextFacts
+    ): array {
+        if (! is_array($contextFacts)) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $eventFactsByTitle = $contextFacts['event_facts_by_title'] ?? null;
+        if (! is_array($eventFactsByTitle) || $eventFactsByTitle === []) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $ranked = $structured['ranked_events'] ?? null;
+        if (! is_array($ranked) || $ranked === []) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $timezone = is_string($contextFacts['timezone'] ?? null) && trim((string) $contextFacts['timezone']) !== ''
+            ? (string) $contextFacts['timezone']
+            : config('app.timezone');
+
+        $text = $recommendedAction.' '.$reasoning;
+        $lower = mb_strtolower($text);
+        $mentionsRelative = str_contains($lower, 'today') || str_contains($lower, 'tomorrow') || str_contains($lower, 'overdue');
+        if (! $mentionsRelative) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $topTitle = isset($ranked[0]['title']) && is_string($ranked[0]['title']) ? trim($ranked[0]['title']) : '';
+        $topStart = isset($ranked[0]['start_datetime']) && is_string($ranked[0]['start_datetime']) ? trim($ranked[0]['start_datetime']) : '';
+        $topEnd = isset($ranked[0]['end_datetime']) && is_string($ranked[0]['end_datetime']) ? trim($ranked[0]['end_datetime']) : '';
+        $topFacts = $topTitle !== '' ? ($eventFactsByTitle[$topTitle] ?? null) : null;
+
+        if ($topStart === '' && is_array($topFacts) && isset($topFacts['start_datetime']) && is_string($topFacts['start_datetime'])) {
+            $topStart = trim($topFacts['start_datetime']);
+        }
+        if ($topEnd === '' && is_array($topFacts) && isset($topFacts['end_datetime']) && is_string($topFacts['end_datetime'])) {
+            $topEnd = trim($topFacts['end_datetime']);
+        }
+
+        $anchorRaw = $topStart !== '' ? $topStart : $topEnd;
+        $anchorHuman = null;
+        if ($anchorRaw !== '') {
+            try {
+                $anchorHuman = Carbon::parse($anchorRaw)->setTimezone($timezone)->toDayDateTimeString();
+            } catch (\Throwable) {
+                $anchorHuman = null;
+            }
+        }
+
+        $fix = function (string $text) use ($anchorHuman): string {
+            $out = $text;
+            if ($anchorHuman !== null) {
+                $out = preg_replace('/\btoday\b/i', $anchorHuman, $out) ?? $out;
+                $out = preg_replace('/\btomorrow\b/i', $anchorHuman, $out) ?? $out;
+                $out = preg_replace('/\boverdue\b/i', 'upcoming', $out) ?? $out;
+            } else {
+                $out = preg_replace('/\b(today|tomorrow|overdue)\b/i', '', $out) ?? $out;
+            }
+
+            return trim((string) preg_replace('/\s{2,}/', ' ', $out));
+        };
+
+        return [$fix($recommendedAction), $fix($reasoning)];
+    }
+
+    /**
+     * Ensure prioritize-projects narrative does not contradict context-derived facts.
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>|null  $contextFacts
+     * @return array{0: string, 1: string} [recommended_action, reasoning]
+     */
+    private function enforcePrioritizeProjectsNarrativeConsistency(
+        string $recommendedAction,
+        string $reasoning,
+        array $structured,
+        ?array $contextFacts
+    ): array {
+        if (! is_array($contextFacts)) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $projectFactsByName = $contextFacts['project_facts_by_name'] ?? null;
+        if (! is_array($projectFactsByName) || $projectFactsByName === []) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $ranked = $structured['ranked_projects'] ?? null;
+        if (! is_array($ranked) || $ranked === []) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $timezone = is_string($contextFacts['timezone'] ?? null) && trim((string) $contextFacts['timezone']) !== ''
+            ? (string) $contextFacts['timezone']
+            : config('app.timezone');
+
+        $text = $recommendedAction.' '.$reasoning;
+        $lower = mb_strtolower($text);
+        $mentionsRelative = str_contains($lower, 'due today')
+            || str_contains($lower, 'due tomorrow')
+            || str_contains($lower, 'tomorrow')
+            || str_contains($lower, 'overdue')
+            || str_contains($lower, 'end of today');
+        if (! $mentionsRelative) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $topName = isset($ranked[0]['name']) && is_string($ranked[0]['name']) ? trim($ranked[0]['name']) : '';
+        $topEnd = isset($ranked[0]['end_datetime']) && is_string($ranked[0]['end_datetime']) ? trim($ranked[0]['end_datetime']) : '';
+        $topFacts = $topName !== '' ? ($projectFactsByName[$topName] ?? null) : null;
+        if ($topEnd === '' && is_array($topFacts) && isset($topFacts['end_datetime']) && is_string($topFacts['end_datetime'])) {
+            $topEnd = trim($topFacts['end_datetime']);
+        }
+
+        $dueHuman = null;
+        if ($topEnd !== '') {
+            try {
+                $dueHuman = Carbon::parse($topEnd)->setTimezone($timezone)->toDayDateTimeString();
+            } catch (\Throwable) {
+                $dueHuman = null;
+            }
+        }
+
+        $fix = function (string $text) use ($dueHuman): string {
+            $out = $text;
+            if ($dueHuman !== null) {
+                $out = preg_replace('/\bdue\s+today\b/i', 'due '.$dueHuman, $out) ?? $out;
+                $out = preg_replace('/\bdue\s+tomorrow\b/i', 'due '.$dueHuman, $out) ?? $out;
+                $out = preg_replace('/\btomorrow\b/i', $dueHuman, $out) ?? $out;
+                $out = preg_replace('/\bend\s+of\s+today\b/i', $dueHuman, $out) ?? $out;
+                $out = preg_replace('/\boverdue\b/i', 'due', $out) ?? $out;
+            } else {
+                $out = preg_replace('/\b(due\s+today|due\s+tomorrow|tomorrow|end\s+of\s+today|overdue)\b/i', '', $out) ?? $out;
+            }
+
+            return trim((string) preg_replace('/\s{2,}/', ' ', $out));
+        };
+
+        return [$fix($recommendedAction), $fix($reasoning)];
     }
 
     private function isScheduleOrAdjustIntent(LlmIntent $intent): bool
