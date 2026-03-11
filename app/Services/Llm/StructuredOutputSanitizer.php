@@ -498,9 +498,60 @@ class StructuredOutputSanitizer
             }
         }
 
-        // Keep LLM ordering as the source of truth.
-        // We only filter/deduplicate to ensure each item is present in the context slice,
-        // then normalize rank numbers to be sequential after filtering.
+        // Keep LLM ordering as the source of truth, but enforce requested_top_n
+        // (or "rank every item") when the context slice contains more tasks than
+        // the model returned. This ensures prompts like "top 5" or generic
+        // "prioritize my tasks" always yield a complete ranked list.
+        $requestedTopN = null;
+        if (isset($context['requested_top_n']) && is_numeric($context['requested_top_n'])) {
+            $requestedTopN = (int) $context['requested_top_n'];
+            if ($requestedTopN <= 0) {
+                $requestedTopN = null;
+            }
+        }
+
+        if ($requestedTopN !== null && is_array($contextTasks) && $contextTasks !== []) {
+            $available = min($requestedTopN, count($contextTasks));
+
+            if (count($filtered) < $available) {
+                // Titles the model already ranked.
+                $rankedTitles = [];
+                foreach ($filtered as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    if (isset($item['title']) && is_string($item['title'])) {
+                        $rankedTitles[] = trim($item['title']);
+                    }
+                }
+
+                // Fill in remaining slots from the context slice, in context order.
+                foreach ($contextTasks as $taskPayload) {
+                    if (! is_array($taskPayload) || ! isset($taskPayload['title']) || ! is_string($taskPayload['title'])) {
+                        continue;
+                    }
+                    $title = trim($taskPayload['title']);
+                    if ($title === '' || in_array($title, $rankedTitles, true)) {
+                        continue;
+                    }
+
+                    $item = [
+                        'title' => $title,
+                    ];
+                    if (isset($taskPayload['end_datetime']) && is_string($taskPayload['end_datetime']) && trim($taskPayload['end_datetime']) !== '') {
+                        $item['end_datetime'] = trim($taskPayload['end_datetime']);
+                    }
+
+                    $filtered[] = $item;
+                    $rankedTitles[] = $title;
+
+                    if (count($filtered) >= $available) {
+                        break;
+                    }
+                }
+            }
+        }
+
         $structured['ranked_tasks'] = $this->rerank($filtered);
 
         return $structured;
@@ -567,6 +618,58 @@ class StructuredOutputSanitizer
                 }
             }
             unset($item);
+        }
+
+        // Enforce requested_top_n for events when possible, similar to tasks.
+        $requestedTopN = null;
+        if (isset($context['requested_top_n']) && is_numeric($context['requested_top_n'])) {
+            $requestedTopN = (int) $context['requested_top_n'];
+            if ($requestedTopN <= 0) {
+                $requestedTopN = null;
+            }
+        }
+
+        if ($requestedTopN !== null && is_array($eventsContext) && $eventsContext !== []) {
+            $available = min($requestedTopN, count($eventsContext));
+
+            if (count($filtered) < $available) {
+                $rankedTitles = [];
+                foreach ($filtered as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    if (isset($item['title']) && is_string($item['title'])) {
+                        $rankedTitles[] = trim($item['title']);
+                    }
+                }
+
+                foreach ($eventsContext as $eventPayload) {
+                    if (! is_array($eventPayload) || ! isset($eventPayload['title']) || ! is_string($eventPayload['title'])) {
+                        continue;
+                    }
+                    $title = trim($eventPayload['title']);
+                    if ($title === '' || in_array($title, $rankedTitles, true)) {
+                        continue;
+                    }
+
+                    $item = [
+                        'title' => $title,
+                    ];
+                    if (isset($eventPayload['start_datetime']) && is_string($eventPayload['start_datetime']) && trim($eventPayload['start_datetime']) !== '') {
+                        $item['start_datetime'] = trim($eventPayload['start_datetime']);
+                    }
+                    if (isset($eventPayload['end_datetime']) && is_string($eventPayload['end_datetime']) && trim($eventPayload['end_datetime']) !== '') {
+                        $item['end_datetime'] = trim($eventPayload['end_datetime']);
+                    }
+
+                    $filtered[] = $item;
+                    $rankedTitles[] = $title;
+
+                    if (count($filtered) >= $available) {
+                        break;
+                    }
+                }
+            }
         }
 
         $structured['ranked_events'] = $this->rerank($filtered);
@@ -1017,6 +1120,58 @@ class StructuredOutputSanitizer
                 }
             }
             unset($item);
+        }
+
+        // Enforce requested_top_n for projects when possible.
+        $requestedTopN = null;
+        if (isset($context['requested_top_n']) && is_numeric($context['requested_top_n'])) {
+            $requestedTopN = (int) $context['requested_top_n'];
+            if ($requestedTopN <= 0) {
+                $requestedTopN = null;
+            }
+        }
+
+        if ($requestedTopN !== null && is_array($projectsContext) && $projectsContext !== []) {
+            $available = min($requestedTopN, count($projectsContext));
+
+            if (count($filtered) < $available) {
+                $rankedNames = [];
+                foreach ($filtered as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
+                    if (isset($item['name']) && is_string($item['name'])) {
+                        $rankedNames[] = trim($item['name']);
+                    }
+                }
+
+                foreach ($projectsContext as $projectPayload) {
+                    if (! is_array($projectPayload) || ! isset($projectPayload['name']) || ! is_string($projectPayload['name'])) {
+                        continue;
+                    }
+                    $name = trim($projectPayload['name']);
+                    if ($name === '' || in_array($name, $rankedNames, true)) {
+                        continue;
+                    }
+
+                    $item = [
+                        'name' => $name,
+                    ];
+                    if (isset($projectPayload['start_datetime']) && is_string($projectPayload['start_datetime']) && trim($projectPayload['start_datetime']) !== '') {
+                        $item['start_datetime'] = trim($projectPayload['start_datetime']);
+                    }
+                    if (isset($projectPayload['end_datetime']) && is_string($projectPayload['end_datetime']) && trim($projectPayload['end_datetime']) !== '') {
+                        $item['end_datetime'] = trim($projectPayload['end_datetime']);
+                    }
+
+                    $filtered[] = $item;
+                    $rankedNames[] = $name;
+
+                    if (count($filtered) >= $available) {
+                        break;
+                    }
+                }
+            }
         }
 
         $structured['ranked_projects'] = $this->rerank($filtered);

@@ -1998,6 +1998,12 @@ class ContextBuilder
         if (isset($payload['user_current_request'])) {
             $minimal['user_current_request'] = $payload['user_current_request'];
         }
+        if (isset($payload['requested_top_n'])) {
+            $minimal['requested_top_n'] = $payload['requested_top_n'];
+        }
+        if (isset($payload['requested_top_n_instruction'])) {
+            $minimal['requested_top_n_instruction'] = $payload['requested_top_n_instruction'];
+        }
         if (isset($payload['previous_list_context'])) {
             $minimal['previous_list_context'] = $payload['previous_list_context'];
         }
