@@ -299,11 +299,8 @@ new class extends Component
             $metadata = [];
         }
 
-        dd([
-            'structured' => $metadata['structured'] ?? null,
-            'raw_structured_from_llm' => $metadata['raw_structured_from_llm'] ?? null,
-            'recommendation_snapshot' => $metadata['recommendation_snapshot'] ?? null,
-        ]);
+        $snapshot = $metadata['recommendation_snapshot'] ?? null;
+        dd($snapshot);
     }
 
     /**
@@ -367,8 +364,7 @@ new class extends Component
 
         $snapshot = $this->normalizeSnapshotKeys($snapshot);
 
-        // Apply/reject uses recommendation_snapshot as the single reference (structured + appliable_changes
-        // are derived from raw LLM output in RecommendationDisplayBuilder / RunLlmInferenceAction).
+        // Apply/reject uses recommendation_snapshot as the single reference. snapshot.structured is raw LLM output.
 
         $intentValue = (string) ($snapshot['intent'] ?? '');
         $entityTypeValue = (string) ($snapshot['entity_type'] ?? '');
@@ -513,7 +509,7 @@ new class extends Component
 
     /**
      * Resolve the task to apply when entity_type is task.
-     * Uses id from LLM structured output (snapshot structured or appliable_changes) first; falls back to title match.
+     * Uses id from snapshot.structured (raw LLM output) or appliable_changes first; falls back to title match.
      *
      * @param  array<string, mixed>  $snapshot
      */
@@ -600,7 +596,7 @@ new class extends Component
 
     /**
      * Resolve the event to apply when entity_type is event.
-     * Uses id from snapshot (structured or appliable_changes) first; falls back to title match.
+     * Uses id from snapshot.structured (raw LLM output) or appliable_changes first; falls back to title match.
      *
      * @param  array<string, mixed>  $snapshot
      */
@@ -687,7 +683,7 @@ new class extends Component
 
     /**
      * Resolve the project to apply when entity_type is project.
-     * Uses id from snapshot (structured or appliable_changes) first; falls back to name match.
+     * Uses id from snapshot.structured (raw LLM output) or appliable_changes first; falls back to name match.
      *
      * @param  array<string, mixed>  $snapshot
      */

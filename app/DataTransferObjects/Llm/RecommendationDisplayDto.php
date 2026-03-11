@@ -39,19 +39,19 @@ final readonly class RecommendationDisplayDto
         public array $appliableChanges = [],
     ) {}
 
+    /**
+     * Snapshot for storage and frontend: only the combined message (no redundant recommended_action/reasoning).
+     */
     public function toArray(): array
     {
         return [
             'intent' => $this->intent->value,
             'entity_type' => $this->entityType->value,
-            'recommended_action' => $this->recommendedAction,
-            'reasoning' => $this->reasoning,
             'message' => $this->message,
             'validation_confidence' => $this->validationConfidence,
             'used_fallback' => $this->usedFallback,
             'fallback_reason' => $this->fallbackReason,
             'structured' => $this->structured,
-            'followup_suggestions' => $this->followupSuggestions,
             'appliable_changes' => $this->appliableChanges,
         ];
     }

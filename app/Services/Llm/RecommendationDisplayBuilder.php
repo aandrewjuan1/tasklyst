@@ -79,7 +79,6 @@ class RecommendationDisplayBuilder
         $nextStepsLines = $this->formatNextStepsForMessage($structured);
         $message = $this->buildMessage($actionForDisplay, $reasoningForDisplay, $listedItems, $rankedLines, $nextStepsLines);
         $displayStructured = $this->sanitizeStructuredForDisplay($structured, $intent);
-        $followupSuggestions = $this->defaultFollowupSuggestionsForIntent($intent, $entityType);
         $appliableChanges = $this->buildAppliableChanges($structured, $intent, $entityType);
 
         if ($entityType === LlmEntityType::Multiple && $appliableChanges !== [] && ($appliableChanges['entity_type'] ?? '') === 'task') {
@@ -151,7 +150,7 @@ class RecommendationDisplayBuilder
             usedFallback: $result->usedFallback,
             fallbackReason: $result->fallbackReason,
             structured: $displayStructured,
-            followupSuggestions: $followupSuggestions,
+            followupSuggestions: [],
             appliableChanges: $appliableChanges,
         );
     }
@@ -1144,75 +1143,5 @@ class RecommendationDisplayBuilder
         }
 
         return $out;
-    }
-
-    /**
-     * Default follow-up prompt suggestions for the assistant UI, based on intent/entity.
-     *
-     * @return list<string>
-     */
-    private function defaultFollowupSuggestionsForIntent(LlmIntent $intent, LlmEntityType $entityType): array
-    {
-        return match ($intent) {
-            LlmIntent::PrioritizeTasks => [
-                __('Schedule the top task for today.'),
-                __('Show my tasks with no due date.'),
-            ],
-            LlmIntent::PrioritizeEvents => [
-                __('Which events should I focus on this week?'),
-            ],
-            LlmIntent::PrioritizeTasksAndEvents => [
-                __('Schedule the top task for today.'),
-                __('Which events should I focus on this week?'),
-            ],
-            LlmIntent::PrioritizeTasksAndProjects => [
-                __('Schedule the top task for today.'),
-                __('Break my top project into steps.'),
-            ],
-            LlmIntent::PrioritizeEventsAndProjects => [
-                __('Which events this week?'),
-                __('Help me plan my top project.'),
-            ],
-            LlmIntent::PrioritizeAll => [
-                __('Schedule the top task for today.'),
-                __('Which events should I focus on this week?'),
-                __('Break my top project into steps.'),
-            ],
-            LlmIntent::PrioritizeProjects => [
-                __('Help me break my top project into smaller steps.'),
-            ],
-            LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline => [
-                __('Can you suggest another time slot for this task?'),
-            ],
-            LlmIntent::ScheduleEvent, LlmIntent::AdjustEventTime => [
-                __('Suggest a different time for this event.'),
-            ],
-            LlmIntent::ScheduleProject, LlmIntent::AdjustProjectTimeline => [
-                __('Help me plan milestones for this project.'),
-            ],
-            LlmIntent::ScheduleTasksAndEvents => [
-                __('Adjust the time for my top task.'),
-                __('Schedule another event.'),
-            ],
-            LlmIntent::ScheduleTasksAndProjects => [
-                __('Adjust the time for my top task.'),
-                __('Help me plan milestones for a project.'),
-            ],
-            LlmIntent::ScheduleEventsAndProjects => [
-                __('Suggest a different time for an event.'),
-                __('Help me plan milestones for a project.'),
-            ],
-            LlmIntent::ScheduleAll => [
-                __('Adjust the time for my top task.'),
-                __('Schedule another item.'),
-            ],
-            LlmIntent::ResolveDependency => [
-                __('Show me which tasks are still blocked.'),
-            ],
-            LlmIntent::GeneralQuery => [
-                __('What should I focus on next?'),
-            ],
-            default => [],
-        };
     }
 }

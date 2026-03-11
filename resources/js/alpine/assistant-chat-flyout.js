@@ -77,30 +77,27 @@ export function assistantChatFlyout(config) {
             this.$nextTick(() => this.$refs.input && this.$refs.input.focus());
         },
 
-        /** LLM output has suggested properties we can apply (e.g. startDatetime, duration). Uses raw as reference when present. */
+        /** LLM output has suggested properties we can apply (e.g. startDatetime, duration). */
         hasAppliableChanges(message) {
             const snap = this.getSnapshot(message);
             const changes = snap.appliable_changes ?? snap.appliableChanges ?? {};
             const props = changes.properties;
-            const structured = snap.structured || {};
-            const raw = this.getRawStructuredFromLlm(message);
+            const structured = this.getStructured(message);
             const hasProps =
                 typeof props === 'object' &&
                 props !== null &&
                 !Array.isArray(props) &&
                 Object.keys(props).length > 0;
             if (hasProps) return true;
-            const startDt = structured.start_datetime ?? structured.startDatetime ?? raw?.start_datetime;
-            const duration = structured.duration ?? raw?.duration;
+            const startDt = structured.start_datetime ?? structured.startDatetime;
+            const duration = structured.duration;
             return !!(startDt && (duration != null || startDt));
         },
 
-        /** LLM output has the item id so we can update the correct task (required for Apply to work). Uses raw as reference when present. */
+        /** LLM output has the item id so we can update the correct task (required for Apply to work). */
         hasTaskIdInSnapshot(message) {
-            const snap = this.getSnapshot(message);
-            const s = snap.structured || {};
-            const raw = this.getRawStructuredFromLlm(message);
-            const id = s.target_task_id ?? s.id ?? raw?.id ?? raw?.target_task_id;
+            const structured = this.getStructured(message);
+            const id = structured.target_task_id ?? structured.id;
             return id != null && !Number.isNaN(Number(id)) && Number(id) > 0;
         },
 
@@ -486,44 +483,34 @@ export function assistantChatFlyout(config) {
             return typeof snap === 'object' && snap !== null && !Array.isArray(snap) ? snap : {};
         },
 
-        getStructured(message) {
-            const snap = this.getSnapshot(message);
-
-            return snap.structured || {};
-        },
-
         /**
-         * Raw structured output from the LLM (single reference for display and rule-based logic).
+         * Structured output from the LLM (single source of truth; stored raw in snapshot).
          * Normalized to a single object (backend may send array from Prism).
          */
-        getRawStructuredFromLlm(message) {
+        getStructured(message) {
             const snap = this.getSnapshot(message);
-            const raw = snap.raw_structured_from_llm;
-            if (!raw || typeof raw !== 'object') return {};
-            if (Array.isArray(raw) && raw[0] && typeof raw[0] === 'object') return raw[0];
-            return raw;
+            const s = snap.structured;
+            if (!s || typeof s !== 'object') return {};
+            if (Array.isArray(s) && s[0] && typeof s[0] === 'object') return s[0];
+            return s;
         },
 
         /**
-         * Merged schedule fields for the "Proposed schedule" block.
-         * Uses canonical structured + proposed_properties, then falls back to raw LLM output
-         * so we never show "No specific time" when the LLM suggested a time.
+         * Merged schedule fields for the "Proposed schedule" block (from structured + proposed_properties).
          */
         getScheduleDisplay(message) {
-            const snap = this.getSnapshot(message);
-            const s = snap.structured || {};
-            const raw = this.getRawStructuredFromLlm(message);
+            const s = this.getStructured(message);
             const p =
                 s?.proposed_properties && typeof s.proposed_properties === 'object'
                     ? s.proposed_properties
                     : {};
             return {
-                start_datetime: s?.start_datetime ?? p?.start_datetime ?? raw?.start_datetime,
-                end_datetime: s?.end_datetime ?? p?.end_datetime ?? raw?.end_datetime,
-                duration: s?.duration ?? p?.duration ?? raw?.duration,
-                priority: s?.priority ?? p?.priority ?? raw?.priority,
-                timezone: s?.timezone ?? p?.timezone ?? raw?.timezone,
-                location: s?.location ?? p?.location ?? raw?.location,
+                start_datetime: s?.start_datetime ?? p?.start_datetime,
+                end_datetime: s?.end_datetime ?? p?.end_datetime,
+                duration: s?.duration ?? p?.duration,
+                priority: s?.priority ?? p?.priority,
+                timezone: s?.timezone ?? p?.timezone,
+                location: s?.location ?? p?.location,
             };
         },
 

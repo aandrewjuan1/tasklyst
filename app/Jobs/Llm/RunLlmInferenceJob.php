@@ -94,11 +94,8 @@ class RunLlmInferenceJob implements ShouldQueue
         $display = $displayBuilder->build($inferenceResult, $intent, $entityType);
 
         $snapshot = $display->toArray();
-        // Expose raw LLM structured output in the snapshot so frontend and rule-based logic
-        // can use it as the single reference (display.structured is derived from this with minimal transforms).
-        if ($inferenceResult->rawStructured !== null) {
-            $snapshot['raw_structured_from_llm'] = $inferenceResult->rawStructured;
-        }
+        // Single source of truth: store raw LLM structured output only (no separate derived "structured").
+        $snapshot['structured'] = $inferenceResult->rawStructured ?? $inferenceResult->structured;
 
         $metadata = [
             'intent' => $intent->value,

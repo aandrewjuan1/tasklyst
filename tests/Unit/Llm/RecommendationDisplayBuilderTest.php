@@ -29,7 +29,7 @@ test('build returns display dto with validation confidence for prioritization', 
     expect($dto)->toBeInstanceOf(RecommendationDisplayDto::class)
         ->and($dto->intent)->toBe(LlmIntent::PrioritizeTasks)
         ->and($dto->followupSuggestions)->toBeArray()
-        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->followupSuggestions)->toBeEmpty()
         ->and($dto->entityType)->toBe(LlmEntityType::Task)
         ->and($dto->recommendedAction)->toContain('Focus on overdue first.')
         ->and($dto->reasoning)->toContain('Step 1')
@@ -192,7 +192,7 @@ test('build for PrioritizeTasksAndEvents with Multiple includes both task and ev
         ->and($dto->message)->toContain('Event One')
         ->and($dto->structured)->toHaveKey('ranked_tasks')
         ->and($dto->structured)->toHaveKey('ranked_events')
-        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->followupSuggestions)->toBeEmpty()
         ->and($dto->validationConfidence)->toBeGreaterThan(0);
 });
 
@@ -230,7 +230,7 @@ test('build for PrioritizeAll with Multiple includes tasks, events and projects 
         ->and($dto->structured)->toHaveKey('ranked_tasks')
         ->and($dto->structured)->toHaveKey('ranked_events')
         ->and($dto->structured)->toHaveKey('ranked_projects')
-        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->followupSuggestions)->toBeEmpty()
         ->and($dto->validationConfidence)->toBeGreaterThan(0);
 });
 
@@ -360,7 +360,7 @@ test('build for ScheduleAll with Multiple includes scheduled tasks, events and p
         ->and($dto->structured)->toHaveKey('scheduled_tasks')
         ->and($dto->structured)->toHaveKey('scheduled_events')
         ->and($dto->structured)->toHaveKey('scheduled_projects')
-        ->and($dto->followupSuggestions)->not->toBeEmpty()
+        ->and($dto->followupSuggestions)->toBeEmpty()
         ->and($dto->validationConfidence)->toBeGreaterThan(0);
 });
 
@@ -469,13 +469,13 @@ test('RecommendationDisplayDto toArray and fromArray include message', function 
     $arr = $dto->toArray();
     expect($arr)->toHaveKey('message')
         ->and($arr['message'])->toBe('Do A first. Here\'s why: Because it is urgent.')
-        ->and($arr)->toHaveKey('followup_suggestions')
-        ->and($arr['followup_suggestions'])->toBeArray()
-        ->and($arr['followup_suggestions'])->toHaveCount(2);
+        ->and($arr)->not->toHaveKey('followup_suggestions')
+        ->and($arr)->not->toHaveKey('recommended_action')
+        ->and($arr)->not->toHaveKey('reasoning');
 
     $restored = RecommendationDisplayDto::fromArray($arr);
     expect($restored->message)->toBe($dto->message)
-        ->and($restored->followupSuggestions)->toBe($dto->followupSuggestions);
+        ->and($restored->followupSuggestions)->toBeEmpty();
 });
 
 test('build formats message with listed_items as summary then bullet list then reasoning', function (): void {
