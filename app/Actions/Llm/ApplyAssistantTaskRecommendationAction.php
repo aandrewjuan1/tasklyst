@@ -41,8 +41,7 @@ class ApplyAssistantTaskRecommendationAction
         if (! in_array($intent, [
             LlmIntent::ScheduleTask,
             LlmIntent::AdjustTaskDeadline,
-            LlmIntent::ScheduleTasksAndEvents,
-            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::UpdateTaskProperties,
         ], true)) {
             Log::info('assistant.task_apply.intent_not_supported_for_task_apply', [
                 'user_id' => $user->id,

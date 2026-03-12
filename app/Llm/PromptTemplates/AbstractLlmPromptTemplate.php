@@ -32,6 +32,18 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     protected const TONE = 'Write recommended_action as a short first paragraph (what to do). Write reasoning as a separate second paragraph (why); it should read naturally as a follow-up, e.g. starting with "Because", "This way", or flowing from the recommendation. No step lists or numbered chains.';
 
+    /**
+     * Keep a human, user-adaptive voice while preserving structure.
+     */
+    protected const ADAPTIVE_TONE_POLICY = 'Use a warm coach voice: supportive, practical, and natural. Mirror the user\'s level of formality and wording style (casual vs formal) without copying slang excessively. When Context.response_style is present, follow it. Avoid robotic templates, repeated stock phrases, and stiff deterministic wording.';
+
+    /**
+     * When context indicates filters were applied, narrate filter-first flow explicitly.
+     */
+    protected const FILTER_FIRST_NARRATIVE = 'If Context includes filtering_summary.applied=true, you MUST acknowledge filter-first flow in recommended_action or reasoning: briefly say you filtered based on the user request, mention what was filtered (filtering_summary.dimensions), then state how many matches were found (filtering_summary.counts) before presenting ranking/scheduling guidance.';
+
+    protected const NO_INTERNAL_KEYS_IN_NARRATIVE = 'Never expose internal JSON/context field keys in user-facing prose (for example: required_tag, task_priority, ranked_tasks, start_datetime, proposed_properties). Always use natural phrases like "tag", "priority", "ranked tasks", or "start time".';
+
     protected const LOW_CONFIDENCE = 'If unsure, state why in reasoning and use confidence below 0.5.';
 
     /** When the user asks for a schedule, time slot, or proposed schedule: require concrete times so the app can show and apply them. */
@@ -69,7 +81,7 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
 
     public function version(): string
     {
-        return 'v1.7';
+        return 'v1.8';
     }
 
     /**
@@ -84,7 +96,7 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
             $critical = self::NO_PAST_TIMES.' '.$critical;
         }
 
-        return $critical.' '.self::SHORT_PERSONA.' '.self::ADDRESS_USER_DIRECTLY.' '.self::SHORT_BOUNDARIES.' '.self::TONE.' '.self::LOW_CONFIDENCE;
+        return $critical.' '.self::SHORT_PERSONA.' '.self::ADDRESS_USER_DIRECTLY.' '.self::ADAPTIVE_TONE_POLICY.' '.self::FILTER_FIRST_NARRATIVE.' '.self::NO_INTERNAL_KEYS_IN_NARRATIVE.' '.self::SHORT_BOUNDARIES.' '.self::TONE.' '.self::LOW_CONFIDENCE;
     }
 
     /**
@@ -121,5 +133,35 @@ abstract class AbstractLlmPromptTemplate implements LlmPromptTemplate
     protected function outputAndGuardrailsForScheduling(bool $includeNoPastTimes = false): string
     {
         return $this->outputAndGuardrails($includeNoPastTimes).' '.self::SCHEDULE_REASONING_AND_COACH.' '.self::SCHEDULE_JSON_FIELDS_REQUIRED.' '.self::RESPECT_EXPLICIT_USER_TIME;
+    }
+
+    protected function buildCompositePrioritizationPrompt(
+        string $intro,
+        string $contextRules,
+        string $consistencyRule,
+        string $returnShape,
+        string $criticalRules,
+        string $exampleShape
+    ): string {
+        return $intro.' '
+            .$contextRules.' '
+            .$consistencyRule.' '
+            .$returnShape.' '
+            .$criticalRules.' '
+            .$exampleShape.' '
+            .$this->outputAndGuardrails(false);
+    }
+
+    protected function buildCompositeSchedulingPrompt(
+        string $intro,
+        string $contextRules,
+        string $returnShape,
+        string $scheduledFields
+    ): string {
+        return $intro.' '
+            .$contextRules.' '
+            .$returnShape.' '
+            .$scheduledFields.' '
+            .$this->outputAndGuardrailsForScheduling(true);
     }
 }

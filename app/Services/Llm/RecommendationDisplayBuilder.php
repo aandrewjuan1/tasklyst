@@ -96,6 +96,16 @@ class RecommendationDisplayBuilder
             ]);
         }
 
+        [$actionForDisplay, $reasoningForDisplay] = $this->applyFilterFirstNarrativeTone(
+            $actionForDisplay,
+            $reasoningForDisplay,
+            $entityType,
+            $result->contextFacts
+        );
+
+        $actionForDisplay = $this->sanitizeInternalKeyNamesForUsers($actionForDisplay);
+        $reasoningForDisplay = $this->sanitizeInternalKeyNamesForUsers($reasoningForDisplay);
+
         if (in_array($intent, [
             LlmIntent::ScheduleTask,
             LlmIntent::AdjustTaskDeadline,
@@ -195,6 +205,159 @@ class RecommendationDisplayBuilder
     }
 
     /**
+     * Inject filter-first acknowledgement when context indicates filters were applied.
+     * Keeps responses human while ensuring users understand why results are scoped.
+     *
+     * @param  array<string, mixed>|null  $contextFacts
+     * @return array{0: string, 1: string}
+     */
+    private function applyFilterFirstNarrativeTone(
+        string $recommendedAction,
+        string $reasoning,
+        LlmEntityType $entityType,
+        ?array $contextFacts
+    ): array {
+        if (! is_array($contextFacts)) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $summary = $contextFacts['filtering_summary'] ?? null;
+        if (! is_array($summary) || ! (($summary['applied'] ?? false) === true)) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $combinedText = mb_strtolower(trim($recommendedAction.' '.$reasoning));
+        if (str_contains($combinedText, 'filtered')
+            || str_contains($combinedText, 'matching that request')
+            || str_contains($combinedText, 'based on your request')
+        ) {
+            return [$recommendedAction, $reasoning];
+        }
+
+        $counts = is_array($summary['counts'] ?? null) ? $summary['counts'] : [];
+        $taskCount = is_numeric($counts['tasks'] ?? null) ? (int) $counts['tasks'] : 0;
+        $eventCount = is_numeric($counts['events'] ?? null) ? (int) $counts['events'] : 0;
+        $projectCount = is_numeric($counts['projects'] ?? null) ? (int) $counts['projects'] : 0;
+        $dimensions = is_array($summary['dimensions'] ?? null) ? $summary['dimensions'] : [];
+        $dimensionLabel = $this->humanizedFilterDimensions($dimensions);
+
+        $matchSummary = match ($entityType) {
+            LlmEntityType::Task => __('I found :count matching tasks.', ['count' => $taskCount]),
+            LlmEntityType::Event => __('I found :count matching events.', ['count' => $eventCount]),
+            LlmEntityType::Project => __('I found :count matching projects.', ['count' => $projectCount]),
+            LlmEntityType::Multiple => __('I found :tasks tasks, :events events, and :projects projects that match.', [
+                'tasks' => $taskCount,
+                'events' => $eventCount,
+                'projects' => $projectCount,
+            ]),
+        };
+
+        $filterLead = __('Based on your request, I filtered your items using :dimensions. :matches', [
+            'dimensions' => $dimensionLabel,
+            'matches' => $matchSummary,
+        ]);
+
+        $actionOut = trim($filterLead.' '.$recommendedAction);
+        if ($reasoning !== '') {
+            $reasoningOut = trim(__('I ranked only this filtered set so your next step stays aligned with what you asked for.').' '.$reasoning);
+        } else {
+            $reasoningOut = __('I ranked only this filtered set so your next step stays aligned with what you asked for.');
+        }
+
+        return [$actionOut, $reasoningOut];
+    }
+
+    /**
+     * @param  array<int, mixed>  $dimensions
+     */
+    private function humanizedFilterDimensions(array $dimensions): string
+    {
+        if ($dimensions === []) {
+            return 'your criteria';
+        }
+
+        $labels = [];
+        foreach ($dimensions as $dimension) {
+            if (! is_string($dimension) || trim($dimension) === '') {
+                continue;
+            }
+
+            $normalized = trim(mb_strtolower($dimension));
+            $labels[] = match ($normalized) {
+                'required_tag', 'excluded_tag' => 'tag',
+                'task_priority' => 'priority',
+                'task_status' => 'status',
+                'task_complexity' => 'complexity',
+                'task_recurring' => 'recurrence',
+                'task_due_date_presence' => 'due date availability',
+                'task_start_date_presence' => 'start date availability',
+                'health_or_household_only' => 'health or household category',
+                'school_only' => 'school category',
+                'time_window' => 'time window',
+                'subject' => 'subject',
+                default => str_replace('_', ' ', $normalized),
+            };
+        }
+
+        $labels = array_values(array_unique($labels));
+
+        return $labels !== [] ? implode(', ', $labels) : 'your criteria';
+    }
+
+    private function sanitizeInternalKeyNamesForUsers(string $text): string
+    {
+        if (trim($text) === '') {
+            return $text;
+        }
+
+        $map = [
+            'required_tag' => 'tag',
+            'excluded_tag' => 'tag exclusion',
+            'task_priority' => 'task priority',
+            'task_status' => 'task status',
+            'task_complexity' => 'task complexity',
+            'task_recurring' => 'task recurrence',
+            'task_due_date_presence' => 'task due date availability',
+            'task_start_date_presence' => 'task start date availability',
+            'school_only' => 'school category',
+            'health_or_household_only' => 'health or household category',
+            'time_window' => 'time window',
+            'filtering_summary' => 'filter summary',
+            'response_style' => 'response style',
+            'ranked_tasks' => 'ranked tasks',
+            'ranked_events' => 'ranked events',
+            'ranked_projects' => 'ranked projects',
+            'scheduled_tasks' => 'scheduled tasks',
+            'scheduled_events' => 'scheduled events',
+            'scheduled_projects' => 'scheduled projects',
+            'listed_items' => 'matching items',
+            'proposed_properties' => 'suggested changes',
+            'appliable_changes' => 'suggested changes',
+            'validation_confidence' => 'confidence',
+            'entity_type' => 'entity type',
+            'start_datetime' => 'start time',
+            'end_datetime' => 'end time',
+            'startDatetime' => 'start time',
+            'endDatetime' => 'end time',
+            'tagNames' => 'tags',
+        ];
+
+        $out = $text;
+        foreach ($map as $raw => $label) {
+            $out = preg_replace('/\b'.preg_quote($raw, '/').'\b/u', $label, $out) ?? $out;
+        }
+
+        // Hide internal IDs like "ID: 9" or "(ID: 9)" from user-facing narrative.
+        $out = preg_replace('/\s*\(ID:\s*\d+\)/iu', '', $out) ?? $out;
+        $out = preg_replace('/\bID\s*[:#]\s*\d+\b/iu', '', $out) ?? $out;
+
+        // Normalise whitespace after removals.
+        $out = preg_replace('/\s{2,}/u', ' ', $out) ?? $out;
+
+        return trim($out);
+    }
+
+    /**
      * Ensure prioritize-tasks narrative does not contradict context-derived facts.
      *
      * @param  array<string, mixed>  $structured
@@ -264,8 +427,9 @@ class RecommendationDisplayBuilder
         $fullText = $recommendedAction.' '.$reasoning;
         $anchorTitle = $this->firstRankedTaskTitleMentionedInText($ranked, $fullText) ?? $topTitle;
 
-        // We intentionally do NOT rewrite which task the model recommends.
-        // If there is a factual contradiction (wrong due date/time phrasing), we correct the date/time only.
+        // Keep the "first focus" narrative aligned with the current top-ranked task,
+        // including paraphrased mentions.
+        $recommendedAction = $this->alignRecommendedActionWithTopRankedLabel($recommendedAction, $ranked, 'title');
 
         $anchorEnd = null;
         foreach ($ranked as $item) {
@@ -445,6 +609,90 @@ class RecommendationDisplayBuilder
     }
 
     /**
+     * If recommended_action mentions a non-top ranked label and does not mention
+     * the top-ranked label, replace the first such mention with the top label.
+     *
+     * @param  array<int, mixed>  $ranked
+     */
+    private function alignRecommendedActionWithTopRankedLabel(string $recommendedAction, array $ranked, string $labelKey): string
+    {
+        $topLabel = isset($ranked[0][$labelKey]) && is_string($ranked[0][$labelKey])
+            ? trim($ranked[0][$labelKey])
+            : '';
+        if ($topLabel === '' || $this->textLikelyMentionsLabel($recommendedAction, $topLabel)) {
+            return $recommendedAction;
+        }
+
+        foreach ($ranked as $item) {
+            if (! is_array($item) || ! isset($item[$labelKey]) || ! is_string($item[$labelKey])) {
+                continue;
+            }
+            $candidate = trim($item[$labelKey]);
+            if ($candidate === '' || $candidate === $topLabel) {
+                continue;
+            }
+            if ($this->textLikelyMentionsLabel($recommendedAction, $candidate)) {
+                // If the non-top item is mentioned using paraphrased wording
+                // (e.g. "Lab 5: Linked Lists for CS 220"), directly enforce
+                // first-focus alignment by rewriting the first sentence.
+                $rewritten = preg_replace(
+                    '/^[^.!?]*(?:[.!?]\s*)?/u',
+                    'First, focus on completing '.$topLabel.'. ',
+                    trim($recommendedAction),
+                    1
+                );
+
+                return is_string($rewritten) && trim($rewritten) !== ''
+                    ? trim($rewritten)
+                    : 'First, focus on completing '.$topLabel.'.';
+            }
+        }
+
+        return $recommendedAction;
+    }
+
+    private function textLikelyMentionsLabel(string $text, string $label): bool
+    {
+        $normalizedText = $this->normalizeNarrativeTextForMatching($text);
+        $normalizedLabel = $this->normalizeNarrativeTextForMatching($label);
+        if ($normalizedText === '' || $normalizedLabel === '') {
+            return false;
+        }
+
+        // Fast exact-ish check first.
+        if (str_contains($normalizedText, $normalizedLabel)) {
+            return true;
+        }
+
+        // Fallback token-overlap match to catch paraphrases like
+        // "Lab 5: Linked Lists for CS 220" vs "CS 220 – Lab 5: Linked Lists".
+        $textWords = array_values(array_filter(explode(' ', $normalizedText), static fn (string $word): bool => $word !== ''));
+        $labelWords = array_values(array_filter(explode(' ', $normalizedLabel), static fn (string $word): bool => $word !== ''));
+        if ($textWords === [] || $labelWords === []) {
+            return false;
+        }
+
+        $textSet = array_fill_keys($textWords, true);
+        $matches = 0;
+        foreach ($labelWords as $word) {
+            if (isset($textSet[$word])) {
+                $matches++;
+            }
+        }
+
+        // Require strong overlap and at least 3 matched words to avoid false positives.
+        return $matches >= 3 && ($matches / count($labelWords)) >= 0.6;
+    }
+
+    private function normalizeNarrativeTextForMatching(string $value): string
+    {
+        $lower = mb_strtolower(trim($value));
+        $alnumSpace = (string) preg_replace('/[^\p{L}\p{N}\s]/u', ' ', $lower);
+
+        return trim((string) preg_replace('/\s+/u', ' ', $alnumSpace));
+    }
+
+    /**
      * Apply task/event/project narrative corrections for multi-entity prioritize intents.
      *
      * @param  array<string, mixed>  $structured
@@ -598,14 +846,14 @@ class RecommendationDisplayBuilder
             ? trim($ranked[0]['title'])
             : '';
         if ($topTitle !== '') {
-            $mentionsTop = str_contains($lower, mb_strtolower($topTitle));
+            $mentionsTop = $this->textLikelyMentionsLabel($text, $topTitle);
             if (! $mentionsTop) {
                 foreach (array_slice($ranked, 1, 4) as $item) {
                     if (! is_array($item) || ! isset($item['title']) || ! is_string($item['title'])) {
                         continue;
                     }
                     $title = trim($item['title']);
-                    if ($title !== '' && str_contains($lower, mb_strtolower($title))) {
+                    if ($title !== '' && $this->textLikelyMentionsLabel($text, $title)) {
                         return true;
                     }
                 }
@@ -736,6 +984,8 @@ class RecommendationDisplayBuilder
             return [$recommendedAction, $reasoning];
         }
 
+        $recommendedAction = $this->alignRecommendedActionWithTopRankedLabel($recommendedAction, $ranked, 'title');
+
         $timezone = is_string($contextFacts['timezone'] ?? null) && trim((string) $contextFacts['timezone']) !== ''
             ? (string) $contextFacts['timezone']
             : config('app.timezone');
@@ -811,6 +1061,8 @@ class RecommendationDisplayBuilder
         if (! is_array($ranked) || $ranked === []) {
             return [$recommendedAction, $reasoning];
         }
+
+        $recommendedAction = $this->alignRecommendedActionWithTopRankedLabel($recommendedAction, $ranked, 'name');
 
         $timezone = is_string($contextFacts['timezone'] ?? null) && trim((string) $contextFacts['timezone']) !== ''
             ? (string) $contextFacts['timezone']
@@ -1071,16 +1323,14 @@ class RecommendationDisplayBuilder
             LlmIntent::UpdateTaskProperties,
             LlmIntent::UpdateEventProperties,
             LlmIntent::UpdateProjectProperties,
-            LlmIntent::ScheduleTasksAndEvents,
-            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::ScheduleTasks,
         ], true)) {
             return [];
         }
 
         if ($entityType === LlmEntityType::Multiple) {
-            $singleTaskChanges = $this->buildAppliableChangesFromFirstScheduledTask($structured, $intent);
-            if ($singleTaskChanges !== []) {
-                return $singleTaskChanges;
+            if ($intent === LlmIntent::ScheduleTasks) {
+                return $this->buildAppliableChangesFromScheduledTasks($structured);
             }
 
             return [];
@@ -1261,74 +1511,58 @@ class RecommendationDisplayBuilder
     }
 
     /**
-     * When intent is ScheduleTasksAndEvents or ScheduleTasksAndProjects with entity Multiple,
-     * build appliable_changes from the first scheduled task when at least one has valid time/duration.
-     * Uses top-level start_datetime/duration when the first item does not specify them (shared schedule).
+     * Build multi-task appliable changes for ScheduleTasks intent.
      *
      * @param  array<string, mixed>  $structured
      * @return array<string, mixed>
      */
-    private function buildAppliableChangesFromFirstScheduledTask(array $structured, LlmIntent $intent): array
+    private function buildAppliableChangesFromScheduledTasks(array $structured): array
     {
-        if (! in_array($intent, [LlmIntent::ScheduleTasksAndEvents, LlmIntent::ScheduleTasksAndProjects], true)) {
-            return [];
-        }
-
         $scheduledTasks = $structured['scheduled_tasks'] ?? null;
         if (! is_array($scheduledTasks) || $scheduledTasks === []) {
             return [];
         }
 
-        $item = $scheduledTasks[0];
-        if (! is_array($item)) {
-            return [];
+        $updates = [];
+        foreach ($scheduledTasks as $item) {
+            if (! is_array($item) || ! isset($item['id']) || ! is_numeric($item['id'])) {
+                continue;
+            }
+
+            $startRaw = $item['start_datetime'] ?? null;
+            $duration = isset($item['duration']) && is_numeric($item['duration']) ? (int) $item['duration'] : null;
+            $start = $startRaw !== null && $startRaw !== '' ? $this->parseDateTime($startRaw) : null;
+
+            if ($start === null && ($duration === null || $duration <= 0)) {
+                continue;
+            }
+            if ($start !== null && $start->lt(Carbon::now())) {
+                continue;
+            }
+
+            $properties = [];
+            if ($start !== null) {
+                $properties['startDatetime'] = $start->toIso8601String();
+            }
+            if ($duration !== null && $duration > 0) {
+                $properties['duration'] = $duration;
+            }
+            if ($properties === []) {
+                continue;
+            }
+
+            $updates[] = [
+                'id' => (int) $item['id'],
+                'properties' => $properties,
+            ];
         }
 
-        $startRaw = $item['start_datetime'] ?? $structured['start_datetime'] ?? null;
-        $duration = isset($item['duration']) && is_numeric($item['duration'])
-            ? (int) $item['duration']
-            : (isset($structured['duration']) && is_numeric($structured['duration']) ? (int) $structured['duration'] : null);
-        $priorityRaw = $item['priority'] ?? $structured['priority'] ?? null;
-        $priority = $priorityRaw !== null && $priorityRaw !== ''
-            ? strtolower((string) $priorityRaw)
-            : null;
-        if ($priority !== null && ! in_array($priority, self::PRIORITY_VALUES, true)) {
-            $priority = null;
-        }
-
-        $start = $startRaw !== null && $startRaw !== '' ? $this->parseDateTime($startRaw) : null;
-        if ($start !== null && $start->lt(Carbon::now())) {
-            return [];
-        }
-
-        if ($start === null && $duration === null && $priority === null) {
-            return [];
-        }
-
-        $properties = [];
-        if ($start !== null) {
-            $properties['startDatetime'] = $start->toIso8601String();
-        }
-        if ($duration !== null && $duration > 0) {
-            $properties['duration'] = $duration;
-        }
-        if ($priority !== null) {
-            $properties['priority'] = $priority;
-        }
-
-        if ($properties === []) {
-            return [];
-        }
-
-        $result = [
-            'entity_type' => 'task',
-            'properties' => $properties,
-        ];
-        if (isset($item['id']) && is_numeric($item['id'])) {
-            $result['target_task_id'] = (int) $item['id'];
-        }
-
-        return $result;
+        return $updates !== []
+            ? [
+                'entity_type' => 'task',
+                'updates' => $updates,
+            ]
+            : [];
     }
 
     /**

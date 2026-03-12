@@ -4,8 +4,9 @@ namespace App\Actions\Llm;
 
 use App\DataTransferObjects\Llm\LlmIntentClassificationResult;
 use App\Enums\LlmEntityType;
-use App\Enums\LlmIntent;
+use App\Enums\LlmOperationMode;
 use App\Models\AssistantThread;
+use App\Services\Llm\LlmIntentAliasResolver;
 use App\Services\LlmIntentClassificationService;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
@@ -18,6 +19,7 @@ class ClassifyLlmIntentAction
 {
     public function __construct(
         private LlmIntentClassificationService $classificationService,
+        private LlmIntentAliasResolver $aliasResolver,
     ) {}
 
     public function execute(string $userMessage, ?AssistantThread $thread = null, ?string $traceId = null): LlmIntentClassificationResult
@@ -99,78 +101,59 @@ class ClassifyLlmIntentAction
     {
         $schema = new ObjectSchema(
             name: 'intent_classification',
-            description: 'Classifies a student task management query into intent and entity type',
+            description: 'Classifies a student task management query into operation mode and entity scope',
             properties: [
                 new StringSchema(
-                    name: 'intent',
-                    description: 'One of the exact intent values listed in the system prompt',
+                    name: 'operation_mode',
+                    description: 'One of: schedule, prioritize, general, update, create, resolve_dependency',
                 ),
                 new StringSchema(
-                    name: 'entity_type',
-                    description: 'One of: task, event, project',
+                    name: 'entity_scope',
+                    description: 'One of: task, event, project, multiple',
+                ),
+                new StringSchema(
+                    name: 'entity_targets',
+                    description: 'Comma-separated entities for multiple scope, e.g. "task,event" or "task,event,project"',
                 ),
                 new StringSchema(
                     name: 'confidence',
                     description: 'Your confidence from 0.0 to 1.0 as a decimal string, e.g. "0.85"',
                 ),
             ],
-            requiredFields: ['intent', 'entity_type', 'confidence'],
+            requiredFields: ['operation_mode', 'entity_scope', 'confidence'],
         );
 
-        $intents = implode(', ', array_column(LlmIntent::cases(), 'value'));
         $entityTypes = implode(', ', array_column(LlmEntityType::cases(), 'value'));
 
         $systemPrompt = <<<PROMPT
 You are a query classifier for TaskLyst, a student task management assistant.
 
-Your job is to classify a single user message into one intent and one entity_type.
+Your job is to classify a single user message into one operation_mode and one entity_scope.
 
-Valid intents (use the exact value):
-{$intents}
-
-Valid entity_type values (use the exact value):
+Valid entity_scope values (use the exact value):
 {$entityTypes}
 
 Classification rules:
-- Use "general_query" when the message asks which task, event, or project to delete or remove (e.g. "what task should I delete?", "which one can I drop?"). Do not use prioritize_* for these; the answer is a single recommendation, not a priority order.
-- Use "general_query" when the message is clearly NOT about tasks, events, or projects. For off-topic or non-planning questions (e.g. general knowledge, coding, trivia), use general_query and entity_type "task" (default).
-- Prefer specificity: "schedule_task" over "general_query" when uncertain (except for delete/remove questions above).
-- Match entity_type to the dominant subject of the message.
-- If no clear entity is mentioned, default entity_type to "task".
-- If the message clearly asks about times, dates, or scheduling, prefer a schedule_* intent over general_query.
-- When the user clearly asks to change one or more properties of an existing item (e.g. duration, complexity, priority, title, description, status) and is not asking for a new item, use one of the update_*_properties intents:
-- "update_task_properties" when the main subject is a task (e.g. "make this task low priority", "change that task to 45 minutes", "rename this task").
-- "update_event_properties" when the main subject is an event (e.g. "rename that event", "mark this event as all-day").
-- "update_project_properties" when the main subject is a project (e.g. "make this project high priority and complex").
-- For pure time/date changes to an existing item where the user is clearly talking about scheduling or deadlines (e.g. "move this task to tomorrow", "push the event to Friday"), prefer the adjust_* or schedule_* intents instead of update_*_properties.
-- If the message is very vague but you must choose, still pick the single best intent and entity_type, but set confidence below 0.4.
-- When conversation history is provided: treat follow-ups like "how about in events?" or "same for projects?" as carrying over the previous intent. E.g. if the user asked "what to do first?" (prioritize_tasks) and then "how about in events?", classify intent as prioritize_events.
-- When the user asks to prioritize both tasks and events (e.g. "prioritize both my tasks and events", "rank my tasks and events"), use intent "prioritize_tasks_and_events" and entity_type "multiple".
-- When the user asks to prioritize both tasks and projects (e.g. "prioritize my tasks and projects", "both tasks and projects"), use intent "prioritize_tasks_and_projects" and entity_type "multiple".
-- When the user asks to prioritize both events and projects (e.g. "prioritize events and projects", "both events and projects"), use intent "prioritize_events_and_projects" and entity_type "multiple".
-- When the user asks to prioritize "all" items or explicitly mentions tasks, events, and projects together (e.g. "in my tasks, events, projects what should I do first?", "prioritize all my items", "all items what to do first"), use intent "prioritize_all" and entity_type "multiple".
-- When the user asks to schedule both tasks and events (e.g. "schedule my tasks and events", "when should I do my tasks and events"), use intent "schedule_tasks_and_events" and entity_type "multiple".
-- When the user asks to schedule both tasks and projects (e.g. "schedule tasks and projects", "when to work on tasks and projects"), use intent "schedule_tasks_and_projects" and entity_type "multiple".
-- When the user asks to schedule both events and projects (e.g. "schedule events and projects"), use intent "schedule_events_and_projects" and entity_type "multiple".
-- When the user asks to schedule "all" items (e.g. "schedule all my items", "schedule everything", "when should I do everything", "schedule my tasks events and projects"), use intent "schedule_all" and entity_type "multiple".
+- Use operation_mode "general" when the message asks which task, event, or project to delete or remove (e.g. "what task should I delete?", "which one can I drop?"). Do not use prioritize for these; the answer is a single recommendation, not a priority order.
+- Use operation_mode "general" when the message is clearly NOT about tasks, events, or projects. For off-topic or non-planning questions, default entity_scope to "task".
+- operation_mode meanings:
+  - schedule: asks for timing/date planning or moving deadlines/times
+  - prioritize: asks what to focus on first/rank
+  - update: asks to change properties on existing item
+  - create: asks to create/add new item
+  - resolve_dependency: asks about blockers/dependencies
+  - general: list/filter/off-topic/meta complaints
+- Use entity_scope "multiple" when user asks about two or more entities together.
+- For entity_scope "multiple", also provide entity_targets with comma-separated values from: task,event,project.
 
 Examples:
-"What should I work on today?" → intent: prioritize_tasks, entity_type: task, confidence: 0.92
-"If I can delete 1 task, what task should I delete?" → intent: general_query, entity_type: task, confidence: 0.9
-"Move my project deadline to Friday" → intent: adjust_project_timeline, entity_type: project, confidence: 0.95
-"Help me plan my study sessions for exams" → intent: schedule_task, entity_type: task, confidence: 0.88
-"What is the capital of France?" → intent: general_query, entity_type: task, confidence: 0.98
-"Prioritize both my tasks and events" → intent: prioritize_tasks_and_events, entity_type: multiple, confidence: 0.9
-"Prioritize both my tasks and projects" → intent: prioritize_tasks_and_projects, entity_type: multiple, confidence: 0.9
-"Rank my events and projects" → intent: prioritize_events_and_projects, entity_type: multiple, confidence: 0.9
-"In my tasks, events, projects what should I do first?" → intent: prioritize_all, entity_type: multiple, confidence: 0.9
-"Schedule both my tasks and events" → intent: schedule_tasks_and_events, entity_type: multiple, confidence: 0.9
-"Schedule tasks and projects" → intent: schedule_tasks_and_projects, entity_type: multiple, confidence: 0.9
-"Schedule events and projects" → intent: schedule_events_and_projects, entity_type: multiple, confidence: 0.9
-"Schedule all my items" → intent: schedule_all, entity_type: multiple, confidence: 0.9
-"Change the duration of this task to 45 minutes" → intent: update_task_properties, entity_type: task, confidence: 0.9
-"Make this project high complexity and low priority" → intent: update_project_properties, entity_type: project, confidence: 0.9
-"Rename that event to 'Math exam review'" → intent: update_event_properties, entity_type: event, confidence: 0.9
+"What should I work on today?" → operation_mode: prioritize, entity_scope: task, confidence: 0.92
+"If I can delete 1 task, what task should I delete?" → operation_mode: general, entity_scope: task, confidence: 0.9
+"Move my project deadline to Friday" → operation_mode: schedule, entity_scope: project, confidence: 0.95
+"Help me plan my study sessions for exams" → operation_mode: schedule, entity_scope: task, confidence: 0.88
+"Prioritize both my tasks and events" → operation_mode: prioritize, entity_scope: multiple, entity_targets: task,event, confidence: 0.9
+"Schedule all my items" → operation_mode: schedule, entity_scope: multiple, entity_targets: task,event,project, confidence: 0.9
+"Change the duration of this task to 45 minutes" → operation_mode: update, entity_scope: task, confidence: 0.9
 
 Respond ONLY with the JSON object. Do not explain.
 PROMPT;
@@ -201,17 +184,20 @@ PROMPT;
                 return null;
             }
 
-            $intent = LlmIntent::tryFrom((string) ($structured['intent'] ?? ''));
-            $entityType = LlmEntityType::tryFrom((string) ($structured['entity_type'] ?? ''));
+            $operationMode = LlmOperationMode::tryFrom((string) ($structured['operation_mode'] ?? ''));
+            $entityType = LlmEntityType::tryFrom((string) ($structured['entity_scope'] ?? ''));
 
-            if ($intent === null || $entityType === null) {
-                Log::warning('LLM returned unrecognized intent or entity_type', [
-                    'raw_intent' => $structured['intent'] ?? null,
-                    'raw_entity_type' => $structured['entity_type'] ?? null,
+            if ($operationMode === null || $entityType === null) {
+                Log::warning('LLM returned unrecognized mode or entity_scope', [
+                    'raw_operation_mode' => $structured['operation_mode'] ?? null,
+                    'raw_entity_scope' => $structured['entity_scope'] ?? null,
                 ]);
 
                 return null;
             }
+
+            $entityTargets = $this->parseEntityTargets((string) ($structured['entity_targets'] ?? ''), $entityType);
+            $intent = $this->aliasResolver->resolve($operationMode, $entityType, $entityTargets);
 
             // Parse confidence from LLM rather than hardcoding 0.9
             $confidence = min(1.0, max(0.0, (float) ($structured['confidence'] ?? 0.75)));
@@ -220,6 +206,8 @@ PROMPT;
                 intent: $intent,
                 entityType: $entityType,
                 confidence: $confidence,
+                operationMode: $operationMode,
+                entityTargets: $entityTargets,
             );
         } catch (Throwable $e) {
             $reason = str_contains(mb_strtolower($e->getMessage()), 'timeout') ? 'timeout' : 'exception';
@@ -259,5 +247,29 @@ PROMPT;
         $history = implode("\n", $lines);
 
         return "Conversation so far:\n{$history}\n\nCurrent message to classify: {$userMessage}";
+    }
+
+    /**
+     * @return array<int, LlmEntityType>
+     */
+    private function parseEntityTargets(string $rawTargets, LlmEntityType $entityScope): array
+    {
+        if ($entityScope !== LlmEntityType::Multiple) {
+            return [$entityScope];
+        }
+
+        $parts = array_values(array_filter(array_map('trim', explode(',', mb_strtolower($rawTargets)))));
+        $targets = [];
+        foreach ($parts as $part) {
+            $type = LlmEntityType::tryFrom($part);
+            if (! $type instanceof LlmEntityType || $type === LlmEntityType::Multiple) {
+                continue;
+            }
+            if (! in_array($type, $targets, true)) {
+                $targets[] = $type;
+            }
+        }
+
+        return $targets;
     }
 }

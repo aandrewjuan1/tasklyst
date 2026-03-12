@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\DataTransferObjects\Llm\LlmSystemPromptResult;
+use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Enums\LlmOperationMode;
 use App\Llm\Contracts\LlmPromptTemplate;
 use App\Llm\PromptTemplates\AdjustEventTimePrompt;
 use App\Llm\PromptTemplates\AdjustProjectTimelinePrompt;
@@ -27,17 +29,26 @@ use App\Llm\PromptTemplates\ScheduleProjectPrompt;
 use App\Llm\PromptTemplates\ScheduleTaskPrompt;
 use App\Llm\PromptTemplates\ScheduleTasksAndEventsPrompt;
 use App\Llm\PromptTemplates\ScheduleTasksAndProjectsPrompt;
+use App\Llm\PromptTemplates\ScheduleTasksPrompt;
 use App\Llm\PromptTemplates\UpdateEventPropertiesPrompt;
 use App\Llm\PromptTemplates\UpdateProjectPropertiesPrompt;
 use App\Llm\PromptTemplates\UpdateTaskPropertiesPrompt;
+use App\Services\Llm\LlmIntentAliasResolver;
 
 class LlmPromptService
 {
+    public function __construct(
+        private LlmIntentAliasResolver $intentAliasResolver,
+    ) {}
+
     /**
      * @var array<string, class-string<LlmPromptTemplate>>
      */
     private const INTENT_TEMPLATES = [
+        // Backward-compat alias: use the canonical multi-task scheduler prompt.
+        LlmIntent::PlanTimeBlock->value => ScheduleTasksPrompt::class,
         LlmIntent::ScheduleTask->value => ScheduleTaskPrompt::class,
+        LlmIntent::ScheduleTasks->value => ScheduleTasksPrompt::class,
         LlmIntent::ScheduleEvent->value => ScheduleEventPrompt::class,
         LlmIntent::ScheduleProject->value => ScheduleProjectPrompt::class,
         LlmIntent::ScheduleTasksAndEvents->value => ScheduleTasksAndEventsPrompt::class,
@@ -73,5 +84,15 @@ class LlmPromptService
             systemPrompt: $template->systemPrompt(),
             version: $template->version(),
         );
+    }
+
+    /**
+     * @param  array<int, LlmEntityType>  $entityTargets
+     */
+    public function getSystemPromptForModeAndScope(LlmOperationMode $mode, LlmEntityType $scope, array $entityTargets = []): LlmSystemPromptResult
+    {
+        $intent = $this->intentAliasResolver->resolve($mode, $scope, $entityTargets);
+
+        return $this->getSystemPromptForIntent($intent);
     }
 }

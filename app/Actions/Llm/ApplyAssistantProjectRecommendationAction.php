@@ -41,6 +41,7 @@ class ApplyAssistantProjectRecommendationAction
         if (! in_array($intent, [
             LlmIntent::ScheduleProject,
             LlmIntent::AdjustProjectTimeline,
+            LlmIntent::UpdateProjectProperties,
             LlmIntent::ScheduleTasksAndProjects,
             LlmIntent::ScheduleEventsAndProjects,
         ], true)) {
