@@ -224,6 +224,40 @@ test('prioritize task context filters by task properties before ranking', functi
         ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain($nonHighTask->title);
 });
 
+test('prioritize task context treats school-only as tasks with a subject name', function (): void {
+    [$user, $builder] = llmContextFixture();
+
+    $schoolTask = Task::factory()->for($user)->create([
+        'title' => 'CS 220 – Homework 3',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'subject_name' => 'CS 220 – Data Structures',
+        'end_datetime' => CarbonImmutable::parse('2026-03-11 20:00:00', 'Asia/Manila'),
+    ]);
+
+    $choreTask = Task::factory()->for($user)->create([
+        'title' => 'Clean the kitchen',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'subject_name' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-03-11 21:00:00', 'Asia/Manila'),
+    ]);
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null,
+        'For today only, what are the top 5 school-related tasks I should focus on? Ignore chores and personal stuff.'
+    );
+
+    $titles = collect($context['tasks'] ?? [])->pluck('title')->all();
+
+    expect($titles)->toContain($schoolTask->title)
+        ->and($titles)->not->toContain($choreTask->title);
+});
+
 test('conversation history and explicit previous list context are included', function (): void {
     [$user, $builder] = llmContextFixture();
     $thread = AssistantThread::factory()->for($user)->create();

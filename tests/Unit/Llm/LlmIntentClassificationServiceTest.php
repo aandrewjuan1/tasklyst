@@ -80,3 +80,25 @@ it('classifies list/filter queries as list filter search mode', function (): voi
         ->and($delete->operationMode)->toBe(LlmOperationMode::General)
         ->and($delete->intent)->toBe(LlmIntent::GeneralQuery);
 });
+
+it('treats top-n list phrasing as prioritize tasks', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('List my top 5 tasks for today that are school-related, not chores.');
+
+    expect($result->operationMode)->toBe(LlmOperationMode::Prioritize)
+        ->and($result->entityType)->toBe(LlmEntityType::Task)
+        ->and($result->intent)->toBe(LlmIntent::PrioritizeTasks);
+});
+
+it('treats schedule those phrasing as multi-task schedule when no explicit time window', function (): void {
+    /** @var LlmIntentClassificationService $service */
+    $service = app(LlmIntentClassificationService::class);
+
+    $result = $service->classify('Okay, schedule those across tonight and tomorrow evening.');
+
+    expect($result->operationMode)->toBe(LlmOperationMode::Schedule)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($result->intent)->toBe(LlmIntent::ScheduleTasks);
+});

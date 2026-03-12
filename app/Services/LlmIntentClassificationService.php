@@ -61,6 +61,11 @@ class LlmIntentClassificationService
             && $entityScope === LlmEntityType::Task) {
             $entityScope = LlmEntityType::Multiple;
         }
+        if ($operationMode === LlmOperationMode::Schedule
+            && $this->isMultiTargetScheduleRequest($normalized)
+            && $entityScope === LlmEntityType::Task) {
+            $entityScope = LlmEntityType::Multiple;
+        }
         $adjustLike = $this->hasAnyKeyword($normalized, self::INTENT_ADJUST);
         $intent = $this->aliasResolver->resolve($operationMode, $entityScope, $entityTargets, $adjustLike);
         $confidence = $this->computeConfidence($normalized, $operationMode, $entityScope, $entityTargets);
@@ -145,6 +150,10 @@ class LlmIntentClassificationService
             return LlmOperationMode::Schedule;
         }
 
+        if ($this->isTopNPrioritizeRequest($normalized)) {
+            return LlmOperationMode::Prioritize;
+        }
+
         if ($this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE) && ! $this->isListFilterSearchRequest($normalized)) {
             return LlmOperationMode::Prioritize;
         }
@@ -170,6 +179,26 @@ class LlmIntentClassificationService
         return $this->hasAnyKeyword($normalized, self::INTENT_LIST_OR_FILTER);
     }
 
+    private function isTopNPrioritizeRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        // top 5, top 3, top 1, top one, etc.
+        if (preg_match('/\btop\s+(?:\d+|one)\b/u', $normalized) === 1) {
+            return true;
+        }
+
+        // phrases like \"top tasks\" / \"top task\" combined with a small integer elsewhere
+        if (preg_match('/\btop\s+(task|tasks)\b/u', $normalized) === 1
+            && preg_match('/\b[2-9]\b/u', $normalized) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
     private function isTimeWindowScheduleRequest(string $normalized): bool
     {
         $timeToken = '\d{1,2}(?:(?::|\s)\d{2})?\s*(?:am|pm)?';
@@ -178,6 +207,30 @@ class LlmIntentClassificationService
 
         return ($hasFromTo || $hasBetweenAnd)
             && (str_contains($normalized, 'plan') || str_contains($normalized, 'schedule'));
+    }
+
+    private function isMultiTargetScheduleRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasPronoun = str_contains($normalized, 'those')
+            || str_contains($normalized, 'these')
+            || str_contains($normalized, 'them all')
+            || str_contains($normalized, 'all of them');
+
+        if (! $hasPronoun) {
+            return false;
+        }
+
+        $hasScheduleLike = str_contains($normalized, 'schedule')
+            || str_contains($normalized, 'plan')
+            || str_contains($normalized, 'spread')
+            || str_contains($normalized, 'across tonight')
+            || str_contains($normalized, 'across tomorrow');
+
+        return $hasScheduleLike;
     }
 
     /**

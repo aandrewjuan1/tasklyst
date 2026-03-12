@@ -5,6 +5,7 @@ use App\Enums\LlmIntent;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\AssistantThread;
+use App\Models\Event;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\Llm\ContextBuilder;
@@ -183,4 +184,154 @@ it('treats top 1 phrasing as referring to previous list', function (): void {
     );
 
     expect($context)->toHaveKey('tasks');
+});
+
+it('restricts schedule followup using those to previously listed tasks only', function (): void {
+    /** @var ContextBuilder $builder */
+    $builder = app(ContextBuilder::class);
+
+    $user = User::factory()->create();
+
+    $titleFirst = 'MATH 201 – Take-home Exam 1 Submission';
+    $titleSecond = 'ITCS 101 – Programming Exercise: Functions';
+    $titleThird = 'CS 220 – Lab 5: Linked Lists';
+    $extraTitle = 'ENG 105 – Draft 2: Comparative Essay';
+
+    Task::factory()->for($user)->create([
+        'title' => $titleFirst,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(1),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => $titleSecond,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(1),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => $titleThird,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(1),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => $extraTitle,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(1),
+    ]);
+
+    $thread = AssistantThread::factory()->create(['user_id' => $user->id]);
+    $thread->messages()->create([
+        'role' => 'assistant',
+        'content' => 'Here are your top school tasks for today.',
+        'metadata' => [
+            'recommendation_snapshot' => [
+                'structured' => [
+                    'ranked_tasks' => [
+                        ['title' => $titleFirst],
+                        ['title' => $titleSecond],
+                        ['title' => $titleThird],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $context = $builder->build(
+        user: $user,
+        intent: LlmIntent::ScheduleTasks,
+        entityType: LlmEntityType::Multiple,
+        entityId: null,
+        thread: $thread,
+        userMessage: 'Okay, schedule those across tonight and tomorrow evening.'
+    );
+
+    expect($context)->toHaveKey('tasks');
+    $tasks = $context['tasks'];
+
+    expect(collect($tasks)->pluck('title')->all())->toMatchArray([
+        $titleFirst,
+        $titleSecond,
+        $titleThird,
+    ])->and(collect($tasks)->pluck('title')->all())->not->toContain($extraTitle);
+});
+
+it('restricts schedule followup using those to previously listed exam tasks and events', function (): void {
+    /** @var ContextBuilder $builder */
+    $builder = app(ContextBuilder::class);
+
+    $user = User::factory()->create();
+
+    $quizTitle = 'ITCS 101 – Quiz 2: Conditions';
+    $mathQuizTitle = 'MATH 201 – Quiz 3: Graph Theory';
+    $takeHomeTitle = 'MATH 201 – Take-home Exam 1 Submission';
+    $reviewEventTitle = 'Math exam review session';
+    $extraTaskTitle = 'Library research for history essay';
+
+    Task::factory()->for($user)->create([
+        'title' => $quizTitle,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(1),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => $mathQuizTitle,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(2),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => $takeHomeTitle,
+        'status' => TaskStatus::Done,
+        'completed_at' => now()->subDay(),
+        'end_datetime' => now()->subDay(),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => $extraTaskTitle,
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'end_datetime' => now()->addDays(3),
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => $reviewEventTitle,
+        'start_datetime' => now()->addDays(1)->setTime(16, 0),
+        'end_datetime' => now()->addDays(1)->setTime(18, 0),
+    ]);
+
+    $thread = AssistantThread::factory()->create(['user_id' => $user->id]);
+    $thread->messages()->create([
+        'role' => 'assistant',
+        'content' => 'Here are the exam-related tasks and events.',
+        'metadata' => [
+            'recommendation_snapshot' => [
+                'structured' => [
+                    'listed_items' => [
+                        ['title' => $quizTitle],
+                        ['title' => $mathQuizTitle],
+                        ['title' => $takeHomeTitle],
+                        ['title' => $reviewEventTitle],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $context = $builder->build(
+        user: $user,
+        intent: LlmIntent::ScheduleTasksAndEvents,
+        entityType: LlmEntityType::Multiple,
+        entityId: null,
+        thread: $thread,
+        userMessage: 'Using those, create a 3-day study plan that balances time between ITCS 101 and MATH 201.'
+    );
+
+    expect($context)->toHaveKeys(['tasks', 'events']);
+    $taskTitles = collect($context['tasks'])->pluck('title')->all();
+    $eventTitles = collect($context['events'])->pluck('title')->all();
+
+    expect($taskTitles)->not->toContain($extraTaskTitle)
+        ->and($eventTitles)->toContain($reviewEventTitle);
 });

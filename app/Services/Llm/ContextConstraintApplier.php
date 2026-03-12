@@ -69,6 +69,10 @@ class ContextConstraintApplier
             });
         }
 
+        if ($constraints->schoolOnly) {
+            $query->whereNotNull('subject_name');
+        }
+
         $this->applyRequiredTags($query, $constraints);
         $this->applyExcludedTags($query, $constraints);
     }
