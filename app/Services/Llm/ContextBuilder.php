@@ -76,6 +76,23 @@ class ContextBuilder
 
         $payload = array_merge($payload, $entityPayload);
         $payload = $this->applyPreviousListOrdering($payload, $entityType, $previousListContext);
+        $isFollowupReferencingPrevious = $previousListContext !== null
+            && $this->isFollowupReferencingPreviousList((string) $userMessage, $operationMode);
+        if ($isFollowupReferencingPrevious) {
+            $payload = $this->restrictToPreviousListItems($payload, $entityType, $previousListContext);
+
+            // For multi-task scheduling followups like “schedule those”, default to
+            // scheduling all items from the previous list unless the overlay sets
+            // a more specific requested_schedule_n.
+            if ($operationMode === LlmOperationMode::Schedule
+                && $entityType === LlmEntityType::Multiple
+                && ! isset($payload['requested_schedule_n'])
+                && isset($payload['tasks'])
+                && is_array($payload['tasks'])
+            ) {
+                $payload['requested_schedule_n'] = count($payload['tasks']);
+            }
+        }
         $payload = $this->overlayComposer->apply((string) $userMessage, $operationMode, $payload);
         $payload['response_style'] = $this->responseStylePayload((string) $userMessage);
 
@@ -144,6 +161,38 @@ class ContextBuilder
         };
     }
 
+    private function isFollowupReferencingPreviousList(string $userMessage, LlmOperationMode $operationMode): bool
+    {
+        if ($operationMode !== LlmOperationMode::Schedule) {
+            return false;
+        }
+
+        $normalized = mb_strtolower(trim($userMessage));
+        if ($normalized === '') {
+            return false;
+        }
+
+        $hasUsingPhrase = str_contains($normalized, 'using those')
+            || str_contains($normalized, 'using them')
+            || str_contains($normalized, 'using these');
+
+        $hasPronoun = str_contains($normalized, 'those')
+            || str_contains($normalized, 'them')
+            || str_contains($normalized, 'these');
+
+        $hasScheduleLike = str_contains($normalized, 'schedule')
+            || str_contains($normalized, 'plan')
+            || str_contains($normalized, 'spread')
+            || str_contains($normalized, 'across tonight')
+            || str_contains($normalized, 'across tomorrow');
+
+        if ($hasUsingPhrase && $hasScheduleLike) {
+            return true;
+        }
+
+        return $hasPronoun && $hasScheduleLike;
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      * @param  array<string, mixed>|null  $previousListContext
@@ -183,6 +232,117 @@ class ContextBuilder
         }
         if ($entityType === LlmEntityType::Project && $previousEntityType === LlmEntityType::Project->value) {
             $payload['projects'] = $this->reorderEntityItemsByTitles($payload['projects'] ?? [], $titles, 'name');
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $previousListContext
+     * @return array<string, mixed>
+     */
+    private function restrictToPreviousListItems(array $payload, LlmEntityType $entityType, array $previousListContext): array
+    {
+        $itemsInOrder = $previousListContext['items_in_order'] ?? null;
+        if (! is_array($itemsInOrder) || $itemsInOrder === []) {
+            return $payload;
+        }
+
+        $allowedTaskTitles = [];
+        $allowedEventTitles = [];
+        $allowedProjectNames = [];
+
+        foreach ($itemsInOrder as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
+            $name = isset($item['name']) && is_string($item['name']) ? trim($item['name']) : '';
+
+            if ($title !== '') {
+                $key = mb_strtolower($title);
+                $allowedTaskTitles[$key] = true;
+                $allowedEventTitles[$key] = true;
+            }
+
+            if ($name !== '') {
+                $key = mb_strtolower($name);
+                $allowedProjectNames[$key] = true;
+            }
+        }
+
+        if ($allowedTaskTitles === [] && $allowedEventTitles === [] && $allowedProjectNames === []) {
+            return $payload;
+        }
+
+        $previousEntityType = (string) ($previousListContext['entity_type'] ?? '');
+
+        $shouldRestrictTasks = ($entityType === LlmEntityType::Task && $previousEntityType === LlmEntityType::Task->value)
+            || ($entityType === LlmEntityType::Multiple
+                && in_array($previousEntityType, [LlmEntityType::Task->value, LlmEntityType::Multiple->value], true));
+
+        $shouldRestrictEvents = ($entityType === LlmEntityType::Event && $previousEntityType === LlmEntityType::Event->value)
+            || ($entityType === LlmEntityType::Multiple
+                && in_array($previousEntityType, [LlmEntityType::Event->value, LlmEntityType::Multiple->value], true));
+
+        $shouldRestrictProjects = ($entityType === LlmEntityType::Project && $previousEntityType === LlmEntityType::Project->value)
+            || ($entityType === LlmEntityType::Multiple
+                && in_array($previousEntityType, [LlmEntityType::Project->value, LlmEntityType::Multiple->value], true));
+
+        if ($shouldRestrictTasks && isset($payload['tasks']) && is_array($payload['tasks'])) {
+            $payload['tasks'] = array_values(array_filter(
+                $payload['tasks'],
+                static function ($task) use ($allowedTaskTitles): bool {
+                    if (! is_array($task)) {
+                        return false;
+                    }
+
+                    $title = isset($task['title']) && is_string($task['title']) ? trim($task['title']) : '';
+                    if ($title === '') {
+                        return false;
+                    }
+
+                    return isset($allowedTaskTitles[mb_strtolower($title)]);
+                }
+            ));
+        }
+
+        if ($shouldRestrictEvents && isset($payload['events']) && is_array($payload['events'])) {
+            $payload['events'] = array_values(array_filter(
+                $payload['events'],
+                static function ($event) use ($allowedEventTitles): bool {
+                    if (! is_array($event)) {
+                        return false;
+                    }
+
+                    $title = isset($event['title']) && is_string($event['title']) ? trim($event['title']) : '';
+                    if ($title === '') {
+                        return false;
+                    }
+
+                    return isset($allowedEventTitles[mb_strtolower($title)]);
+                }
+            ));
+        }
+
+        if ($shouldRestrictProjects && isset($payload['projects']) && is_array($payload['projects'])) {
+            $payload['projects'] = array_values(array_filter(
+                $payload['projects'],
+                static function ($project) use ($allowedProjectNames): bool {
+                    if (! is_array($project)) {
+                        return false;
+                    }
+
+                    $name = isset($project['name']) && is_string($project['name']) ? trim($project['name']) : '';
+                    if ($name === '') {
+                        return false;
+                    }
+
+                    return isset($allowedProjectNames[mb_strtolower($name)]);
+                }
+            ));
         }
 
         return $payload;

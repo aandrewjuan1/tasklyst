@@ -4,7 +4,10 @@ use App\Actions\Llm\RunLlmInferenceAction;
 use App\DataTransferObjects\Llm\LlmSystemPromptResult;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Models\AssistantMessage;
+use App\Models\AssistantThread;
 use App\Models\Tag;
+use App\Models\Task;
 use App\Models\User;
 use App\Services\Llm\LlmHealthCheck;
 use App\Services\LlmInferenceService;
@@ -300,6 +303,109 @@ test('run inference routes plan_time_block through canonical schedule_tasks orch
     expect($result->usedFallback)->toBeFalse()
         ->and($result->structured)->toHaveKey('scheduled_tasks')
         ->and($result->structured['scheduled_tasks'])->toHaveCount(2);
+});
+
+test('schedule_tasks followup for tomorrow morning to afternoon schedules all previous list tasks via deterministic fallback when model under-schedules', function (): void {
+    $this->mock(LlmHealthCheck::class, function ($mock): void {
+        $mock->shouldReceive('isReachable')->once()->andReturn(true);
+    });
+
+    \Carbon\CarbonImmutable::setTestNow(\Carbon\CarbonImmutable::parse('2026-03-12 10:00:00', config('app.timezone')));
+
+    $taskTitles = [
+        'ENG 105 – Reading Response #3',
+        'ITCS 101 – Midterm Project Checkpoint',
+        'Practice coding interview problems',
+        'Finish CS 220 report and slides',
+    ];
+
+    $tasks = [];
+    foreach ($taskTitles as $title) {
+        $tasks[] = Task::factory()->for($this->user)->create([
+            'title' => $title,
+            'status' => 'to_do',
+            'completed_at' => null,
+        ]);
+    }
+
+    $thread = AssistantThread::factory()->for($this->user)->create();
+
+    AssistantMessage::factory()->for($thread, 'assistantThread')->create([
+        'role' => 'user',
+        'content' => 'List my top 5 tasks for today that are school-related, not chores.',
+    ]);
+
+    AssistantMessage::factory()->for($thread, 'assistantThread')->create([
+        'role' => 'assistant',
+        'content' => 'Here are your top tasks.',
+        'metadata' => [
+            'recommendation_snapshot' => [
+                'structured' => [
+                    'ranked_tasks' => [
+                        ['rank' => 1, 'title' => $taskTitles[0]],
+                        ['rank' => 2, 'title' => $taskTitles[1]],
+                        ['rank' => 3, 'title' => $taskTitles[2]],
+                        ['rank' => 4, 'title' => $taskTitles[3]],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'entity_type' => 'task',
+                'recommended_action' => 'Schedule your ENG 105 – Reading Response #3 and ITCS 101 – Midterm Project Checkpoint.',
+                'reasoning' => 'Based on your request.',
+                'scheduled_tasks' => [
+                    [
+                        'id' => $tasks[0]->id,
+                        'title' => $tasks[0]->title,
+                        'start_datetime' => '2026-03-13T09:00:00+08:00',
+                        'duration' => 240,
+                    ],
+                    [
+                        'id' => $tasks[1]->id,
+                        'title' => $tasks[1]->title,
+                        'start_datetime' => '2026-03-13T09:01:00+08:00',
+                        'duration' => 40,
+                    ],
+                ],
+            ])
+            ->withUsage(new Usage(10, 10)),
+    ]);
+
+    $action = app(RunLlmInferenceAction::class);
+    $result = $action->execute(
+        $this->user,
+        'schedule those tasks for tomorrow morning to afternoon',
+        LlmIntent::ScheduleTasks,
+        LlmEntityType::Multiple,
+        null,
+        $thread
+    );
+
+    $scheduled = $result->structured['scheduled_tasks'] ?? [];
+
+    expect($scheduled)->toBeArray()
+        ->and(count($scheduled))->toBeGreaterThanOrEqual(2);
+
+    $startLower = \Carbon\CarbonImmutable::parse('2026-03-13T08:00:00', config('app.timezone'));
+    $startUpper = \Carbon\CarbonImmutable::parse('2026-03-13T17:00:00', config('app.timezone'));
+
+    $starts = [];
+    foreach ($scheduled as $item) {
+        $start = \Carbon\CarbonImmutable::parse($item['start_datetime'], config('app.timezone'));
+        $starts[] = $start;
+        expect($start->gte($startLower))->toBeTrue()
+            ->and($start->lte($startUpper))->toBeTrue();
+    }
+
+    usort($starts, static fn (\Carbon\CarbonImmutable $a, \Carbon\CarbonImmutable $b): int => $a->lt($b) ? -1 : 1);
+    for ($i = 1, $n = count($starts); $i < $n; $i++) {
+        expect($starts[$i - 1]->diffInMinutes($starts[$i], false))->toBeGreaterThanOrEqual(10);
+    }
 });
 
 test('run inference returns fallback when ollama is not reachable', function (): void {

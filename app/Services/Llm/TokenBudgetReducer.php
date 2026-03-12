@@ -28,6 +28,15 @@ class TokenBudgetReducer
             }
         }
 
+        // Keep requested_schedule_n consistent with any trimmed task slice so that
+        // downstream schedule_tasks logic never expects more items than are present.
+        if (isset($payload['requested_schedule_n']) && is_numeric($payload['requested_schedule_n']) && isset($payload['tasks']) && is_array($payload['tasks'])) {
+            $currentTasksCount = count($payload['tasks']);
+            if ($currentTasksCount > 0) {
+                $payload['requested_schedule_n'] = min((int) $payload['requested_schedule_n'], $currentTasksCount);
+            }
+        }
+
         return $payload;
     }
 

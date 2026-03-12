@@ -101,8 +101,25 @@ class LlmPostProcessor
         $hasManyContextTasks = is_array($contextTasks) && count($contextTasks) >= 2;
         $scheduled = $structured['scheduled_tasks'] ?? null;
         $scheduledCount = is_array($scheduled) ? count($scheduled) : 0;
+        $targetCount = 2;
+        if (isset($context['requested_schedule_n']) && is_numeric($context['requested_schedule_n'])) {
+            $requested = (int) $context['requested_schedule_n'];
+            if ($requested > 0 && is_array($contextTasks) && $contextTasks !== []) {
+                $targetCount = min($requested, count($contextTasks));
+            }
+        } elseif (is_array($contextTasks) && $contextTasks !== [] && isset($context['previous_list_context']) && is_array($context['previous_list_context'])) {
+            // For followups like “schedule those”, default to scheduling every
+            // task in the previous list slice when no explicit requested count
+            // was provided.
+            $targetCount = count($contextTasks);
+        }
+        $hasWindow = isset($context['requested_window_start'], $context['requested_window_end'])
+            && is_string($context['requested_window_start'])
+            && is_string($context['requested_window_end'])
+            && trim((string) $context['requested_window_start']) !== ''
+            && trim((string) $context['requested_window_end']) !== '';
 
-        if ($hasManyContextTasks && $scheduledCount < 2) {
+        if ($hasManyContextTasks && $scheduledCount < $targetCount && $hasWindow) {
             return $this->deterministicScheduleTasks->buildStructured($context);
         }
 
@@ -128,14 +145,28 @@ class LlmPostProcessor
         $scheduled = $structured['scheduled_tasks'] ?? null;
         $scheduledCount = is_array($scheduled) ? count($scheduled) : 0;
 
-        $shouldRetry = $hasManyContextTasks && $scheduledCount < 2;
+        $targetCount = 2;
+        if (isset($context['requested_schedule_n']) && is_numeric($context['requested_schedule_n'])) {
+            $requested = (int) $context['requested_schedule_n'];
+            if ($requested > 0 && is_array($contextTasks) && $contextTasks !== []) {
+                $targetCount = min($requested, count($contextTasks));
+            }
+        } elseif (is_array($contextTasks) && $contextTasks !== [] && isset($context['previous_list_context']) && is_array($context['previous_list_context'])) {
+            // For followups like “schedule those”, default to scheduling every
+            // task in the previous list slice when no explicit requested count
+            // was provided.
+            $targetCount = count($contextTasks);
+        }
+
+        $shouldRetry = $hasManyContextTasks && $scheduledCount < $targetCount;
         if (! $shouldRetry) {
             return $structured;
         }
 
         $retryGuidance = "\n\nGuidance (critical retry):\n";
-        $retryGuidance .= 'You MUST schedule multiple tasks and you MUST keep every scheduled_tasks[*].start_datetime within requested_window_start and requested_window_end from Context. ';
-        $retryGuidance .= 'If Context has 2+ tasks, return at least 2 scheduled_tasks items unless the cap/window makes it impossible. ';
+        $retryGuidance .= 'You MUST schedule multiple tasks and you MUST keep every scheduled_tasks[*].start_datetime within requested_window_start and requested_window_end from Context when those fields are present. ';
+        $retryGuidance .= 'If Context.requested_schedule_n is present and > 0, you MUST return exactly requested_schedule_n scheduled_tasks items unless there are fewer tasks in Context.tasks, in which case schedule all of them. ';
+        $retryGuidance .= 'If requested_schedule_n is not present and Context has 2+ tasks, return at least 2 scheduled_tasks items unless the cap/window makes it impossible. ';
         $retryGuidance .= 'Also respect focused_work_cap_minutes if present.';
 
         $retryResult = $this->inferenceService->infer(

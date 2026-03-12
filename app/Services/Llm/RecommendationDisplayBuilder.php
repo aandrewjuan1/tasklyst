@@ -131,18 +131,6 @@ class RecommendationDisplayBuilder
 
         $appliableChanges = $this->buildAppliableChanges($structured, $intent, $entityType);
 
-        if ($entityType === LlmEntityType::Multiple && $appliableChanges !== [] && ($appliableChanges['entity_type'] ?? '') === 'task') {
-            $firstTask = $structured['scheduled_tasks'][0] ?? null;
-            if (is_array($firstTask)) {
-                if (isset($firstTask['title']) && trim((string) $firstTask['title']) !== '') {
-                    $displayStructured['target_task_title'] = trim((string) $firstTask['title']);
-                }
-                if (isset($firstTask['id']) && is_numeric($firstTask['id'])) {
-                    $displayStructured['target_task_id'] = (int) $firstTask['id'];
-                }
-            }
-        }
-
         // ScheduleTask/AdjustTaskDeadline: use id and title from LLM structured output.
         if (in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
             && $entityType === LlmEntityType::Task) {

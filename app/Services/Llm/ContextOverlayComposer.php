@@ -164,6 +164,39 @@ class ContextOverlayComposer
             return null;
         }
 
+        // Support natural language windows like “tomorrow morning to afternoon”
+        // for schedule_tasks followups, so the backend can build a deterministic
+        // multi-task schedule within a concrete window.
+        if (str_contains($normalized, 'tomorrow')) {
+            $morning = str_contains($normalized, 'morning');
+            $afternoon = str_contains($normalized, 'afternoon');
+
+            if ($morning || $afternoon) {
+                try {
+                    $base = \Carbon\CarbonImmutable::parse($currentDate, $timezone)->addDay()->startOfDay();
+                } catch (\Throwable) {
+                    $base = \Carbon\CarbonImmutable::now($timezone)->addDay()->startOfDay();
+                }
+
+                if ($morning && $afternoon) {
+                    $start = $base->setTime(8, 0);
+                    $end = $base->setTime(17, 0);
+                } elseif ($morning) {
+                    $start = $base->setTime(8, 0);
+                    $end = $base->setTime(12, 0);
+                } else {
+                    $start = $base->setTime(13, 0);
+                    $end = $base->setTime(17, 0);
+                }
+
+                if ($end->lte($start)) {
+                    return null;
+                }
+
+                return [$start->toIso8601String(), $end->toIso8601String()];
+            }
+        }
+
         $time = '(2[0-3]|[01]?\d)(?::(\d{2}))?\s*([ap])?\.?\s*m?\.?';
         $matches = [];
         $matched = preg_match('/\bfrom\s+'.$time.'\s+to\s+'.$time.'\b/u', $normalized, $matches) === 1

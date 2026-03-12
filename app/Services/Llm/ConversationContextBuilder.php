@@ -56,19 +56,34 @@ class ConversationContextBuilder
             return null;
         }
 
-        $items = match ($entityScope) {
-            LlmEntityType::Task => $this->extractItems($structured['ranked_tasks'] ?? [], 'title'),
-            LlmEntityType::Event => $this->extractItems($structured['ranked_events'] ?? [], 'title'),
-            LlmEntityType::Project => $this->extractItems($structured['ranked_projects'] ?? [], 'name'),
-            LlmEntityType::Multiple => $this->extractItems($structured['listed_items'] ?? [], 'title'),
-        };
+        $items = [];
+        $sourceEntityType = null;
+
+        $rankedTasks = $structured['ranked_tasks'] ?? null;
+        $rankedEvents = $structured['ranked_events'] ?? null;
+        $rankedProjects = $structured['ranked_projects'] ?? null;
+        $listedItems = $structured['listed_items'] ?? null;
+
+        if (is_array($rankedTasks) && $rankedTasks !== []) {
+            $items = $this->extractItems($rankedTasks, 'title');
+            $sourceEntityType = LlmEntityType::Task;
+        } elseif (is_array($rankedEvents) && $rankedEvents !== []) {
+            $items = $this->extractItems($rankedEvents, 'title');
+            $sourceEntityType = LlmEntityType::Event;
+        } elseif (is_array($rankedProjects) && $rankedProjects !== []) {
+            $items = $this->extractItems($rankedProjects, 'name');
+            $sourceEntityType = LlmEntityType::Project;
+        } elseif (is_array($listedItems) && $listedItems !== []) {
+            $items = $this->extractItems($listedItems, 'title');
+            $sourceEntityType = $entityScope;
+        }
 
         if ($items === []) {
             return null;
         }
 
         return [
-            'entity_type' => $entityScope->value,
+            'entity_type' => ($sourceEntityType ?? $entityScope)->value,
             'items_in_order' => $items,
             'instruction' => 'Use the previous list order strictly when user references prior ranking/list.',
         ];

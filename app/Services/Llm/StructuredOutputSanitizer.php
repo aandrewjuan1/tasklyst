@@ -282,6 +282,7 @@ class StructuredOutputSanitizer
             $filtered = $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title');
             $withIds = $this->injectTaskIdsIntoScheduledTasks($filtered, $context['tasks'] ?? []);
             $guarded = $this->applyScheduleTimeGuardsThenStripEndFromTaskItems($withIds);
+            $guarded = $this->enforceMinimumGapForScheduledTasks($guarded);
             $guarded = $this->enforceRequestedWindowForScheduledTasks($guarded, $context, $userMessage);
 
             // If we stripped everything due to window mismatch, avoid presenting a wrong Apply payload.
@@ -298,6 +299,81 @@ class StructuredOutputSanitizer
         }
 
         return $structured;
+    }
+
+    /**
+     * Drop obviously unreasonable schedules where tasks start at the same
+     * moment or within a very small gap. This is a structural guard only; when
+     * it removes items, the post-processor can fall back to deterministic
+     * scheduling if the remaining count is below the requested target.
+     *
+     * @param  array<int, array<string, mixed>>  $scheduledTasks
+     * @return array<int, array<string, mixed>>
+     */
+    private function enforceMinimumGapForScheduledTasks(array $scheduledTasks): array
+    {
+        if ($scheduledTasks === []) {
+            return [];
+        }
+
+        $timezone = config('app.timezone');
+
+        usort($scheduledTasks, static function (array $a, array $b) use ($timezone): int {
+            $aStartRaw = isset($a['start_datetime']) && is_string($a['start_datetime']) ? trim($a['start_datetime']) : '';
+            $bStartRaw = isset($b['start_datetime']) && is_string($b['start_datetime']) ? trim($b['start_datetime']) : '';
+
+            if ($aStartRaw === '' || $bStartRaw === '') {
+                return strcmp($aStartRaw, $bStartRaw);
+            }
+
+            try {
+                $aStart = \Carbon\CarbonImmutable::parse($aStartRaw, $timezone);
+                $bStart = \Carbon\CarbonImmutable::parse($bStartRaw, $timezone);
+            } catch (\Throwable) {
+                return strcmp($aStartRaw, $bStartRaw);
+            }
+
+            if ($aStart->eq($bStart)) {
+                return 0;
+            }
+
+            return $aStart->lt($bStart) ? -1 : 1;
+        });
+
+        $result = [];
+        $previousStart = null;
+        foreach ($scheduledTasks as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $startRaw = isset($item['start_datetime']) && is_string($item['start_datetime']) ? trim($item['start_datetime']) : '';
+            if ($startRaw === '') {
+                $result[] = $item;
+
+                continue;
+            }
+
+            try {
+                $start = \Carbon\CarbonImmutable::parse($startRaw, $timezone);
+            } catch (\Throwable) {
+                $result[] = $item;
+
+                continue;
+            }
+
+            if ($previousStart !== null) {
+                $diff = $previousStart->diffInMinutes($start, false);
+                if ($diff >= 0 && $diff < 10) {
+                    continue;
+                }
+            }
+
+            $result[] = $item;
+            $previousStart = $start;
+        }
+
+        return $result;
     }
 
     /**
