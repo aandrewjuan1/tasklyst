@@ -72,6 +72,7 @@ class LlmPromptService
         LlmIntent::CreateTask->value => CreateTaskPrompt::class,
         LlmIntent::CreateEvent->value => CreateEventPrompt::class,
         LlmIntent::CreateProject->value => CreateProjectPrompt::class,
+        LlmIntent::ListFilterSearch->value => GeneralQueryPrompt::class,
         LlmIntent::GeneralQuery->value => GeneralQueryPrompt::class,
     ];
 

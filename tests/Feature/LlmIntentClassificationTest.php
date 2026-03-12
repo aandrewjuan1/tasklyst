@@ -52,3 +52,15 @@ test('classifies general query and includes canonical fields in toArray', functi
         ->and($arr['operation_mode'])->toBe('general')
         ->and($arr['entity_scope'])->toBe('task');
 });
+
+test('classifies list filter search prompts into dedicated mode', function (): void {
+    $result = app(ClassifyLlmIntentAction::class)->execute('Show only my exam-related tasks and events for this week.');
+    $eventsOnly = app(ClassifyLlmIntentAction::class)->execute('Filter to events only and show what’s coming up in the next 7 days.');
+
+    expect($result->operationMode)->toBe(LlmOperationMode::ListFilterSearch)
+        ->and($result->intent)->toBe(LlmIntent::ListFilterSearch)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($eventsOnly->operationMode)->toBe(LlmOperationMode::ListFilterSearch)
+        ->and($eventsOnly->intent)->toBe(LlmIntent::ListFilterSearch)
+        ->and($eventsOnly->entityType)->toBe(LlmEntityType::Event);
+});

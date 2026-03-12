@@ -52,6 +52,7 @@ class ContextBuilder
                 schoolOnly: $constraints->schoolOnly,
                 healthOrHouseholdOnly: $constraints->healthOrHouseholdOnly,
                 includeOverdueInWindow: $constraints->includeOverdueInWindow,
+                examRelatedOnly: $constraints->examRelatedOnly,
             );
         }
 
@@ -119,6 +120,7 @@ class ContextBuilder
             LlmIntent::UpdateTaskProperties,
             LlmIntent::UpdateEventProperties,
             LlmIntent::UpdateProjectProperties => LlmOperationMode::Update,
+            LlmIntent::ListFilterSearch => LlmOperationMode::ListFilterSearch,
             LlmIntent::ResolveDependency => LlmOperationMode::ResolveDependency,
             default => LlmOperationMode::General,
         };
@@ -278,6 +280,9 @@ class ContextBuilder
         }
         if ($constraints->taskStatuses !== []) {
             $dimensions[] = 'task_status';
+        }
+        if ($constraints->examRelatedOnly) {
+            $dimensions[] = 'exam_related';
         }
         if ($constraints->taskPriorities !== []) {
             $dimensions[] = 'task_priority';

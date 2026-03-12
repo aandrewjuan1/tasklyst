@@ -105,7 +105,7 @@ class ClassifyLlmIntentAction
             properties: [
                 new StringSchema(
                     name: 'operation_mode',
-                    description: 'One of: schedule, prioritize, general, update, create, resolve_dependency',
+                    description: 'One of: schedule, prioritize, list_filter_search, general, update, create, resolve_dependency',
                 ),
                 new StringSchema(
                     name: 'entity_scope',
@@ -139,10 +139,11 @@ Classification rules:
 - operation_mode meanings:
   - schedule: asks for timing/date planning or moving deadlines/times
   - prioritize: asks what to focus on first/rank
+  - list_filter_search: asks to list/show/filter/search items, optionally constrained by tags, entity type, or time window
   - update: asks to change properties on existing item
   - create: asks to create/add new item
   - resolve_dependency: asks about blockers/dependencies
-  - general: list/filter/off-topic/meta complaints
+  - general: off-topic/meta complaints and delete/remove recommendation questions
 - Use entity_scope "multiple" when user asks about two or more entities together.
 - For entity_scope "multiple", also provide entity_targets with comma-separated values from: task,event,project.
 
@@ -154,6 +155,8 @@ Examples:
 "Prioritize both my tasks and events" → operation_mode: prioritize, entity_scope: multiple, entity_targets: task,event, confidence: 0.9
 "Schedule all my items" → operation_mode: schedule, entity_scope: multiple, entity_targets: task,event,project, confidence: 0.9
 "Change the duration of this task to 45 minutes" → operation_mode: update, entity_scope: task, confidence: 0.9
+"Show only my exam-related tasks and events for this week." → operation_mode: list_filter_search, entity_scope: multiple, entity_targets: task,event, confidence: 0.92
+"Filter to events only and show what’s coming up in the next 7 days." → operation_mode: list_filter_search, entity_scope: event, confidence: 0.92
 
 Respond ONLY with the JSON object. Do not explain.
 PROMPT;

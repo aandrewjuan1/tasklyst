@@ -72,8 +72,10 @@ test('create project intent gets project create recommendation schema', function
 
 test('generic intents get generic recommendation schema', function (): void {
     $schema = $this->factory->schemaForIntent(LlmIntent::GeneralQuery);
+    $listFilterSchema = $this->factory->schemaForIntent(LlmIntent::ListFilterSearch);
 
-    expect($schema->name)->toBe('recommendation');
+    expect($schema->name)->toBe('recommendation')
+        ->and($listFilterSchema->name)->toBe('recommendation');
 });
 
 test('resolve_dependency gets dependency_resolution schema', function (): void {

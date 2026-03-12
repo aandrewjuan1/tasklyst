@@ -30,6 +30,7 @@ enum LlmIntent: string
     case CreateTask = 'create_task';
     case CreateEvent = 'create_event';
     case CreateProject = 'create_project';
+    case ListFilterSearch = 'list_filter_search';
     case GeneralQuery = 'general_query';
 
     public function isReadonly(): bool
@@ -45,6 +46,6 @@ enum LlmIntent: string
 
     public function isActionable(): bool
     {
-        return ! $this->isReadonly() && $this !== self::GeneralQuery;
+        return ! $this->isReadonly() && ! in_array($this, [self::GeneralQuery, self::ListFilterSearch], true);
     }
 }

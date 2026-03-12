@@ -61,6 +61,7 @@ class LlmSchemaFactory
             LlmIntent::UpdateTaskProperties => $this->taskUpdateRecommendationSchema(),
             LlmIntent::UpdateEventProperties => $this->eventUpdateRecommendationSchema(),
             LlmIntent::UpdateProjectProperties => $this->projectUpdateRecommendationSchema(),
+            LlmIntent::ListFilterSearch,
             LlmIntent::GeneralQuery => $this->genericRecommendationSchema(),
         };
     }

@@ -6,6 +6,7 @@ enum LlmOperationMode: string
 {
     case Schedule = 'schedule';
     case Prioritize = 'prioritize';
+    case ListFilterSearch = 'list_filter_search';
     case General = 'general';
     case Update = 'update';
     case Create = 'create';

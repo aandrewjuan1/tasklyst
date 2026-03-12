@@ -59,6 +59,7 @@ class LlmContextConstraintService
     private function applyDomainAndTagConstraints(string $normalized, LlmContextConstraints $constraints): void
     {
         if (str_contains($normalized, 'exam')) {
+            $constraints->examRelatedOnly = true;
             $constraints->requiredTagNames[] = 'Exam';
         }
 
@@ -305,6 +306,17 @@ class LlmContextConstraintService
         LlmContextConstraints $constraints,
         CarbonImmutable $now
     ): void {
+        if (str_contains($normalized, 'next 7 days')
+            || str_contains($normalized, 'next seven days')
+            || str_contains($normalized, 'within the next 7 days')
+            || str_contains($normalized, 'coming up in the next 7 days')
+        ) {
+            $constraints->windowStart = $now;
+            $constraints->windowEnd = $now->addHours(168);
+
+            return;
+        }
+
         if (str_contains($normalized, 'next three days')
             || str_contains($normalized, 'next 3 days')
         ) {

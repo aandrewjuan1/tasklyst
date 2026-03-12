@@ -761,6 +761,7 @@ class LlmInferenceService
             LlmIntent::UpdateTaskProperties,
             LlmIntent::UpdateEventProperties,
             LlmIntent::UpdateProjectProperties => LlmOperationMode::Update,
+            LlmIntent::ListFilterSearch => LlmOperationMode::ListFilterSearch,
             LlmIntent::ResolveDependency => LlmOperationMode::ResolveDependency,
             default => LlmOperationMode::General,
         };

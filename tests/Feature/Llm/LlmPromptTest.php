@@ -72,6 +72,7 @@ test('returns correct prompt per intent', function (LlmIntent $intent): void {
 })->with([
     LlmIntent::ScheduleEvent,
     LlmIntent::PrioritizeTasks,
+    LlmIntent::ListFilterSearch,
     LlmIntent::GeneralQuery,
     LlmIntent::ResolveDependency,
 ]);

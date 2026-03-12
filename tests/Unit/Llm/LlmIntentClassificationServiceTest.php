@@ -60,15 +60,23 @@ it('classifies adjust-like event query to adjust_event_time alias', function ():
         ->and($result->intent)->toBe(LlmIntent::AdjustEventTime);
 });
 
-it('classifies list and delete queries as general mode', function (): void {
+it('classifies list/filter queries as list filter search mode', function (): void {
     /** @var LlmIntentClassificationService $service */
     $service = app(LlmIntentClassificationService::class);
 
     $list = $service->classify('Show me all my tasks for this week');
+    $examThisWeek = $service->classify('Show only my exam-related tasks and events for this week.');
+    $eventsNextSevenDays = $service->classify('Filter to events only and show what\'s coming up in the next 7 days.');
     $delete = $service->classify('if I can delete 1 task, what task should I delete?');
 
-    expect($list->operationMode)->toBe(LlmOperationMode::General)
-        ->and($list->intent)->toBe(LlmIntent::GeneralQuery)
+    expect($list->operationMode)->toBe(LlmOperationMode::ListFilterSearch)
+        ->and($list->intent)->toBe(LlmIntent::ListFilterSearch)
+        ->and($examThisWeek->operationMode)->toBe(LlmOperationMode::ListFilterSearch)
+        ->and($examThisWeek->entityType)->toBe(LlmEntityType::Multiple)
+        ->and($examThisWeek->intent)->toBe(LlmIntent::ListFilterSearch)
+        ->and($eventsNextSevenDays->operationMode)->toBe(LlmOperationMode::ListFilterSearch)
+        ->and($eventsNextSevenDays->entityType)->toBe(LlmEntityType::Event)
+        ->and($eventsNextSevenDays->intent)->toBe(LlmIntent::ListFilterSearch)
         ->and($delete->operationMode)->toBe(LlmOperationMode::General)
         ->and($delete->intent)->toBe(LlmIntent::GeneralQuery);
 });

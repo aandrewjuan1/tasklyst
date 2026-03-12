@@ -123,6 +123,28 @@ class ContextConstraintApplier
             return;
         }
 
+        if ($constraints->examRelatedOnly && in_array('exam', $normalized, true)) {
+            $query->where(function (Builder $combinedQuery) use ($normalized): void {
+                $combinedQuery
+                    ->whereHas('tags', static function (Builder $tagQuery) use ($normalized): void {
+                        $tagQuery->where(static function (Builder $normalizedTagQuery) use ($normalized): void {
+                            foreach ($normalized as $name) {
+                                $normalizedTagQuery->orWhereRaw('LOWER(name) = ?', [$name]);
+                            }
+                        });
+                    })
+                    ->orWhere(static function (Builder $titleQuery): void {
+                        $titleQuery
+                            ->whereRaw('LOWER(title) LIKE ?', ['%exam%'])
+                            ->orWhereRaw('LOWER(title) LIKE ?', ['%quiz%'])
+                            ->orWhereRaw('LOWER(title) LIKE ?', ['%test%'])
+                            ->orWhereRaw('LOWER(title) LIKE ?', ['%take-home%']);
+                    });
+            });
+
+            return;
+        }
+
         $query->whereHas('tags', static function (Builder $tagQuery) use ($normalized): void {
             $tagQuery->where(static function (Builder $normalizedTagQuery) use ($normalized): void {
                 foreach ($normalized as $name) {

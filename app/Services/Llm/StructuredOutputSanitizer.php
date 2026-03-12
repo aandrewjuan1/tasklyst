@@ -33,13 +33,16 @@ class StructuredOutputSanitizer
         'that have no start', 'with no start date', 'has no start date',
     ];
 
-    /** Phrases that mean "due within the upcoming week" (end_datetime within next 7 days). */
+    /** Phrases that mean "within a rolling upcoming week window". */
     private const PHRASES_UPCOMING_WEEK = [
         'upcoming week',
         'next week',
         'next 7 days',
+        'next seven days',
         'within 7 days',
         'within the next 7 days',
+        'coming up in the next 7 days',
+        'coming up in next 7 days',
         'this week',
         'for this week',
         'due this week',
@@ -94,6 +97,7 @@ class StructuredOutputSanitizer
             LlmIntent::ScheduleTasksAndProjects => $this->sanitizeScheduledTasksAndProjects($structured, $context),
             LlmIntent::ScheduleEventsAndProjects => $this->sanitizeScheduledEventsAndProjects($structured, $context),
             LlmIntent::ScheduleAll => $this->sanitizeScheduledAll($structured, $context),
+            LlmIntent::ListFilterSearch,
             LlmIntent::GeneralQuery => $this->sanitizeGeneralQuery($structured, $context, $entityType, $userMessage),
             default => $structured,
         };
@@ -1405,14 +1409,14 @@ class StructuredOutputSanitizer
         if ($hasFilter || $listingRequest) {
             $filtered = $this->buildListFromContext($contextItems, $dateFilter, $priorityFilter, $recurringFilter, $allDayFilter, $complexityFilter);
             $structured['reasoning'] = $hasFilter
-                ? $this->humanReasoningForFilters($entityType, $dateFilter, $priorityFilter, $complexityFilter, $recurringFilter, $allDayFilter)
+                ? $this->humanReasoningForFilters($entityType, $dateFilter, $priorityFilter, $complexityFilter, $recurringFilter, $allDayFilter, $userMsg)
                 : $this->humanReasoningForListing($entityType);
         } else {
             $filtered = $this->filterListedItemsByContextAndDate($listedItems, $contextItems, null);
         }
 
         $structured['listed_items'] = $filtered;
-        $this->applyEmptyListMessageIfNeeded($structured, $dateFilter, $priorityFilter, $recurringFilter, $allDayFilter, $entityType, $complexityFilter);
+        $this->applyEmptyListMessageIfNeeded($structured, $dateFilter, $priorityFilter, $recurringFilter, $allDayFilter, $entityType, $complexityFilter, $userMsg);
 
         return $structured;
     }
@@ -1423,7 +1427,8 @@ class StructuredOutputSanitizer
         ?string $priorityFilter,
         ?string $complexityFilter,
         ?string $recurringFilter,
-        ?string $allDayFilter
+        ?string $allDayFilter,
+        string $userMessage
     ): string {
         $entityLabel = match ($entityType) {
             LlmEntityType::Event => __('events'),
@@ -1456,7 +1461,7 @@ class StructuredOutputSanitizer
                 'no_set_dates' => __('with no start or end dates'),
                 'no_due_date' => __('with no due date'),
                 'no_start_date' => __('with no start date'),
-                'upcoming_week' => __('due within the next 7 days'),
+                'upcoming_week' => $this->upcomingWeekDateLabel($userMessage),
                 default => __('matching your date filter'),
             };
         }
@@ -1539,7 +1544,8 @@ class StructuredOutputSanitizer
         ?string $recurringFilter,
         ?string $allDayFilter,
         ?LlmEntityType $entityType = null,
-        ?string $complexityFilter = null
+        ?string $complexityFilter = null,
+        string $userMessage = ''
     ): void {
         $listedItems = $structured['listed_items'] ?? [];
         if (! is_array($listedItems) || count($listedItems) > 0) {
@@ -1578,7 +1584,7 @@ class StructuredOutputSanitizer
                 'no_set_dates' => __('without start or end dates'),
                 'no_due_date' => __('without a due date'),
                 'no_start_date' => __('without a start date'),
-                'upcoming_week' => __('due within the next 7 days'),
+                'upcoming_week' => $this->upcomingWeekDateLabel($userMessage),
                 default => __('matching that date filter'),
             };
 
@@ -1600,7 +1606,10 @@ class StructuredOutputSanitizer
                 'no_set_dates' => __('All your :entity have dates set. You don\'t have any :entity without start or end dates.', ['entity' => $entityLabel]),
                 'no_due_date' => __('All your :entity have due dates set. You don\'t have any :entity without a due date.', ['entity' => $entityLabel]),
                 'no_start_date' => __('All your :entity have start dates set. You don\'t have any :entity without a start date.', ['entity' => $entityLabel]),
-                'upcoming_week' => __('You don\'t have any :entity due within the next 7 days.', ['entity' => $entityLabel]),
+                'upcoming_week' => __('You don\'t have any :entity :date_label.', [
+                    'entity' => $entityLabel,
+                    'date_label' => $this->upcomingWeekDateLabel($userMessage),
+                ]),
                 default => $structured['recommended_action'] ?? '',
             };
             $structured['reasoning'] = $dateFilter === 'upcoming_week'
@@ -1619,6 +1628,16 @@ class StructuredOutputSanitizer
             $structured['recommended_action'] = __('You don\'t have any all-day events.');
             $structured['reasoning'] = __('I checked your events and none are marked as all-day.');
         }
+    }
+
+    private function upcomingWeekDateLabel(string $userMessage): string
+    {
+        $normalized = mb_strtolower(trim($userMessage));
+        if ($normalized !== '' && (str_contains($normalized, 'this week') || str_contains($normalized, 'for this week'))) {
+            return (string) __('due this week');
+        }
+
+        return (string) __('due within the next 7 days');
     }
 
     /**
@@ -1789,7 +1808,7 @@ class StructuredOutputSanitizer
     /**
      * Detect which date filter the user asked for.
      *
-     * @return 'no_set_dates'|'no_due_date'|'no_start_date'|null
+     * @return 'no_set_dates'|'no_due_date'|'no_start_date'|'upcoming_week'|null
      */
     private function detectDateFilterFromMessage(string $message): ?string
     {
@@ -1968,27 +1987,27 @@ class StructuredOutputSanitizer
     }
 
     /**
-     * Match tasks/events that have an end date within the next 7 days.
+     * Match items that occur within the next rolling 168 hours from now.
      *
      * @param  array<string, mixed>  $ctx
      */
     private function contextItemMatchesUpcomingWeek(array $ctx): bool
     {
-        $end = $ctx['end_datetime'] ?? null;
-        if (! is_string($end) || trim($end) === '') {
+        $candidate = $ctx['end_datetime'] ?? $ctx['start_datetime'] ?? null;
+        if (! is_string($candidate) || trim($candidate) === '') {
             return false;
         }
 
         try {
-            $endAt = \Carbon\CarbonImmutable::parse($end);
+            $candidateAt = \Carbon\CarbonImmutable::parse($candidate);
         } catch (\Throwable) {
             return false;
         }
 
         $start = \Carbon\CarbonImmutable::now(config('app.timezone'));
-        $windowEnd = $start->addDays(7);
+        $windowEnd = $start->addHours(168);
 
-        return $endAt->betweenIncluded($start, $windowEnd);
+        return $candidateAt->betweenIncluded($start, $windowEnd);
     }
 
     /**
