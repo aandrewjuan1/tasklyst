@@ -26,6 +26,7 @@ class LlmContextConstraints
         public bool $schoolOnly = false,
         public bool $healthOrHouseholdOnly = false,
         public bool $includeOverdueInWindow = false,
+        public bool $examRelatedOnly = false,
     ) {}
 
     public static function none(): self

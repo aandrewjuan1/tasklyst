@@ -60,10 +60,13 @@ class CanonicalEntityContextFetcher
 
         $query = Task::query()
             ->forUser($user->id)
-            ->incomplete()
             ->with(['recurringTask', 'project', 'event'])
             ->orderByRaw('CASE WHEN end_datetime IS NULL THEN 1 ELSE 0 END')
             ->orderBy('end_datetime');
+
+        if (! ($constraints?->examRelatedOnly ?? false)) {
+            $query->incomplete();
+        }
 
         if ($entityId !== null) {
             $query->whereKey($entityId);
@@ -108,9 +111,12 @@ class CanonicalEntityContextFetcher
         $query = Event::query()
             ->forUser($user->id)
             ->notCancelled()
-            ->notCompleted()
             ->with('recurringEvent')
             ->orderBy('start_datetime');
+
+        if (! ($constraints?->examRelatedOnly ?? false)) {
+            $query->notCompleted();
+        }
 
         if ($entityId !== null) {
             $query->whereKey($entityId);

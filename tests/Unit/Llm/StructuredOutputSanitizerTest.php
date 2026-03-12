@@ -1171,3 +1171,32 @@ test('sanitize schedule_events_and_projects with empty context overrides message
         ->and($out['scheduled_projects'])->toBeArray()->toBeEmpty()
         ->and($out['recommended_action'])->toContain('no events or projects');
 });
+
+test('sanitize list filter search intent rebuilds listed items from context', function (): void {
+    $structured = [
+        'entity_type' => 'task',
+        'listed_items' => [
+            ['title' => 'Hallucinated item'],
+        ],
+        'recommended_action' => 'Stub action',
+        'reasoning' => 'Stub reasoning',
+    ];
+
+    $context = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task without due date', 'end_datetime' => null, 'start_datetime' => null],
+            ['id' => 2, 'title' => 'Task with due date', 'end_datetime' => '2026-03-20T10:00:00+08:00', 'start_datetime' => null],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::ListFilterSearch,
+        LlmEntityType::Task,
+        'show tasks with no due date'
+    );
+
+    expect($out['listed_items'])->toHaveCount(1)
+        ->and($out['listed_items'][0]['title'])->toBe('Task without due date');
+});

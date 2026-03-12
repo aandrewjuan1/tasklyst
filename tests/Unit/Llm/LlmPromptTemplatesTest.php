@@ -18,6 +18,19 @@ it('includes date filter instructions for no set dates and no due date in genera
         ->and($prompt)->toContain('exclude any item that has end_datetime set');
 });
 
+it('uses the same prompt contract for list filter search intent', function (): void {
+    /** @var LlmPromptService $service */
+    $service = app(LlmPromptService::class);
+
+    $result = $service->getSystemPromptForIntent(LlmIntent::ListFilterSearch);
+    $prompt = $result->systemPrompt;
+
+    expect($prompt)
+        ->toContain('no set dates')
+        ->and($prompt)->toContain('task')
+        ->and($prompt)->toContain('Respond with only a single JSON object');
+});
+
 it('includes guardrails and student persona in prompts', function (): void {
     /** @var LlmPromptService $service */
     $service = app(LlmPromptService::class);

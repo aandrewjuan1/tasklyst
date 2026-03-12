@@ -21,6 +21,7 @@ class LlmIntentAliasResolver
             LlmOperationMode::Update => $this->resolveUpdateIntent($targets, $entityScope),
             LlmOperationMode::Schedule => $this->resolveScheduleIntent($targets, $entityScope, $adjustLike),
             LlmOperationMode::Prioritize => $this->resolvePrioritizeIntent($targets, $entityScope),
+            LlmOperationMode::ListFilterSearch => LlmIntent::ListFilterSearch,
             LlmOperationMode::General => LlmIntent::GeneralQuery,
         };
     }

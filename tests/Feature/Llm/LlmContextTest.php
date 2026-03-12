@@ -307,3 +307,129 @@ test('school-only today prompt excludes chores and includes overdue school tasks
         ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain('Clean kitchen')
         ->and($context['filtering_summary']['dimensions'])->toContain('school_only', 'time_window');
 });
+
+test('list filter search context keeps exam-related tasks and events for this week', function (): void {
+    [$user, $builder] = llmContextFixture();
+
+    $examTag = Tag::factory()->for($user)->create(['name' => 'Exam']);
+    $householdTag = Tag::factory()->for($user)->create(['name' => 'Household']);
+
+    $examTaskThisWeek = Task::factory()->for($user)->create([
+        'title' => 'ITCS 101 – Quiz 2: Conditions',
+        'status' => TaskStatus::Done,
+        'completed_at' => CarbonImmutable::now('Asia/Manila')->subHour(),
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDay(),
+    ]);
+    $examTaskThisWeek->tags()->sync([$examTag->id]);
+
+    $examEventThisWeek = Event::factory()->for($user)->create([
+        'title' => 'Math exam review session',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(2),
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(2)->addHour(),
+    ]);
+
+    $nonExamTask = Task::factory()->for($user)->create([
+        'title' => 'Wash dishes after dinner',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDay(),
+    ]);
+    $nonExamTask->tags()->sync([$householdTag->id]);
+
+    $examTaskOutsideWeek = Task::factory()->for($user)->create([
+        'title' => 'MATH 201 – Take-home Exam 1 Submission',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(10),
+    ]);
+    $examTaskOutsideWeek->tags()->sync([$examTag->id]);
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::ListFilterSearch,
+        LlmEntityType::Multiple,
+        null,
+        null,
+        'Show only my exam-related tasks and events for this week.'
+    );
+
+    expect(collect($context['tasks'])->pluck('title')->all())->toContain('ITCS 101 – Quiz 2: Conditions')
+        ->and(collect($context['events'])->pluck('title')->all())->toContain('Math exam review session')
+        ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain('Wash dishes after dinner')
+        ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain('MATH 201 – Take-home Exam 1 Submission')
+        ->and($context['filtering_summary']['dimensions'])->toContain('required_tag', 'time_window', 'exam_related');
+});
+
+test('list filter search context keeps health and household tasks only', function (): void {
+    [$user, $builder] = llmContextFixture();
+
+    $healthTag = Tag::factory()->for($user)->create(['name' => 'Health']);
+    $householdTag = Tag::factory()->for($user)->create(['name' => 'Household']);
+    $examTag = Tag::factory()->for($user)->create(['name' => 'Exam']);
+
+    $healthTask = Task::factory()->for($user)->create([
+        'title' => 'Walk 10k steps',
+        'status' => TaskStatus::ToDo,
+    ]);
+    $healthTask->tags()->sync([$healthTag->id]);
+
+    $householdTask = Task::factory()->for($user)->create([
+        'title' => 'Prepare tomorrow’s school bag',
+        'status' => TaskStatus::ToDo,
+    ]);
+    $householdTask->tags()->sync([$householdTag->id]);
+
+    $academicTask = Task::factory()->for($user)->create([
+        'title' => 'MATH 201 – Quiz 3: Graph Theory',
+        'status' => TaskStatus::ToDo,
+    ]);
+    $academicTask->tags()->sync([$examTag->id]);
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::ListFilterSearch,
+        LlmEntityType::Task,
+        null,
+        null,
+        'List all tasks related to health or household chores.'
+    );
+
+    expect(collect($context['tasks'])->pluck('title')->all())->toContain('Walk 10k steps', 'Prepare tomorrow’s school bag')
+        ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain('MATH 201 – Quiz 3: Graph Theory')
+        ->and($context['filtering_summary']['dimensions'])->toContain('health_or_household_only', 'required_tag');
+});
+
+test('list filter search events-only context uses rolling next seven days window', function (): void {
+    [$user, $builder] = llmContextFixture();
+
+    Event::factory()->for($user)->create([
+        'title' => 'CS group project meetup',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(6),
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(6)->addHours(2),
+    ]);
+    Event::factory()->for($user)->create([
+        'title' => 'Campus club orientation night',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(8),
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(8)->addHour(),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Task inside range should be excluded by entity scope',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->addDays(2),
+    ]);
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::ListFilterSearch,
+        LlmEntityType::Event,
+        null,
+        null,
+        'Filter to events only and show what’s coming up in the next 7 days.'
+    );
+
+    expect(collect($context['events'])->pluck('title')->all())->toContain('CS group project meetup')
+        ->and(collect($context['events'])->pluck('title')->all())->not->toContain('Campus club orientation night')
+        ->and($context['tasks'] ?? [])->toBeArray()->toBeEmpty()
+        ->and($context['filtering_summary']['dimensions'])->toContain('time_window');
+});

@@ -75,3 +75,32 @@ it('treats ignore chores as school-only and not chores-only', function (): void 
         ->and($constraints->excludedTagNames)->toContain('Health', 'Household')
         ->and($constraints->includeOverdueInWindow)->toBeTrue();
 });
+
+it('parses next 7 days as a rolling 168-hour window', function (): void {
+    $service = new LlmContextConstraintService;
+    $now = CarbonImmutable::parse('2026-03-12 10:15:00', 'Asia/Manila');
+
+    $constraints = $service->parse(
+        userMessage: 'Filter to events only and show what is coming up in the next 7 days.',
+        intent: LlmIntent::ListFilterSearch,
+        entityType: LlmEntityType::Event,
+        now: $now,
+    );
+
+    expect($constraints->windowStart?->toIso8601String())->toBe($now->toIso8601String())
+        ->and($constraints->windowEnd?->toIso8601String())->toBe($now->addHours(168)->toIso8601String());
+});
+
+it('marks exam-related prompts for semantic exam matching', function (): void {
+    $service = new LlmContextConstraintService;
+
+    $constraints = $service->parse(
+        userMessage: 'Show only my exam-related tasks and events for this week.',
+        intent: LlmIntent::ListFilterSearch,
+        entityType: LlmEntityType::Multiple,
+        now: CarbonImmutable::parse('2026-03-12 10:15:00', 'Asia/Manila'),
+    );
+
+    expect($constraints->examRelatedOnly)->toBeTrue()
+        ->and($constraints->requiredTagNames)->toContain('Exam');
+});

@@ -36,7 +36,13 @@ class LlmIntentClassificationService
 
     private const INTENT_DELETE_OR_REMOVE = ['delete', 'remove', 'drop', 'get rid of'];
 
-    private const INTENT_LIST_OR_FILTER = ['list', 'show', 'which', 'what are', 'no due date', 'without due date', 'no set dates', 'without dates', 'low priority'];
+    private const INTENT_LIST_OR_FILTER = [
+        'list', 'show', 'what are', 'search', 'find', 'filter',
+        'events only', 'tasks only', 'projects only',
+        'related to', 'tagged as', 'tagged',
+        'next 7 days', 'within the next 7 days', 'coming up',
+        'no due date', 'without due date', 'no set dates', 'without dates', 'low priority',
+    ];
 
     private const INTENT_META_OR_COMPLAINT = ['why did you not', 'why did you not answer', 'are you hallucinating', 'too complex', 'too hard for you', 'repeat it twice', 'answer it the first time', 'could not produce', 'unavailable'];
 
@@ -139,8 +145,12 @@ class LlmIntentClassificationService
             return LlmOperationMode::Schedule;
         }
 
-        if ($this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE)) {
+        if ($this->hasAnyKeyword($normalized, self::INTENT_PRIORITIZE) && ! $this->isListFilterSearchRequest($normalized)) {
             return LlmOperationMode::Prioritize;
+        }
+
+        if ($this->isListFilterSearchRequest($normalized)) {
+            return LlmOperationMode::ListFilterSearch;
         }
 
         if ($this->hasAnyKeyword($normalized, self::INTENT_DELETE_OR_REMOVE)
@@ -149,6 +159,15 @@ class LlmIntentClassificationService
         }
 
         return LlmOperationMode::General;
+    }
+
+    private function isListFilterSearchRequest(string $normalized): bool
+    {
+        if ($this->hasAnyKeyword($normalized, self::INTENT_DELETE_OR_REMOVE)) {
+            return false;
+        }
+
+        return $this->hasAnyKeyword($normalized, self::INTENT_LIST_OR_FILTER);
     }
 
     private function isTimeWindowScheduleRequest(string $normalized): bool

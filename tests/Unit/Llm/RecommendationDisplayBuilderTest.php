@@ -1341,6 +1341,56 @@ test('build formats message with listed_items as summary then bullet list then r
         ->and($dto->structured['listed_items'])->toHaveCount(3);
 });
 
+test('build uses list filter search intent for listed-items summary output', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'event',
+            'recommended_action' => 'Here are events coming up in the next 7 days.',
+            'reasoning' => 'These events are in your rolling 168-hour window.',
+            'listed_items' => [
+                ['title' => 'Math exam review session'],
+                ['title' => 'CS group project meetup'],
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 80,
+        completionTokens: 60,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ListFilterSearch, LlmEntityType::Event);
+
+    expect($dto->recommendedAction)->toBe('You have 2 events matching that request.')
+        ->and($dto->message)->toContain('You have 2 events matching that request.')
+        ->and($dto->message)->toContain('Math exam review session')
+        ->and($dto->message)->toContain('CS group project meetup');
+});
+
+test('build uses items wording for multiple-entity listed-items summary output', function (): void {
+    $result = new LlmInferenceResult(
+        structured: [
+            'entity_type' => 'multiple',
+            'recommended_action' => 'Here are exam-related tasks and events this week.',
+            'reasoning' => 'Filtered by exam and this week.',
+            'listed_items' => [
+                ['title' => 'MATH 201 – Quiz 3: Graph Theory', 'entity_type' => 'task'],
+                ['title' => 'Math exam review session', 'entity_type' => 'event'],
+            ],
+        ],
+        promptVersion: '1.0',
+        promptTokens: 80,
+        completionTokens: 60,
+        usedFallback: false
+    );
+
+    $builder = app(RecommendationDisplayBuilder::class);
+    $dto = $builder->build($result, LlmIntent::ListFilterSearch, LlmEntityType::Multiple);
+
+    expect($dto->recommendedAction)->toBe('You have 2 items matching that request.')
+        ->and($dto->message)->toContain('You have 2 items matching that request.');
+});
+
 test('RecommendationDisplayDto fromArray builds message from action and reasoning when message missing', function (): void {
     $dto = RecommendationDisplayDto::fromArray([
         'intent' => 'general_query',
