@@ -1,52 +1,46 @@
 <?php
 
-use App\Actions\Llm\BuildLlmContextAction;
+use App\Enums\EventStatus;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Enums\TaskPriority;
+use App\Enums\TaskStatus;
 use App\Models\AssistantMessage;
 use App\Models\AssistantThread;
 use App\Models\Event;
 use App\Models\Project;
-use App\Models\RecurringEvent;
-use App\Models\RecurringTask;
+use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
-use App\Services\Llm\StructuredOutputSanitizer;
-use Database\Seeders\StudentLifeSampleSeeder;
+use App\Services\Llm\ContextBuilder;
+use Carbon\CarbonImmutable;
+
+/**
+ * @return array{0: User, 1: ContextBuilder}
+ */
+function llmContextFixture(): array
+{
+    return [User::factory()->create(), app(ContextBuilder::class)];
+}
 
 beforeEach(function (): void {
-    $this->user = User::factory()->create();
-    $this->action = app(BuildLlmContextAction::class);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-11 15:00:00', 'Asia/Manila'));
 });
 
-test('build context for prioritize_tasks includes current_time and tasks array', function (): void {
-    Task::factory()->for($this->user)->count(2)->create([
-        'title' => 'Task A',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['conversation_history'])->toBeArray();
+afterEach(function (): void {
+    CarbonImmutable::setTestNow();
 });
 
-test('prioritize_tasks sets requested_top_n to context size when user does not request top N', function (): void {
-    Task::factory()->for($this->user)->count(3)->create([
-        'completed_at' => null,
-        'status' => 'to_do',
+test('prioritize task context uses canonical shape', function (): void {
+    [$user, $builder] = llmContextFixture();
+    Task::factory()->for($user)->create([
+        'title' => 'Prepare quiz reviewer',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
     ]);
 
-    $context = $this->action->execute(
-        $this->user,
+    $context = $builder->build(
+        $user,
         LlmIntent::PrioritizeTasks,
         LlmEntityType::Task,
         null,
@@ -54,906 +48,262 @@ test('prioritize_tasks sets requested_top_n to context size when user does not r
         'Rank my tasks'
     );
 
-    expect($context['tasks'])->toHaveCount(3)
-        ->and($context)->toHaveKey('requested_top_n')
-        ->and($context['requested_top_n'])->toBe(3)
-        ->and($context)->toHaveKey('requested_top_n_instruction');
-});
-
-test('prioritize_tasks context includes is_assessment flag for quiz/exam titles', function (): void {
-    Task::factory()->for($this->user)->create([
-        'title' => 'MATH 201 – Quiz 3: Graph Theory',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-    Task::factory()->for($this->user)->create([
-        'title' => 'CS 220 – Lab 5: Linked Lists',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKey('tasks')
-        ->and($context['tasks'])->toHaveCount(2)
-        ->and($context['tasks'][0])->toHaveKey('is_assessment')
-        ->and($context['tasks'][1])->toHaveKey('is_assessment');
-
-    $byTitle = collect($context['tasks'])->keyBy('title');
-    expect($byTitle['MATH 201 – Quiz 3: Graph Theory']['is_assessment'])->toBeTrue()
-        ->and($byTitle['CS 220 – Lab 5: Linked Lists']['is_assessment'])->toBeFalse();
-});
-
-test('task context includes is_recurring and minimal fields', function (): void {
-    Task::factory()->for($this->user)->create([
-        'title' => 'Recurring task',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleTask,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    expect($context['tasks'])->toHaveCount(1)
-        ->and($context['tasks'][0])->toHaveKeys(['id', 'title', 'is_recurring', 'end_datetime', 'priority'])
-        ->and($context['tasks'][0]['title'])->toBe('Recurring task')
-        ->and($context['tasks'][0])->toHaveKey('is_recurring');
-});
-
-test('build context for prioritize_events includes events array', function (): void {
-    Event::factory()->for($this->user)->count(2)->create([
-        'status' => 'scheduled',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeEvents,
-        LlmEntityType::Event,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'events', 'conversation_history'])
-        ->and($context['events'])->toBeArray()
-        ->and($context['events'][0])->toHaveKeys(['title', 'is_recurring', 'start_datetime', 'is_assessment']);
-});
-
-test('build context for PrioritizeTasksAndEvents with Multiple includes both tasks and events', function (): void {
-    Task::factory()->for($this->user)->count(2)->create([
-        'title' => 'Task one',
-        'status' => 'to_do',
-        'completed_at' => null,
-    ]);
-    Event::factory()->for($this->user)->count(2)->create([
-        'title' => 'Event one',
-        'status' => 'scheduled',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasksAndEvents,
-        LlmEntityType::Multiple,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['events'])->toBeArray()
-        ->and($context['tasks'])->toHaveCount(2)
-        ->and($context['events'])->toHaveCount(2)
-        ->and($context['tasks'][0])->toHaveKeys(['title', 'end_datetime', 'priority'])
-        ->and($context['events'][0])->toHaveKeys(['title', 'start_datetime', 'end_datetime']);
-});
-
-test('build context for prioritize_projects includes projects with tasks', function (): void {
-    $project = Project::factory()->for($this->user)->create(['name' => 'My project']);
-    Task::factory()->for($this->user)->for($project)->create(['title' => 'Project task', 'completed_at' => null]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeProjects,
-        LlmEntityType::Project,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'projects', 'conversation_history'])
-        ->and($context['projects'])->toHaveCount(1)
-        ->and($context['projects'][0]['name'])->toBe('My project')
-        ->and($context['projects'][0]['tasks'])->toBeArray()
-        ->and($context['projects'][0])->toHaveKey('has_assessment_task');
-});
-
-test('general_query with entity task includes tasks so LLM is aware of user items', function (): void {
-    Task::factory()->for($this->user)->create([
-        'title' => 'Overview task',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::GeneralQuery,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
+    expect($context)->toHaveKeys(['current_time', 'current_date', 'timezone', 'tasks', 'conversation_history'])
         ->and($context['tasks'])->toHaveCount(1)
-        ->and($context['tasks'][0]['title'])->toBe('Overview task');
+        ->and($context['tasks'][0])->toHaveKeys([
+            'id',
+            'title',
+            'description',
+            'status',
+            'priority',
+            'complexity',
+            'duration',
+            'start_datetime',
+            'end_datetime',
+            'project_name',
+            'event_title',
+            'is_recurring',
+            'is_overdue',
+            'due_today',
+            'is_assessment',
+        ]);
 });
 
-test('context includes conversation history when thread provided', function (): void {
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'Hello']);
-    AssistantMessage::factory()->for($thread)->assistant()->create(['content' => 'Hi there']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        $thread,
-        null
-    );
-
-    expect($context['conversation_history'])->toHaveCount(2)
-        ->and($context['conversation_history'][0])->toEqual(['role' => 'user', 'content' => 'Hello'])
-        ->and($context['conversation_history'][1])->toEqual(['role' => 'assistant', 'content' => 'Hi there']);
-});
-
-test('conversation history excludes current user message to avoid duplication', function (): void {
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'First message']);
-    AssistantMessage::factory()->for($thread)->assistant()->create(['content' => 'First reply']);
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'Schedule those tasks']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        $thread,
-        'Schedule those tasks'
-    );
-
-    expect($context['conversation_history'])->toHaveCount(2)
-        ->and($context['conversation_history'][0])->toEqual(['role' => 'user', 'content' => 'First message'])
-        ->and($context['conversation_history'][1])->toEqual(['role' => 'assistant', 'content' => 'First reply']);
-});
-
-test('prioritize_tasks context scopes to previous list when user references those items', function (): void {
-    Task::factory()->for($this->user)->create(['title' => 'Fix stuff', 'status' => 'to_do', 'completed_at' => null]);
-    Task::factory()->for($this->user)->create(['title' => 'Send email', 'status' => 'to_do', 'completed_at' => null]);
-    Task::factory()->for($this->user)->create(['title' => 'Submit proposal', 'status' => 'to_do', 'completed_at' => null]);
-
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'list tasks that are recurring']);
-    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
-        'recommendation_snapshot' => [
-            'structured' => [
-                'listed_items' => [
-                    ['title' => 'Fix stuff'],
-                    ['title' => 'Send email'],
-                ],
-            ],
-        ],
-    ])->create(['content' => 'Here are your recurring tasks.', 'role' => 'assistant']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        $thread,
-        'in those 2 what should i do first'
-    );
-
-    $titles = collect($context['tasks'])->pluck('title')->values()->all();
-    expect($context['tasks'])->toHaveCount(2)
-        ->and($titles)->toContain('Fix stuff')
-        ->and($titles)->toContain('Send email')
-        ->and($titles)->not->toContain('Submit proposal');
-});
-
-test('schedule_task context scopes to previous list when user says schedule that task', function (): void {
-    Task::factory()->for($this->user)->create(['title' => 'Incomplete task 1', 'status' => 'to_do', 'completed_at' => null, 'start_datetime' => null, 'end_datetime' => null]);
-    Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
-
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'tasks that have no dates']);
-    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
-        'recommendation_snapshot' => [
-            'structured' => [
-                'listed_items' => [['title' => 'Incomplete task 1']],
-            ],
-        ],
-    ])->create(['content' => 'Here are your tasks with no set dates.', 'role' => 'assistant']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleTask,
-        LlmEntityType::Task,
-        null,
-        $thread,
-        'schedule that task, suggest a time where i can do it'
-    );
-
-    expect($context['tasks'])->toHaveCount(1)
-        ->and($context['tasks'][0]['title'])->toBe('Incomplete task 1');
-});
-
-test('general_query task context scopes to previous list when user says about those', function (): void {
-    Task::factory()->for($this->user)->create(['title' => 'Task A', 'status' => 'to_do', 'completed_at' => null]);
-    Task::factory()->for($this->user)->create(['title' => 'Task B', 'status' => 'to_do', 'completed_at' => null]);
-    Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
-
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'list low priority tasks']);
-    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
-        'recommendation_snapshot' => [
-            'structured' => [
-                'listed_items' => [
-                    ['title' => 'Task A'],
-                    ['title' => 'Task B'],
-                ],
-            ],
-        ],
-    ])->create(['content' => 'Here are your low-priority tasks.', 'role' => 'assistant']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::GeneralQuery,
-        LlmEntityType::Task,
-        null,
-        $thread,
-        'tell me more about those'
-    );
-
-    $titles = collect($context['tasks'])->pluck('title')->values()->all();
-    expect($context['tasks'])->toHaveCount(2)
-        ->and($titles)->toContain('Task A')
-        ->and($titles)->toContain('Task B')
-        ->and($titles)->not->toContain('Other task');
-});
-
-test('schedule_event context scopes to previous list when user says schedule that event', function (): void {
-    Event::factory()->for($this->user)->create(['title' => 'Doctor checkup', 'status' => 'scheduled', 'start_datetime' => null, 'end_datetime' => null]);
-    Event::factory()->for($this->user)->create(['title' => 'Lunch with Mom', 'status' => 'scheduled']);
-
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'what events that has no set dates']);
-    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
-        'recommendation_snapshot' => [
-            'structured' => [
-                'listed_items' => [['title' => 'Doctor checkup']],
-            ],
-        ],
-    ])->create(['content' => 'Here are your events with no set dates.', 'role' => 'assistant']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleEvent,
-        LlmEntityType::Event,
-        null,
-        $thread,
-        'schedule that event for me, suggest a time'
-    );
-
-    expect($context['events'])->toHaveCount(1)
-        ->and($context['events'][0]['title'])->toBe('Doctor checkup');
-});
-
-test('task context marks is_recurring true when recurringTask exists', function (): void {
-    $task = Task::factory()->for($this->user)->create([
-        'title' => 'Recurring task',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-    RecurringTask::factory()->for($task)->create();
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    expect($context['tasks'][0]['is_recurring'])->toBeTrue();
-});
-
-test('event context marks is_recurring true when recurringEvent exists', function (): void {
-    $event = Event::factory()->for($this->user)->create([
-        'title' => 'Recurring event',
-        'status' => 'scheduled',
-    ]);
-    RecurringEvent::factory()->for($event)->create();
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeEvents,
-        LlmEntityType::Event,
-        null,
-        null
-    );
-
-    expect($context['events'][0]['is_recurring'])->toBeTrue();
-});
-
-test('resolve_dependency context includes tasks and events', function (): void {
-    Task::factory()->for($this->user)->create(['completed_at' => null]);
-    Event::factory()->for($this->user)->create(['status' => 'scheduled']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ResolveDependency,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['events'])->toBeArray();
-});
-
-test('build context for PrioritizeTasksAndProjects with Multiple includes tasks and projects', function (): void {
-    Task::factory()->for($this->user)->count(2)->create([
-        'title' => 'Task one',
-        'status' => 'to_do',
-        'completed_at' => null,
-    ]);
-    Project::factory()->for($this->user)->count(2)->create([
-        'name' => 'Project one',
+test('schedule tasks context applies schedule overlay fields', function (): void {
+    [$user, $builder] = llmContextFixture();
+    Task::factory()->for($user)->create([
+        'title' => 'Write reflection paper',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
     ]);
 
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasksAndProjects,
+    $context = $builder->build(
+        $user,
+        LlmIntent::ScheduleTasks,
         LlmEntityType::Multiple,
         null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'projects', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['projects'])->toBeArray();
-});
-
-test('build context for PrioritizeEventsAndProjects with Multiple includes events and projects', function (): void {
-    Event::factory()->for($this->user)->count(2)->create([
-        'title' => 'Event one',
-        'status' => 'scheduled',
-    ]);
-    Project::factory()->for($this->user)->count(2)->create([
-        'name' => 'Project one',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeEventsAndProjects,
-        LlmEntityType::Multiple,
         null,
-        null
+        'From 7pm to 11pm tonight, schedule my existing tasks and do not schedule more than 3 hours'
     );
 
-    expect($context)->toHaveKeys(['current_time', 'events', 'projects', 'conversation_history'])
-        ->and($context['events'])->toBeArray()
-        ->and($context['projects'])->toBeArray();
+    expect($context['tasks'])->not->toBeEmpty()
+        ->and($context)->toHaveKeys([
+            'availability',
+            'user_scheduling_request',
+            'context_authority',
+            'requested_window_start',
+            'requested_window_end',
+            'focused_work_cap_minutes',
+        ])
+        ->and($context['focused_work_cap_minutes'])->toBe(180);
 });
 
-test('build context for PrioritizeAll with Multiple includes tasks, events and projects', function (): void {
-    Task::factory()->for($this->user)->count(1)->create([
-        'title' => 'Task one',
-        'status' => 'to_do',
-        'completed_at' => null,
-    ]);
-    Event::factory()->for($this->user)->count(1)->create([
-        'title' => 'Event one',
-        'status' => 'scheduled',
-    ]);
-    Project::factory()->for($this->user)->count(1)->create([
-        'name' => 'Project one',
-    ]);
+test('multiple prioritize context includes canonical tasks events and projects', function (): void {
+    [$user, $builder] = llmContextFixture();
+    Task::factory()->for($user)->create(['status' => TaskStatus::ToDo]);
+    Event::factory()->for($user)->create(['status' => EventStatus::Scheduled]);
+    Project::factory()->for($user)->create();
 
-    $context = $this->action->execute(
-        $this->user,
+    $context = $builder->build(
+        $user,
         LlmIntent::PrioritizeAll,
         LlmEntityType::Multiple,
         null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'projects', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['events'])->toBeArray()
-        ->and($context['projects'])->toBeArray();
-});
-
-test('build context for ScheduleTasksAndEvents with Multiple includes tasks, events and availability', function (): void {
-    Task::factory()->for($this->user)->count(1)->create(['title' => 'Task one', 'status' => 'to_do', 'completed_at' => null]);
-    Event::factory()->for($this->user)->count(1)->create(['title' => 'Event one', 'status' => 'scheduled']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleTasksAndEvents,
-        LlmEntityType::Multiple,
         null,
-        null
+        'Prioritize all my items'
     );
 
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'availability', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['events'])->toBeArray()
-        ->and($context['availability'])->toBeArray();
+    expect($context)->toHaveKeys(['tasks', 'events', 'projects'])
+        ->and($context['tasks'])->not->toBeEmpty()
+        ->and($context['events'])->not->toBeEmpty()
+        ->and($context['projects'])->not->toBeEmpty();
 });
 
-test('build context for ScheduleTasksAndProjects with Multiple includes tasks, projects and availability', function (): void {
-    Task::factory()->for($this->user)->count(1)->create(['title' => 'Task one', 'status' => 'to_do', 'completed_at' => null]);
-    Project::factory()->for($this->user)->count(1)->create(['name' => 'Project one']);
+test('prioritize task context filters by requested tag before ranking', function (): void {
+    [$user, $builder] = llmContextFixture();
 
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleTasksAndProjects,
-        LlmEntityType::Multiple,
-        null,
-        null
-    );
+    $examTag = Tag::factory()->for($user)->create(['name' => 'Exam']);
+    $otherTag = Tag::factory()->for($user)->create(['name' => 'Household']);
 
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'projects', 'availability', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['projects'])->toBeArray()
-        ->and($context['availability'])->toBeArray();
-});
+    $examTask = Task::factory()->for($user)->create([
+        'title' => 'MATH 201 - Quiz 3',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+    ]);
+    $nonExamTask = Task::factory()->for($user)->create([
+        'title' => 'Library research for history essay',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+    ]);
 
-test('build context for ScheduleEventsAndProjects with Multiple includes events, projects and availability', function (): void {
-    Event::factory()->for($this->user)->count(1)->create(['title' => 'Event one', 'status' => 'scheduled']);
-    Project::factory()->for($this->user)->count(1)->create(['name' => 'Project one']);
+    $examTask->tags()->sync([$examTag->id]);
+    $nonExamTask->tags()->sync([$otherTag->id]);
 
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleEventsAndProjects,
-        LlmEntityType::Multiple,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'events', 'projects', 'availability', 'conversation_history'])
-        ->and($context['events'])->toBeArray()
-        ->and($context['projects'])->toBeArray()
-        ->and($context['availability'])->toBeArray();
-});
-
-test('build context for ScheduleAll with Multiple includes tasks, events, projects and availability', function (): void {
-    Task::factory()->for($this->user)->count(1)->create(['title' => 'Task one', 'status' => 'to_do', 'completed_at' => null]);
-    Event::factory()->for($this->user)->count(1)->create(['title' => 'Event one', 'status' => 'scheduled']);
-    Project::factory()->for($this->user)->count(1)->create(['name' => 'Project one']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleAll,
-        LlmEntityType::Multiple,
-        null,
-        null
-    );
-
-    expect($context)->toHaveKeys(['current_time', 'tasks', 'events', 'projects', 'availability', 'conversation_history'])
-        ->and($context['tasks'])->toBeArray()
-        ->and($context['events'])->toBeArray()
-        ->and($context['projects'])->toBeArray()
-        ->and($context['availability'])->toBeArray();
-});
-
-test('schedule intent context includes availability_meaning, availability and context_authority', function (): void {
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ScheduleTask,
+    $context = $builder->build(
+        $user,
+        LlmIntent::PrioritizeTasks,
         LlmEntityType::Task,
         null,
-        null
+        null,
+        'Look at everything tagged as "Exam" and prioritize it from most to least urgent.'
     );
 
-    expect($context)->toHaveKey('availability_meaning')
-        ->and($context['availability_meaning'])->toContain('busy_windows')
-        ->and($context['availability'])->toBeArray()
-        ->and($context)->toHaveKey('context_authority')
-        ->and($context['context_authority'])->toContain('ONLY source of truth')
-        ->and($context['context_authority'])->toContain('Never invent');
-    $days = (int) config('tasklyst.context.availability_days', 7);
-    expect($context['availability'])->toHaveCount($days + 1)
-        ->and($context['availability'][0])->toHaveKeys(['date', 'busy_windows']);
+    expect($context['tasks'])->toHaveCount(1)
+        ->and($context['tasks'][0]['title'])->toBe('MATH 201 - Quiz 3');
 });
 
-test('resolve_dependency context scopes to previous list when user says for those', function (): void {
-    Task::factory()->for($this->user)->create(['title' => 'Blocked task A', 'status' => 'to_do', 'completed_at' => null]);
-    Task::factory()->for($this->user)->create(['title' => 'Other task', 'status' => 'to_do', 'completed_at' => null]);
-    Event::factory()->for($this->user)->create(['title' => 'Blocked event', 'status' => 'scheduled']);
+test('prioritize all context excludes non-taggable projects when tag filter is required', function (): void {
+    [$user, $builder] = llmContextFixture();
 
-    $thread = AssistantThread::factory()->for($this->user)->create();
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => 'list blocked items']);
-    AssistantMessage::factory()->for($thread)->assistant()->withMetadata([
-        'recommendation_snapshot' => [
-            'structured' => [
-                'listed_items' => [
-                    ['title' => 'Blocked task A'],
-                    ['title' => 'Blocked event'],
+    $examTag = Tag::factory()->for($user)->create(['name' => 'Exam']);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'CS 220 - Midterm coverage review',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+    ]);
+    Project::factory()->for($user)->create(['name' => 'Capstone sprint']);
+
+    $task->tags()->sync([$examTag->id]);
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::PrioritizeAll,
+        LlmEntityType::Multiple,
+        null,
+        null,
+        'Look at everything tagged as "Exam" and prioritize it from most to least urgent.'
+    );
+
+    expect($context['tasks'])->toHaveCount(1)
+        ->and($context['tasks'][0]['title'])->toBe('CS 220 - Midterm coverage review')
+        ->and($context['projects'])->toBeArray()->toBeEmpty();
+});
+
+test('prioritize task context filters by task properties before ranking', function (): void {
+    [$user, $builder] = llmContextFixture();
+
+    $matchingTask = Task::factory()->for($user)->create([
+        'title' => 'High recurring no-deadline task',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'end_datetime' => null,
+    ]);
+    \App\Models\RecurringTask::factory()->for($matchingTask)->create();
+
+    $nonRecurringTask = Task::factory()->for($user)->create([
+        'title' => 'High non-recurring no-deadline task',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'end_datetime' => null,
+    ]);
+
+    $nonHighTask = Task::factory()->for($user)->create([
+        'title' => 'Medium recurring no-deadline task',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'end_datetime' => null,
+    ]);
+    \App\Models\RecurringTask::factory()->for($nonHighTask)->create();
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
+        null,
+        null,
+        'Prioritize only high priority recurring tasks with no due date.'
+    );
+
+    expect($context['tasks'])->toHaveCount(1)
+        ->and($context['tasks'][0]['title'])->toBe('High recurring no-deadline task')
+        ->and($context['tasks'][0]['priority'])->toBe('high')
+        ->and($context['tasks'][0]['is_recurring'])->toBeTrue()
+        ->and($context['tasks'][0]['end_datetime'])->toBeNull()
+        ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain($nonRecurringTask->title)
+        ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain($nonHighTask->title);
+});
+
+test('conversation history and explicit previous list context are included', function (): void {
+    [$user, $builder] = llmContextFixture();
+    $thread = AssistantThread::factory()->for($user)->create();
+
+    AssistantMessage::factory()->for($thread, 'assistantThread')->create([
+        'role' => 'user',
+        'content' => 'Can you rank my tasks?',
+    ]);
+
+    AssistantMessage::factory()->for($thread, 'assistantThread')->create([
+        'role' => 'assistant',
+        'content' => 'Here is your ranking.',
+        'metadata' => [
+            'recommendation_snapshot' => [
+                'structured' => [
+                    'ranked_tasks' => [
+                        ['rank' => 1, 'title' => 'Task A'],
+                        ['rank' => 2, 'title' => 'Task B'],
+                    ],
                 ],
             ],
         ],
-    ])->create(['content' => 'Here are your blocked items.', 'role' => 'assistant']);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::ResolveDependency,
-        LlmEntityType::Task,
-        null,
-        $thread,
-        'resolve dependencies for those'
-    );
-
-    $taskTitles = collect($context['tasks'])->pluck('title')->values()->all();
-    $eventTitles = collect($context['events'])->pluck('title')->values()->all();
-    expect($context['tasks'])->toHaveCount(1)
-        ->and($taskTitles)->toContain('Blocked task A')
-        ->and($taskTitles)->not->toContain('Other task')
-        ->and($context['events'])->toHaveCount(1)
-        ->and($eventTitles)->toContain('Blocked event');
-});
-
-test('context token cap trims conversation history first', function (): void {
-    config()->set('tasklyst.context.max_tokens', 25);
-
-    $thread = AssistantThread::factory()->for($this->user)->create();
-
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => str_repeat('U', 500)]);
-    AssistantMessage::factory()->for($thread)->assistant()->create(['content' => str_repeat('A', 500)]);
-    AssistantMessage::factory()->for($thread)->user()->create(['content' => str_repeat('U', 500)]);
-    AssistantMessage::factory()->for($thread)->assistant()->create(['content' => str_repeat('A', 500)]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::GeneralQuery,
-        LlmEntityType::Task,
-        null,
-        $thread
-    );
-
-    expect($context)->toHaveKey('conversation_history')
-        ->and($context['conversation_history'])->toBeArray()
-        ->and(count($context['conversation_history']))->toBeLessThan(4);
-});
-
-test('context respects entity_id filter for single task', function (): void {
-    $t1 = Task::factory()->for($this->user)->create([
-        'title' => 'First',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-    Task::factory()->for($this->user)->create([
-        'title' => 'Second',
-        'completed_at' => null,
-        'status' => 'to_do',
     ]);
 
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::AdjustTaskDeadline,
-        LlmEntityType::Task,
-        $t1->id,
-        null
-    );
+    Task::factory()->for($user)->create(['title' => 'Task A', 'status' => TaskStatus::ToDo]);
 
-    expect($context['tasks'])->toHaveCount(1)
-        ->and($context['tasks'][0]['id'])->toBe($t1->id)
-        ->and($context['tasks'][0]['title'])->toBe('First');
-});
-
-test('prioritize_tasks task context does not include complexity or project_id', function (): void {
-    Task::factory()->for($this->user)->create([
-        'title' => 'Rank me',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    $task = $context['tasks'][0];
-    expect($task)->toHaveKeys(['title', 'end_datetime', 'priority', 'is_recurring', 'status'])
-        ->and($task)->not->toHaveKey('project_id')
-        ->and($task)->not->toHaveKey('description');
-});
-
-test('student life prompt 1_1 restricts tasks to CS 220 and MATH 201 within next three days', function (): void {
-    $user = User::factory()->create([
-        'email' => 'andrew.juan.cvt@eac.edu.ph',
-    ]);
-
-    $this->be($user);
-
-    $seeder = new StudentLifeSampleSeeder;
-    $seeder->run();
-
-    $action = app(BuildLlmContextAction::class);
-
-    $prompt = 'I’m overwhelmed. Looking only at my CS 220 and MATH 201 work for the next three days, which tasks should I tackle first and why?';
-
-    $context = $action->execute(
+    $context = $builder->build(
         $user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        null,
-        $prompt
-    );
-
-    expect($context)->toHaveKey('tasks');
-
-    $titles = collect($context['tasks'])->pluck('title')->values();
-
-    expect($titles->count())->toBeGreaterThan(0);
-
-    $allowedSubjects = [
-        'CS 220 – Data Structures',
-        'MATH 201 – Discrete Mathematics',
-    ];
-
-    foreach ($context['tasks'] as $task) {
-        $model = Task::query()->where('title', $task['title'] ?? '')->first();
-        expect($model)->not->toBeNull();
-        expect($model->subject_name)->toBeIn($allowedSubjects);
-
-        $end = $model->end_datetime;
-        expect($end)->not->toBeNull();
-
-        $now = now();
-        $windowEnd = $now->copy()->addDays(3)->endOfDay();
-
-        expect($end->between($now->copy()->startOfDay(), $windowEnd))->toBeTrue();
-    }
-});
-
-test('student life prompt 1_2 returns school tasks even when strict today window is empty', function (): void {
-    $user = User::factory()->create([
-        'email' => 'andrew.juan.cvt@eac.edu.ph',
-    ]);
-
-    $this->be($user);
-
-    $seeder = new StudentLifeSampleSeeder;
-    $seeder->run();
-
-    $action = app(BuildLlmContextAction::class);
-
-    $prompt = 'What are the top 5 tasks I should focus on for today that are school-related only? Ignore chores and personal stuff.';
-
-    $context = $action->execute(
-        $user,
-        LlmIntent::PrioritizeTasks,
-        LlmEntityType::Task,
-        null,
-        null,
-        $prompt
-    );
-
-    expect($context)->toHaveKey('tasks');
-
-    $tasks = collect($context['tasks']);
-
-    expect($tasks->count())->toBeGreaterThan(0);
-
-    foreach ($tasks as $taskPayload) {
-        $model = Task::query()->where('title', $taskPayload['title'] ?? '')->first();
-        expect($model)->not->toBeNull();
-        expect($model->subject_name)->not->toBeNull();
-    }
-});
-
-test('prioritize_tasks sanitizer fills missing ranked tasks up to requested_top_n from context slice', function (): void {
-    $sanitizer = new StructuredOutputSanitizer;
-
-    $context = [
-        'tasks' => [
-            ['title' => 'Task A', 'end_datetime' => '2026-03-10T10:00:00+08:00'],
-            ['title' => 'Task B', 'end_datetime' => '2026-03-11T10:00:00+08:00'],
-            ['title' => 'Task C', 'end_datetime' => '2026-03-12T10:00:00+08:00'],
-            ['title' => 'Task D', 'end_datetime' => '2026-03-13T10:00:00+08:00'],
-            ['title' => 'Task E', 'end_datetime' => '2026-03-14T10:00:00+08:00'],
-        ],
-        'requested_top_n' => 5,
-    ];
-    $structured = [
-        'ranked_tasks' => [
-            ['rank' => 1, 'title' => 'Task A'],
-            ['rank' => 2, 'title' => 'Task C'],
-        ],
-        'reasoning' => 'Initial reasoning.',
-    ];
-
-    $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeTasks);
-
-    expect($sanitized)->toHaveKey('ranked_tasks');
-    $ranked = $sanitized['ranked_tasks'];
-    expect($ranked)->toHaveCount(5);
-
-    $titles = collect($ranked)->pluck('title')->values()->all();
-    expect($titles)->toEqual([
-        'Task A',
-        'Task C',
-        'Task B',
-        'Task D',
-        'Task E',
-    ]);
-});
-
-test('prioritize_events sanitizer fills missing ranked events up to requested_top_n from context slice', function (): void {
-    $sanitizer = new StructuredOutputSanitizer;
-
-    $context = [
-        'events' => [
-            ['title' => 'Event A', 'start_datetime' => '2026-03-10T09:00:00+08:00', 'end_datetime' => '2026-03-10T10:00:00+08:00'],
-            ['title' => 'Event B', 'start_datetime' => '2026-03-11T09:00:00+08:00', 'end_datetime' => '2026-03-11T10:00:00+08:00'],
-            ['title' => 'Event C', 'start_datetime' => '2026-03-12T09:00:00+08:00', 'end_datetime' => '2026-03-12T10:00:00+08:00'],
-        ],
-        'requested_top_n' => 3,
-    ];
-
-    $structured = [
-        'ranked_events' => [
-            ['rank' => 1, 'title' => 'Event A'],
-        ],
-        'reasoning' => 'Initial reasoning.',
-    ];
-
-    $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeEvents);
-
-    expect($sanitized)->toHaveKey('ranked_events');
-    $ranked = $sanitized['ranked_events'];
-    expect($ranked)->toHaveCount(3);
-
-    $titles = collect($ranked)->pluck('title')->values()->all();
-    expect($titles)->toEqual([
-        'Event A',
-        'Event B',
-        'Event C',
-    ]);
-});
-
-test('prioritize_projects sanitizer fills missing ranked projects up to requested_top_n from context slice', function (): void {
-    $sanitizer = new StructuredOutputSanitizer;
-
-    $context = [
-        'projects' => [
-            ['name' => 'Project A', 'start_datetime' => '2026-03-10T09:00:00+08:00', 'end_datetime' => '2026-03-20T10:00:00+08:00'],
-            ['name' => 'Project B', 'start_datetime' => '2026-03-11T09:00:00+08:00', 'end_datetime' => '2026-03-21T10:00:00+08:00'],
-        ],
-        'requested_top_n' => 2,
-    ];
-
-    $structured = [
-        'ranked_projects' => [
-            ['rank' => 1, 'name' => 'Project B'],
-        ],
-        'reasoning' => 'Initial reasoning.',
-    ];
-
-    $sanitized = $sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeProjects);
-
-    expect($sanitized)->toHaveKey('ranked_projects');
-    $ranked = $sanitized['ranked_projects'];
-    expect($ranked)->toHaveCount(2);
-
-    $names = collect($ranked)->pluck('name')->values()->all();
-    expect($names)->toEqual([
-        'Project B',
-        'Project A',
-    ]);
-});
-
-test('general_query task context includes full set with description and complexity', function (): void {
-    Task::factory()->for($this->user)->create([
-        'title' => 'Full task',
-        'description' => 'Some details',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::GeneralQuery,
-        LlmEntityType::Task,
-        null,
-        null
-    );
-
-    $task = $context['tasks'][0];
-    expect($task)->toHaveKeys(['id', 'title', 'description', 'complexity', 'duration', 'end_datetime', 'priority', 'is_recurring'])
-        ->and($task['title'])->toBe('Full task');
-});
-
-test('schedule_task task context includes duration priority description end_datetime', function (): void {
-    Task::factory()->for($this->user)->create([
-        'title' => 'Schedule me',
-        'description' => 'Blockers here',
-        'completed_at' => null,
-        'status' => 'to_do',
-    ]);
-
-    $context = $this->action->execute(
-        $this->user,
         LlmIntent::ScheduleTask,
         LlmEntityType::Task,
         null,
-        null
+        $thread,
+        'schedule that task for tonight'
     );
 
-    $task = $context['tasks'][0];
-    expect($task)->toHaveKeys(['id', 'title', 'description', 'duration', 'priority', 'end_datetime', 'is_recurring'])
-        ->and($task)->not->toHaveKey('complexity');
+    expect($context['conversation_history'])->toHaveCount(2)
+        ->and($context)->toHaveKey('previous_list_context')
+        ->and($context['previous_list_context'])->toHaveKeys(['entity_type', 'items_in_order']);
 });
 
-test('prioritize_events event context does not include description or status', function (): void {
-    Event::factory()->for($this->user)->create([
-        'title' => 'Event to rank',
-        'status' => 'scheduled',
+test('school-only today prompt excludes chores and includes overdue school tasks', function (): void {
+    [$user, $builder] = llmContextFixture();
+
+    $householdTag = Tag::factory()->for($user)->create(['name' => 'Household']);
+
+    Task::factory()->for($user)->create([
+        'title' => 'CS 220 - Lab write-up',
+        'subject_name' => 'CS 220 – Data Structures',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->subDay()->setTime(20, 0),
     ]);
 
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::PrioritizeEvents,
-        LlmEntityType::Event,
-        null,
-        null
-    );
-
-    $event = $context['events'][0];
-    expect($event)->toHaveKeys([
-        'title',
-        'start_datetime',
-        'end_datetime',
-        'is_recurring',
-        'status',
-        'all_day',
-        'starts_within_24h',
-        'starts_within_7_days',
-    ])->and($event)->not->toHaveKey('description');
-});
-
-test('general_query event context includes description and status', function (): void {
-    Event::factory()->for($this->user)->create([
-        'title' => 'Full event',
-        'description' => 'Event details',
-        'status' => 'scheduled',
+    Task::factory()->for($user)->create([
+        'title' => 'ITCS 101 - Function drill',
+        'subject_name' => 'ITCS 101 – Intro to Programming',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->setTime(21, 0),
     ]);
 
-    $context = $this->action->execute(
-        $this->user,
-        LlmIntent::GeneralQuery,
-        LlmEntityType::Event,
+    $choreTask = Task::factory()->for($user)->create([
+        'title' => 'Clean kitchen',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Low,
+        'end_datetime' => CarbonImmutable::now('Asia/Manila')->setTime(22, 0),
+    ]);
+    $choreTask->tags()->sync([$householdTag->id]);
+
+    $context = $builder->build(
+        $user,
+        LlmIntent::PrioritizeTasks,
+        LlmEntityType::Task,
         null,
-        null
+        null,
+        'For today only, what are the top 5 school-related tasks I should focus on? Ignore chores and personal stuff.'
     );
 
-    $event = $context['events'][0];
-    expect($event)->toHaveKeys(['id', 'title', 'description', 'start_datetime', 'end_datetime', 'status', 'is_recurring']);
+    expect($context['tasks'])->toHaveCount(2)
+        ->and(collect($context['tasks'])->pluck('title')->all())->toContain('CS 220 - Lab write-up', 'ITCS 101 - Function drill')
+        ->and(collect($context['tasks'])->pluck('title')->all())->not->toContain('Clean kitchen')
+        ->and($context['filtering_summary']['dimensions'])->toContain('school_only', 'time_window');
 });

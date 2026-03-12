@@ -5,12 +5,12 @@ namespace App\Actions\Llm;
 use App\DataTransferObjects\Llm\LlmInferenceResult;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Enums\LlmOperationMode;
 use App\Models\AssistantThread;
 use App\Models\User;
-use App\Services\Llm\ExplicitUserTimeParser;
 use App\Services\Llm\LlmHealthCheck;
 use App\Services\Llm\LlmInteractionLogger;
-use App\Services\Llm\StructuredOutputSanitizer;
+use App\Services\Llm\LlmPostProcessor;
 use App\Services\LlmInferenceService;
 use Illuminate\Support\Str;
 
@@ -22,8 +22,7 @@ class RunLlmInferenceAction
         private LlmInferenceService $inferenceService,
         private LlmHealthCheck $healthCheck,
         private LlmInteractionLogger $interactionLogger,
-        private StructuredOutputSanitizer $sanitizer,
-        private ExplicitUserTimeParser $explicitUserTimeParser,
+        private LlmPostProcessor $postProcessor,
     ) {}
 
     public function execute(
@@ -35,11 +34,21 @@ class RunLlmInferenceAction
         ?AssistantThread $thread = null,
         ?string $traceId = null,
     ): LlmInferenceResult {
-        $promptResult = $this->getSystemPrompt->execute($intent);
+        // Backward-compat alias: route legacy plan_time_block through the canonical schedule_tasks pipeline.
+        $effectiveIntent = $intent === LlmIntent::PlanTimeBlock ? LlmIntent::ScheduleTasks : $intent;
+        $effectiveEntityType = $intent === LlmIntent::PlanTimeBlock ? LlmEntityType::Multiple : $entityType;
+
+        $operationMode = $this->operationModeForIntent($effectiveIntent);
+        $entityTargets = $this->entityTargetsForIntent($effectiveIntent, $effectiveEntityType);
+        $promptResult = $this->getSystemPrompt->executeForModeAndScope(
+            mode: $operationMode,
+            scope: $effectiveEntityType,
+            entityTargets: $entityTargets,
+        );
 
         if (! $this->healthCheck->isReachable()) {
             $result = $this->inferenceService->fallbackOnly(
-                intent: $intent,
+                intent: $effectiveIntent,
                 promptVersion: $promptResult->version,
                 user: $user,
                 fallbackReason: 'health_unreachable',
@@ -47,8 +56,8 @@ class RunLlmInferenceAction
 
             $this->interactionLogger->logInference(
                 user: $user,
-                intent: $intent,
-                entityType: $entityType,
+                intent: $effectiveIntent,
+                entityType: $effectiveEntityType,
                 promptResult: $promptResult,
                 inferenceResult: $result,
                 context: [],
@@ -60,12 +69,12 @@ class RunLlmInferenceAction
             return $result;
         }
 
-        $context = $this->buildContext->execute($user, $intent, $entityType, $entityId, $thread, $userMessage);
+        $context = $this->buildContext->execute($user, $effectiveIntent, $effectiveEntityType, $entityId, $thread, $userMessage);
 
         $contextJson = json_encode($context, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $userPrompt = Str::limit($userMessage, 2000)."\n\nContext:\n".$contextJson;
 
-        $isPrioritizeIntent = in_array($intent, [
+        $isPrioritizeIntent = in_array($effectiveIntent, [
             LlmIntent::PrioritizeTasks,
             LlmIntent::PrioritizeEvents,
             LlmIntent::PrioritizeProjects,
@@ -85,34 +94,25 @@ class RunLlmInferenceAction
         $result = $this->inferenceService->infer(
             systemPrompt: $promptResult->systemPrompt,
             userPrompt: $userPrompt,
-            intent: $intent,
+            intent: $effectiveIntent,
             promptResult: $promptResult,
             user: $user,
         );
 
         $rawStructured = $result->structured;
+        $structured = $this->postProcessor->process(
+            user: $user,
+            intent: $effectiveIntent,
+            entityType: $effectiveEntityType,
+            context: $context,
+            userMessage: $userMessage,
+            userPrompt: $userPrompt,
+            promptResult: $promptResult,
+            result: $result,
+            traceId: $traceId,
+        );
 
-        $structured = in_array($intent, [LlmIntent::ScheduleTask, LlmIntent::AdjustTaskDeadline], true)
-            ? $this->taskScheduleStructuredFromRaw($rawStructured, $context)
-            : $this->sanitizer->sanitize($rawStructured, $context, $intent, $entityType, $userMessage);
-
-        if ($intent === LlmIntent::PrioritizeAll) {
-            $structured = $this->ensurePrioritizeAllHasRankedItems($structured, $context);
-        }
-
-        // Backend safety net for explicit user time across all single-entity schedule/adjust intents.
-        if (in_array($intent, [
-            LlmIntent::ScheduleTask,
-            LlmIntent::AdjustTaskDeadline,
-            LlmIntent::ScheduleEvent,
-            LlmIntent::AdjustEventTime,
-            LlmIntent::ScheduleProject,
-            LlmIntent::AdjustProjectTimeline,
-        ], true)) {
-            $structured = $this->overrideStartFromExplicitUserTime($structured, $context, $userMessage);
-        }
-
-        $contextFacts = $this->contextFactsForDisplay($context, $intent, $entityType);
+        $contextFacts = $this->contextFactsForDisplay($context, $effectiveIntent, $effectiveEntityType);
 
         $result = new LlmInferenceResult(
             structured: $structured,
@@ -129,8 +129,8 @@ class RunLlmInferenceAction
 
         $this->interactionLogger->logInference(
             user: $user,
-            intent: $intent,
-            entityType: $entityType,
+            intent: $effectiveIntent,
+            entityType: $effectiveEntityType,
             promptResult: $promptResult,
             inferenceResult: $result,
             context: $context,
@@ -142,260 +142,58 @@ class RunLlmInferenceAction
         return $result;
     }
 
-    /**
-     * Backend safety net for PrioritizeAll so we never return an empty ranked_*
-     * payload when there are items in context (e.g. tag-filtered Exam items).
-     *
-     * If sanitization strips all ranked items but Context still has tasks/events/projects,
-     * this method synthesizes a deterministic ranking based purely on Context.
-     *
-     * @param  array<string, mixed>  $structured
-     * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
-     */
-    private function ensurePrioritizeAllHasRankedItems(array $structured, array $context): array
+    private function operationModeForIntent(LlmIntent $intent): LlmOperationMode
     {
-        $tasksContext = $context['tasks'] ?? [];
-        $eventsContext = $context['events'] ?? [];
-        $projectsContext = $context['projects'] ?? [];
-
-        $hasAnyContext = (is_array($tasksContext) && $tasksContext !== [])
-            || (is_array($eventsContext) && $eventsContext !== [])
-            || (is_array($projectsContext) && $projectsContext !== []);
-
-        if (! $hasAnyContext) {
-            return $structured;
-        }
-
-        $rankedTasks = $structured['ranked_tasks'] ?? [];
-        $rankedEvents = $structured['ranked_events'] ?? [];
-        $rankedProjects = $structured['ranked_projects'] ?? [];
-
-        $hasAnyRanked = (is_array($rankedTasks) && $rankedTasks !== [])
-            || (is_array($rankedEvents) && $rankedEvents !== [])
-            || (is_array($rankedProjects) && $rankedProjects !== []);
-
-        if ($hasAnyRanked) {
-            return $structured;
-        }
-
-        $structured['ranked_tasks'] = $this->buildDeterministicTaskRankingFromContext($tasksContext);
-        $structured['ranked_events'] = $this->buildDeterministicEventRankingFromContext($eventsContext);
-        $structured['ranked_projects'] = $this->buildDeterministicProjectRankingFromContext($projectsContext);
-
-        $structured['recommended_action'] = __('I ranked your items by due date and priority using the filtered context from your request.');
-        $structured['reasoning'] = __(
-            'The AI output did not produce a usable ranked list, so I deterministically ordered your current context items by urgency instead.'
-        );
-
-        if (! isset($structured['entity_type']) || ! is_string($structured['entity_type']) || trim($structured['entity_type']) === '') {
-            $structured['entity_type'] = 'all';
-        }
-
-        return $structured;
+        return match ($intent) {
+            LlmIntent::ScheduleTask,
+            LlmIntent::ScheduleTasks,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::ScheduleProject,
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::ScheduleEventsAndProjects,
+            LlmIntent::ScheduleAll,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::AdjustProjectTimeline,
+            LlmIntent::PlanTimeBlock => LlmOperationMode::Schedule,
+            LlmIntent::PrioritizeTasks,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::PrioritizeProjects,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll => LlmOperationMode::Prioritize,
+            LlmIntent::CreateTask,
+            LlmIntent::CreateEvent,
+            LlmIntent::CreateProject => LlmOperationMode::Create,
+            LlmIntent::UpdateTaskProperties,
+            LlmIntent::UpdateEventProperties,
+            LlmIntent::UpdateProjectProperties => LlmOperationMode::Update,
+            LlmIntent::ResolveDependency => LlmOperationMode::ResolveDependency,
+            default => LlmOperationMode::General,
+        };
     }
 
     /**
-     * @param  array<int, array<string, mixed>>  $tasksContext
-     * @return array<int, array<string, mixed>>
+     * @return array<int, LlmEntityType>
      */
-    private function buildDeterministicTaskRankingFromContext(array $tasksContext): array
+    private function entityTargetsForIntent(LlmIntent $intent, LlmEntityType $entityType): array
     {
-        if ($tasksContext === []) {
-            return [];
+        if ($entityType !== LlmEntityType::Multiple) {
+            return [$entityType];
         }
 
-        $items = [];
-        foreach ($tasksContext as $task) {
-            if (! is_array($task)) {
-                continue;
-            }
-
-            $status = isset($task['status']) && is_string($task['status'])
-                ? mb_strtolower(trim($task['status']))
-                : null;
-
-            if ($status === 'done') {
-                continue;
-            }
-
-            $title = isset($task['title']) && is_string($task['title']) ? trim($task['title']) : '';
-            if ($title === '') {
-                continue;
-            }
-
-            $end = isset($task['end_datetime']) && is_string($task['end_datetime']) ? $task['end_datetime'] : null;
-            $priority = isset($task['priority']) && is_string($task['priority'])
-                ? mb_strtolower(trim($task['priority']))
-                : null;
-
-            $items[] = [
-                'title' => $title,
-                'end_datetime' => $end,
-                'priority' => $priority,
-            ];
-        }
-
-        if ($items === []) {
-            return [];
-        }
-
-        usort($items, static function (array $a, array $b): int {
-            $aEnd = $a['end_datetime'] ?? null;
-            $bEnd = $b['end_datetime'] ?? null;
-
-            if ($aEnd !== null && $bEnd !== null && $aEnd !== $bEnd) {
-                return strcmp($aEnd, $bEnd);
-            }
-
-            $priorityWeight = static function (?string $priority): int {
-                return match ($priority) {
-                    'urgent' => 1,
-                    'high' => 2,
-                    'medium' => 3,
-                    'low' => 4,
-                    default => 5,
-                };
-            };
-
-            $aWeight = $priorityWeight($a['priority'] ?? null);
-            $bWeight = $priorityWeight($b['priority'] ?? null);
-
-            if ($aWeight !== $bWeight) {
-                return $aWeight <=> $bWeight;
-            }
-
-            return strcmp($a['title'], $b['title']);
-        });
-
-        $ranked = [];
-        $rank = 1;
-        foreach ($items as $item) {
-            $ranked[] = [
-                'rank' => $rank++,
-                'title' => $item['title'],
-                'end_datetime' => $item['end_datetime'] ?? null,
-            ];
-        }
-
-        return $ranked;
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $eventsContext
-     * @return array<int, array<string, mixed>>
-     */
-    private function buildDeterministicEventRankingFromContext(array $eventsContext): array
-    {
-        if ($eventsContext === []) {
-            return [];
-        }
-
-        $items = [];
-        foreach ($eventsContext as $event) {
-            if (! is_array($event)) {
-                continue;
-            }
-
-            $title = isset($event['title']) && is_string($event['title']) ? trim($event['title']) : '';
-            if ($title === '') {
-                continue;
-            }
-
-            $start = isset($event['start_datetime']) && is_string($event['start_datetime']) ? $event['start_datetime'] : null;
-            $end = isset($event['end_datetime']) && is_string($event['end_datetime']) ? $event['end_datetime'] : null;
-
-            $items[] = [
-                'title' => $title,
-                'start_datetime' => $start,
-                'end_datetime' => $end,
-            ];
-        }
-
-        if ($items === []) {
-            return [];
-        }
-
-        usort($items, static function (array $a, array $b): int {
-            $aStart = $a['start_datetime'] ?? null;
-            $bStart = $b['start_datetime'] ?? null;
-
-            if ($aStart !== null && $bStart !== null && $aStart !== $bStart) {
-                return strcmp($aStart, $bStart);
-            }
-
-            return strcmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
-        });
-
-        $ranked = [];
-        $rank = 1;
-        foreach ($items as $item) {
-            $ranked[] = [
-                'rank' => $rank++,
-                'title' => $item['title'],
-                'start_datetime' => $item['start_datetime'] ?? null,
-                'end_datetime' => $item['end_datetime'] ?? null,
-            ];
-        }
-
-        return $ranked;
-    }
-
-    /**
-     * @param  array<int, array<string, mixed>>  $projectsContext
-     * @return array<int, array<string, mixed>>
-     */
-    private function buildDeterministicProjectRankingFromContext(array $projectsContext): array
-    {
-        if ($projectsContext === []) {
-            return [];
-        }
-
-        $items = [];
-        foreach ($projectsContext as $project) {
-            if (! is_array($project)) {
-                continue;
-            }
-
-            $name = isset($project['name']) && is_string($project['name']) ? trim($project['name']) : '';
-            if ($name === '') {
-                continue;
-            }
-
-            $end = isset($project['end_datetime']) && is_string($project['end_datetime']) ? $project['end_datetime'] : null;
-
-            $items[] = [
-                'name' => $name,
-                'end_datetime' => $end,
-            ];
-        }
-
-        if ($items === []) {
-            return [];
-        }
-
-        usort($items, static function (array $a, array $b): int {
-            $aEnd = $a['end_datetime'] ?? null;
-            $bEnd = $b['end_datetime'] ?? null;
-
-            if ($aEnd !== null && $bEnd !== null && $aEnd !== $bEnd) {
-                return strcmp($aEnd, $bEnd);
-            }
-
-            return strcmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
-        });
-
-        $ranked = [];
-        $rank = 1;
-        foreach ($items as $item) {
-            $ranked[] = [
-                'rank' => $rank++,
-                'name' => $item['name'],
-                'end_datetime' => $item['end_datetime'] ?? null,
-            ];
-        }
-
-        return $ranked;
+        return match ($intent) {
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndEvents => [LlmEntityType::Task, LlmEntityType::Event],
+            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::PrioritizeTasksAndProjects => [LlmEntityType::Task, LlmEntityType::Project],
+            LlmIntent::ScheduleEventsAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects => [LlmEntityType::Event, LlmEntityType::Project],
+            LlmIntent::ScheduleTasks => [LlmEntityType::Task],
+            default => [LlmEntityType::Task, LlmEntityType::Event, LlmEntityType::Project],
+        };
     }
 
     /**
@@ -415,17 +213,23 @@ class RunLlmInferenceAction
             LlmIntent::PrioritizeEventsAndProjects,
             LlmIntent::PrioritizeAll,
         ], true);
-        if (! $isPrioritizeIntent) {
-            return null;
-        }
-
         $timezone = $context['timezone'] ?? config('app.timezone');
 
-        $facts = [
-            'timezone' => $timezone,
-            'current_time' => $context['current_time'] ?? null,
-            'current_date' => $context['current_date'] ?? null,
-        ];
+        $facts = [];
+        if (is_array($context['filtering_summary'] ?? null)) {
+            $facts['filtering_summary'] = $context['filtering_summary'];
+        }
+        if (is_array($context['response_style'] ?? null)) {
+            $facts['response_style'] = $context['response_style'];
+        }
+
+        if (! $isPrioritizeIntent) {
+            return $facts !== [] ? $facts : null;
+        }
+
+        $facts['timezone'] = $timezone;
+        $facts['current_time'] = $context['current_time'] ?? null;
+        $facts['current_date'] = $context['current_date'] ?? null;
 
         $tasks = $context['tasks'] ?? null;
         if (is_array($tasks) && $tasks !== []) {
@@ -506,98 +310,5 @@ class RunLlmInferenceAction
         $hasAny = isset($facts['task_facts_by_title']) || isset($facts['event_facts_by_title']) || isset($facts['project_facts_by_name']);
 
         return $hasAny ? $facts : null;
-    }
-
-    /**
-     * Use raw LLM output for task schedule; only override when there are no tasks in context.
-     *
-     * @param  array<string, mixed>  $rawStructured
-     * @param  array<string, mixed>  $context
-     * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
-     */
-    private function taskScheduleStructuredFromRaw(array $rawStructured, array $context): array
-    {
-        $tasks = $context['tasks'] ?? [];
-        if (! is_array($tasks) || $tasks === []) {
-            return [
-                'entity_type' => 'task',
-                'recommended_action' => __('You have no tasks yet. Add tasks to your list to get scheduling suggestions.'),
-                'reasoning' => __('I checked your tasks and there are none to schedule right now.'),
-            ];
-        }
-
-        $structured = $rawStructured;
-        unset($structured['end_datetime']);
-        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
-            unset($structured['proposed_properties']['end_datetime']);
-        }
-
-        $structured = $this->ensureSensibleStartTimeForTaskSchedule($structured);
-
-        return $structured;
-    }
-
-    /**
-     * When the user explicitly specifies a concrete date/time (e.g. "Friday at 9am"),
-     * treat that as the primary source of truth for start_datetime and override any
-     * conflicting start time from the model. This mirrors the RESPECT_EXPLICIT_USER_TIME
-     * guardrail at the prompt layer with a backend safety net.
-     *
-     * @param  array<string, mixed>  $structured
-     * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
-     */
-    private function overrideStartFromExplicitUserTime(array $structured, array $context, ?string $userMessage): array
-    {
-        $candidate = $this->explicitUserTimeParser->parseStartDatetime(
-            $userMessage ?? ($context['user_scheduling_request'] ?? null),
-            $context
-        );
-
-        if ($candidate === null) {
-            return $structured;
-        }
-
-        $structured['start_datetime'] = $candidate->toIso8601String();
-        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
-            $structured['proposed_properties']['start_datetime'] = $candidate->toIso8601String();
-        }
-
-        return $structured;
-    }
-
-    /**
-     * Ensure start_datetime is at least 30 minutes from now so the user has time to get ready.
-     *
-     * @param  array<string, mixed>  $structured
-     * @return array<string, mixed>
-     */
-    private function ensureSensibleStartTimeForTaskSchedule(array $structured): array
-    {
-        $startRaw = $structured['start_datetime'] ?? null;
-        if (! is_string($startRaw) || trim($startRaw) === '') {
-            return $structured;
-        }
-
-        $timezone = config('app.timezone', 'Asia/Manila');
-        try {
-            $start = \Carbon\CarbonImmutable::parse($startRaw, $timezone)->setTimezone($timezone);
-        } catch (\Throwable) {
-            return $structured;
-        }
-
-        $now = \Carbon\CarbonImmutable::now($timezone);
-        $earliestSensible = $now->addMinutes(30)->setSecond(0)->setMicrosecond(0);
-        if ($start->gte($earliestSensible)) {
-            return $structured;
-        }
-
-        $structured['start_datetime'] = $earliestSensible->toIso8601String();
-        if (isset($structured['proposed_properties']) && is_array($structured['proposed_properties'])) {
-            $structured['proposed_properties']['start_datetime'] = $earliestSensible->toIso8601String();
-        }
-
-        return $structured;
     }
 }

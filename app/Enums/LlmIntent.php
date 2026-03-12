@@ -4,7 +4,9 @@ namespace App\Enums;
 
 enum LlmIntent: string
 {
+    case PlanTimeBlock = 'plan_time_block';
     case ScheduleTask = 'schedule_task';
+    case ScheduleTasks = 'schedule_tasks';
     case ScheduleEvent = 'schedule_event';
     case ScheduleProject = 'schedule_project';
     case ScheduleTasksAndEvents = 'schedule_tasks_and_events';
@@ -33,6 +35,7 @@ enum LlmIntent: string
     public function isReadonly(): bool
     {
         return match ($this) {
+            self::PlanTimeBlock,
             self::ScheduleTasksAndEvents, self::ScheduleTasksAndProjects, self::ScheduleEventsAndProjects, self::ScheduleAll,
             self::PrioritizeEvents, self::PrioritizeProjects, self::PrioritizeTasksAndEvents,
             self::PrioritizeTasksAndProjects, self::PrioritizeEventsAndProjects, self::PrioritizeAll => true,

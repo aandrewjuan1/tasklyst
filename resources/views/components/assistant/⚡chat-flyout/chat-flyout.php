@@ -6,6 +6,7 @@ use App\Actions\Llm\ApplyAssistantProjectCreateRecommendationAction;
 use App\Actions\Llm\ApplyAssistantProjectRecommendationAction;
 use App\Actions\Llm\ApplyAssistantTaskCreateRecommendationAction;
 use App\Actions\Llm\ApplyAssistantTaskRecommendationAction;
+use App\Actions\Llm\ApplyAssistantTasksRecommendationAction;
 use App\Actions\Llm\ProcessAssistantMessageAction;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
@@ -385,9 +386,23 @@ new class extends Component
             return;
         }
 
+        if ($entityType === LlmEntityType::Multiple && $intent !== LlmIntent::ScheduleTasks) {
+            Log::info('assistant.apply_recommendation.readonly_multiple_intent_blocked', [
+                'assistant_message_id' => $assistantMessageId,
+                'thread_id' => $this->threadId,
+                'user_id' => $user->id,
+                'user_action' => $userAction,
+                'intent' => $intent->value,
+            ]);
+
+            return;
+        }
+
         $didApply = false;
 
-        if (in_array($intent, [LlmIntent::CreateTask, LlmIntent::CreateEvent, LlmIntent::CreateProject], true)) {
+        if ($intent === LlmIntent::ScheduleTasks && $entityType === LlmEntityType::Multiple) {
+            $didApply = app(ApplyAssistantTasksRecommendationAction::class)->execute($user, $snapshot, $userAction);
+        } elseif (in_array($intent, [LlmIntent::CreateTask, LlmIntent::CreateEvent, LlmIntent::CreateProject], true)) {
             match ($entityType) {
                 LlmEntityType::Task => app(ApplyAssistantTaskCreateRecommendationAction::class)->execute($user, $snapshot, $userAction),
                 LlmEntityType::Event => app(ApplyAssistantEventCreateRecommendationAction::class)->execute($user, $snapshot, $userAction),
@@ -509,7 +524,7 @@ new class extends Component
 
     /**
      * Resolve the task to apply when entity_type is task.
-     * Uses id from snapshot.structured (raw LLM output) or appliable_changes first; falls back to title match.
+     * Uses id from snapshot.structured or appliable_changes first; then exact title only.
      *
      * @param  array<string, mixed>  $snapshot
      */
@@ -562,33 +577,18 @@ new class extends Component
             if ($task instanceof Task) {
                 return $task;
             }
+
             $normalized = mb_strtolower($targetTitle);
             $all = (clone $query)->get();
-            $task = $all->first(function (Task $t) use ($normalized): bool {
+            $matching = $all->filter(function (Task $t) use ($normalized): bool {
                 $tTitle = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($t->title ?? '')));
 
                 return $tTitle === $normalized;
             });
-            if ($task instanceof Task) {
-                return $task;
-            }
-            $task = $all->first(function (Task $t) use ($normalized): bool {
-                $tTitle = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($t->title ?? '')));
 
-                return $tTitle === $normalized
-                    || str_starts_with($tTitle, $normalized)
-                    || str_starts_with($normalized, $tTitle);
-            });
-            if ($task instanceof Task) {
-                return $task;
-            }
-            $task = $all->first(function (Task $t) use ($normalized): bool {
-                $tTitle = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($t->title ?? '')));
+            $resolved = $matching->count() === 1 ? $matching->first() : null;
 
-                return mb_strpos($tTitle, $normalized) !== false || mb_strpos($normalized, $tTitle) !== false;
-            });
-
-            return $task instanceof Task ? $task : null;
+            return $resolved instanceof Task ? $resolved : null;
         }
 
         return null;
@@ -596,7 +596,7 @@ new class extends Component
 
     /**
      * Resolve the event to apply when entity_type is event.
-     * Uses id from snapshot.structured (raw LLM output) or appliable_changes first; falls back to title match.
+     * Uses id from snapshot.structured or appliable_changes first; then exact title only.
      *
      * @param  array<string, mixed>  $snapshot
      */
@@ -649,33 +649,18 @@ new class extends Component
             if ($event instanceof Event) {
                 return $event;
             }
+
             $normalized = mb_strtolower($targetTitle);
             $all = (clone $query)->get();
-            $event = $all->first(function (Event $e) use ($normalized): bool {
+            $matching = $all->filter(function (Event $e) use ($normalized): bool {
                 $eTitle = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($e->title ?? '')));
 
                 return $eTitle === $normalized;
             });
-            if ($event instanceof Event) {
-                return $event;
-            }
-            $event = $all->first(function (Event $e) use ($normalized): bool {
-                $eTitle = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($e->title ?? '')));
 
-                return $eTitle === $normalized
-                    || str_starts_with($eTitle, $normalized)
-                    || str_starts_with($normalized, $eTitle);
-            });
-            if ($event instanceof Event) {
-                return $event;
-            }
-            $event = $all->first(function (Event $e) use ($normalized): bool {
-                $eTitle = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($e->title ?? '')));
+            $resolved = $matching->count() === 1 ? $matching->first() : null;
 
-                return mb_strpos($eTitle, $normalized) !== false || mb_strpos($normalized, $eTitle) !== false;
-            });
-
-            return $event instanceof Event ? $event : null;
+            return $resolved instanceof Event ? $resolved : null;
         }
 
         return null;
@@ -683,7 +668,7 @@ new class extends Component
 
     /**
      * Resolve the project to apply when entity_type is project.
-     * Uses id from snapshot.structured (raw LLM output) or appliable_changes first; falls back to name match.
+     * Uses id from snapshot.structured or appliable_changes first; then exact name only.
      *
      * @param  array<string, mixed>  $snapshot
      */
@@ -738,33 +723,18 @@ new class extends Component
             if ($project instanceof Project) {
                 return $project;
             }
+
             $normalized = mb_strtolower($targetName);
             $all = (clone $query)->get();
-            $project = $all->first(function (Project $p) use ($normalized): bool {
+            $matching = $all->filter(function (Project $p) use ($normalized): bool {
                 $pName = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($p->name ?? '')));
 
                 return $pName === $normalized;
             });
-            if ($project instanceof Project) {
-                return $project;
-            }
-            $project = $all->first(function (Project $p) use ($normalized): bool {
-                $pName = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($p->name ?? '')));
 
-                return $pName === $normalized
-                    || str_starts_with($pName, $normalized)
-                    || str_starts_with($normalized, $pName);
-            });
-            if ($project instanceof Project) {
-                return $project;
-            }
-            $project = $all->first(function (Project $p) use ($normalized): bool {
-                $pName = mb_strtolower((string) preg_replace('/\s+/', ' ', trim($p->name ?? '')));
+            $resolved = $matching->count() === 1 ? $matching->first() : null;
 
-                return mb_strpos($pName, $normalized) !== false || mb_strpos($normalized, $pName) !== false;
-            });
-
-            return $project instanceof Project ? $project : null;
+            return $resolved instanceof Project ? $resolved : null;
         }
 
         return null;

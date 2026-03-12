@@ -17,6 +17,24 @@ test('returns system prompt and version for schedule_task intent', function (): 
         ->and($result->version)->not->toBeEmpty();
 });
 
+test('returns system prompt and version for plan_time_block intent', function (): void {
+    $result = $this->action->execute(LlmIntent::PlanTimeBlock);
+
+    expect($result->systemPrompt)->toBeString()
+        ->and($result->systemPrompt)->not->toBeEmpty()
+        ->and($result->version)->toBeString()
+        ->and($result->version)->not->toBeEmpty();
+});
+
+test('returns system prompt and version for schedule_tasks intent', function (): void {
+    $result = $this->action->execute(LlmIntent::ScheduleTasks);
+
+    expect($result->systemPrompt)->toBeString()
+        ->and($result->systemPrompt)->not->toBeEmpty()
+        ->and($result->version)->toBeString()
+        ->and($result->version)->not->toBeEmpty();
+});
+
 test('schedule task prompt includes recurring constraint', function (): void {
     $result = $this->action->execute(LlmIntent::ScheduleTask);
 
@@ -50,7 +68,7 @@ test('returns correct prompt per intent', function (LlmIntent $intent): void {
     $result = $this->action->execute($intent);
 
     expect($result->systemPrompt)->toBeString()
-        ->and($result->version)->toBe('v1.7');
+        ->and($result->version)->toBe('v1.8');
 })->with([
     LlmIntent::ScheduleEvent,
     LlmIntent::PrioritizeTasks,
@@ -75,7 +93,7 @@ test('each intent returns unique prompt content', function (): void {
 test('template exposes version for phase 9 logging', function (): void {
     $template = app(ScheduleTaskPrompt::class);
 
-    expect($template->version())->toBe('v1.7');
+    expect($template->version())->toBe('v1.8');
 });
 
 test('prioritize tasks prompt enforces exact requested_top_n when possible', function (): void {
@@ -85,4 +103,16 @@ test('prioritize tasks prompt enforces exact requested_top_n when possible', fun
         ->toContain('requested_top_n')
         ->and($result->systemPrompt)
         ->toContain('you MUST return exactly requested_top_n items in ranked_tasks');
+});
+
+test('shared prompt contract includes warm coach tone and filter-first acknowledgement rule', function (): void {
+    $prioritizePrompt = $this->action->execute(LlmIntent::PrioritizeTasks);
+    $schedulePrompt = $this->action->execute(LlmIntent::ScheduleTasks);
+    $generalPrompt = $this->action->execute(LlmIntent::GeneralQuery);
+
+    expect($prioritizePrompt->systemPrompt)->toContain('warm coach')
+        ->and($prioritizePrompt->systemPrompt)->toContain('filtering_summary.applied=true')
+        ->and($prioritizePrompt->systemPrompt)->toContain('mention what was filtered')
+        ->and($schedulePrompt->systemPrompt)->toContain('Context.filtering_summary.applied is true')
+        ->and($generalPrompt->systemPrompt)->toContain('Context.filtering_summary.applied is true');
 });

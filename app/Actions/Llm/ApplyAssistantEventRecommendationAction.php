@@ -41,6 +41,7 @@ class ApplyAssistantEventRecommendationAction
         if (! in_array($intent, [
             LlmIntent::ScheduleEvent,
             LlmIntent::AdjustEventTime,
+            LlmIntent::UpdateEventProperties,
             LlmIntent::ScheduleTasksAndEvents,
             LlmIntent::ScheduleEventsAndProjects,
         ], true)) {

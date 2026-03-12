@@ -19,7 +19,9 @@ use App\DataTransferObjects\Llm\TaskPrioritizationRecommendationDto;
 use App\DataTransferObjects\Llm\TasksAndEventsPrioritizationDto;
 use App\DataTransferObjects\Llm\TasksAndProjectsPrioritizationDto;
 use App\DataTransferObjects\Llm\TaskScheduleRecommendationDto;
+use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Enums\LlmOperationMode;
 use App\Models\User;
 use App\Services\Llm\LlmSchemaFactory;
 use App\Services\Llm\RuleBasedPrioritizationService;
@@ -61,7 +63,10 @@ class LlmInferenceService
         $model = config('tasklyst.llm.model', 'hermes3:3b');
         $maxAttempts = max(1, (int) config('tasklyst.llm.max_attempts', 1));
 
-        $schema = $this->schemaFactory->schemaForIntent($intent);
+        $mode = $this->operationModeForIntent($intent);
+        $scope = $this->entityScopeForIntent($intent);
+        $targets = $this->entityTargetsForIntent($intent, $scope);
+        $schema = $this->schemaFactory->schemaForModeAndScope($mode, $scope, $targets);
         $timeout = (int) config('tasklyst.llm.timeout', 60);
         $temperature = (float) config('tasklyst.llm.temperature', 0.3);
         $numCtx = (int) config('tasklyst.llm.num_ctx', 4096);
@@ -199,6 +204,7 @@ class LlmInferenceService
         $normalized = match ($intent) {
             LlmIntent::ScheduleTask,
             LlmIntent::AdjustTaskDeadline => 'task',
+            LlmIntent::ScheduleTasks => 'task',
             LlmIntent::PrioritizeTasks => in_array($raw, ['task', 'tasks'], true) || $raw === ''
                 ? 'task'
                 : $raw,
@@ -367,6 +373,29 @@ class LlmInferenceService
             return true;
         }
 
+        if ($intent === LlmIntent::ScheduleTasks) {
+            if (! isset($structured['recommended_action'], $structured['reasoning'])) {
+                return false;
+            }
+            if (! is_string($structured['recommended_action']) || ! is_string($structured['reasoning'])) {
+                return false;
+            }
+            if (trim($structured['recommended_action']) === '' || trim($structured['reasoning']) === '') {
+                return false;
+            }
+            $hasTasks = isset($structured['scheduled_tasks']) && is_array($structured['scheduled_tasks']);
+            if (! $hasTasks) {
+                return false;
+            }
+            if (isset($structured['confidence'])
+                && (! is_numeric($structured['confidence']) || (float) $structured['confidence'] < 0.0 || (float) $structured['confidence'] > 1.0)
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
         if ($intent === LlmIntent::ScheduleTasksAndProjects) {
             if (! isset($structured['recommended_action'], $structured['reasoning'])) {
                 return false;
@@ -465,6 +494,7 @@ class LlmInferenceService
             LlmIntent::ScheduleTask,
             LlmIntent::AdjustTaskDeadline,
             LlmIntent::PrioritizeTasks => 'task',
+            LlmIntent::ScheduleTasks => 'task',
             LlmIntent::ScheduleEvent,
             LlmIntent::AdjustEventTime,
             LlmIntent::PrioritizeEvents => 'event',
@@ -520,6 +550,7 @@ class LlmInferenceService
                 || $hasCoreText,
             LlmIntent::PrioritizeAll => AllPrioritizationDto::fromStructured($structured) !== null
                 || $hasCoreText,
+            LlmIntent::ScheduleTasks => $hasCoreText,
             LlmIntent::ScheduleTasksAndEvents => ScheduleTasksAndEventsDto::fromStructured($structured) !== null
                 || $hasCoreText,
             LlmIntent::ScheduleTasksAndProjects => ScheduleTasksAndProjectsDto::fromStructured($structured) !== null
@@ -650,6 +681,16 @@ class LlmInferenceService
             ];
         }
 
+        if ($intent === LlmIntent::ScheduleTasks) {
+            return [
+                'entity_type' => 'task',
+                'recommended_action' => 'Scheduling for tasks is unavailable right now. Please try again later.',
+                'reasoning' => 'The assistant is temporarily unavailable. Schedule suggestions could not be generated.',
+                'confidence' => 0.3,
+                'scheduled_tasks' => [],
+            ];
+        }
+
         if ($intent === LlmIntent::ScheduleTasksAndProjects) {
             return [
                 'entity_type' => 'task,project',
@@ -690,5 +731,85 @@ class LlmInferenceService
             'reasoning' => 'The assistant is temporarily unavailable or could not produce a valid response.',
             'confidence' => 0.0,
         ];
+    }
+
+    private function operationModeForIntent(LlmIntent $intent): LlmOperationMode
+    {
+        return match ($intent) {
+            LlmIntent::ScheduleTask,
+            LlmIntent::ScheduleTasks,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::ScheduleProject,
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::ScheduleEventsAndProjects,
+            LlmIntent::ScheduleAll,
+            LlmIntent::AdjustTaskDeadline,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::AdjustProjectTimeline,
+            LlmIntent::PlanTimeBlock => LlmOperationMode::Schedule,
+            LlmIntent::PrioritizeTasks,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::PrioritizeProjects,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll => LlmOperationMode::Prioritize,
+            LlmIntent::CreateTask,
+            LlmIntent::CreateEvent,
+            LlmIntent::CreateProject => LlmOperationMode::Create,
+            LlmIntent::UpdateTaskProperties,
+            LlmIntent::UpdateEventProperties,
+            LlmIntent::UpdateProjectProperties => LlmOperationMode::Update,
+            LlmIntent::ResolveDependency => LlmOperationMode::ResolveDependency,
+            default => LlmOperationMode::General,
+        };
+    }
+
+    private function entityScopeForIntent(LlmIntent $intent): LlmEntityType
+    {
+        return match ($intent) {
+            LlmIntent::ScheduleTasks,
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::ScheduleEventsAndProjects,
+            LlmIntent::ScheduleAll,
+            LlmIntent::PrioritizeTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects,
+            LlmIntent::PrioritizeAll => LlmEntityType::Multiple,
+            LlmIntent::ScheduleEvent,
+            LlmIntent::AdjustEventTime,
+            LlmIntent::PrioritizeEvents,
+            LlmIntent::UpdateEventProperties,
+            LlmIntent::CreateEvent => LlmEntityType::Event,
+            LlmIntent::ScheduleProject,
+            LlmIntent::AdjustProjectTimeline,
+            LlmIntent::PrioritizeProjects,
+            LlmIntent::UpdateProjectProperties,
+            LlmIntent::CreateProject => LlmEntityType::Project,
+            default => LlmEntityType::Task,
+        };
+    }
+
+    /**
+     * @return array<int, LlmEntityType>
+     */
+    private function entityTargetsForIntent(LlmIntent $intent, LlmEntityType $scope): array
+    {
+        if ($scope !== LlmEntityType::Multiple) {
+            return [$scope];
+        }
+
+        return match ($intent) {
+            LlmIntent::ScheduleTasksAndEvents,
+            LlmIntent::PrioritizeTasksAndEvents => [LlmEntityType::Task, LlmEntityType::Event],
+            LlmIntent::ScheduleTasksAndProjects,
+            LlmIntent::PrioritizeTasksAndProjects => [LlmEntityType::Task, LlmEntityType::Project],
+            LlmIntent::ScheduleEventsAndProjects,
+            LlmIntent::PrioritizeEventsAndProjects => [LlmEntityType::Event, LlmEntityType::Project],
+            LlmIntent::ScheduleTasks => [LlmEntityType::Task],
+            default => [LlmEntityType::Task, LlmEntityType::Event, LlmEntityType::Project],
+        };
     }
 }

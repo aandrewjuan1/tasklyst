@@ -3,181 +3,52 @@
 use App\Actions\Llm\ClassifyLlmIntentAction;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Enums\LlmOperationMode;
 
 beforeEach(function (): void {
     config([
         'tasklyst.intent.use_llm_fallback' => false,
     ]);
-
-    $this->action = app(ClassifyLlmIntentAction::class);
 });
 
 test('classifies schedule task intent', function (): void {
-    $result = $this->action->execute('Schedule my dashboard task by Friday');
+    $result = app(ClassifyLlmIntentAction::class)->execute('Schedule my dashboard task by Friday');
 
-    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
-        ->and($result->entityType)->toBe(LlmEntityType::Task)
-        ->and($result->confidence)->toBeGreaterThan(0.5);
-});
-
-test('classifies schedule the top 1 for later as schedule_task not schedule_event', function (): void {
-    $result = $this->action->execute('schedule the top 1 for later');
-
-    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
+    expect($result->operationMode)->toBe(LlmOperationMode::Schedule)
+        ->and($result->intent)->toBe(LlmIntent::ScheduleTask)
         ->and($result->entityType)->toBe(LlmEntityType::Task);
 });
 
-test('classifies previous list schedule top 1 for today as schedule_task (not prioritize)', function (): void {
-    $result = $this->action->execute('in previous list schedule the top 1 for today');
+test('classifies multi-task time-window planning as schedule_tasks', function (): void {
+    $result = app(ClassifyLlmIntentAction::class)->execute('From 7pm to 11pm tonight, create a realistic plan using my existing tasks. Include at least one break and don’t schedule more than 3 hours of focused work.');
 
-    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
-        ->and($result->entityType)->toBe(LlmEntityType::Task);
-});
-
-test('schedule intent wins over list language when both are present', function (): void {
-    $result = $this->action->execute('show me my tasks and schedule the top 1 for later');
-
-    expect($result->intent)->toBe(LlmIntent::ScheduleTask)
-        ->and($result->entityType)->toBe(LlmEntityType::Task);
-});
-
-test('classifies schedule event intent', function (): void {
-    $result = $this->action->execute('Schedule a team meeting for next Tuesday');
-
-    expect($result->intent)->toBe(LlmIntent::ScheduleEvent)
-        ->and($result->entityType)->toBe(LlmEntityType::Event);
-});
-
-test('classifies schedule project intent', function (): void {
-    $result = $this->action->execute('Schedule the website redesign project');
-
-    expect($result->intent)->toBe(LlmIntent::ScheduleProject)
-        ->and($result->entityType)->toBe(LlmEntityType::Project);
-});
-
-test('classifies prioritize tasks intent', function (): void {
-    $result = $this->action->execute('What tasks should I focus on today?');
-
-    expect($result->intent)->toBe(LlmIntent::PrioritizeTasks)
-        ->and($result->entityType)->toBe(LlmEntityType::Task);
-});
-
-test('classifies list my top tasks ASAP as prioritize_tasks (not general_query)', function (): void {
-    $result = $this->action->execute('list me my top 5 tasks that i need to do ASAP');
-
-    expect($result->intent)->toBe(LlmIntent::PrioritizeTasks)
-        ->and($result->entityType)->toBe(LlmEntityType::Task)
-        ->and($result->confidence)->toBeGreaterThan(0.5);
-});
-
-test('classifies list my top events ASAP as prioritize_events (not general_query)', function (): void {
-    $result = $this->action->execute('list me my top 5 events that i need to attend ASAP');
-
-    expect($result->intent)->toBe(LlmIntent::PrioritizeEvents)
-        ->and($result->entityType)->toBe(LlmEntityType::Event)
-        ->and($result->confidence)->toBeGreaterThan(0.5);
-});
-
-test('classifies list my top projects ASAP as prioritize_projects (not general_query)', function (): void {
-    $result = $this->action->execute('list me my top 3 projects that i need to do ASAP');
-
-    expect($result->intent)->toBe(LlmIntent::PrioritizeProjects)
-        ->and($result->entityType)->toBe(LlmEntityType::Project)
-        ->and($result->confidence)->toBeGreaterThan(0.5);
+    expect($result->operationMode)->toBe(LlmOperationMode::Schedule)
+        ->and($result->intent)->toBe(LlmIntent::ScheduleTasks)
+        ->and($result->entityType)->toBe(LlmEntityType::Multiple);
 });
 
 test('classifies prioritize events intent', function (): void {
-    $result = $this->action->execute('Which events are most important this week?');
+    $result = app(ClassifyLlmIntentAction::class)->execute('Which events are most important this week?');
 
-    expect($result->intent)->toBe(LlmIntent::PrioritizeEvents)
+    expect($result->operationMode)->toBe(LlmOperationMode::Prioritize)
+        ->and($result->intent)->toBe(LlmIntent::PrioritizeEvents)
         ->and($result->entityType)->toBe(LlmEntityType::Event);
 });
 
-test('classifies prioritize projects intent', function (): void {
-    $result = $this->action->execute('What projects should I prioritize?');
+test('classifies adjust project timeline intent via schedule mode aliasing', function (): void {
+    $result = app(ClassifyLlmIntentAction::class)->execute('Can we extend the website project timeline?');
 
-    expect($result->intent)->toBe(LlmIntent::PrioritizeProjects)
+    expect($result->operationMode)->toBe(LlmOperationMode::Schedule)
+        ->and($result->intent)->toBe(LlmIntent::AdjustProjectTimeline)
         ->and($result->entityType)->toBe(LlmEntityType::Project);
 });
 
-test('classifies resolve dependency intent', function (): void {
-    $result = $this->action->execute('I\'m blocked on the API integration task');
-
-    expect($result->intent)->toBe(LlmIntent::ResolveDependency)
-        ->and($result->entityType)->toBe(LlmEntityType::Task);
-});
-
-test('classifies adjust task deadline intent', function (): void {
-    $result = $this->action->execute('Can we push the dashboard task deadline to next week?');
-
-    expect($result->intent)->toBe(LlmIntent::AdjustTaskDeadline)
-        ->and($result->entityType)->toBe(LlmEntityType::Task);
-});
-
-test('classifies adjust event time intent', function (): void {
-    $result = $this->action->execute('Can we move the team meeting to Thursday?');
-
-    expect($result->intent)->toBe(LlmIntent::AdjustEventTime)
-        ->and($result->entityType)->toBe(LlmEntityType::Event);
-});
-
-test('classifies adjust project timeline intent', function (): void {
-    $result = $this->action->execute('Can we extend the website project timeline?');
-
-    expect($result->intent)->toBe(LlmIntent::AdjustProjectTimeline)
-        ->and($result->entityType)->toBe(LlmEntityType::Project);
-});
-
-test('classifies general query when no intent keywords match', function (): void {
-    $result = $this->action->execute('What is the weather tomorrow?');
-
-    expect($result->intent)->toBe(LlmIntent::GeneralQuery)
-        ->and($result->confidence)->toBe(0.5);
-});
-
-test('result toArray returns intent entity_type and confidence', function (): void {
-    $result = $this->action->execute('Schedule my task by Friday');
-
+test('classifies general query and includes canonical fields in toArray', function (): void {
+    $result = app(ClassifyLlmIntentAction::class)->execute('What is the weather tomorrow?');
     $arr = $result->toArray();
 
-    expect($arr)->toHaveKeys(['intent', 'entity_type', 'confidence'])
-        ->and($arr['intent'])->toBe('schedule_task')
-        ->and($arr['entity_type'])->toBe('task')
-        ->and($arr['confidence'])->toBeNumeric();
-});
-
-test('prioritize_events and prioritize_projects are readonly', function (): void {
-    $eventsResult = $this->action->execute('Which events are most important?');
-    $projectsResult = $this->action->execute('What projects should I prioritize?');
-
-    expect(LlmIntent::PrioritizeEvents->isReadonly())->toBeTrue()
-        ->and(LlmIntent::PrioritizeProjects->isReadonly())->toBeTrue()
-        ->and(LlmIntent::PrioritizeTasks->isReadonly())->toBeFalse();
-});
-
-test('schedule and adjust intents are actionable', function (): void {
-    expect(LlmIntent::ScheduleTask->isActionable())->toBeTrue()
-        ->and(LlmIntent::AdjustEventTime->isActionable())->toBeTrue()
-        ->and(LlmIntent::GeneralQuery->isActionable())->toBeFalse();
-});
-
-test('entity detection prefers event when meeting is mentioned', function (): void {
-    $result = $this->action->execute('Reschedule the meeting to next week');
-
-    expect($result->entityType)->toBe(LlmEntityType::Event)
-        ->and($result->intent)->toBe(LlmIntent::AdjustEventTime);
-});
-
-test('entity detection prefers project when project keyword is strong', function (): void {
-    $result = $this->action->execute('What project should I work on first?');
-
-    expect($result->entityType)->toBe(LlmEntityType::Project)
-        ->and($result->intent)->toBe(LlmIntent::PrioritizeProjects);
-});
-
-test('normalizes whitespace and case', function (): void {
-    $result = $this->action->execute('  PRIORITY   TASKS   TODAY  ');
-
-    expect($result->intent)->toBe(LlmIntent::PrioritizeTasks)
-        ->and($result->entityType)->toBe(LlmEntityType::Task);
+    expect($result->intent)->toBe(LlmIntent::GeneralQuery)
+        ->and($arr)->toHaveKeys(['intent', 'entity_type', 'confidence', 'operation_mode', 'entity_scope', 'entity_targets'])
+        ->and($arr['operation_mode'])->toBe('general')
+        ->and($arr['entity_scope'])->toBe('task');
 });

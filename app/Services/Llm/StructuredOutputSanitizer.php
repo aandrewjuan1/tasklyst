@@ -38,6 +38,11 @@ class StructuredOutputSanitizer
         'upcoming week',
         'next week',
         'next 7 days',
+        'within 7 days',
+        'within the next 7 days',
+        'this week',
+        'for this week',
+        'due this week',
         'coming week',
         'this coming week',
         'in the next week',
@@ -84,6 +89,7 @@ class StructuredOutputSanitizer
             LlmIntent::AdjustEventTime,
             LlmIntent::ScheduleProject,
             LlmIntent::AdjustProjectTimeline => $this->sanitizeSingleScheduleRecommendationWithContext($structured, $context, $intent, $userMessage),
+            LlmIntent::ScheduleTasks => $this->sanitizeScheduledTasksOnly($structured, $context, $userMessage),
             LlmIntent::ScheduleTasksAndEvents => $this->sanitizeScheduledTasksAndEvents($structured, $context),
             LlmIntent::ScheduleTasksAndProjects => $this->sanitizeScheduledTasksAndProjects($structured, $context),
             LlmIntent::ScheduleEventsAndProjects => $this->sanitizeScheduledEventsAndProjects($structured, $context),
@@ -247,6 +253,169 @@ class StructuredOutputSanitizer
         }
 
         return $structured;
+    }
+
+    /**
+     * Sanitize scheduled_tasks for ScheduleTasks (tasks only, multi-apply).
+     *
+     * @param  array<string, mixed>  $structured
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function sanitizeScheduledTasksOnly(array $structured, array $context, ?string $userMessage = null): array
+    {
+        $allowedTaskTitles = $this->titlesFromContextItems($context['tasks'] ?? []);
+        if ($allowedTaskTitles === []) {
+            $structured['scheduled_tasks'] = [];
+            $structured['recommended_action'] = __('You have no tasks yet. Add tasks to your list to get scheduling suggestions.');
+            $structured['reasoning'] = __('I checked your tasks and there are none to schedule right now.');
+
+            return $structured;
+        }
+
+        $scheduledTasks = $structured['scheduled_tasks'] ?? [];
+        if (is_array($scheduledTasks)) {
+            $filtered = $this->filterRankedByTitle($scheduledTasks, $allowedTaskTitles, 'title');
+            $withIds = $this->injectTaskIdsIntoScheduledTasks($filtered, $context['tasks'] ?? []);
+            $guarded = $this->applyScheduleTimeGuardsThenStripEndFromTaskItems($withIds);
+            $guarded = $this->enforceRequestedWindowForScheduledTasks($guarded, $context, $userMessage);
+
+            // If we stripped everything due to window mismatch, avoid presenting a wrong Apply payload.
+            if ($guarded === [] && $withIds !== []) {
+                $structured['recommended_action'] = __(
+                    'I couldn’t produce a valid schedule inside your requested time window. Please try again.'
+                );
+                $structured['reasoning'] = __(
+                    'The suggested time(s) were outside your requested window, so they were removed for safety.'
+                );
+            }
+
+            $structured['scheduled_tasks'] = $guarded;
+        }
+
+        return $structured;
+    }
+
+    /**
+     * Enforce that each scheduled task start_datetime is within the user-requested time window
+     * when that window can be parsed from the user message.
+     *
+     * @param  array<int, array<string, mixed>>  $scheduledTasks
+     * @param  array<string, mixed>  $context
+     * @return array<int, array<string, mixed>>
+     */
+    private function enforceRequestedWindowForScheduledTasks(array $scheduledTasks, array $context, ?string $userMessage): array
+    {
+        $window = $this->parseRequestedTimeWindow($userMessage, $context);
+        if ($window === null) {
+            return $scheduledTasks;
+        }
+        [$start, $end] = $window;
+
+        $out = [];
+        foreach ($scheduledTasks as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $rawStart = $item['start_datetime'] ?? null;
+            if (! is_string($rawStart) || trim($rawStart) === '') {
+                continue;
+            }
+            try {
+                $candidate = \Carbon\CarbonImmutable::parse($rawStart, $start->getTimezone()->getName());
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ($candidate->lt($start) || $candidate->gt($end)) {
+                continue;
+            }
+
+            $out[] = $item;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Parse a user-requested time window from messages like:
+     * "From 7pm to 11pm tonight" or "Between 19:00 and 23:00 this evening".
+     *
+     * Returns [windowStart, windowEnd] in app timezone when parseable; otherwise null.
+     *
+     * @return array{0:\Carbon\CarbonImmutable,1:\Carbon\CarbonImmutable}|null
+     */
+    private function parseRequestedTimeWindow(?string $userMessage, array $context): ?array
+    {
+        $message = is_string($userMessage) ? trim($userMessage) : '';
+        if ($message === '') {
+            return null;
+        }
+
+        $timezone = is_string($context['timezone'] ?? null) && trim((string) $context['timezone']) !== ''
+            ? (string) $context['timezone']
+            : config('app.timezone', 'Asia/Manila');
+
+        $currentDate = is_string($context['current_date'] ?? null) && trim((string) $context['current_date']) !== ''
+            ? (string) $context['current_date']
+            : now($timezone)->toDateString();
+
+        $m = mb_strtolower($message);
+        $isTonight = str_contains($m, 'tonight') || str_contains($m, 'this evening') || str_contains($m, 'today');
+        if (! $isTonight) {
+            return null;
+        }
+
+        $time = '(2[0-3]|[01]?\d)(?::(\d{2}))?\s*([ap])?\.?\s*m?\.?';
+        $fromTo = [];
+        if (preg_match('/\bfrom\s+'.$time.'\s+to\s+'.$time.'\b/u', $m, $fromTo) !== 1) {
+            $between = [];
+            if (preg_match('/\bbetween\s+'.$time.'\s+and\s+'.$time.'\b/u', $m, $between) !== 1) {
+                return null;
+            }
+            $fromTo = $between;
+        }
+
+        // groups: 1=fromHour,2=fromMin,3=fromAmPm, 4=toHour,5=toMin,6=toAmPm
+        $fromHour = (int) ($fromTo[1] ?? 0);
+        $fromMin = isset($fromTo[2]) && $fromTo[2] !== '' ? (int) $fromTo[2] : 0;
+        $fromAmPm = $fromTo[3] ?? null;
+        $toHour = (int) ($fromTo[4] ?? 0);
+        $toMin = isset($fromTo[5]) && $fromTo[5] !== '' ? (int) $fromTo[5] : 0;
+        $toAmPm = $fromTo[6] ?? null;
+
+        $fromHour = $this->hourFromOptionalAmPm($fromHour, $fromAmPm);
+        $toHour = $this->hourFromOptionalAmPm($toHour, $toAmPm);
+
+        try {
+            $start = \Carbon\CarbonImmutable::parse($currentDate.' '.$fromHour.':'.str_pad((string) $fromMin, 2, '0', STR_PAD_LEFT).':00', $timezone);
+            $end = \Carbon\CarbonImmutable::parse($currentDate.' '.$toHour.':'.str_pad((string) $toMin, 2, '0', STR_PAD_LEFT).':00', $timezone);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($end->lte($start)) {
+            return null;
+        }
+
+        return [$start, $end];
+    }
+
+    private function hourFromOptionalAmPm(int $hour, ?string $ampm): int
+    {
+        $hour = max(0, min(23, $hour));
+        $a = is_string($ampm) ? trim(mb_strtolower($ampm)) : '';
+
+        if ($a === 'a' || $a === 'p') {
+            $h12 = max(0, min(12, $hour));
+            if ($a === 'p') {
+                return $h12 === 12 ? 12 : $h12 + 12;
+            }
+
+            return $h12 === 12 ? 0 : $h12;
+        }
+
+        return $hour;
     }
 
     /**
@@ -552,7 +721,7 @@ class StructuredOutputSanitizer
             }
         }
 
-        $structured['ranked_tasks'] = $this->rerank($filtered);
+        $structured['ranked_tasks'] = $this->rerank($this->stripRankedIdentifiers($filtered));
 
         return $structured;
     }
@@ -672,7 +841,7 @@ class StructuredOutputSanitizer
             }
         }
 
-        $structured['ranked_events'] = $this->rerank($filtered);
+        $structured['ranked_events'] = $this->rerank($this->stripRankedIdentifiers($filtered));
 
         return $structured;
     }
@@ -697,13 +866,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_tasks'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
-                $filtered = array_map(static function (array $item): array {
-                    // For prioritization, ids are not part of the context contract; drop any hallucinated id fields.
-                    unset($item['id']);
-
-                    return $item;
-                }, $filtered);
-                $structured['ranked_tasks'] = $this->rerank($filtered);
+                $structured['ranked_tasks'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -713,7 +876,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_events'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedEvents, $allowedEventTitles, 'title');
-                $structured['ranked_events'] = $this->rerank($filtered);
+                $structured['ranked_events'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -740,7 +903,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_tasks'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
-                $structured['ranked_tasks'] = $this->rerank($filtered);
+                $structured['ranked_tasks'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -750,7 +913,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_projects'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedProjects, $allowedProjectNames, 'name');
-                $structured['ranked_projects'] = $this->rerank($filtered);
+                $structured['ranked_projects'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -777,7 +940,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_events'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedEvents, $allowedEventTitles, 'title');
-                $structured['ranked_events'] = $this->rerank($filtered);
+                $structured['ranked_events'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -787,7 +950,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_projects'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedProjects, $allowedProjectNames, 'name');
-                $structured['ranked_projects'] = $this->rerank($filtered);
+                $structured['ranked_projects'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -816,7 +979,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_tasks'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedTasks, $allowedTaskTitles, 'title');
-                $structured['ranked_tasks'] = $this->rerank($filtered);
+                $structured['ranked_tasks'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -826,7 +989,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_events'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedEvents, $allowedEventTitles, 'title');
-                $structured['ranked_events'] = $this->rerank($filtered);
+                $structured['ranked_events'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -836,7 +999,7 @@ class StructuredOutputSanitizer
                 $structured['ranked_projects'] = [];
             } else {
                 $filtered = $this->filterRankedByTitle($rankedProjects, $allowedProjectNames, 'name');
-                $structured['ranked_projects'] = $this->rerank($filtered);
+                $structured['ranked_projects'] = $this->rerank($this->stripRankedIdentifiers($filtered));
             }
         }
 
@@ -1037,6 +1200,7 @@ class StructuredOutputSanitizer
         }
 
         $titleToId = [];
+        $idToTitle = [];
         foreach ($contextTasks as $t) {
             if (! is_array($t) || ! isset($t['title'], $t['id']) || ! is_numeric($t['id'])) {
                 continue;
@@ -1044,6 +1208,7 @@ class StructuredOutputSanitizer
             $title = trim((string) $t['title']);
             if ($title !== '' && ! array_key_exists($title, $titleToId)) {
                 $titleToId[$title] = (int) $t['id'];
+                $idToTitle[(int) $t['id']] = $title;
             }
         }
 
@@ -1054,10 +1219,21 @@ class StructuredOutputSanitizer
 
                 continue;
             }
+
+            if (isset($item['id']) && is_numeric($item['id']) && isset($idToTitle[(int) $item['id']])) {
+                $resolvedTitle = $idToTitle[(int) $item['id']];
+                $item['id'] = (int) $item['id'];
+                $item['title'] = $resolvedTitle;
+                $out[] = $item;
+
+                continue;
+            }
+
             $title = isset($item['title']) && is_string($item['title']) ? trim($item['title']) : '';
             $matchedTitle = $title !== '' ? $this->bestMatchingTitle($title, $allowedTitles) : null;
             if ($matchedTitle !== null && isset($titleToId[$matchedTitle])) {
                 $item['id'] = $titleToId[$matchedTitle];
+                $item['title'] = $matchedTitle;
             }
             $out[] = $item;
         }
@@ -1180,7 +1356,7 @@ class StructuredOutputSanitizer
             }
         }
 
-        $structured['ranked_projects'] = $this->rerank($filtered);
+        $structured['ranked_projects'] = $this->rerank($this->stripRankedIdentifiers($filtered));
 
         return $structured;
     }
@@ -1205,6 +1381,7 @@ class StructuredOutputSanitizer
         $complexityFilter = $this->detectComplexityFilterFromMessage($userMsg);
         $recurringFilter = $this->detectRecurringFilterFromMessage($userMsg);
         $allDayFilter = $this->detectAllDayFilterFromMessage($userMsg);
+        $listingRequest = $this->detectListingRequestFromMessage($userMsg);
         if ($this->detectDropFilterFromMessage($userMsg) && $entityType === LlmEntityType::Task && $priorityFilter === null) {
             $priorityFilter = self::PRIORITY_LOW;
         }
@@ -1225,9 +1402,11 @@ class StructuredOutputSanitizer
             || $complexityFilter !== null
             || $recurringFilter !== null
             || $allDayFilter !== null;
-        if ($hasFilter) {
+        if ($hasFilter || $listingRequest) {
             $filtered = $this->buildListFromContext($contextItems, $dateFilter, $priorityFilter, $recurringFilter, $allDayFilter, $complexityFilter);
-            $structured['reasoning'] = $this->humanReasoningForFilters($entityType, $dateFilter, $priorityFilter, $complexityFilter, $recurringFilter, $allDayFilter);
+            $structured['reasoning'] = $hasFilter
+                ? $this->humanReasoningForFilters($entityType, $dateFilter, $priorityFilter, $complexityFilter, $recurringFilter, $allDayFilter)
+                : $this->humanReasoningForListing($entityType);
         } else {
             $filtered = $this->filterListedItemsByContextAndDate($listedItems, $contextItems, null);
         }
@@ -1289,6 +1468,20 @@ class StructuredOutputSanitizer
         return (string) __('I filtered your :entity to those that are :filters.', [
             'entity' => $entityLabel,
             'filters' => implode(' '.__('and').' ', $parts),
+        ]);
+    }
+
+    private function humanReasoningForListing(?LlmEntityType $entityType): string
+    {
+        $entityLabel = match ($entityType) {
+            LlmEntityType::Event => __('events'),
+            LlmEntityType::Project => __('projects'),
+            LlmEntityType::Multiple => __('items'),
+            default => __('tasks'),
+        };
+
+        return (string) __('I listed your current :entity from the latest context.', [
+            'entity' => $entityLabel,
         ]);
     }
 
@@ -1407,9 +1600,12 @@ class StructuredOutputSanitizer
                 'no_set_dates' => __('All your :entity have dates set. You don\'t have any :entity without start or end dates.', ['entity' => $entityLabel]),
                 'no_due_date' => __('All your :entity have due dates set. You don\'t have any :entity without a due date.', ['entity' => $entityLabel]),
                 'no_start_date' => __('All your :entity have start dates set. You don\'t have any :entity without a start date.', ['entity' => $entityLabel]),
+                'upcoming_week' => __('You don\'t have any :entity due within the next 7 days.', ['entity' => $entityLabel]),
                 default => $structured['recommended_action'] ?? '',
             };
-            $structured['reasoning'] = __('I checked your :entity and every one has the relevant date(s) set.', ['entity' => $entityLabel]);
+            $structured['reasoning'] = $dateFilter === 'upcoming_week'
+                ? __('I checked your :entity and none are due in the upcoming week window.', ['entity' => $entityLabel])
+                : __('I checked your :entity and every one has the relevant date(s) set.', ['entity' => $entityLabel]);
         } elseif ($priorityFilter !== null) {
             $structured['recommended_action'] = __('You don\'t have any tasks with that priority.');
             $structured['reasoning'] = __('I checked your task list and none match the priority filter.');
@@ -1638,8 +1834,49 @@ class StructuredOutputSanitizer
             LlmEntityType::Task => $context['tasks'] ?? [],
             LlmEntityType::Event => $context['events'] ?? [],
             LlmEntityType::Project => $context['projects'] ?? [],
+            LlmEntityType::Multiple => $this->mergeContextItemsForMultiple(
+                $context['tasks'] ?? [],
+                $context['events'] ?? [],
+                $context['projects'] ?? []
+            ),
             default => $context['tasks'] ?? [],
         };
+    }
+
+    /**
+     * @param  array<int, mixed>  $tasks
+     * @param  array<int, mixed>  $events
+     * @param  array<int, mixed>  $projects
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeContextItemsForMultiple(array $tasks, array $events, array $projects): array
+    {
+        $out = [];
+
+        foreach ($tasks as $task) {
+            if (is_array($task)) {
+                $task['__entity_type'] = 'task';
+                $out[] = $task;
+            }
+        }
+        foreach ($events as $event) {
+            if (is_array($event)) {
+                $event['__entity_type'] = 'event';
+                $out[] = $event;
+            }
+        }
+        foreach ($projects as $project) {
+            if (! is_array($project)) {
+                continue;
+            }
+            if (! isset($project['title']) && isset($project['name']) && is_string($project['name'])) {
+                $project['title'] = $project['name'];
+            }
+            $project['__entity_type'] = 'project';
+            $out[] = $project;
+        }
+
+        return $out;
     }
 
     /**
@@ -1707,18 +1944,9 @@ class StructuredOutputSanitizer
      */
     private function findContextItemByTitle(string $title, array $contextByTitle): ?array
     {
-        $key = mb_strtolower(trim($title));
-        if (isset($contextByTitle[$key])) {
-            return $contextByTitle[$key];
-        }
-        foreach ($contextByTitle as $ctxTitle => $ctx) {
-            similar_text($key, mb_strtolower($ctxTitle), $percent);
-            if ($percent >= self::TITLE_SIMILARITY_THRESHOLD) {
-                return $ctx;
-            }
-        }
+        $matchedKey = $this->bestMatchingTitle($title, array_keys($contextByTitle));
 
-        return null;
+        return $matchedKey !== null ? ($contextByTitle[$matchedKey] ?? null) : null;
     }
 
     /**
@@ -1905,6 +2133,9 @@ class StructuredOutputSanitizer
     {
         $label = trim((string) ($ctx['title'] ?? $ctx['name'] ?? ''));
         $item = ['title' => $label];
+        if (isset($ctx['__entity_type']) && is_string($ctx['__entity_type'])) {
+            $item['entity_type'] = $ctx['__entity_type'];
+        }
 
         if ($filter === 'no_set_dates') {
             return $item;
@@ -1921,6 +2152,33 @@ class StructuredOutputSanitizer
         }
 
         return $item;
+    }
+
+    private function detectListingRequestFromMessage(string $message): bool
+    {
+        $normalized = mb_strtolower(trim($message));
+        if ($normalized === '') {
+            return false;
+        }
+
+        $phrases = [
+            'list',
+            'show me',
+            'show all',
+            'what are my',
+            'which are my',
+            'what do i have',
+            'give me my',
+            'display my',
+        ];
+
+        foreach ($phrases as $phrase) {
+            if (str_contains($normalized, $phrase)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1956,12 +2214,6 @@ class StructuredOutputSanitizer
     }
 
     /**
-     * Minimum similarity (0-100) to accept a model title as matching a context title (handles minor typos).
-     * Slightly relaxed so small differences (e.g. emojis, punctuation) do not cause valid context items to be dropped.
-     */
-    private const TITLE_SIMILARITY_THRESHOLD = 70;
-
-    /**
      * @param  array<int, mixed>  $ranked
      * @param  array<string>  $allowedTitles
      * @return array<int, mixed>
@@ -1989,51 +2241,84 @@ class StructuredOutputSanitizer
     }
 
     /**
-     * Return the allowed title that best matches the given title (exact or fuzzy).
+     * Return the allowed title that best matches the given title:
+     * exact case-insensitive match first, then a unique normalized fallback.
      *
      * @param  array<string>  $allowedTitles
      */
     private function bestMatchingTitle(string $title, array $allowedTitles): ?string
     {
-        $normalized = (string) preg_replace('/\s+/', ' ', trim($title));
-        $lower = mb_strtolower($normalized);
+        $normalizedInput = $this->normalizeTitleForExactMatch($title);
+        if ($normalizedInput === '') {
+            return null;
+        }
+
         foreach ($allowedTitles as $allowed) {
-            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', $allowed));
-            if (mb_strtolower($allowedTrimmed) === $lower) {
+            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', (string) $allowed));
+            if ($this->normalizeTitleForExactMatch($allowedTrimmed) === $normalizedInput) {
                 return $allowedTrimmed;
             }
         }
 
-        $bestPrefixMatch = null;
+        $normalizedFallback = $this->normalizeTitleForUniqueFallback($title);
+        if ($normalizedFallback === '') {
+            return null;
+        }
+
+        $matches = [];
         foreach ($allowedTitles as $allowed) {
-            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', $allowed));
-            $allowedLower = mb_strtolower($allowedTrimmed);
-            if ($allowedLower === '' || $lower === '') {
+            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', (string) $allowed));
+            if ($allowedTrimmed === '') {
                 continue;
             }
-            if (str_starts_with($lower, $allowedLower) || str_starts_with($allowedLower, $lower)) {
-                if ($bestPrefixMatch === null || mb_strlen($allowedTrimmed) > mb_strlen($bestPrefixMatch)) {
-                    $bestPrefixMatch = $allowedTrimmed;
-                }
-            }
-        }
-        if ($bestPrefixMatch !== null) {
-            return $bestPrefixMatch;
-        }
 
-        $bestSimilarity = 0;
-        $bestTitle = null;
-        foreach ($allowedTitles as $allowed) {
-            $allowedTrimmed = trim((string) preg_replace('/\s+/', ' ', $allowed));
-            similar_text($lower, mb_strtolower($allowedTrimmed), $percent);
-
-            if ($percent >= self::TITLE_SIMILARITY_THRESHOLD && $percent > $bestSimilarity) {
-                $bestSimilarity = $percent;
-                $bestTitle = $allowedTrimmed;
+            if ($this->normalizeTitleForUniqueFallback($allowedTrimmed) === $normalizedFallback) {
+                $matches[] = $allowedTrimmed;
             }
         }
 
-        return $bestTitle;
+        return count($matches) === 1 ? $matches[0] : null;
+    }
+
+    private function normalizeTitleForExactMatch(string $title): string
+    {
+        $normalized = trim((string) preg_replace('/\s+/', ' ', $title));
+
+        return mb_strtolower($normalized);
+    }
+
+    private function normalizeTitleForUniqueFallback(string $title): string
+    {
+        $lower = mb_strtolower(trim($title));
+        $alnumSpace = (string) preg_replace('/[^\p{L}\p{N}\s]/u', '', $lower);
+        $collapsed = trim((string) preg_replace('/\s+/', ' ', $alnumSpace));
+
+        return $collapsed;
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
+     * @return array<int, mixed>
+     */
+    private function stripRankedIdentifiers(array $items): array
+    {
+        $out = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            unset(
+                $item['id'],
+                $item['task_id'],
+                $item['event_id'],
+                $item['project_id']
+            );
+
+            $out[] = $item;
+        }
+
+        return $out;
     }
 
     /**

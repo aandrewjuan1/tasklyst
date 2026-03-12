@@ -17,6 +17,7 @@
 /** Single source list for actionability; keep in sync with backend (RecommendationDisplayBuilder::buildAppliableChanges). */
 const ACTIONABLE_INTENTS = [
     'schedule_task',
+    'schedule_tasks',
     'adjust_task_deadline',
     'create_task',
     'update_task_properties',
@@ -82,6 +83,7 @@ export function assistantChatFlyout(config) {
             const snap = this.getSnapshot(message);
             const changes = snap.appliable_changes ?? snap.appliableChanges ?? {};
             const props = changes.properties;
+            const updates = changes.updates;
             const structured = this.getStructured(message);
             const hasProps =
                 typeof props === 'object' &&
@@ -89,6 +91,7 @@ export function assistantChatFlyout(config) {
                 !Array.isArray(props) &&
                 Object.keys(props).length > 0;
             if (hasProps) return true;
+            if (Array.isArray(updates) && updates.length > 0) return true;
             const startDt = structured.start_datetime ?? structured.startDatetime;
             const duration = structured.duration;
             return !!(startDt && (duration != null || startDt));

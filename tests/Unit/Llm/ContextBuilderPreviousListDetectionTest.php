@@ -9,7 +9,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Services\Llm\ContextBuilder;
 
-it('adds scheduling_hint when user message references top task and payload has tasks', function (): void {
+it('does not inject previous_list_context without an explicit prior assistant list', function (): void {
     /** @var ContextBuilder $builder */
     $builder = app(ContextBuilder::class);
 
@@ -32,9 +32,7 @@ it('adds scheduling_hint when user message references top task and payload has t
 
     expect($context)->toHaveKey('tasks')
         ->and($context['tasks'])->not->toBeEmpty()
-        ->and($context)->toHaveKey('scheduling_hint')
-        ->and($context['scheduling_hint'])->toContain('first task in the tasks list')
-        ->and($context['scheduling_hint'])->toContain('exact title');
+        ->and($context)->not->toHaveKey('previous_list_context');
 });
 
 it('orders tasks by urgency when user references top task and no previous list', function (): void {
@@ -144,7 +142,9 @@ it('orders tasks by previous ranked list when user references it so top task is 
     expect($context)->toHaveKey('tasks');
     $tasks = $context['tasks'];
     expect($tasks)->toHaveCount(3);
-    expect($tasks[0]['title'])->toBe($titleFirst);
+    expect($tasks[0]['title'])->toBe($titleFirst)
+        ->and($context)->toHaveKey('previous_list_context')
+        ->and($context['previous_list_context'])->toHaveKey('items_in_order');
 });
 
 it('treats top 1 phrasing as referring to previous list', function (): void {

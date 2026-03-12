@@ -161,7 +161,7 @@ Each example below includes:
 
 ---
 
-### 1.3 Prioritize by tag: Exam
+### 1.3 Prioritize by tag: Exam ✅
 
 - **User prompt**
 
@@ -169,7 +169,7 @@ Each example below includes:
 
 - **Focus**: Tag-based prioritization.
 
-- **Bugs encountered (and fixes) (verified ✅)**
+- **Bugs encountered (and fixes) (verified )**
 
   - **Bug: Mis-classification to `prioritize_all` produced non‑Exam narrative + empty rankings**
     - **Symptom**: Response came back as `intent = prioritize_all`, with a narrative recommending non‑Exam school tasks (e.g. `MATH 201 – Problem Set 4: Relations`, `CS 220 – Lab 5: Linked Lists`) while `structured.ranked_tasks/events/projects` were all `[]`.
@@ -218,18 +218,14 @@ Each example below includes:
 - **Focus**: Time-block scheduling + respecting duration + load limits.
 
 - **Expected behaviour**
-  - Work within a 4-hour window; choose tasks with durations that can fit ~3 hours total:
-    - For example: a 60–90 minute block on `MATH 201 – Problem Set 4: Relations`, a 60-minute block on `Practice coding interview problems`, and a 30–45 minute review (`Review today’s lecture notes`).
+  - Work within a 4-hour window and respect the user’s focused-work cap.
+  - The suggestion should be **optimal and realistic**, not “maximal”.
+    - If the user caps focused work at ~3 hours, the plan should usually include only **~3–4 tasks** (plus breaks/buffers), depending on the tasks’ durations.
+    - If the user gives fewer/more hours, the number of tasks and block lengths should flex accordingly.
   - Insert at least one explicit break (e.g. 15–30 minutes).
   - Avoid stuffing in the entire `Impossible 5h study block`.
 
 - **Expected result (example schedule)**
-  - 7:00–8:15pm – Work on `MATH 201 – Problem Set 4: Relations`.  
-  - 8:15–8:30pm – Break.  
-  - 8:30–9:30pm – `Practice coding interview problems`.  
-  - 9:30–10:00pm – `Review today’s lecture notes`.  
-  - 10:00–11:00pm – Free / light reading / buffer.  
-  - The assistant mentions that the 5h study block can’t reasonably fit and is omitted or split to another day.
 
 ---
 

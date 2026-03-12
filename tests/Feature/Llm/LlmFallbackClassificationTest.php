@@ -4,8 +4,9 @@ use App\Actions\Llm\ClassifyLlmIntentAction;
 use App\DataTransferObjects\Llm\LlmIntentClassificationResult;
 use App\Enums\LlmEntityType;
 use App\Enums\LlmIntent;
+use App\Enums\LlmOperationMode;
+use App\Services\Llm\LlmIntentAliasResolver;
 use App\Services\LlmIntentClassificationService;
-use Mockery;
 
 class TestableClassifyLlmIntentAction extends ClassifyLlmIntentAction
 {
@@ -23,11 +24,13 @@ it('uses LLM fallback classification when confidence below threshold', function 
         'tasklyst.intent.use_llm_fallback' => true,
     ]);
 
-    $service = Mockery::mock(LlmIntentClassificationService::class);
+    $service = \Mockery::mock(LlmIntentClassificationService::class);
     $regexResult = new LlmIntentClassificationResult(
         LlmIntent::GeneralQuery,
         LlmEntityType::Task,
-        0.3
+        0.3,
+        LlmOperationMode::General,
+        [LlmEntityType::Task],
     );
 
     $service->shouldReceive('classify')
@@ -38,10 +41,12 @@ it('uses LLM fallback classification when confidence below threshold', function 
     $fallbackResult = new LlmIntentClassificationResult(
         LlmIntent::PrioritizeTasks,
         LlmEntityType::Task,
-        0.85
+        0.85,
+        LlmOperationMode::Prioritize,
+        [LlmEntityType::Task],
     );
 
-    $action = new TestableClassifyLlmIntentAction($service);
+    $action = new TestableClassifyLlmIntentAction($service, app(LlmIntentAliasResolver::class));
     $action->fallbackResult = $fallbackResult;
 
     $result = $action->execute('message');
@@ -57,11 +62,13 @@ it('falls back to regex result when LLM fallback returns null', function (): voi
         'tasklyst.intent.use_llm_fallback' => true,
     ]);
 
-    $service = Mockery::mock(LlmIntentClassificationService::class);
+    $service = \Mockery::mock(LlmIntentClassificationService::class);
     $regexResult = new LlmIntentClassificationResult(
         LlmIntent::GeneralQuery,
         LlmEntityType::Task,
-        0.3
+        0.3,
+        LlmOperationMode::General,
+        [LlmEntityType::Task],
     );
 
     $service->shouldReceive('classify')
@@ -69,7 +76,7 @@ it('falls back to regex result when LLM fallback returns null', function (): voi
         ->with('another message')
         ->andReturn($regexResult);
 
-    $action = new TestableClassifyLlmIntentAction($service);
+    $action = new TestableClassifyLlmIntentAction($service, app(LlmIntentAliasResolver::class));
     $action->fallbackResult = null;
 
     $result = $action->execute('another message');

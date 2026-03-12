@@ -196,6 +196,40 @@ test('sanitize non prioritize intent returns structured unchanged', function ():
     expect($out)->toEqual($structured);
 });
 
+test('sanitize ScheduleTasks strips scheduled_tasks outside requested from-to tonight window', function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-12 18:00:00', config('app.timezone')));
+
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Suggested schedule.',
+        'reasoning' => 'Based on your window.',
+        'scheduled_tasks' => [
+            ['title' => 'Task A', 'start_datetime' => '2026-03-14T10:30:00+08:00', 'duration' => 30],
+            ['title' => 'Task B', 'start_datetime' => '2026-03-12T19:00:00+08:00', 'duration' => 60],
+        ],
+    ];
+    $context = [
+        'timezone' => 'Asia/Manila',
+        'current_date' => '2026-03-12',
+        'current_time' => '2026-03-12T18:00:00+08:00',
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task A'],
+            ['id' => 2, 'title' => 'Task B'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::ScheduleTasks,
+        LlmEntityType::Multiple,
+        'From 7pm to 11pm tonight, create a realistic plan using my existing tasks.'
+    );
+
+    expect($out['scheduled_tasks'])->toHaveCount(1)
+        ->and($out['scheduled_tasks'][0]['title'])->toBe('Task B');
+});
+
 test('sanitize PrioritizeTasksAndEvents filters both ranked_tasks and ranked_events by context', function (): void {
     $structured = [
         'entity_type' => 'task,event',
@@ -283,6 +317,37 @@ test('sanitize PrioritizeAll filters all three ranked lists by context', functio
         ->and($out['ranked_projects'][0]['name'])->toBe('Real Project');
 });
 
+test('sanitize prioritize intents strips identifier fields from ranked lists', function (): void {
+    $structured = [
+        'entity_type' => 'all',
+        'recommended_action' => 'Prioritize all.',
+        'reasoning' => 'Order by urgency.',
+        'ranked_tasks' => [
+            ['rank' => 1, 'id' => 101, 'task_id' => 101, 'title' => 'Real Task'],
+        ],
+        'ranked_events' => [
+            ['rank' => 1, 'id' => 202, 'event_id' => 202, 'title' => 'Real Event'],
+        ],
+        'ranked_projects' => [
+            ['rank' => 1, 'id' => 303, 'project_id' => 303, 'name' => 'Real Project'],
+        ],
+    ];
+    $context = [
+        'tasks' => [['id' => 1, 'title' => 'Real Task']],
+        'events' => [['id' => 2, 'title' => 'Real Event']],
+        'projects' => [['id' => 3, 'name' => 'Real Project']],
+    ];
+
+    $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeAll);
+
+    expect($out['ranked_tasks'][0])->not->toHaveKey('id')
+        ->and($out['ranked_tasks'][0])->not->toHaveKey('task_id')
+        ->and($out['ranked_events'][0])->not->toHaveKey('id')
+        ->and($out['ranked_events'][0])->not->toHaveKey('event_id')
+        ->and($out['ranked_projects'][0])->not->toHaveKey('id')
+        ->and($out['ranked_projects'][0])->not->toHaveKey('project_id');
+});
+
 test('sanitize ScheduleTasksAndEvents keeps only tasks and events that exist in context', function (): void {
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-01 10:00:00', config('app.timezone')));
 
@@ -351,7 +416,7 @@ test('sanitize ScheduleAll keeps only scheduled items that exist in context', fu
         ->and($out['scheduled_projects'][0]['name'])->toBe('Real Project');
 });
 
-test('sanitize prioritize_tasks accepts fuzzy title match and normalizes to context title', function (): void {
+test('sanitize prioritize_tasks rejects fuzzy-only title matches', function (): void {
     $structured = [
         'entity_type' => 'task',
         'ranked_tasks' => [
@@ -366,9 +431,7 @@ test('sanitize prioritize_tasks accepts fuzzy title match and normalizes to cont
 
     $out = $this->sanitizer->sanitize($structured, $context, LlmIntent::PrioritizeTasks);
 
-    expect($out['ranked_tasks'])->toHaveCount(1)
-        ->and($out['ranked_tasks'][0]['title'])->toBe('Ortograpiya/ Barayti ng wika - Due')
-        ->and($out['ranked_tasks'][0]['rank'])->toBe(1);
+    expect($out['ranked_tasks'])->toBeArray()->toBeEmpty();
 });
 
 test('sanitize general_query with no set dates filters listed_items to only tasks with both dates null', function (): void {
@@ -432,6 +495,34 @@ test('sanitize general_query with no due date filters to tasks with end_datetime
     expect($out['listed_items'])->toHaveCount(1)
         ->and($out['listed_items'][0]['title'])->toBe('Task no due')
         ->and($out['listed_items'][0])->not->toHaveKey('end_datetime');
+});
+
+test('sanitize general_query listing request rebuilds list from context when model list is empty', function (): void {
+    $structured = [
+        'entity_type' => 'task',
+        'recommended_action' => 'Here are your tasks.',
+        'reasoning' => 'Stub.',
+        'listed_items' => [],
+    ];
+    $context = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Task A', 'start_datetime' => null, 'end_datetime' => null, 'priority' => 'medium'],
+            ['id' => 2, 'title' => 'Task B', 'start_datetime' => null, 'end_datetime' => null, 'priority' => 'high'],
+        ],
+    ];
+
+    $out = $this->sanitizer->sanitize(
+        $structured,
+        $context,
+        LlmIntent::GeneralQuery,
+        LlmEntityType::Task,
+        'show me all my tasks'
+    );
+
+    expect($out['listed_items'])->toHaveCount(2)
+        ->and($out['listed_items'][0]['title'])->toBe('Task A')
+        ->and($out['listed_items'][1]['title'])->toBe('Task B')
+        ->and((string) $out['reasoning'])->toContain('latest context');
 });
 
 test('sanitize general_query with no due date and empty result overrides message', function (): void {
