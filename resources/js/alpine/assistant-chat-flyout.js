@@ -78,7 +78,7 @@ export function assistantChatFlyout(config) {
             this.$nextTick(() => this.$refs.input && this.$refs.input.focus());
         },
 
-        /** LLM output has suggested properties we can apply (e.g. startDatetime, duration). */
+        /** LLM output has suggested properties we can apply (e.g. startDatetime, duration). Purely UI-level check. */
         hasAppliableChanges(message) {
             const snap = this.getSnapshot(message);
             const changes = snap.appliable_changes ?? snap.appliableChanges ?? {};
@@ -109,102 +109,64 @@ export function assistantChatFlyout(config) {
             return this.hasTaskIdInSnapshot(message) && this.hasAppliableChanges(message);
         },
 
-        /** Optimistic apply: 5-phase pattern (snapshot → update UI → call server → rollback on error). */
-        async acceptRecommendation(message) {
+        /** Optimistic apply: update local snapshot; backend wiring will be added separately. */
+        acceptRecommendation(message) {
             if (!message || !message.id) return;
             if (this.pendingRecommendationIds.has(message.id)) return;
 
-            const backupMessages = this.cloneMessages();
+            const idx = this.findMessageIndexById(message.id);
+            if (idx === -1) return;
 
-            try {
-                const idx = this.findMessageIndexById(message.id);
-                if (idx === -1) return;
+            const current = this.messages[idx];
+            const meta =
+                current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
+            const snapshot =
+                meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
+                    ? { ...meta.recommendation_snapshot }
+                    : {};
 
-                const current = this.messages[idx];
-                const meta =
-                    current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
-                const snapshot =
-                    meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
-                        ? { ...meta.recommendation_snapshot }
-                        : {};
+            snapshot.user_action = 'accept';
+            snapshot.applied = true;
+            meta.recommendation_snapshot = snapshot;
 
-                snapshot.user_action = 'accept';
-                snapshot.applied = true;
-                meta.recommendation_snapshot = snapshot;
+            this.messages[idx] = { ...current, metadata: { ...meta, recommendation_snapshot: snapshot } };
 
-                this.messages[idx] = { ...current, metadata: { ...meta, recommendation_snapshot: snapshot } };
+            this.pendingRecommendationIds.add(message.id);
+            this.errorMessage = '';
 
-                this.pendingRecommendationIds.add(message.id);
-                this.errorMessage = '';
+            this.$dispatch('assistant-chat:apply', { messageId: message.id, snapshot });
 
-                const messageId = Number(message.id);
-                if (!Number.isInteger(messageId) || !this.$wire) {
-                    this.messages = backupMessages;
-                    this.pendingRecommendationIds.delete(message.id);
-                    this.errorMessage = 'Unable to apply. Please refresh and try again.';
-
-                    return;
-                }
-                const result = await this.$wire.$call('acceptRecommendation', messageId);
-                if (result && Array.isArray(result.messages)) {
-                    this.messages = result.messages;
-                }
-
-                this.pendingRecommendationIds.delete(message.id);
-            } catch (error) {
-                this.messages = backupMessages;
-                this.pendingRecommendationIds.delete(message.id);
-                this.setRecommendationErrorMessage(error, 'apply');
-            }
+            this.pendingRecommendationIds.delete(message.id);
         },
 
-        /** Optimistic dismiss: 5-phase pattern (snapshot → update UI → call server → rollback on error). */
-        async rejectRecommendation(message) {
+        /** Optimistic dismiss: update local snapshot; backend wiring will be added separately. */
+        rejectRecommendation(message) {
             if (!message || !message.id) return;
             if (this.pendingRecommendationIds.has(message.id)) return;
 
-            const backupMessages = this.cloneMessages();
+            const idx = this.findMessageIndexById(message.id);
+            if (idx === -1) return;
 
-            try {
-                const idx = this.findMessageIndexById(message.id);
-                if (idx === -1) return;
+            const current = this.messages[idx];
+            const meta =
+                current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
+            const snapshot =
+                meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
+                    ? { ...meta.recommendation_snapshot }
+                    : {};
 
-                const current = this.messages[idx];
-                const meta =
-                    current.metadata && typeof current.metadata === 'object' ? { ...current.metadata } : {};
-                const snapshot =
-                    meta.recommendation_snapshot && typeof meta.recommendation_snapshot === 'object'
-                        ? { ...meta.recommendation_snapshot }
-                        : {};
+            snapshot.user_action = 'reject';
+            snapshot.applied = false;
+            meta.recommendation_snapshot = snapshot;
 
-                snapshot.user_action = 'reject';
-                snapshot.applied = false;
-                meta.recommendation_snapshot = snapshot;
+            this.messages[idx] = { ...current, metadata: { ...meta, recommendation_snapshot: snapshot } };
 
-                this.messages[idx] = { ...current, metadata: { ...meta, recommendation_snapshot: snapshot } };
+            this.pendingRecommendationIds.add(message.id);
+            this.errorMessage = '';
 
-                this.pendingRecommendationIds.add(message.id);
-                this.errorMessage = '';
+            this.$dispatch('assistant-chat:dismiss', { messageId: message.id, snapshot });
 
-                const messageId = Number(message.id);
-                if (!Number.isInteger(messageId) || !this.$wire) {
-                    this.messages = backupMessages;
-                    this.pendingRecommendationIds.delete(message.id);
-                    this.errorMessage = 'Unable to dismiss. Please refresh and try again.';
-
-                    return;
-                }
-                const result = await this.$wire.$call('rejectRecommendation', messageId);
-                if (result && Array.isArray(result.messages)) {
-                    this.messages = result.messages;
-                }
-
-                this.pendingRecommendationIds.delete(message.id);
-            } catch (error) {
-                this.messages = backupMessages;
-                this.pendingRecommendationIds.delete(message.id);
-                this.setRecommendationErrorMessage(error, 'dismiss');
-            }
+            this.pendingRecommendationIds.delete(message.id);
         },
 
         /**
@@ -670,11 +632,7 @@ export function assistantChatFlyout(config) {
             }, 45000);
         },
 
-        async startNewChat() {
-            if (this.isSubmittingMessage || this.pendingAssistantCount > 0 || this.currentTraceId) {
-                await this.cancelPending();
-            }
-
+        startNewChat() {
             this.ignoreNextAssistant = false;
 
             this.isRateLimited = false;
@@ -687,113 +645,27 @@ export function assistantChatFlyout(config) {
                 this._pendingTimeoutId = null;
             }
 
-            this.isSending = true;
+            this.threadId = null;
+            this.messages = [];
+            this.pendingAssistantCount = 0;
 
-            try {
-                const payload = await this.$wire.$call('newThread');
+            this.$dispatch('assistant-chat:new-thread');
 
-                const threadId = payload.thread_id ?? null;
-                const messages = payload.messages ?? [];
-
-                this.threadId = threadId;
-                this.messages = messages;
-                this.pendingAssistantCount = 0;
-
-                if (this.threadId) {
-                    this.subscribeToThread();
+            this.$nextTick(() => {
+                this.scrollToBottom(true);
+                if (this.$refs.input) {
+                    this.$refs.input.focus();
                 }
-
-                this.$nextTick(() => {
-                    this.scrollToBottom(true);
-                    if (this.$refs.input) {
-                        this.$refs.input.focus();
-                    }
-                });
-            } catch (error) {
-                console.error(error);
-                this.errorMessage = 'Unable to start a new chat right now. Please try again.';
-            } finally {
-                this.isSending = false;
-            }
+            });
         },
 
         subscribeToThread() {
             if (!this.threadId) return;
-            if (this._subscribedThreadId === this.threadId) return;
-            if (typeof window === 'undefined' || !window.Echo) return;
 
-            const threadId = this.threadId;
-            const bareName = `assistant.thread.${threadId}`;
-            const fullName = `private-${bareName}`;
-
-            if (this._subscribedThreadId && window.Echo.leave) {
-                const prevBare = `assistant.thread.${this._subscribedThreadId}`;
-                const prevFull = `private-${prevBare}`;
-                window.Echo.leave(prevFull);
-            }
-
-            window.Echo
-                .private(bareName)
-                .listen('AssistantMessageCreated', (event) => {
-                    if (!event) return;
-                    const eventThreadId = event.thread_id ?? event.threadId ?? null;
-                    if (!eventThreadId || String(eventThreadId) !== String(this.threadId)) {
-                        return;
-                    }
-
-                    const id = event.id ?? null;
-                    const role = event.role ?? null;
-                    const content = event.content ?? '';
-                    const createdAt = event.created_at ?? null;
-                    const metadata = event.metadata ?? {};
-
-                    if (!id || role !== 'assistant') {
-                        return;
-                    }
-
-                    const exists = this.messages.some((m) => String(m.id) === String(id));
-                    if (exists) {
-                        return;
-                    }
-
-                    if (this.ignoreNextAssistant && this.pendingAssistantCount === 0) {
-                        this.ignoreNextAssistant = false;
-                        return;
-                    }
-
-                    this.messages.push({
-                        id,
-                        role,
-                        content,
-                        created_at: createdAt,
-                        metadata,
-                    });
-
-                    const snap = metadata.recommendation_snapshot || {};
-                    if (snap.reasoning === 'rate_limited') {
-                        this.isRateLimited = true;
-                    } else if (snap.reasoning && snap.reasoning !== 'rate_limited') {
-                        this.isRateLimited = false;
-                    }
-
-                    if (this.pendingAssistantCount > 0) {
-                        this.pendingAssistantCount = Math.max(0, this.pendingAssistantCount - 1);
-                    }
-
-                    if (this.pendingAssistantCount === 0 && this._pendingTimeoutId) {
-                        clearTimeout(this._pendingTimeoutId);
-                        this._pendingTimeoutId = null;
-                    }
-
-                    this.$nextTick(() => {
-                        this.scrollToBottom(true);
-                    });
-                });
-
-            this._subscribedThreadId = threadId;
+            this._subscribedThreadId = this.threadId;
         },
 
-        async cancelPending() {
+        cancelPending() {
             if (!this.isSending && this.pendingAssistantCount <= 0 && !this.currentTraceId) {
                 return;
             }
@@ -825,30 +697,13 @@ export function assistantChatFlyout(config) {
             const traceIdToCancel = this.currentTraceId || null;
             this.currentTraceId = null;
 
-            const tasks = [];
-
-            if (traceIdToCancel) {
-                tasks.push(this.$wire.$call('cancelInference', traceIdToCancel));
-            }
-
-            if (lastUserMessageId !== null) {
-                tasks.push(this.$wire.$call('markMessageCancelled', lastUserMessageId));
-            }
-
-            if (tasks.length > 0) {
-                try {
-                    await Promise.all(tasks);
-                } catch (error) {
-                    console.error(error);
-                    if (!this.errorMessage) {
-                        this.errorMessage =
-                            'We had trouble stopping the previous assistant request. Please check your queue worker.';
-                    }
-                }
-            }
+            this.$dispatch('assistant-chat:cancel', {
+                traceId: traceIdToCancel,
+                lastUserMessageId,
+            });
         },
 
-        async submit() {
+        submit() {
             if (this.isRateLimited || this.isSending || this.pendingAssistantCount > 0) return;
             const text = (this.input || '').trim();
             if (!text) return;
@@ -873,63 +728,15 @@ export function assistantChatFlyout(config) {
             this.isSending = true;
             this.isSubmittingMessage = true;
             this.errorMessage = '';
-
-            try {
-                const result = await this.$wire.$call('send', text, clientId);
-
-                const payload = result || {};
-                const serverThreadId = payload.thread_id ?? null;
-                const message = payload.message ?? null;
-
-                if (serverThreadId && !this.threadId) {
-                    this.threadId = serverThreadId;
-                    this.subscribeToThread();
-                }
-
-                if (message && message.role === 'user') {
-                    const idx = this.messages.findIndex((m) => m.client_id === clientId);
-                    if (idx !== -1) {
-                        this.messages[idx] = {
-                            ...this.messages[idx],
-                            ...message,
-                            id: message.id,
-                        };
-                    } else {
-                        this.messages.push(message);
-                    }
-
-                    this.pendingAssistantCount += 1;
-                    this.startPendingTimeout();
-                    this.currentTraceId = message.metadata && message.metadata.llm_trace_id
-                        ? message.metadata.llm_trace_id
-                        : null;
-                } else if (message && message.role === 'assistant') {
-                    this.messages.push(message);
-
-                    const snap = (message.metadata && message.metadata.recommendation_snapshot) || {};
-                    if (snap.reasoning === 'rate_limited') {
-                        this.isRateLimited = true;
-                    } else if (snap.reasoning && snap.reasoning !== 'rate_limited') {
-                        this.isRateLimited = false;
-                    }
-
-                    this.currentTraceId = null;
-                }
-            } catch (error) {
-                console.error(error);
-                this.messages = snapshot;
-                this.errorMessage =
-                    error?.message || 'Something went wrong while sending your message. Please try again.';
-            } finally {
-                this.isSending = false;
-                this.isSubmittingMessage = false;
-                this.$nextTick(() => {
-                    this.scrollToBottom(true);
-                });
-            }
+            this.$dispatch('assistant-chat:submit', { text, clientId });
+            this.isSending = false;
+            this.isSubmittingMessage = false;
+            this.$nextTick(() => {
+                this.scrollToBottom(true);
+            });
         },
 
-        async submitPrompt(prompt) {
+        submitPrompt(prompt) {
             if (this.isRateLimited || this.isSending || this.pendingAssistantCount > 0) return;
             const text = (prompt || '').trim();
             if (!text) return;
@@ -953,60 +760,12 @@ export function assistantChatFlyout(config) {
             this.isSending = true;
             this.isSubmittingMessage = true;
             this.errorMessage = '';
-
-            try {
-                const result = await this.$wire.$call('send', text, clientId);
-
-                const payload = result || {};
-                const serverThreadId = payload.thread_id ?? null;
-                const message = payload.message ?? null;
-
-                if (serverThreadId && !this.threadId) {
-                    this.threadId = serverThreadId;
-                    this.subscribeToThread();
-                }
-
-                if (message && message.role === 'user') {
-                    const idx = this.messages.findIndex((m) => m.client_id === clientId);
-                    if (idx !== -1) {
-                        this.messages[idx] = {
-                            ...this.messages[idx],
-                            ...message,
-                            id: message.id,
-                        };
-                    } else {
-                        this.messages.push(message);
-                    }
-
-                    this.pendingAssistantCount += 1;
-                    this.startPendingTimeout();
-                    this.currentTraceId = message.metadata && message.metadata.llm_trace_id
-                        ? message.metadata.llm_trace_id
-                        : null;
-                } else if (message && message.role === 'assistant') {
-                    this.messages.push(message);
-
-                    const snap = (message.metadata && message.metadata.recommendation_snapshot) || {};
-                    if (snap.reasoning === 'rate_limited') {
-                        this.isRateLimited = true;
-                    } else if (snap.reasoning && snap.reasoning !== 'rate_limited') {
-                        this.isRateLimited = false;
-                    }
-
-                    this.currentTraceId = null;
-                }
-            } catch (error) {
-                console.error(error);
-                this.messages = snapshot;
-                this.errorMessage =
-                    error?.message || 'Something went wrong while sending your message. Please try again.';
-            } finally {
-                this.isSending = false;
-                this.isSubmittingMessage = false;
-                this.$nextTick(() => {
-                    this.scrollToBottom(true);
-                });
-            }
+            this.$dispatch('assistant-chat:submit', { text, clientId });
+            this.isSending = false;
+            this.isSubmittingMessage = false;
+            this.$nextTick(() => {
+                this.scrollToBottom(true);
+            });
         },
 
         init() {
@@ -1017,9 +776,6 @@ export function assistantChatFlyout(config) {
                         this.handleScroll();
                     };
                     this.$refs.scroller.addEventListener('scroll', this._onScroll, { passive: true });
-                }
-                if (this.threadId) {
-                    this.subscribeToThread();
                 }
                 if (this.pendingAssistantCount > 0) {
                     this.startPendingTimeout();

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\DataTransferObjects\Llm\ConversationTurn;
 use App\Enums\ChatMessageRole;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -47,5 +48,19 @@ class ChatMessage extends Model
     public function isAssistant(): bool
     {
         return $this->role === ChatMessageRole::Assistant;
+    }
+
+    public function toConversationTurn(): ConversationTurn
+    {
+        $createdAt = $this->created_at instanceof \DateTimeImmutable
+            ? $this->created_at
+            : \DateTimeImmutable::createFromMutable($this->created_at);
+
+        return new ConversationTurn(
+            role: $this->role->value,
+            text: $this->content_text,
+            structured: $this->content_json,
+            createdAt: $createdAt,
+        );
     }
 }

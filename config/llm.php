@@ -55,7 +55,7 @@ return [
     'allowed_tools' => [
         'create_task',
         'update_task',
-        'create_schedule',
+        'create_event',
     ],
 
     // Timezone

@@ -591,6 +591,39 @@ class Event extends Model
     }
 
     /**
+     * Upcoming events for the given user within the next N hours.
+     *
+     * Used by the LLM context builder to provide a concise window of events.
+     */
+    public function scopeUpcomingForUser(Builder $query, int $userId, int $hours = 24): Builder
+    {
+        $now = now();
+
+        return $query
+            ->where('user_id', $userId)
+            ->where('start_datetime', '>=', $now)
+            ->where('start_datetime', '<=', $now->copy()->addHours($hours))
+            ->orderBy('start_datetime');
+    }
+
+    /**
+     * Events for the given user that overlap the provided [start, end] window.
+     *
+     * Used to detect scheduling conflicts for proposed time blocks.
+     */
+    public function scopeConflictingWithWindow(
+        Builder $query,
+        int $userId,
+        \DateTimeImmutable $start,
+        \DateTimeImmutable $end,
+    ): Builder {
+        return $query
+            ->where('user_id', $userId)
+            ->where('start_datetime', '<', $end)
+            ->where('end_datetime', '>', $start);
+    }
+
+    /**
      * Events where the given time is between start and end (happening now).
      */
     public function scopeHappeningNow(Builder $query, CarbonInterface $atTime): Builder

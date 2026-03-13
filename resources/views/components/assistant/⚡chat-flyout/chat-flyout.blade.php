@@ -2,11 +2,11 @@
 <div
     wire:ignore
     x-data="assistantChatFlyout({{ \Illuminate\Support\Js::from([
-        'threadId' => $this->threadId,
+        'threadId' => null,
         'workspaceUrl' => route('workspace'),
-        'messages' => $this->messages,
-        'pendingAssistantCount' => $this->pendingAssistantCount,
-        'currentTraceId' => $this->currentTraceId,
+        'messages' => [],
+        'pendingAssistantCount' => 0,
+        'currentTraceId' => null,
         'appTimezone' => config('app.timezone', 'Asia/Manila'),
         'suggestedPrompts' => [
             (string) __('Prioritise my tasks for this week.'),
@@ -421,20 +421,6 @@
                                     x-text="contextIntentLabel(message)"
                                 ></span>
                             </div>
-
-                            @env('local')
-                                <div class="mt-2">
-                                    <flux:button
-                                        type="button"
-                                        size="xs"
-                                        variant="ghost"
-                                        class="text-[10px]! px-2 py-0.5!"
-                                        @click="$wire.debugStructuredOutput(message.id)"
-                                    >
-                                        {{ __('Show structured output') }}
-                                    </flux:button>
-                                </div>
-                            @endenv
                         </div>
                     </template>
                     </div>

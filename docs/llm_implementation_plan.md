@@ -2705,6 +2705,13 @@ it('persists a safe error ChatMessage when the job permanently fails', function 
 > [!NOTE]
 > **Depends on:** All previous phases. Keep this component thin — it only dispatches jobs and reads ChatMessages.
 
+> [!NOTE]
+> The assistant chat **UI shell** reuses the existing components:
+> - `[resources/views/components/assistant/⚡chat-flyout/chat-flyout.php](resources/views/components/assistant/⚡chat-flyout/chat-flyout.php)` — minimal Livewire/Blade wrapper for the flyout.
+> - `[resources/views/components/assistant/⚡chat-flyout/chat-flyout.blade.php](resources/views/components/assistant/⚡chat-flyout/chat-flyout.blade.php)` — Flux UI + Tailwind layout for the chat flyout.
+> - `[resources/js/alpine/assistant-chat-flyout.js](resources/js/alpine/assistant-chat-flyout.js)` — Alpine state manager for the chat flyout.
+> These components are now backend-agnostic and will be wired to the new `/chat/threads` routes and `ProcessLlmRequestJob` in this phase.
+
 ---
 
 ### STEP 9.1 — Create `app/Livewire/Chat/ChatFlyout.php`
@@ -2847,7 +2854,7 @@ Phase 6  → BuildContextAction  →  CallLlmAction  →  RetryRepairAction
           → LlmChatService  →  3 Tool Actions
 Phase 7  → ProcessLlmRequestJob  →  ChatThreadController
 Phase 8  → 5 Pest test files  (php artisan test --testsuite=Feature)
-Phase 9  → ChatFlyout Livewire component  →  Blade view
+Phase 9  → Assistant chat flyout (existing Blade + PHP + Alpine) wired to new LLM backend
 ```
 
 ---
