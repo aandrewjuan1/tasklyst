@@ -3,9 +3,11 @@
 use App\Actions\Llm\CallLlmAction;
 use App\DataTransferObjects\Llm\LlmRawResponseDto;
 use App\Enums\ChatMessageRole;
+use App\Events\LlmResponseReady;
 use App\Jobs\ProcessLlmRequestJob;
 use App\Models\ChatThread;
 use App\Models\User;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 
 test('persists an assistant chat message after successful job execution', function (): void {
@@ -29,6 +31,8 @@ test('persists an assistant chat message after successful job execution', functi
             ],
         ]), 200));
 
+    Event::fake([LlmResponseReady::class]);
+
     ProcessLlmRequestJob::dispatchSync(
         user: $user,
         thread: $thread,
@@ -42,6 +46,12 @@ test('persists an assistant chat message after successful job execution', functi
             ->where('role', ChatMessageRole::Assistant->value)
             ->exists()
     )->toBeTrue();
+
+    Event::assertDispatched(
+        LlmResponseReady::class,
+        fn (LlmResponseReady $event): bool => $event->userId === $user->id
+            && $event->threadId === $thread->id,
+    );
 });
 
 test('persists a safe error chat message when the job permanently fails', function (): void {
@@ -69,4 +79,3 @@ test('persists a safe error chat message when the job permanently fails', functi
             ->exists()
     )->toBeTrue();
 });
-

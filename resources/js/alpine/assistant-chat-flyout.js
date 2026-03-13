@@ -37,6 +37,7 @@ const ACTIONABLE_INTENTS = [
 
 export function assistantChatFlyout(config) {
     return {
+        userId: config.userId ?? null,
         threadId: config.threadId ?? null,
         workspaceUrl: config.workspaceUrl ?? '',
         input: '',
@@ -660,9 +661,52 @@ export function assistantChatFlyout(config) {
         },
 
         subscribeToThread() {
-            if (!this.threadId) return;
+            if (!this.threadId || !this.userId || typeof window === 'undefined' || !window.Echo) {
+                return;
+            }
+
+            if (this._subscribedThreadId === this.threadId) {
+                return;
+            }
 
             this._subscribedThreadId = this.threadId;
+
+            window.Echo.private(`App.Models.User.${this.userId}`).listen(
+                '.LlmResponseReady',
+                (event) => {
+                    if (Number(event.thread_id) !== Number(this.threadId)) {
+                        return;
+                    }
+
+                    fetch(`/chat/threads/${this.threadId}/messages`, {
+                        headers: {
+                            Accept: 'application/json',
+                        },
+                    })
+                        .then((response) => response.json())
+                        .then((payload) => {
+                            if (!Array.isArray(payload)) {
+                                return;
+                            }
+
+                            this.messages = payload.map((m) => ({
+                                id: m.id,
+                                role: m.role,
+                                content: m.content_text,
+                                created_at: m.created_at,
+                                metadata: m.meta || {},
+                            }));
+
+                            this.pendingAssistantCount = 0;
+                            this.currentTraceId = null;
+
+                            this.$nextTick(() => this.scrollToBottom(true));
+                        })
+                        .catch(() => {
+                            // Swallow errors; UI will continue to rely on polling or manual refresh.
+                        });
+                },
+            );
         },
 
         cancelPending() {
@@ -783,7 +827,9 @@ export function assistantChatFlyout(config) {
                 if (this.$refs.input) {
                     this.resizeInput();
                 }
-
+                if (this.threadId) {
+                    this.subscribeToThread();
+                }
             });
         },
     };

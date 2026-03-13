@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\ChatMessageRole;
+use App\Events\LlmResponseReady;
 use App\Models\ChatMessage;
 use App\Models\ChatThread;
 use App\Models\User;
@@ -47,8 +48,10 @@ class ProcessLlmRequestJob implements ShouldQueue
             traceId: $this->traceId,
         );
 
-        // Broadcast to Livewire via event or polling hook if desired.
-        // event(new LlmResponseReady($this->user->id, $this->thread->id));
+        event(new LlmResponseReady(
+            userId: $this->user->id,
+            threadId: $this->thread->id,
+        ));
     }
 
     public function failed(\Throwable $exception): void
