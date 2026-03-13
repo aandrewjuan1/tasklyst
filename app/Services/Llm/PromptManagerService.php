@@ -92,17 +92,42 @@ class PromptManagerService
         $reasoningWordLimitPrioritize = (int) config('llm.prompt.reasoning_word_limit_for_prioritize', max(40, $reasoningWordLimit));
         $tokenBudget = (int) config('llm.context.token_budget', 2000);
 
+        $intentHint = $this->inferIntentHint($message);
+        $keywords = $this->extractKeywords($message);
+
         $tasks = $context->tasks;
         $events = $context->events;
         $projects = $context->projects;
 
-        if ($tokenBudget > 0) {
-            $tasks = array_slice($tasks, 0, min(count($tasks), $topTaskLimit));
+        // Re-rank tasks and events by lightweight relevance signals so that small models
+        // see the most important items first.
+        $tasks = $this->sortTasksByRelevance($tasks, $keywords, $context->now, $intentHint);
+        $events = $this->sortEventsByRelevance($events, $keywords, $context->now, $intentHint);
+
+        // Apply simple, intent-aware caps on how much raw context we send.
+        // This complements the token budget without requiring exact token counting.
+        [$taskLimit, $eventLimit, $projectLimit] = $this->contextLimitsForIntent(
+            $intentHint,
+            $tokenBudget,
+            (int) config('llm.context.max_tasks', 8),
+            $topTaskLimit,
+        );
+
+        if ($taskLimit > 0) {
+            $tasks = array_slice($tasks, 0, min(count($tasks), $taskLimit));
+        }
+
+        if ($eventLimit > 0) {
+            $events = array_slice($events, 0, min(count($events), $eventLimit));
+        }
+
+        if ($projectLimit > 0) {
+            $projects = array_slice($projects, 0, min(count($projects), $projectLimit));
         }
 
         return [
             'user_message' => $message,
-            'intent_hint' => $this->inferIntentHint($message),
+            'intent_hint' => $intentHint,
             'current_time' => $context->now->format(\DateTimeInterface::ATOM),
             'timezone' => $this->timezone,
             'summary_mode' => $context->isSummaryMode,
@@ -131,6 +156,8 @@ class PromptManagerService
                     'end_datetime' => $t->dueDate,
                     'priority' => $t->priority,
                     'duration' => $t->estimateMinutes,
+                    'relevance_tag' => $this->taskRelevanceTag($t, $context->now),
+                    'matches_query' => $this->titleMatchesKeywords($t->title, $keywords),
                 ],
                 $tasks
             ),
@@ -140,6 +167,7 @@ class PromptManagerService
                     'title' => $e->title,
                     'start_datetime' => $e->startDatetime,
                     'duration_minutes' => $e->durationMinutes,
+                    'time_bucket' => $this->eventTimeBucket($e, $context->now),
                 ],
                 $events
             ),
@@ -204,6 +232,36 @@ class PromptManagerService
         }
 
         return 'unknown';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function extractKeywords(string $message): array
+    {
+        $text = mb_strtolower($message);
+
+        // Very small, conservative stopword list tuned for short student queries.
+        $stopwords = [
+            'the', 'a', 'an', 'and', 'or', 'but', 'with', 'for', 'to', 'in', 'on',
+            'my', 'me', 'i', 'of', 'at', 'is', 'it', 'that', 'this', 'please',
+        ];
+
+        $tokens = preg_split('/[^a-z0-9]+/u', $text) ?: [];
+
+        $keywords = array_values(array_filter($tokens, function (?string $token) use ($stopwords): bool {
+            if ($token === null || $token === '') {
+                return false;
+            }
+
+            if (mb_strlen($token) < 3) {
+                return false;
+            }
+
+            return ! in_array($token, $stopwords, true);
+        }));
+
+        return array_values(array_unique($keywords));
     }
 
     private function buildSystemPrompt(): string
@@ -275,14 +333,15 @@ You run behind the scenes inside a task manager. Interpret user messages about t
 You are very good at following instructions, keeping track of context across turns, and calling tools when they are clearly needed.
 Never roleplay, never speculate about your own training, and never ignore safety rules.
 
-OUTPUT CONTRACT (must follow exactly)
+Output CONTRACT (must follow exactly)
 - Output **only one** JSON object using the canonical envelope below.
 - **No markdown. No code fences. No XML. No commentary** before or after the JSON.
 - Do not include explanations of your reasoning in the JSON fields; keep reasoning internal.
 
 GOAL
 - Help students decide what to do next with clear, grounded guidance.
-- Keep responses useful, natural, and supportive while staying concise.
+- Keep responses useful, natural, and supportive while staying concise and avoiding walls of text.
+- When possible, ground advice in the specific tasks, events, and projects provided in the payload rather than generic examples.
 
 INTENT SELECTION (choose carefully)
 - Always choose the intent that best matches the USER'S request, not just the available context.
@@ -296,14 +355,28 @@ INTENT SELECTION (choose carefully)
 - Use intent:"error" only when you truly cannot interpret the request or produce valid JSON.
 
 RESPONSE STYLE (adaptive)
-- Default style is "{$assistantStyle}".
-- Tone adapts to user intent: scheduling = precise, prioritization = decisive, uncertainty = clarifying, motivation = encouraging but practical.
-- "message" should be {$messageMinSentences}-{$messageMaxSentences} sentences, unless the user asks for very short output.
-- Include a short reason when recommending tasks (<= {$reasoningWordLimit} words, or <= {$reasoningWordLimitPrioritize} words for prioritize/list intents).
-- {$nextStepRule}
-- {$bulletsRule}
-- Vary your phrasing between turns; avoid repeating the exact same sentence templates when the user asks similar questions.
+-- Default style is "{$assistantStyle}" (supportive, practical, and focused on the next concrete step).
+-- Tone adapts to user intent:
+   - scheduling = precise and time-focused,
+   - prioritize/list = decisive and confidence-building,
+   - create/update = clear and action-oriented,
+   - general/motivation/overwhelmed = warm, encouraging, and slightly more conversational.
+-- "message" should be {$messageMinSentences}-{$messageMaxSentences} sentences, unless the user asks for very short output.
+-- Include a short reason when recommending tasks (<= {$reasoningWordLimit} words, or <= {$reasoningWordLimitPrioritize} words for prioritize/list intents).
+-- {$nextStepRule}
+-- {$bulletsRule}
+-- Vary your phrasing between turns; avoid repeating the exact same sentence templates when the user asks similar questions.
+-- When the user says they feel overwhelmed, stressed, stuck, or anxious:
+   - First, briefly validate how they feel in 1–2 sentences.
+   - Then propose 3–5 concrete steps grounded in their actual tasks, events, and projects (for example: start with the most urgent task like "Physics assignment", then move to the next project checkpoint, add a short break, and include one small self-care action).
+   - Aim toward the upper end of the allowed sentence range while still avoiding overly long paragraphs.
 {$this->messageIdRules($useTitlesInMessage, $showIdsInMessage)}
+-
+- The user payload will include compact task and event context with small helper flags:
+-   - Each task may include a "relevance_tag" such as "overdue", "due_today", "due_soon", or "no_date".
+-   - Each task may include "matches_query": true when its title closely matches the current user request.
+-   - Each event may include a "time_bucket" such as "today", "tomorrow", or "next_7_days".
+- Use these hints to focus on the most relevant tasks and events rather than treating all items as equally important.
 
 PRIORITIZE & LIST INTENTS (ranking style)
 - For intent:"prioritize" and intent:"list":
@@ -376,47 +449,6 @@ ON JSON FAILURE: return {"schema_version":"{$version}","intent":"error","data":{
 
 SAFETY: never expose secrets, passwords, or PII. All external calls are server-side only.
 ENDING RULE: return the canonical envelope only.
-
-EXAMPLES (follow structure exactly; adapt content to the user)
-
-// Example A: prioritize without tool_call
-{
-  "schema_version": "{$version}",
-  "intent": "prioritize",
-  "data": {
-    "ranked_ids": ["task_31", "task_12"],
-    "reason": "Physics assignment is due tonight and the project is due later this week."
-  },
-  "tool_call": null,
-  "message": "Start with your Physics assignment because it is due tonight and carries more weight, then move on to your ITCS 101 project checkpoint.",
-  "meta": { "confidence": 0.86 }
-}
-
-// Example B: schedule with create_event tool_call
-{
-  "schema_version": "{$version}",
-  "intent": "schedule",
-  "data": {
-    "scheduled_items": [{
-      "id": "task_31",
-      "start_datetime": "2026-03-13T19:00:00+08:00",
-      "end_datetime": "2026-03-13T20:00:00+08:00"
-    }]
-  },
-  "tool_call": {
-    "tool": "create_event",
-    "args": {
-      "title": "Physics assignment focus block",
-      "start_datetime": "2026-03-13T19:00:00+08:00",
-      "end_datetime": "2026-03-13T20:00:00+08:00",
-      "all_day": false
-    },
-    "client_request_id": "req-uuid",
-    "confirmation_required": false
-  },
-  "message": "I scheduled a one-hour block this evening for your Physics assignment so you can finish it before it is due.",
-  "meta": { "confidence": 0.88 }
-}
 PROMPT;
     }
 
@@ -431,5 +463,242 @@ PROMPT;
         }
 
         return null;
+    }
+
+    /**
+     * @param  list<\App\DataTransferObjects\Llm\TaskContextItem>  $tasks
+     * @param  list<string>  $keywords
+     * @return list<\App\DataTransferObjects\Llm\TaskContextItem>
+     */
+    private function sortTasksByRelevance(array $tasks, array $keywords, \DateTimeImmutable $now, string $intentHint): array
+    {
+        if ($tasks === []) {
+            return $tasks;
+        }
+
+        usort($tasks, function ($a, $b) use ($keywords, $now, $intentHint): int {
+            $scoreA = $this->scoreTaskForIntent($a, $keywords, $now, $intentHint);
+            $scoreB = $this->scoreTaskForIntent($b, $keywords, $now, $intentHint);
+
+            return $scoreB <=> $scoreA;
+        });
+
+        return array_values($tasks);
+    }
+
+    /**
+     * @param  list<\App\DataTransferObjects\Llm\EventContextItem>  $events
+     * @param  list<string>  $keywords
+     * @return list<\App\DataTransferObjects\Llm\EventContextItem>
+     */
+    private function sortEventsByRelevance(array $events, array $keywords, \DateTimeImmutable $now, string $intentHint): array
+    {
+        if ($events === []) {
+            return $events;
+        }
+
+        usort($events, function ($a, $b) use ($keywords, $now, $intentHint): int {
+            $scoreA = $this->scoreEventForIntent($a, $keywords, $now, $intentHint);
+            $scoreB = $this->scoreEventForIntent($b, $keywords, $now, $intentHint);
+
+            return $scoreB <=> $scoreA;
+        });
+
+        return array_values($events);
+    }
+
+    private function scoreTaskForIntent(
+        \App\DataTransferObjects\Llm\TaskContextItem $task,
+        array $keywords,
+        \DateTimeImmutable $now,
+        string $intentHint,
+    ): float {
+        $score = 0.0;
+
+        if ($this->titleMatchesKeywords($task->title, $keywords)) {
+            $score += 5.0;
+        }
+
+        $today = $now->format('Y-m-d');
+        $dueDate = $task->dueDate;
+
+        if ($dueDate !== null) {
+            try {
+                $due = new \DateTimeImmutable($dueDate.'T00:00:00', $now->getTimezone());
+                $diffDays = (int) floor(($due->getTimestamp() - $now->getTimestamp()) / 86400);
+
+                if ($diffDays < 0) {
+                    $score += 4.0; // overdue
+                } elseif ($diffDays === 0) {
+                    $score += 3.0; // due today
+                } elseif ($diffDays <= 7) {
+                    $score += 2.0; // due soon
+                }
+            } catch (\Throwable) {
+                // Ignore invalid dates and keep default score contribution.
+            }
+        } else {
+            // No-date tasks are still useful but slightly lower by default.
+            $score += 0.5;
+        }
+
+        if ($task->priority === 'urgent') {
+            $score += 3.0;
+        } elseif ($task->priority === 'high') {
+            $score += 2.0;
+        }
+
+        // Nudge scoring by coarse-grained intent.
+        return match ($intentHint) {
+            'prioritize' => $score * 1.2,
+            'schedule' => $score * 1.1,
+            'update' => $this->titleMatchesKeywords($task->title, $keywords) ? $score * 1.4 : $score * 0.7,
+            default => $score,
+        };
+    }
+
+    private function scoreEventForIntent(
+        \App\DataTransferObjects\Llm\EventContextItem $event,
+        array $keywords,
+        \DateTimeImmutable $now,
+        string $intentHint,
+    ): float {
+        $score = 0.0;
+
+        if ($this->titleMatchesKeywords($event->title, $keywords)) {
+            $score += 3.0;
+        }
+
+        try {
+            $start = new \DateTimeImmutable($event->startDatetime);
+            $diffSeconds = $start->getTimestamp() - $now->getTimestamp();
+
+            if ($diffSeconds >= 0 && $diffSeconds <= 86400) {
+                $score += 3.0; // today
+            } elseif ($diffSeconds > 86400 && $diffSeconds <= 86400 * 7) {
+                $score += 2.0; // next 7 days
+            } elseif ($diffSeconds < 0) {
+                $score += 0.5; // already started or past
+            }
+        } catch (\Throwable) {
+            // Ignore invalid datetimes.
+        }
+
+        return $intentHint === 'schedule' ? $score * 1.3 : $score;
+    }
+
+    private function taskRelevanceTag(
+        \App\DataTransferObjects\Llm\TaskContextItem $task,
+        \DateTimeImmutable $now,
+    ): string {
+        $today = $now->format('Y-m-d');
+
+        if ($task->dueDate === null) {
+            return 'no_date';
+        }
+
+        if ($task->dueDate < $today) {
+            return 'overdue';
+        }
+
+        if ($task->dueDate === $today) {
+            return 'due_today';
+        }
+
+        try {
+            $due = new \DateTimeImmutable($task->dueDate.'T00:00:00', $now->getTimezone());
+            $diffDays = (int) floor(($due->getTimestamp() - $now->getTimestamp()) / 86400);
+
+            if ($diffDays >= 0 && $diffDays <= 7) {
+                return 'due_soon';
+            }
+        } catch (\Throwable) {
+            // Fall through to generic label.
+        }
+
+        return 'scheduled';
+    }
+
+    private function eventTimeBucket(
+        \App\DataTransferObjects\Llm\EventContextItem $event,
+        \DateTimeImmutable $now,
+    ): string {
+        try {
+            $start = new \DateTimeImmutable($event->startDatetime);
+        } catch (\Throwable) {
+            return 'unknown';
+        }
+
+        $startDay = $start->format('Y-m-d');
+        $today = $now->format('Y-m-d');
+
+        if ($startDay === $today) {
+            return 'today';
+        }
+
+        $tomorrow = $now->modify('+1 day')->format('Y-m-d');
+        if ($startDay === $tomorrow) {
+            return 'tomorrow';
+        }
+
+        $diffSeconds = $start->getTimestamp() - $now->getTimestamp();
+        if ($diffSeconds > 0 && $diffSeconds <= 86400 * 7) {
+            return 'next_7_days';
+        }
+
+        if ($diffSeconds < 0) {
+            return 'past';
+        }
+
+        return 'later';
+    }
+
+    /**
+     * Decide how many tasks, events, and projects to include in the payload based on
+     * the coarse-grained intent hint and the configured caps.
+     *
+     * @return array{0:int,1:int,2:int}
+     */
+    private function contextLimitsForIntent(
+        string $intentHint,
+        int $tokenBudget,
+        int $maxTasksConfig,
+        int $prioritizeDefaultLimit,
+    ): array {
+        $taskLimit = match ($intentHint) {
+            'prioritize' => min($prioritizeDefaultLimit, $maxTasksConfig),
+            'schedule' => $maxTasksConfig,
+            'update' => min(5, $maxTasksConfig),
+            'create' => min(3, $maxTasksConfig),
+            default => min(4, $maxTasksConfig),
+        };
+
+        $eventLimit = $intentHint === 'schedule' ? 10 : 3;
+        $projectLimit = in_array($intentHint, ['schedule', 'prioritize'], true) ? 5 : 3;
+
+        if ($tokenBudget > 0 && $tokenBudget < 1000) {
+            $taskLimit = max(1, (int) floor($taskLimit * 0.6));
+            $eventLimit = max(0, (int) floor($eventLimit * 0.6));
+            $projectLimit = max(0, (int) floor($projectLimit * 0.6));
+        }
+
+        return [$taskLimit, $eventLimit, $projectLimit];
+    }
+
+    private function titleMatchesKeywords(string $title, array $keywords): bool
+    {
+        if ($keywords === []) {
+            return false;
+        }
+
+        $haystack = mb_strtolower($title);
+
+        foreach ($keywords as $keyword) {
+            if ($keyword !== '' && str_contains($haystack, $keyword)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

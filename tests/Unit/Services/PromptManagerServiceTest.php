@@ -10,11 +10,11 @@ use App\Services\Llm\PromptManagerService;
 
 function makePromptManager(): PromptManagerService
 {
-    config()->set('llm.prompt.default_style', 'balanced');
-    config()->set('llm.prompt.message.min_sentences', 1);
-    config()->set('llm.prompt.message.max_sentences', 4);
-    config()->set('llm.prompt.reasoning_word_limit', 25);
-    config()->set('llm.prompt.reasoning_word_limit_for_prioritize', 50);
+    config()->set('llm.prompt.default_style', 'supportive');
+    config()->set('llm.prompt.message.min_sentences', 3);
+    config()->set('llm.prompt.message.max_sentences', 8);
+    config()->set('llm.prompt.reasoning_word_limit', 50);
+    config()->set('llm.prompt.reasoning_word_limit_for_prioritize', 80);
     config()->set('llm.prompt.prioritize_default_limit', 5);
     config()->set('llm.prompt.include_next_steps', true);
     config()->set('llm.prompt.require_clarification_for_ambiguous_time', true);
@@ -56,32 +56,45 @@ test('prompt manager builds request payload with adaptive guidance keys', functi
 
     expect($payload)->toBeArray()
         ->and($payload['intent_hint'] ?? null)->toBe('prioritize')
-        ->and($payload['response_preferences']['style'] ?? null)->toBe('balanced')
+        ->and($payload['response_preferences']['style'] ?? null)->toBe('supportive')
         ->and($payload['response_preferences']['prioritize_default_limit'] ?? null)->toBe(5)
-        ->and($payload['response_preferences']['message_min_sentences'] ?? null)->toBe(1)
-        ->and($payload['response_preferences']['message_max_sentences'] ?? null)->toBe(4)
-        ->and($payload['response_preferences']['reasoning_word_limit_for_prioritize'] ?? null)->toBe(50)
+        ->and($payload['response_preferences']['message_min_sentences'] ?? null)->toBe(3)
+        ->and($payload['response_preferences']['message_max_sentences'] ?? null)->toBe(8)
+        ->and($payload['response_preferences']['reasoning_word_limit_for_prioritize'] ?? null)->toBe(80)
         ->and($payload['response_preferences']['use_titles_in_message'] ?? null)->toBeTrue()
         ->and($payload['response_preferences']['show_rank_numbers'] ?? null)->toBeTrue()
         ->and($payload['response_preferences']['show_ids_in_message'] ?? null)->toBeFalse()
         ->and($payload['context_fingerprint'] ?? null)->toBe('task-fp-123')
         ->and($payload['user_preferences']['tone'] ?? null)->toBe('friendly')
-        ->and($payload['tasks'][0]['id'] ?? null)->toBe('task_31');
+        ->and($payload['tasks'][0]['id'] ?? null)->toBe('task_31')
+        ->and($payload['tasks'][0]['relevance_tag'] ?? null)->toBe('due_soon')
+        ->and($payload['tasks'][0]['matches_query'] ?? null)->toBeFalse()
+        ->and($payload['upcoming_events'][0]['time_bucket'] ?? null)->toBe('today');
 });
 
-test('prompt manager system prompt contains balanced adaptive rules and student examples', function (): void {
+test('prompt manager highlights tasks and events that match query keywords', function (): void {
+    $request = makePromptManager()->buildRequest('schedule my physics assignment after chemistry class', makePromptContext());
+    $payload = json_decode($request->userPayloadJson, true);
+
+    expect($payload['intent_hint'] ?? null)->toBe('schedule');
+    expect($payload['tasks'][0]['id'] ?? null)->toBe('task_31');
+    expect($payload['tasks'][0]['matches_query'] ?? null)->toBeTrue();
+    expect($payload['upcoming_events'][0]['time_bucket'] ?? null)->toBe('today');
+});
+
+test('prompt manager system prompt contains balanced adaptive rules', function (): void {
     $request = makePromptManager()->buildRequest('hello', makePromptContext());
     $systemPrompt = $request->systemPrompt;
 
     expect($systemPrompt)->toContain('warm, practical Task Assistant')
-        ->toContain('message" should be 1-4 sentences')
+        ->toContain('message" should be 3-8 sentences')
+        ->toContain('Default style is "supportive"')
+        ->toContain('When the user says they feel overwhelmed, stressed, stuck, or anxious')
         ->toContain('In user-facing "message", always refer to tasks and events by their titles')
         ->toContain('For intent:"prioritize" and intent:"list":')
         ->toContain('The user payload may include an "intent_hint" field')
         ->toContain('Output CONTRACT (must follow exactly)')
-        ->toContain('IMPORTANT TOOL-CALLING RULES')
-        ->toContain('Example A: prioritize without tool_call')
-        ->toContain('Example B: schedule with create_event tool_call');
+        ->toContain('IMPORTANT TOOL-CALLING RULES');
 });
 
 test('prompt manager builds contextual follow-up request after tool execution', function (): void {
