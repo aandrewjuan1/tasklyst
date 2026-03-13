@@ -32,11 +32,22 @@ class LlmChatService
             $context = ($this->contextBuilder)($user, $threadId, $message);
 
             $request = $this->promptManager->buildRequest($message, $context);
+            $intentHint = $request->userPayload['intent_hint'] ?? null;
+            $chatmlEnabled = (bool) config('llm.prompt.chatml.enabled', false);
+
+            Log::channel(config('llm.log.channel'))->info('llm.request_built', [
+                'trace_id' => $traceId,
+                'user_id' => $user->id,
+                'intent_hint' => $intentHint,
+                'chatml_enabled' => $chatmlEnabled,
+            ]);
+
             $request = new LlmRequestDto(
                 systemPrompt: $request->systemPrompt,
                 userPayloadJson: $request->userPayloadJson,
                 temperature: $request->temperature,
                 maxTokens: $request->maxTokens,
+                userPayload: $request->userPayload,
                 options: $request->options,
                 traceId: $traceId,
             );
@@ -79,6 +90,8 @@ class LlmChatService
                     'trace_id' => $traceId,
                     'latency_ms' => $rawResponse->latencyMs,
                     'tokens' => $rawResponse->tokensUsed,
+                    'intent_hint' => $intentHint,
+                    'chatml_enabled' => $chatmlEnabled,
                 ],
             ]);
 

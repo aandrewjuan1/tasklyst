@@ -9,6 +9,9 @@ final class ContextDto
      * @param  list<EventContextItem>  $events
      * @param  list<ConversationTurn>  $recentMessages
      * @param  array<string, mixed>  $userPreferences
+     * @param  array<string, mixed>  $taskSummary
+     * @param  list<ProjectContextItem>  $projects
+     * @param  array<string, mixed>  $projectSummary
      */
     public function __construct(
         public readonly \DateTimeImmutable $now,
@@ -18,6 +21,10 @@ final class ContextDto
         public readonly array $userPreferences = [],
         public readonly ?string $fingerprint = null,
         public readonly bool $isSummaryMode = false,
+        public readonly array $taskSummary = [],
+        public readonly array $projects = [],
+        public readonly array $projectSummary = [],
+        public readonly ?string $lastUserMessage = null,
     ) {}
 
     /**
