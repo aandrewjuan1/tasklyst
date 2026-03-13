@@ -2,6 +2,7 @@
 <div
     wire:ignore
     x-data="assistantChatFlyout({{ \Illuminate\Support\Js::from([
+        'userId' => auth()->id(),
         'threadId' => null,
         'workspaceUrl' => route('workspace'),
         'messages' => [],
