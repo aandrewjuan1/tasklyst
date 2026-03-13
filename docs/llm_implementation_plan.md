@@ -11,7 +11,7 @@
 
 > [!IMPORTANT]
 > - **Never** call Ollama or PrismPHP synchronously inside an HTTP request. Always dispatch `ProcessLlmRequestJob`.
-> - **Never** write to the database from inside `LlmChatService` or any Action/Service without going through an existing domain Action (`CreateTaskAction`, `UpdateTaskAction`, `CreateScheduleAction`).
+> - **Never** write to the database from inside `LlmChatService` or any Action/Service without going through existing domain actions/services (`App\Actions\Task\CreateTaskAction`, `App\Actions\Task\UpdateTaskPropertyAction`, `App\Actions\Event\CreateEventAction`, `TaskService`, `EventService`).
 > - **Never** use a raw string where an Enum exists (`LlmIntent`, `ChatMessageRole`, `ToolCallStatus`).
 > - **Never** hardcode model name, temperature, token limits, or queue names. Always read from `config('llm.*')`.
 > - **Always** call `Gate::authorize('executeLlmTool', $task)` inside `ToolExecutorService` before any task write.
@@ -21,6 +21,39 @@
 
 > [!WARNING]
 > The model can propose any task ID it sees in context. The Policy gate is the only thing preventing cross-user writes. Do not remove or skip it.
+
+---
+
+## Current Backend Contract (Source Of Truth)
+
+This section is authoritative. If any later snippet conflicts with these rules, update the snippet to match this contract before implementation.
+
+- Task timing/completion fields are `start_datetime`, `end_datetime`, and `completed_at` (not `due_date` / `is_completed`).
+- Task effort field is `duration` (not `estimate_minutes`).
+- `tasks.priority` is enum-backed via `TaskPriority` (not integer-backed).
+- There is no `Schedule` model/table in this codebase. Use existing `Task` and `Event` domains.
+- Existing app writes are Livewire concern + domain action/service driven (`HandlesTasks`, `TaskService`, `EventService`), not controller/form-request CRUD for tasks.
+- Protected web routes currently use both `auth` and `ValidateWorkOSSession` middleware.
+- `app/Providers/AuthServiceProvider.php` does not exist in this Laravel 12 structure. Policy wiring must follow current provider/bootstrap conventions in this repo.
+
+### Canonical Mutation Guardrails
+
+- Resolve user-owned/collab-scoped tasks via `Task::forUser($userId)` before mutation.
+- For task updates, respect `TaskPayloadValidation::allowedUpdateProperties()` and owner-only restrictions already enforced in `HandlesTasks`.
+- Preserve existing side-effects (activity logs, recurrence normalization, collaboration cleanup) by using current domain actions/services instead of ad-hoc model writes.
+
+### Compatibility Migration Notes
+
+- Legacy `assistant_*` table/component assumptions must be treated as migrated/obsolete; use `chat_threads`, `chat_messages`, and `llm_tool_calls`.
+- Existing assistant flyout contracts may reference old intent/tool shapes. Update frontend parsing in the same PR whenever prompt/tool schema changes.
+- Where this plan introduces net-new modules (Llm services/actions, chat controllers/requests), keep namespaced additions non-conflicting with existing `App\Actions\Task` and `App\Actions\Event` classes.
+
+### Pre-Phase Alignment Checks (Run Before Every Phase)
+
+- Verify referenced table/column names against current migrations and model casts before copying code snippets.
+- Verify referenced models/services/policies actually exist in this repo before generating files.
+- If a snippet references `Schedule`/`due_date`/`is_completed`/`estimate_minutes`, convert it to `Event`/`end_datetime`/`completed_at`/`duration` before implementation.
+- If policy registration instructions mention `AuthServiceProvider`, adapt to the repo’s Laravel 12 provider/bootstrap policy strategy.
 
 ---
 
@@ -56,9 +89,9 @@ app/
 │   │   ├── CallLlmAction.php
 │   │   └── RetryRepairAction.php
 │   └── Tool/
-│       ├── CreateTaskAction.php
-│       ├── UpdateTaskAction.php
-│       └── CreateScheduleAction.php
+│       ├── Use existing App\Actions\Task\CreateTaskAction.php
+│       ├── Use existing App\Actions\Task\UpdateTaskPropertyAction.php
+│       └── Use existing App\Actions\Event\CreateEventAction.php (if event creation is enabled)
 ├── DataTransferObjects/
 │   ├── Llm/
 │   │   ├── ContextDto.php
@@ -93,7 +126,7 @@ app/
 │   ├── ChatThread.php
 │   ├── ChatMessage.php
 │   └── LlmToolCall.php
-│   # Task.php / Schedule.php — ADD scopes to existing models
+│   # Task.php / Event.php — ADD scopes/helpers to existing models
 ├── Policies/
 │   ├── ChatThreadPolicy.php
 │   ├── LlmToolCallPolicy.php
@@ -180,7 +213,7 @@ return [
 
     // ── Queue ─────────────────────────────────────────────────────────
     'queue' => [
-        'connection' => env('LLM_QUEUE_CONNECTION', 'redis'),
+        'connection' => env('LLM_QUEUE_CONNECTION', env('QUEUE_CONNECTION', 'database')),
         'name'       => env('LLM_QUEUE_NAME', 'llm'),
         'timeout'    => (int) env('LLM_QUEUE_TIMEOUT', 90),
         'tries'      => (int) env('LLM_QUEUE_TRIES', 2),
@@ -203,7 +236,7 @@ return [
     'allowed_tools' => [
         'create_task',
         'update_task',
-        'create_schedule',
+        'create_event',
     ],
 
     // ── Timezone ──────────────────────────────────────────────────────
@@ -211,7 +244,8 @@ return [
 ];
 ```
 
-Then add these lines to `.env` and `.env.example`:
+Then add these lines to `.env`.
+If `.env.example` exists in your repo, mirror the same keys there. Do not create `.env.example` solely for this phase.
 
 ```dotenv
 # LLM Assistant
@@ -228,7 +262,7 @@ LLM_CTX_SUMMARY_THRESHOLD=50
 LLM_CTX_TOKEN_BUDGET=2000
 LLM_CONFIDENCE_LOW=0.4
 LLM_CONFIDENCE_HIGH=0.75
-LLM_QUEUE_CONNECTION=redis
+LLM_QUEUE_CONNECTION=database
 LLM_QUEUE_NAME=llm
 LLM_QUEUE_TIMEOUT=90
 LLM_QUEUE_TRIES=2
@@ -567,31 +601,31 @@ return new class extends Migration
 ```php
 // ADD to app/Models/Task.php — merge with existing casts and methods
 
-// In $casts array, ensure these exist:
-protected $casts = [
-    // ... your existing casts ...
-    'due_date'         => 'date',
-    'is_completed'     => 'boolean',
-    'estimate_minutes' => 'integer',
-    'priority'         => 'integer',
-];
+// In casts(), ensure this exists:
+protected function casts(): array
+{
+    return [
+        // ... your existing casts ...
+        'duration' => 'integer',
+    ];
+}
 
 // ADD these scopes:
 
-/** Used by BuildContextAction — active incomplete tasks ordered by priority then due date. */
+/** Used by BuildContextAction — active incomplete tasks ordered by priority then due datetime. */
 public function scopeActiveForUser(Builder $query, int $userId): Builder
 {
     return $query
         ->where('user_id', $userId)
-        ->where('is_completed', false)
-        ->orderByDesc('priority')
-        ->orderBy('due_date');
+        ->whereNull('completed_at')
+        ->orderByPriority()
+        ->orderBy('end_datetime');
 }
 
 /** Minimal columns for summary mode (> 50 tasks). */
 public function scopeSummaryColumns(Builder $query): Builder
 {
-    return $query->select(['id', 'title', 'due_date', 'priority', 'estimate_minutes']);
+    return $query->select(['id', 'title', 'end_datetime', 'priority', 'duration']);
 }
 
 /** Eager-load specific IDs mentioned in user message. */
@@ -603,25 +637,17 @@ public function scopeForIds(Builder $query, array $ids): Builder
 
 ---
 
-### STEP 2.5 — Add LLM scopes to existing `app/Models/Schedule.php`
+### STEP 2.5 — Add context/conflict scopes to existing `app/Models/Event.php`
 
 > [!NOTE]
-> Do NOT replace the existing Schedule model. ADD the following.
+> This codebase has no `Schedule` model/table. Use existing `Event` model for time-block conflict checks.
 
 ```php
-// ADD to app/Models/Schedule.php
-
-// In $casts array, ensure these exist:
-protected $casts = [
-    // ... your existing casts ...
-    'start_datetime'   => 'immutable_datetime',
-    'end_datetime'     => 'immutable_datetime',
-    'duration_minutes' => 'integer',
-];
+// ADD to app/Models/Event.php
 
 // ADD these scopes:
 
-/** Used by BuildContextAction — upcoming schedules within N hours. */
+/** Used by BuildContextAction — upcoming events within N hours. */
 public function scopeUpcomingForUser(Builder $query, int $userId, int $hours = 24): Builder
 {
     return $query
@@ -632,17 +658,15 @@ public function scopeUpcomingForUser(Builder $query, int $userId, int $hours = 2
 }
 
 /**
- * Used by PostProcessorService to detect scheduling conflicts before tool execution.
- * Checks if any existing schedule overlaps the proposed [start, start+duration] window.
+ * Used by PostProcessorService to detect event conflicts before tool execution.
+ * Checks if any existing event overlaps the proposed [start, end] window.
  */
-public function scopeConflictingWith(
+public function scopeConflictingWithWindow(
     Builder $query,
     int $userId,
     \DateTimeImmutable $start,
-    int $durationMinutes,
+    \DateTimeImmutable $end,
 ): Builder {
-    $end = $start->modify("+{$durationMinutes} minutes");
-
     return $query
         ->where('user_id', $userId)
         ->where('start_datetime', '<', $end)
@@ -881,8 +905,8 @@ final class TaskContextItem
         public readonly int     $id,
         public readonly string  $title,
         public readonly ?string $dueDate,        // YYYY-MM-DD or null
-        public readonly int     $priority,
-        public readonly ?int    $estimateMinutes,
+        public readonly ?string $priority,       // TaskPriority->value
+        public readonly ?int    $estimateMinutes, // mapped from Task::duration
     ) {}
 }
 ```
@@ -1158,7 +1182,7 @@ class ChatThreadPolicy
 
 /**
  * Called by ToolExecutorService via Gate::authorize('executeLlmTool', $task)
- * BEFORE any update_task or create_schedule tool execution.
+ * BEFORE any update_task or create_event tool execution.
  *
  * This is the critical cross-user protection:
  * even if the model proposes a task ID belonging to another user, this gate blocks it.
@@ -1169,12 +1193,12 @@ public function executeLlmTool(User $user, Task $task): bool
 }
 
 /**
- * Authorizes scheduling. Also checks task is not already completed.
- * Called by ToolExecutorService before create_schedule tool execution.
+ * Authorizes event scheduling from task context.
+ * Called by ToolExecutorService before create_event tool execution.
  */
 public function schedule(User $user, Task $task): bool
 {
-    return $task->user_id === $user->id && ! $task->is_completed;
+    return $task->user_id === $user->id && $task->completed_at === null;
 }
 ```
 
@@ -1202,24 +1226,12 @@ class LlmToolCallPolicy
 
 ---
 
-### STEP 4.4 — Register policies in `app/Providers/AuthServiceProvider.php`
+### STEP 4.4 — Register policies (Laravel 12 app structure)
 
 ```php
-// ADD to the $policies array in app/Providers/AuthServiceProvider.php
-
-use App\Models\ChatThread;
-use App\Models\LlmToolCall;
-use App\Models\Task;
-use App\Policies\ChatThreadPolicy;
-use App\Policies\LlmToolCallPolicy;
-use App\Policies\TaskPolicy;
-
-protected $policies = [
-    // ... your existing policies ...
-    ChatThread::class   => ChatThreadPolicy::class,
-    Task::class         => TaskPolicy::class,
-    LlmToolCall::class  => LlmToolCallPolicy::class,
-];
+// This repo does not use app/Providers/AuthServiceProvider.php.
+// In Laravel 12, wire policies using the current provider/bootstrap strategy
+// already used by this codebase (e.g. AppServiceProvider / Gate::policy calls).
 ```
 
 **✅ Verify:** `php artisan policy:list` shows `ChatThread → ChatThreadPolicy` and `Task → TaskPolicy`.
@@ -1376,6 +1388,7 @@ use App\Http\Controllers\ChatThreadController;
 
 Route::middleware([
     'auth',
+    \App\Http\Middleware\ValidateWorkOSSession::class,
     'throttle:' . config('llm.rate_limit.max_requests') . ',' . config('llm.rate_limit.per_minutes'),
 ])->prefix('chat')->group(function () {
     Route::post('/threads', [ChatThreadController::class, 'store']);
@@ -1386,7 +1399,7 @@ Route::middleware([
 });
 ```
 
-**✅ Verify:** `php artisan route:list | grep chat` shows all 5 routes with `auth` and `throttle` middleware.
+**✅ Verify:** `php artisan route:list` includes all 5 `/chat/*` routes with `auth`, `ValidateWorkOSSession`, and `throttle` middleware.
 
 ---
 
@@ -1409,7 +1422,7 @@ use App\DataTransferObjects\Llm\ContextDto;
 use App\DataTransferObjects\Llm\EventContextItem;
 use App\DataTransferObjects\Llm\TaskContextItem;
 use App\Models\ChatThread;
-use App\Models\Schedule;
+use App\Models\Event;
 use App\Models\Task;
 use App\Models\User;
 
@@ -1424,7 +1437,7 @@ class BuildContextAction
         $summaryThreshold = config('llm.context.summary_task_threshold');
 
         // Decide summary mode based on total active task count
-        $totalTasks  = Task::where('user_id', $user->id)->where('is_completed', false)->count();
+        $totalTasks  = Task::where('user_id', $user->id)->whereNull('completed_at')->count();
         $summaryMode = $totalTasks > $summaryThreshold;
 
         // Fetch tasks
@@ -1435,19 +1448,21 @@ class BuildContextAction
         $tasks = $taskQuery->get()->map(fn ($t) => new TaskContextItem(
             id:              $t->id,
             title:           $t->title,
-            dueDate:         $t->due_date?->format('Y-m-d'),
-            priority:        $t->priority ?? 0,
-            estimateMinutes: $t->estimate_minutes,
+            dueDate:         $t->end_datetime?->format('Y-m-d'),
+            priority:        $t->priority?->value,
+            estimateMinutes: $t->duration,
         ))->all();
 
-        // Fetch upcoming schedules / events
-        $events = Schedule::upcomingForUser($user->id, $maxHours)
+        // Fetch upcoming events (this codebase has no Schedule model)
+        $events = Event::upcomingForUser($user->id, $maxHours)
             ->get()
-            ->map(fn ($s) => new EventContextItem(
-                id:              $s->id,
-                title:           $s->task?->title ?? 'Scheduled block',
-                startDatetime:   $s->start_datetime->format(\DateTimeInterface::ATOM),
-                durationMinutes: $s->duration_minutes,
+            ->map(fn ($e) => new EventContextItem(
+                id:              $e->id,
+                title:           $e->title,
+                startDatetime:   $e->start_datetime?->format(\DateTimeInterface::ATOM),
+                durationMinutes: $e->start_datetime && $e->end_datetime
+                    ? $e->end_datetime->diffInMinutes($e->start_datetime)
+                    : null,
             ))->all();
 
         // Fetch recent conversation turns
@@ -1649,9 +1664,9 @@ class PromptManagerService
             'tasks'        => array_map(fn ($t) => [
                 'id'               => "task_{$t->id}",
                 'title'            => $t->title,
-                'due_date'         => $t->dueDate,
+                'end_datetime'     => $t->dueDate,
                 'priority'         => $t->priority,
-                'estimate_minutes' => $t->estimateMinutes,
+                'duration'         => $t->estimateMinutes,
             ], $context->tasks),
             'upcoming_events' => array_map(fn ($e) => [
                 'id'               => "event_{$e->id}",
@@ -1681,7 +1696,7 @@ class PromptManagerService
 
         return <<<PROMPT
 You are a focused, reliable Task Assistant for a personal productivity student app.
-Interpret user messages about tasks, schedules, and prioritization, then return a SINGLE strictly-formatted JSON object.
+Interpret user messages about tasks, events, and prioritization, then return a SINGLE strictly-formatted JSON object.
 No markdown. No code fences. No commentary outside the JSON.
 
 CONSTRAINTS (never violate)
@@ -1699,7 +1714,7 @@ CANONICAL ENVELOPE (always return this exact shape)
   "intent": "schedule|create|update|prioritize|list|general|clarify|error",
   "data": {},
   "tool_call": null | {
-    "tool": "create_task|update_task|create_schedule",
+    "tool": "create_task|update_task|create_event",
     "args": {},
     "client_request_id": "req-<uuid>",
     "confirmation_required": false
@@ -1709,18 +1724,18 @@ CANONICAL ENVELOPE (always return this exact shape)
 }
 
 INTENT DATA SHAPES
-- schedule:   { "scheduled_items": [{ "id": "task_<N>", "start_datetime": "ISO8601", "duration_minutes": 30 }] }
-- create:     { "title": "string", "description": "string|null", "due_date": "YYYY-MM-DD|null", "estimate_minutes": int|null }
-- update:     { "id": "task_<N>", "fields": { "title"?: "...", "due_date"?: "YYYY-MM-DD", "estimate_minutes"?: int } }
+- schedule:   { "scheduled_items": [{ "id": "task_<N>", "start_datetime": "ISO8601", "end_datetime": "ISO8601" }] }
+- create:     { "title": "string", "description": "string|null", "end_datetime": "ISO8601|null", "duration": int|null }
+- update:     { "id": "task_<N>", "fields": { "title"?: "...", "end_datetime"?: "ISO8601", "duration"?: int } }
 - prioritize: { "ranked_ids": ["task_3","task_1"], "reason": "<= 20 words" }
 - list:       { "filter": "due_today|next_7_days|high_priority", "limit": 8 }
 - clarify:    { "questions": [{ "id": "q1", "text": "..." }] }
 - error:      { "code": "PARSE_ERROR|VALIDATION_ERROR|UNKNOWN_ENTITY", "details": "internal-safe text" }
 
 TOOL DEFINITIONS
-1) create_task    args: title(req), description, due_date(YYYY-MM-DD), estimate_minutes, client_request_id(req)
-2) update_task    args: id(req), fields:{title?,description?,due_date?,estimate_minutes?}, client_request_id(req)
-3) create_schedule args: id(req), start_datetime(ISO8601+offset,req), duration_minutes(int>0,req), client_request_id(req)
+1) create_task    args: title(req), description, end_datetime(ISO8601), duration, client_request_id(req)
+2) update_task    args: id(req), fields:{title?,description?,end_datetime?,duration?}, client_request_id(req)
+3) create_event   args: title(req), start_datetime(ISO8601+offset,req), end_datetime(ISO8601+offset,req), all_day(false), client_request_id(req)
    Set confirmation_required:true for destructive/bulk operations.
 
 CONFIDENCE: always output meta.confidence 0.0–1.0.
@@ -1730,7 +1745,7 @@ ON JSON FAILURE: return {"schema_version":"{$version}","intent":"error","data":{
 FEW-SHOT EXAMPLES (follow structure exactly)
 
 User: "Schedule my Physics task for tomorrow at 7pm for 1 hour."
-{"schema_version":"{$version}","intent":"schedule","data":{"scheduled_items":[{"id":"task_123","start_datetime":"2026-03-15T19:00:00+08:00","duration_minutes":60}]},"tool_call":{"tool":"create_schedule","args":{"id":"task_123","start_datetime":"2026-03-15T19:00:00+08:00","duration_minutes":60},"client_request_id":"req-<uuid>","confirmation_required":false},"message":"Scheduled Physics for Mar 15 at 7 PM (1 hr).","meta":{"confidence":0.95}}
+{"schema_version":"{$version}","intent":"schedule","data":{"scheduled_items":[{"id":"task_123","start_datetime":"2026-03-15T19:00:00+08:00","end_datetime":"2026-03-15T20:00:00+08:00"}]},"tool_call":{"tool":"create_event","args":{"title":"Physics task block","start_datetime":"2026-03-15T19:00:00+08:00","end_datetime":"2026-03-15T20:00:00+08:00","all_day":false},"client_request_id":"req-<uuid>","confirmation_required":false},"message":"Scheduled Physics for Mar 15 at 7 PM (1 hr).","meta":{"confidence":0.95}}
 
 User: "Which tasks should I do first?"
 {"schema_version":"{$version}","intent":"prioritize","data":{"ranked_ids":["task_7","task_3","task_12"],"reason":"Due soonest with highest urgency."},"tool_call":null,"message":"Start with task_7 — nearest deadline.","meta":{"confidence":0.88}}
@@ -1938,9 +1953,9 @@ class PostProcessorService
 
 namespace App\Services\Llm;
 
-use App\Actions\Tool\CreateScheduleAction;
-use App\Actions\Tool\CreateTaskAction;
-use App\Actions\Tool\UpdateTaskAction;
+use App\Actions\Llm\CreateEventFromLlmAction;
+use App\Actions\Llm\CreateTaskFromLlmAction;
+use App\Actions\Llm\UpdateTaskFromLlmAction;
 use App\DataTransferObjects\Llm\ToolCallDto;
 use App\DataTransferObjects\Llm\ToolResultDto;
 use App\Enums\ToolCallStatus;
@@ -1955,9 +1970,9 @@ use Illuminate\Support\Facades\Gate;
 class ToolExecutorService
 {
     public function __construct(
-        private readonly CreateTaskAction     $createTask,
-        private readonly UpdateTaskAction     $updateTask,
-        private readonly CreateScheduleAction $createSchedule,
+        private readonly CreateTaskFromLlmAction $createTask,
+        private readonly UpdateTaskFromLlmAction $updateTask,
+        private readonly CreateEventFromLlmAction $createEvent,
     ) {}
 
     public function execute(ToolCallDto $toolCall, User $user): ToolResultDto
@@ -1976,7 +1991,7 @@ class ToolExecutorService
         }
 
         // 3. AUTHORIZATION: policy gate before any write
-        if (in_array($toolCall->tool, ['update_task', 'create_schedule'])) {
+        if (in_array($toolCall->tool, ['update_task', 'create_event'])) {
             $rawId     = $toolCall->args['id'] ?? null;
             $numericId = (int) str_replace('task_', '', (string) $rawId);
             $task      = Task::find($numericId)
@@ -1988,9 +2003,9 @@ class ToolExecutorService
         // 4. Execute inside a DB transaction — row inserted in same transaction as domain write
         $result = DB::transaction(function () use ($toolCall, $user) {
             $toolResult = match ($toolCall->tool) {
-                'create_task'     => ($this->createTask)($toolCall->args, $user),
-                'update_task'     => ($this->updateTask)($toolCall->args, $user),
-                'create_schedule' => ($this->createSchedule)($toolCall->args, $user),
+                'create_task'  => ($this->createTask)($toolCall->args, $user),
+                'update_task'  => ($this->updateTask)($toolCall->args, $user),
+                'create_event' => ($this->createEvent)($toolCall->args, $user),
                 default           => throw new ToolExecutionException(
                     "Unhandled tool: {$toolCall->tool}",
                     $toolCall->tool,
@@ -2178,114 +2193,33 @@ class LlmChatService
 
 ### STEP 6.8 — Create Tool Actions
 
-```php
-<?php
-// app/Actions/Tool/CreateTaskAction.php
+> [!NOTE]
+> Do not create duplicate `App\Actions\Tool\CreateTaskAction` / `UpdateTaskAction` classes.
+> This codebase already has canonical domain actions under `App\Actions\Task` and `App\Actions\Event`.
+> Create thin LLM adapters that normalize tool args and delegate to existing domain actions/services.
 
-namespace App\Actions\Tool;
+Create these adapter actions instead:
 
-use App\DataTransferObjects\Llm\ToolResultDto;
-use App\Models\Task;
-use App\Models\User;
-
-class CreateTaskAction
-{
-    public function __invoke(array $args, User $user): ToolResultDto
-    {
-        $task = Task::create([
-            'user_id'          => $user->id,
-            'title'            => $args['title'],
-            'description'      => $args['description'] ?? null,
-            'due_date'         => $args['due_date'] ?? null,
-            'estimate_minutes' => $args['estimate_minutes'] ?? null,
-            'is_completed'     => false,
-        ]);
-
-        return new ToolResultDto(
-            tool:    'create_task',
-            success: true,
-            payload: ['id' => $task->id, 'title' => $task->title],
-        );
-    }
-}
-```
+- `app/Actions/Llm/CreateTaskFromLlmAction.php`
+- `app/Actions/Llm/UpdateTaskFromLlmAction.php`
+- `app/Actions/Llm/CreateEventFromLlmAction.php`
 
 ```php
-<?php
-// app/Actions/Tool/UpdateTaskAction.php
-
-namespace App\Actions\Tool;
-
-use App\DataTransferObjects\Llm\ToolResultDto;
-use App\Exceptions\Llm\UnknownEntityException;
-use App\Models\Task;
-use App\Models\User;
-
-class UpdateTaskAction
-{
-    public function __invoke(array $args, User $user): ToolResultDto
-    {
-        $numericId = (int) str_replace('task_', '', (string) ($args['id'] ?? ''));
-        $task      = Task::where('user_id', $user->id)->find($numericId)
-            ?? throw new UnknownEntityException('task', $args['id'] ?? 'null');
-
-        $task->update(array_filter($args['fields'] ?? [], fn ($v) => $v !== null));
-
-        return new ToolResultDto(
-            tool:    'update_task',
-            success: true,
-            payload: ['id' => $task->id, 'title' => $task->title],
-        );
-    }
-}
+// Example contract (all three adapters return ToolResultDto)
+// - validate/minimize args from tool payload
+// - resolve target model using Task::forUser(...) / Event::forUser(...)
+// - delegate to existing actions/services:
+//   App\Actions\Task\CreateTaskAction
+//   App\Actions\Task\UpdateTaskPropertyAction
+//   App\Actions\Event\CreateEventAction
+// - return normalized ToolResultDto payload (id, title, timestamps, etc.)
 ```
 
-```php
-<?php
-// app/Actions/Tool/CreateScheduleAction.php
+Alignment rules for adapter args:
 
-namespace App\Actions\Tool;
-
-use App\DataTransferObjects\Llm\ToolResultDto;
-use App\Exceptions\Llm\UnknownEntityException;
-use App\Models\Schedule;
-use App\Models\Task;
-use App\Models\User;
-
-class CreateScheduleAction
-{
-    public function __invoke(array $args, User $user): ToolResultDto
-    {
-        $numericId = (int) str_replace('task_', '', (string) ($args['id'] ?? ''));
-        $task      = Task::where('user_id', $user->id)->find($numericId)
-            ?? throw new UnknownEntityException('task', $args['id'] ?? 'null');
-
-        $start    = \DateTimeImmutable::createFromFormat(\DateTimeInterface::ATOM, $args['start_datetime']);
-        $duration = (int) $args['duration_minutes'];
-        $end      = $start->modify("+{$duration} minutes");
-
-        $schedule = Schedule::create([
-            'user_id'          => $user->id,
-            'task_id'          => $task->id,
-            'start_datetime'   => $start,
-            'end_datetime'     => $end,
-            'duration_minutes' => $duration,
-        ]);
-
-        return new ToolResultDto(
-            tool:    'create_schedule',
-            success: true,
-            payload: [
-                'schedule_id'    => $schedule->id,
-                'task_id'        => $task->id,
-                'task_title'     => $task->title,
-                'start_datetime' => $args['start_datetime'],
-                'duration_minutes' => $duration,
-            ],
-        );
-    }
-}
-```
+- `create_task`: map LLM `end_datetime`/`duration` to Task fields `end_datetime`/`duration`.
+- `update_task`: allow only properties already permitted by `TaskPayloadValidation::allowedUpdateProperties()`.
+- `create_event`: use `title`, `start_datetime`, `end_datetime`, `all_day` and delegate to existing Event creation flow.
 
 ---
 
@@ -2577,8 +2511,8 @@ it('throws LlmValidationException on invalid intent', function () {
 it('throws UnknownEntityException when model references a task ID not in context', function () {
     $raw = new LlmRawResponseDto(validEnvelope([
         'intent'    => 'schedule',
-        'data'      => ['scheduled_items' => [['id' => 'task_9999', 'start_datetime' => '2030-01-01T10:00:00+08:00', 'duration_minutes' => 30]]],
-        'tool_call' => ['tool' => 'create_schedule', 'args' => ['id' => 'task_9999', 'start_datetime' => '2030-01-01T10:00:00+08:00', 'duration_minutes' => 30], 'client_request_id' => 'req-' . Str::uuid()],
+        'data'      => ['scheduled_items' => [['id' => 'task_9999', 'start_datetime' => '2030-01-01T10:00:00+08:00', 'end_datetime' => '2030-01-01T10:30:00+08:00']]],
+        'tool_call' => ['tool' => 'create_event', 'args' => ['title' => 'Task block', 'start_datetime' => '2030-01-01T10:00:00+08:00', 'end_datetime' => '2030-01-01T10:30:00+08:00', 'all_day' => false], 'client_request_id' => 'req-' . Str::uuid()],
     ]), 10);
 
     expect(fn () => makeProcessor()->process($raw, makeContext([1, 2, 3])))
@@ -2589,7 +2523,7 @@ it('rejects a past start_datetime in tool_call', function () {
     $raw = new LlmRawResponseDto(validEnvelope([
         'intent'    => 'schedule',
         'data'      => [],
-        'tool_call' => ['tool' => 'create_schedule', 'args' => ['id' => 'task_1', 'start_datetime' => '2000-01-01T10:00:00+08:00', 'duration_minutes' => 30], 'client_request_id' => 'req-uuid'],
+        'tool_call' => ['tool' => 'create_event', 'args' => ['title' => 'Task block', 'start_datetime' => '2000-01-01T10:00:00+08:00', 'end_datetime' => '2000-01-01T10:30:00+08:00', 'all_day' => false], 'client_request_id' => 'req-uuid'],
     ]), 10);
 
     expect(fn () => makeProcessor()->process($raw, makeContext()))
@@ -2656,7 +2590,7 @@ it('rejects tool execution when the proposed task belongs to a different user', 
 <?php
 // tests/Feature/Chat/IdempotencyTest.php
 
-use App\Actions\Tool\CreateTaskAction;
+use App\Actions\Llm\CreateTaskFromLlmAction;
 use App\DataTransferObjects\Llm\ToolCallDto;
 use App\DataTransferObjects\Llm\ToolResultDto;
 use App\Enums\ToolCallStatus;
@@ -2904,9 +2838,9 @@ Execute steps in this exact order. Each step's ✅ Verify check must pass before
 
 ```
 Phase 1  → config/llm.php  →  3 Enums  →  4 Exceptions
-Phase 2  → 3 Migrations (run php artisan migrate)  →  Model scopes (Task, Schedule)  →  3 new Models
+Phase 2  → 3 Migrations (run php artisan migrate)  →  Model scopes (Task, Event)  →  3 new Models
 Phase 3  → 9 DTOs
-Phase 4  → 3 Policies  →  Register in AuthServiceProvider
+Phase 4  → 3 Policies  →  Register via Laravel 12 provider/bootstrap strategy
 Phase 5  → LlmServiceProvider  →  2 Form Requests  →  Routes
 Phase 6  → BuildContextAction  →  CallLlmAction  →  RetryRepairAction
           → PromptManagerService  →  PostProcessorService  →  ToolExecutorService
@@ -2927,13 +2861,13 @@ Run these checks after completing all phases:
 php artisan config:clear && php artisan tinker --execute="dump(config('llm'))"
 
 # Migrations applied
-php artisan migrate:status | grep -E "chat_threads|chat_messages|llm_tool_calls"
+php artisan migrate:status
 
 # Routes registered with middleware
-php artisan route:list | grep chat
+php artisan route:list
 
 # Policies registered
-php artisan policy:list | grep -E "ChatThread|Task|LlmToolCall"
+php artisan policy:list
 
 # All tests pass
 php artisan test
