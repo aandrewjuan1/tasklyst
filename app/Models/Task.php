@@ -402,6 +402,7 @@ class Task extends Model
             'priority' => TaskPriority::class,
             'complexity' => TaskComplexity::class,
             'source_type' => TaskSourceType::class,
+            'duration' => 'integer',
             'start_datetime' => 'datetime',
             'end_datetime' => 'datetime',
             'completed_at' => 'datetime',
@@ -522,6 +523,36 @@ class Task extends Model
                     $collaborationsQuery->where('user_id', $userId);
                 });
         });
+    }
+
+    /**
+     * Active incomplete tasks ordered by priority then due datetime.
+     */
+    public function scopeActiveForUser(Builder $query, int $userId): Builder
+    {
+        return $query
+            ->where('user_id', $userId)
+            ->whereNull('completed_at')
+            ->orderByPriority()
+            ->orderBy('end_datetime');
+    }
+
+    /**
+     * Minimal columns for summary mode.
+     */
+    public function scopeSummaryColumns(Builder $query): Builder
+    {
+        return $query->select(['id', 'title', 'end_datetime', 'priority', 'duration']);
+    }
+
+    /**
+     * Eager-load specific IDs mentioned in user input.
+     *
+     * @param  array<int, int>  $ids
+     */
+    public function scopeForIds(Builder $query, array $ids): Builder
+    {
+        return $query->whereIn('id', $ids);
     }
 
     /**
