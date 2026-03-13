@@ -103,3 +103,67 @@ test('post processor rejects a past start_datetime in tool_call', function (): v
     expect(fn () => makeProcessor()->process($raw, makeContext()))
         ->toThrow(LlmValidationException::class);
 });
+
+test('post processor rejects missing message field', function (): void {
+    $raw = new LlmRawResponseDto(validEnvelope([
+        'message' => '',
+    ]), 10);
+
+    expect(fn () => makeProcessor()->process($raw, makeContext()))
+        ->toThrow(LlmValidationException::class, 'missing a valid user-facing message');
+});
+
+test('post processor rejects out of range confidence values', function (): void {
+    $raw = new LlmRawResponseDto(validEnvelope([
+        'meta' => ['confidence' => 1.5],
+    ]), 10);
+
+    expect(fn () => makeProcessor()->process($raw, makeContext()))
+        ->toThrow(LlmValidationException::class, 'between 0 and 1');
+});
+
+test('post processor normalizes string null tool_call and numeric confidence string', function (): void {
+    $raw = new LlmRawResponseDto(validEnvelope([
+        'tool_call' => 'null',
+        'meta' => ['confidence' => '0.42'],
+    ]), 10);
+
+    $result = makeProcessor()->process($raw, makeContext());
+
+    expect($result->toolCall)->toBeNull()
+        ->and($result->confidence)->toBe(0.42);
+});
+
+test('post processor applies domain guardrails for political questions', function (): void {
+    config()->set('llm.prompt.domain_guardrails', [
+        'enabled' => true,
+        'block_politics' => true,
+        'block_out_of_scope_qa' => true,
+        'min_confidence_for_productivity' => 0.2,
+    ]);
+
+    $raw = new LlmRawResponseDto(validEnvelope([
+        'intent' => 'prioritize',
+        'data' => ['ranked_ids' => ['task_1']],
+    ]), 10);
+
+    $context = new ContextDto(
+        now: new DateTimeImmutable,
+        tasks: [new TaskContextItem(1, 'Task 1', null, null, null)],
+        events: [],
+        recentMessages: [],
+        userPreferences: [],
+        fingerprint: null,
+        isSummaryMode: false,
+        taskSummary: [],
+        projects: [],
+        projectSummary: [],
+        lastUserMessage: 'Who is the best president ever?',
+    );
+
+    $result = makeProcessor()->process($raw, $context);
+
+    expect($result->intent)->toBe(LlmIntent::General)
+        ->and($result->toolCall)->toBeNull()
+        ->and($result->message)->toContain('study and task-planning assistant');
+});

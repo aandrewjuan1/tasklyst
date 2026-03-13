@@ -46,6 +46,8 @@ class PostProcessorService
             }
         }
 
+        $parsed = $this->normalizePayload($parsed);
+
         $receivedVersion = $parsed['schema_version'] ?? '';
         if ($receivedVersion !== $this->schemaVersion) {
             throw new LlmSchemaVersionException($receivedVersion, $this->schemaVersion);
@@ -61,7 +63,9 @@ class PostProcessorService
             );
         }
 
-        $confidence = (float) ($parsed['meta']['confidence'] ?? 0.0);
+        $message = $this->normalizeMessage($parsed['message'] ?? null, $raw->rawText);
+        $confidence = $this->normalizeConfidence($parsed['meta']['confidence'] ?? 0.0, $raw->rawText);
+        $this->validateConfidenceRange($confidence, $raw->rawText);
 
         $toolCall = null;
         if (! empty($parsed['tool_call']) && $intent->canTriggerToolCall()) {
@@ -70,16 +74,18 @@ class PostProcessorService
 
         $this->validateEntityReferences($parsed['data'] ?? [], $context);
 
-        return new LlmResponseDto(
+        $response = new LlmResponseDto(
             intent: $intent,
             data: $parsed['data'] ?? [],
             toolCall: $toolCall,
             isError: $intent === LlmIntent::Error,
-            message: $parsed['message'] ?? '',
+            message: $message,
             confidence: $confidence,
             schemaVersion: $receivedVersion,
             raw: null,
         );
+
+        return $this->applyDomainGuardrails($response, $context);
     }
 
     private function parseJson(string $text): ?array
@@ -93,6 +99,80 @@ class PostProcessorService
             return is_array($decoded) ? $decoded : null;
         } catch (\JsonException) {
             return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $parsed
+     * @return array<string, mixed>
+     */
+    private function normalizePayload(array $parsed): array
+    {
+        if (! isset($parsed['data']) || ! is_array($parsed['data'])) {
+            $parsed['data'] = [];
+        }
+
+        if (! array_key_exists('tool_call', $parsed) || $parsed['tool_call'] === 'null' || $parsed['tool_call'] === '') {
+            $parsed['tool_call'] = null;
+        }
+
+        if ($parsed['tool_call'] !== null && ! is_array($parsed['tool_call'])) {
+            $parsed['tool_call'] = null;
+        }
+
+        if (! isset($parsed['meta']) || ! is_array($parsed['meta'])) {
+            $parsed['meta'] = ['confidence' => 0.0];
+        }
+
+        return $parsed;
+    }
+
+    private function normalizeMessage(mixed $message, string $rawText): string
+    {
+        if (is_string($message)) {
+            $normalized = trim($message);
+
+            if ($normalized !== '') {
+                return $normalized;
+            }
+        }
+
+        if (is_int($message) || is_float($message) || is_bool($message)) {
+            return (string) $message;
+        }
+
+        throw new LlmValidationException(
+            'Response is missing a valid user-facing message.',
+            'VALIDATION_ERROR',
+            $rawText,
+        );
+    }
+
+    private function normalizeConfidence(mixed $confidence, string $rawText): float
+    {
+        if (is_int($confidence) || is_float($confidence)) {
+            return (float) $confidence;
+        }
+
+        if (is_string($confidence) && is_numeric($confidence)) {
+            return (float) $confidence;
+        }
+
+        throw new LlmValidationException(
+            'meta.confidence must be numeric.',
+            'VALIDATION_ERROR',
+            $rawText,
+        );
+    }
+
+    private function validateConfidenceRange(float $confidence, string $rawText): void
+    {
+        if ($confidence < 0 || $confidence > 1) {
+            throw new LlmValidationException(
+                'meta.confidence must be between 0 and 1.',
+                'VALIDATION_ERROR',
+                $rawText,
+            );
         }
     }
 
@@ -159,5 +239,102 @@ class PostProcessorService
                 throw new UnknownEntityException('task', $data['id']);
             }
         }
+    }
+
+    private function applyDomainGuardrails(LlmResponseDto $response, ContextDto $context): LlmResponseDto
+    {
+        $guardrailConfig = config('llm.prompt.domain_guardrails', []);
+
+        if (! ($guardrailConfig['enabled'] ?? false)) {
+            return $response;
+        }
+
+        $lastUserMessage = $context->lastUserMessage;
+
+        if ($lastUserMessage === null || trim($lastUserMessage) === '') {
+            return $response;
+        }
+
+        $topic = $this->detectDomainTopic($lastUserMessage);
+
+        if ($topic === 'productivity' || $topic === 'unknown') {
+            return $response;
+        }
+
+        if ($topic === 'politics' && ! ($guardrailConfig['block_politics'] ?? false)) {
+            return $response;
+        }
+
+        if ($topic === 'out_of_scope' && ! ($guardrailConfig['block_out_of_scope_qa'] ?? false)) {
+            return $response;
+        }
+
+        if ($response->intent === LlmIntent::Clarify || $response->intent === LlmIntent::Error) {
+            return $response;
+        }
+
+        Log::channel(config('llm.log.channel'))->info('llm.domain_guardrail_applied', [
+            'topic' => $topic,
+            'original_intent' => $response->intent->value,
+            'message_snippet' => mb_substr($lastUserMessage, 0, 120),
+        ]);
+
+        $refusalMessage = 'I am a study and task-planning assistant, so I do not handle that kind of question. I can help you organize your assignments, projects, and schedule instead.';
+
+        return new LlmResponseDto(
+            intent: LlmIntent::General,
+            data: [],
+            toolCall: null,
+            isError: false,
+            message: $refusalMessage,
+            confidence: min($response->confidence, 0.8),
+            schemaVersion: $response->schemaVersion,
+            raw: $response->raw,
+        );
+    }
+
+    private function detectDomainTopic(string $message): string
+    {
+        $text = mb_strtolower($message);
+
+        $productivityKeywords = [
+            'task',
+            'assignment',
+            'homework',
+            'project',
+            'study',
+            'schedule',
+            'plan',
+            'prioritize',
+            'deadline',
+            'due',
+        ];
+
+        foreach ($productivityKeywords as $keyword) {
+            if (str_contains($text, $keyword)) {
+                return 'productivity';
+            }
+        }
+
+        $politicsKeywords = [
+            'president',
+            'prime minister',
+            'senator',
+            'mayor',
+            'election',
+            'vote',
+            'politic',
+            'government',
+            'democrat',
+            'republican',
+        ];
+
+        foreach ($politicsKeywords as $keyword) {
+            if (str_contains($text, $keyword)) {
+                return 'politics';
+            }
+        }
+
+        return 'out_of_scope';
     }
 }
