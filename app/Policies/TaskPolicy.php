@@ -92,4 +92,21 @@ class TaskPolicy
             ->where('permission', CollaborationPermission::Edit)
             ->exists();
     }
+
+    /**
+     * Called by the LLM tool executor before any task write.
+     * This is the critical cross-user protection for model-proposed task IDs.
+     */
+    public function executeLlmTool(User $user, Task $task): bool
+    {
+        return $this->isOwner($user, $task);
+    }
+
+    /**
+     * Authorizes scheduling actions that originate from a task context.
+     */
+    public function schedule(User $user, Task $task): bool
+    {
+        return $this->isOwner($user, $task) && $task->completed_at === null;
+    }
 }
