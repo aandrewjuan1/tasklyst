@@ -1,4 +1,4 @@
-<div class="w-full space-y-4">
+<div class="space-y-4">
     <x-workspace.item-creation :tags="$tags" :projects="$projects" :active-focus-session="$activeFocusSession" />
 
     @php
@@ -10,7 +10,7 @@
     $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
 @endphp
 <div
-    class="w-full space-y-4"
+    class="w-full space-y-4 overflow-hidden"
     role="region"
     aria-label="{{ __('Kanban board') }}"
     wire:ignore
@@ -86,8 +86,8 @@
         },
     }"
 >
-    <div class="flex min-w-0 overflow-x-auto pb-2">
-        <div class="flex gap-4" style="min-width: min-content;">
+    <div class="w-full min-w-0">
+        <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
             @foreach(TaskStatus::cases() as $status)
                 @php
                     $columnTasks = $tasksByStatus[$status->value] ?? collect();
@@ -97,7 +97,7 @@
                     data-status="{{ $status->value }}"
                     role="group"
                     aria-label="{{ $status->label() }}"
-                    class="flex w-72 shrink-0 flex-col rounded-xl border border-border/60 bg-muted/20 transition-colors"
+                    class="flex w-full flex-col rounded-xl border border-border/60 bg-muted/30 shadow-sm transition-colors"
                     :class="{ 'ring-2 ring-primary/30 bg-muted/40': dragOverColumn === $el && draggedTaskId }"
                     @dragover.prevent="onDragOver($event)"
                     @drop.prevent="onDrop('{{ $status->value }}', $event)"
@@ -107,7 +107,7 @@
                         <h3 class="text-sm font-semibold text-foreground">{{ $status->label() }}</h3>
                         <span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{{ $columnTasks->count() }}</span>
                     </div>
-                    <div data-kanban-column-cards class="flex min-h-[120px] flex-col gap-3 p-3">
+                    <div data-kanban-column-cards class="flex min-h-[140px] flex-1 flex-col gap-2.5 overflow-y-auto p-2.5 sm:min-h-[160px] sm:gap-3 sm:p-3">
                         @forelse($columnTasks as $task)
                             <div
                                 data-kanban-card
@@ -117,7 +117,7 @@
                                 tabindex="0"
                                 aria-grabbed="false"
                                 aria-label="{{ __('Drag to move task') }}"
-                                class="cursor-grab active:cursor-grabbing touch-none"
+                                class="cursor-grab active:cursor-grabbing touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                                 @dragstart="onDragStart($event)"
                                 @dragend="onDragEnd()"
                             >
