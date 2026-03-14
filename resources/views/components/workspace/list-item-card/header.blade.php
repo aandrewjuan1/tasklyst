@@ -1,11 +1,15 @@
 {{-- Header: title, description, type badge, recurring (task/event), collaborators, activity logs, overflow dropdown. Uses parent scope. --}}
+@php
+    $layout = $layout ?? 'list';
+    $isKanbanLayout = $layout === 'kanban';
+@endphp
 <div>
     <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
             <p
                 x-show="!isEditingTitle"
                 @click="canEdit && startEditingTitle()"
-                class="truncate text-lg font-semibold leading-tight transition-opacity"
+                class="truncate font-semibold leading-tight transition-opacity {{ $isKanbanLayout ? 'text-sm md:text-base' : 'text-lg' }}"
                 :class="canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default'"
                 x-text="editedTitle"
             >
@@ -33,6 +37,7 @@
                 />
             </div>
 
+            @if (! $isKanbanLayout)
             <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
                 {{-- Server-rendered first paint --}}
                 <div x-show="!alpineReady">
@@ -93,12 +98,14 @@
                     ></textarea>
                 </div>
             </div>
+            @endif
         </div>
 
-        @if($type || ($currentUserIsOwner && $deleteMethod))
+        {{-- Right-side actions: inline with title in list layout; ellipsis only in kanban layout --}}
+        @if(! $isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
             <div class="ml-2 flex items-center gap-1.5 shrink-0">
                 @if($type)
-                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground {{ $isKanbanLayout ? 'hidden sm:inline-flex' : '' }}">
                         {{ $type }}
                     </span>
                 @endif
@@ -190,9 +197,112 @@
                 @endif
             </div>
         @endif
+
+        @if($isKanbanLayout && $currentUserIsOwner && $deleteMethod)
+            <div class="ml-2 flex items-center gap-1.5 shrink-0">
+                <flux:dropdown>
+                    <flux:button size="xs" icon="ellipsis-horizontal" />
+
+                    <flux:menu>
+                        <flux:tooltip :content="__('Activity Logs')">
+                            <flux:menu.item
+                                icon="clock"
+                                class="cursor-pointer"
+                                @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
+                            >
+                                {{ __('Activity Logs') }}
+                            </flux:menu.item>
+                        </flux:tooltip>
+
+                        <flux:tooltip
+                            x-show="showSkipOccurrence"
+                            x-cloak
+                            style="display: none;"
+                            :content="__('Don\'t show this occurrence on this date')"
+                        >
+                            <flux:menu.item
+                                icon="calendar-days"
+                                class="cursor-pointer"
+                                ::aria-label="skipInProgress ? skipOccurrenceSkippingLabel : skipOccurrenceLabel"
+                                ::aria-busy="skipInProgress"
+                                @click.throttle.250ms="skipThisOccurrence()"
+                            >
+                                <span x-show="!skipInProgress" x-cloak>{{ __('Skip this occurrence') }}</span>
+                                <span x-show="skipInProgress" x-cloak class="inline-flex items-center gap-1.5">
+                                    <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
+                                    <span x-text="skipOccurrenceSkippingLabel"></span>
+                                </span>
+                            </flux:menu.item>
+                        </flux:tooltip>
+                        <flux:separator x-show="showSkipOccurrence" x-cloak style="display: none;" />
+
+                        <flux:tooltip :content="__('Move to trash')">
+                            <flux:menu.item
+                                variant="danger"
+                                icon="trash"
+                                class="cursor-pointer"
+                                @click.throttle.250ms="deleteItem()"
+                            >
+                                {{ __('Move to trash') }}
+                            </flux:menu.item>
+                        </flux:tooltip>
+                    </flux:menu>
+                </flux:dropdown>
+            </div>
+        @endif
     </div>
 
-    @if($type)
+    {{-- Kanban layout: place pills and ellipsis below the title to avoid overlap and overflow --}}
+    @if($isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
+        <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex flex-wrap items-center gap-1.5">
+                @if($type)
+                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {{ $type }}
+                    </span>
+                @endif
+
+                @if(in_array($kind, ['task', 'event'], true))
+                    <div>
+                        <x-recurring-selection
+                            model="recurrence"
+                            :initial-value="$headerRecurrenceInitial"
+                            :kind="$kind"
+                            :readonly="!$canEditRecurrence"
+                            :recurring-event-id="$recurringEventIdForSelection ?? null"
+                            :recurring-task-id="$recurringTaskIdForSelection ?? null"
+                            compactWhenDisabled
+                            hideWhenDisabled
+                            position="top"
+                            align="start"
+                        />
+                    </div>
+                @endif
+
+                <div class="hidden sm:block">
+                    <x-workspace.collaborators-popover
+                        :item="$item"
+                        :kind="$kind"
+                        position="top"
+                        align="start"
+                    />
+                </div>
+
+                <div class="relative">
+                    <x-workspace.activity-logs-popover
+                        :item="$item"
+                        :kind="$kind"
+                        position="top"
+                        align="start"
+                    />
+                </div>
+            </div>
+
+            {{-- Ellipsis is rendered in the title row for kanban layout --}}
+        </div>
+    @endif
+
+    @if($type && ! $isKanbanLayout)
         <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
             @if(in_array($kind, ['task', 'event'], true))
                 <div class="md:hidden">

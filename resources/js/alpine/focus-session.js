@@ -920,6 +920,19 @@ export function createFocusSessionController() {
         },
 
         onFocusSessionUpdated(ctx, incoming) {
+            // Only cards in the active workspace view (list vs kanban) should
+            // bind the incoming focus session. This prevents duplicate focus
+            // modals when the same task is rendered in multiple layouts.
+            try {
+                const viewStore = window.Alpine?.store?.('workspaceView');
+                const currentViewMode = viewStore && typeof viewStore === 'object' ? viewStore.mode : null;
+                if (currentViewMode && ctx.layout && currentViewMode !== ctx.layout) {
+                    return;
+                }
+            } catch (_) {
+                // If Alpine store is unavailable, fall back to existing behaviour.
+            }
+
             if (!incoming) {
                 ctx.activeFocusSession = null;
                 ctx.isBreakSession = false;

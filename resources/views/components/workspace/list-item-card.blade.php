@@ -8,6 +8,7 @@
     'activeFocusSession' => null,
     'defaultWorkDurationMinutes' => 25,
     'pomodoroSettings' => null,
+    'layout' => 'list',
 ])
 
 @php
@@ -23,7 +24,10 @@
         pomodoroSettings: $pomodoroSettings,
     );
     extract($vm->viewData());
-    $alpineConfig = $vm->alpineConfig();
+    $alpineConfig = array_merge($vm->alpineConfig(), [
+        'layout' => $layout ?? 'list',
+    ]);
+    $isKanbanLayout = ($layout ?? 'list') === 'kanban';
     $hasActiveFocusOnThisTask = $kind === 'task'
         && $activeFocusSession
         && (string) ($activeFocusSession['task_id'] ?? '') === (string) $item->id;
@@ -34,7 +38,9 @@
 
 <div
     {{ $attributes->merge([
-        'class' => 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
+        'class' => $isKanbanLayout
+            ? 'list-item-card flex flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out'
+            : 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
     ]) }}
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"
@@ -105,7 +111,7 @@
                     class="is-focus-locked flex flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3 pt-0"
                     :class="{ 'pointer-events-none select-none': isCardLockedForFocus }"
                 >
-                    @include('components.workspace.list-item-card.header')
+                    @include('components.workspace.list-item-card.header', ['layout' => $layout])
                     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
                         @if($kind === 'project')
                             <x-workspace.list-item-project
@@ -130,6 +136,7 @@
                                 :list-filter-date="$listFilterDate"
                                 :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                                 :is-overdue="$isOverdue"
+                                :layout="$layout"
                             />
                         @endif
                     </div>
@@ -150,9 +157,9 @@
             style="pointer-events: auto; user-select: none; -webkit-user-select: none;"
             aria-hidden="true"
         ></div>
-        @include('components.workspace.list-item-card.header')
+        @include('components.workspace.list-item-card.header', ['layout' => $layout])
 
-        <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
+        <div class="flex flex-wrap items-center text-xs {{ $isKanbanLayout ? 'gap-1 pt-0.5' : 'gap-2 pt-0.5' }}">
             @if($kind === 'task' && $canEdit)
                 <div class="shrink-0 {{ $hasActiveFocusOnThisTask ? 'hidden' : '' }}">
                     <flux:tooltip :content="__('Start focus mode')">
@@ -192,6 +199,7 @@
                     :list-filter-date="$listFilterDate"
                     :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                     :is-overdue="$isOverdue"
+                    :layout="$layout"
                 />
             @endif
         </div>
