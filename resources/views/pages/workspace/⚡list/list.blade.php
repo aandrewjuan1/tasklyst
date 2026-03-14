@@ -1175,7 +1175,7 @@
                 $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
             @endphp
             <div x-show="visibleItemCount > 0" class="space-y-4">
-                <div class="space-y-3">
+                <div class="space-y-3" id="workspace-list-items-inner">
                     @foreach ($items as $entry)
                         <x-workspace.list-item-card
                             :kind="$entry['kind']"
@@ -1194,14 +1194,32 @@
                 @if ($shouldShowLoadMore)
                     <div
                         class="flex flex-col items-center justify-center py-4 text-[11px] text-muted-foreground/80"
-                        x-data="{ loadingMore: false }"
-                        x-intersect.threshold.25="
-                            if (!loadingMore) {
-                                loadingMore = true;
-                                $wire.$parent.$call('loadMoreItems')
-                                    .finally(() => { loadingMore = false; });
+                        x-data="{
+                            loadingMore: false,
+                            hasMore: @js($shouldShowLoadMore),
+                            async triggerLoadMore() {
+                                if (this.loadingMore || !this.hasMore) return;
+                                this.loadingMore = true;
+                                try {
+                                    const result = await $wire.$parent.getMoreItemsHtml();
+                                    if (result && result.html) {
+                                        const container = document.getElementById('workspace-list-items-inner');
+                                        if (container) {
+                                            const temp = document.createElement('div');
+                                            temp.innerHTML = result.html;
+                                            const newNodes = [...temp.children];
+                                            newNodes.forEach(el => container.appendChild(el));
+                                            newNodes.forEach(el => typeof Alpine !== 'undefined' && Alpine.initTree && Alpine.initTree(el));
+                                        }
+                                    }
+                                    if (result && result.hasMore === false) this.hasMore = false;
+                                } finally {
+                                    this.loadingMore = false;
+                                }
                             }
-                        "
+                        }"
+                        x-show="hasMore || loadingMore"
+                        x-intersect.threshold.25="triggerLoadMore()"
                     >
                         <div
                             x-show="loadingMore"
