@@ -102,13 +102,18 @@
                                 />
                             </div>
                         @endforeach
-                        <p
+                        <div
                             class="py-4 text-center text-xs text-muted-foreground"
                             x-show="(columns['{{ $status->value }}']?.count ?? {{ $columnTasks->count() }}) === 0"
                             x-cloak
                         >
-                            {{ __('No tasks') }}
-                        </p>
+                            <span class="block font-medium">
+                                {{ __('No tasks, projects, or events in this column') }}
+                            </span>
+                            <span class="mt-0.5 block text-[11px] text-muted-foreground/80">
+                                {{ __('Drag items here or add a new one to get started') }}
+                            </span>
+                        </div>
                     </div>
                 </div>
             @endforeach

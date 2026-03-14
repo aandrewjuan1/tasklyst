@@ -1,11 +1,9 @@
 import { listItemCard } from './alpine/list-item-card.js';
-import { assistantChatFlyout } from './alpine/assistant-chat-flyout.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
 
 // listItemCard registers itself in Alpine.store('listItemCards')[itemId] for focus-session escape handler etc.
 document.addEventListener('livewire:init', () => {
     window.Alpine.data('listItemCard', listItemCard);
-    window.Alpine.data('assistantChatFlyout', assistantChatFlyout);
     window.Alpine.data('kanbanBoard', kanbanBoard);
 });
 
