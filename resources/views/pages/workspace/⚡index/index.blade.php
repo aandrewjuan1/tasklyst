@@ -15,8 +15,27 @@
                     const u = new URL(window.location.href);
                     u.searchParams.set('view', mode);
                     history.replaceState(null, '', u.pathname + u.search);
+                    if (window.Alpine?.store) {
+                        let store = Alpine.store('workspaceView');
+                        if (!store || typeof store !== 'object') {
+                            Alpine.store('workspaceView', { mode });
+                        } else {
+                            store.mode = mode;
+                        }
+                    }
                 },
             }"
+            x-init="
+                if (window.Alpine?.store) {
+                    let store = Alpine.store('workspaceView');
+                    const initialMode = viewMode;
+                    if (!store || typeof store !== 'object') {
+                        Alpine.store('workspaceView', { mode: initialMode });
+                    } else {
+                        store.mode = initialMode;
+                    }
+                }
+            "
             class="flex w-full flex-col gap-6"
         >
             <div class="flex justify-center">
