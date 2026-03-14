@@ -91,6 +91,9 @@ class extends Component
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
 
+    #[Url(as: 'view')]
+    public string $viewMode = 'list';
+
     public int $listRefresh = 0;
 
     /**
@@ -365,6 +368,9 @@ class extends Component
         if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
             $this->selectedDate = now()->toDateString();
         }
+        if (! in_array($this->viewMode, ['list', 'kanban'], true)) {
+            $this->viewMode = 'list';
+        }
         $this->syncFilterTagIdFromTagIds();
         $session = $this->getActiveFocusSession();
         if ($session !== null) {
@@ -443,6 +449,67 @@ class extends Component
 
         $this->itemsPage++;
         $this->listRefresh++;
+    }
+
+    /**
+     * Return HTML for the next page of list items only (append-only load more).
+     * Skips full re-render so the existing list DOM is not replaced, keeping
+     * dropdowns and other UI state intact and avoiding blocked clicks.
+     *
+     * @return array{html: string, hasMore: bool}
+     */
+    #[Async]
+    public function getMoreItemsHtml(): array
+    {
+        if (property_exists($this, 'tasksPage')) {
+            $this->tasksPage++;
+        }
+        if (property_exists($this, 'eventsPage')) {
+            $this->eventsPage++;
+        }
+        if (property_exists($this, 'projectsPage')) {
+            $this->projectsPage++;
+        }
+
+        $this->itemsPage++;
+
+        $allItems = $this->getAllListEntries();
+        $effectiveItemsPerPage = $this->itemsPerPage > 0 ? $this->itemsPerPage : 10;
+        $start = ($this->itemsPage - 1) * $effectiveItemsPerPage;
+        $newItems = $allItems->slice($start, $effectiveItemsPerPage)->values();
+        $hasMore = $allItems->count() > ($this->itemsPage * $effectiveItemsPerPage);
+
+        $html = view('pages.workspace.list-items-chunk', [
+            'items' => $newItems,
+            'selectedDate' => $this->selectedDate,
+            'filters' => $this->getFilters(),
+            'tags' => $this->tags,
+            'activeFocusSession' => $this->activeFocusSession,
+            'pomodoroSettings' => $this->pomodoroSettings,
+        ])->render();
+
+        $this->skipRender();
+
+        return ['html' => $html, 'hasMore' => $hasMore];
+    }
+
+    /**
+     * Build the same unified list entries as the list view (overdue + date items).
+     *
+     * @return \Illuminate\Support\Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
+     */
+    protected function getAllListEntries(): Collection
+    {
+        $overdueItems = $this->overdue->map(fn (array $entry) => array_merge($entry, ['isOverdue' => true]));
+
+        $dateItems = collect()
+            ->merge($this->projects->map(fn ($item) => ['kind' => 'project', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
+            ->merge($this->events->map(fn ($item) => ['kind' => 'event', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
+            ->merge($this->tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
+            ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
+            ->values();
+
+        return $overdueItems->merge($dateItems)->values();
     }
 
     /**

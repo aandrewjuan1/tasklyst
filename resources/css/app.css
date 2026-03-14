@@ -36,6 +36,11 @@
     }
 }
 
+/* Hide elements with x-cloak until Alpine has initialized */
+[x-cloak] {
+    display: none !important;
+}
+
 @layer base {
 
     *,

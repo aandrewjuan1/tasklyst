@@ -4,10 +4,49 @@
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
-    {{-- Centered date switcher --}}
-    <div class="flex w-full justify-center">
+    {{-- Centered date switcher and view mode --}}
+    <div class="flex w-full flex-col items-center gap-3">
         <x-workspace.date-switcher :selected-date="$this->selectedDate" />
-    </div>
+        <div
+            x-data="{
+                viewMode: @js($this->viewMode),
+                setView(mode) {
+                    this.viewMode = mode;
+                    const u = new URL(window.location.href);
+                    u.searchParams.set('view', mode);
+                    history.replaceState(null, '', u.pathname + u.search);
+                },
+            }"
+            class="flex w-full flex-col gap-6"
+        >
+            <div class="flex justify-center">
+                <div class="flex rounded-lg border border-border/60 bg-muted/30 p-0.5" role="tablist" aria-label="{{ __('Workspace view') }}">
+                    <button
+                        type="button"
+                        role="tab"
+                        :aria-selected="viewMode === 'list'"
+                        aria-controls="workspace-list-panel"
+                        id="workspace-view-list"
+                        class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                        :class="viewMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                        @click="setView('list')"
+                    >
+                        {{ __('List') }}
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        :aria-selected="viewMode === 'kanban'"
+                        aria-controls="workspace-kanban-panel"
+                        id="workspace-view-kanban"
+                        class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                        :class="viewMode === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                        @click="setView('kanban')"
+                    >
+                        {{ __('Kanban') }}
+                    </button>
+                </div>
+            </div>
 
     {{-- Search, filters / pending invitations / add filter / trash --}}
     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -68,27 +107,63 @@
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
         <div class="min-w-0">
-            {{-- Real list - hidden during filter/date refresh --}}
+            {{-- Real content - hidden during filter/date/view refresh --}}
             <div
                 wire:loading.remove
                 wire:target="{{ $listLoadingTargets }}"
                 class="w-full"
             >
-                <livewire:pages::workspace.list
-                    :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"
-                    :selected-date="$this->selectedDate"
-                    :items-page="$this->itemsPage"
-                    :items-per-page="$this->itemsPerPage"
-                    :projects="$this->projects"
-                    :events="$this->events"
-                    :tasks="$this->tasks"
-                    :overdue="$this->overdue"
-                    :tags="$this->tags"
-                    :filters="$this->getFilters()"
-                    :active-focus-session="$this->activeFocusSession"
-                    :pomodoro-settings="$this->pomodoroSettings"
-                    :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
-                />
+                <div
+                    id="workspace-list-panel"
+                    role="tabpanel"
+                    aria-labelledby="workspace-view-list"
+                    class="w-full"
+                    style="{{ $viewMode !== 'list' ? 'display: none' : '' }}"
+                    x-show="viewMode === 'list'"
+                    x-transition:enter="transition ease-out duration-150"
+                    x-transition:enter-start="opacity-0"
+                    x-transition:enter-end="opacity-100"
+                >
+                    <livewire:pages::workspace.list
+                        :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"
+                        :selected-date="$this->selectedDate"
+                        :items-page="$this->itemsPage"
+                        :items-per-page="$this->itemsPerPage"
+                        :projects="$this->projects"
+                        :events="$this->events"
+                        :tasks="$this->tasks"
+                        :overdue="$this->overdue"
+                        :tags="$this->tags"
+                        :filters="$this->getFilters()"
+                        :active-focus-session="$this->activeFocusSession"
+                        :pomodoro-settings="$this->pomodoroSettings"
+                        :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
+                    />
+                </div>
+                <div
+                    id="workspace-kanban-panel"
+                    role="tabpanel"
+                    aria-labelledby="workspace-view-kanban"
+                    class="w-full"
+                    style="{{ $viewMode !== 'kanban' ? 'display: none' : '' }}"
+                    x-show="viewMode === 'kanban'"
+                    x-transition:enter="transition ease-out duration-150"
+                    x-transition:enter-start="opacity-0"
+                    x-transition:enter-end="opacity-100"
+                >
+                    <livewire:pages::workspace.kanban
+                        :key="'workspace-kanban-'.$this->selectedDate"
+                        :selected-date="$this->selectedDate"
+                        :projects="$this->projects"
+                        :events="$this->events"
+                        :tasks="$this->tasks"
+                        :overdue="$this->overdue"
+                        :tags="$this->tags"
+                        :filters="$this->getFilters()"
+                        :active-focus-session="$this->activeFocusSession"
+                        :pomodoro-settings="$this->pomodoroSettings"
+                    />
+                </div>
             </div>
 
             {{-- Skeleton placeholder - shown during filter/date refresh --}}
@@ -167,5 +242,8 @@
             </div>
         </div>
     </div>
+
+        </div>
+    {{-- /viewMode Alpine scope --}}
 
 </section>
