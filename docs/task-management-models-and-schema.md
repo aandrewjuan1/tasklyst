@@ -1,6 +1,6 @@
 # Task Management System — Models & Schema
 
-This document describes the **base task management** (and related) models and database schema. LLM/chat models (e.g. `ChatThread`, `ChatMessage`, `LlmToolCall`) are **not** included.
+This document describes the **base task management** (and related) models and database schema. 
 
 ---
 
