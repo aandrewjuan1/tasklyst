@@ -171,7 +171,7 @@
                     x-transition:enter-end="opacity-100"
                 >
                     <livewire:pages::workspace.kanban
-                        :key="'workspace-kanban-'.$this->selectedDate"
+                        :key="'workspace-kanban-'.$this->selectedDate.'-'.$this->listRefresh"
                         :selected-date="$this->selectedDate"
                         :projects="$this->projects"
                         :events="$this->events"
@@ -193,14 +193,14 @@
                 role="status"
                 aria-busy="true"
                 aria-live="polite"
-                aria-label="{{ __('Loading workspace list...') }}"
+                aria-label="{{ __('Loading workspace') }}"
                 x-data="{
                     skeletonItems: [0, 1, 2],
                     _resizeCleanup: null,
                     init() {
                         const updateCount = () => {
                             const itemHeight = 120;
-                            const minCount = 3;
+                            const minCount = 6;
                             const maxCount = 10;
                             const viewportHeight = window.innerHeight;
                             const availableHeight = viewportHeight - 320;
@@ -216,26 +216,70 @@
                     },
                 }"
             >
-                <span class="sr-only">{{ __('Loading workspace list...') }}</span>
-                <template x-for="i in skeletonItems" :key="i">
-                    <div>
-                        <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0 flex-1 space-y-2">
-                                    <flux:skeleton.line class="w-4/5" size="lg" />
-                                    <flux:skeleton.line class="w-2/3" />
-                                </div>
-                                <div class="flex shrink-0 items-center gap-2">
-                                    <flux:skeleton class="h-6 w-14 rounded-full" />
-                                    <flux:skeleton class="size-8 shrink-0 rounded" />
-                                </div>
+                <span
+                    class="sr-only"
+                    x-text="viewMode === 'kanban' ? '{{ __('Loading workspace kanban...') }}' : '{{ __('Loading workspace list...') }}'"
+                ></span>
+
+                {{-- List view skeleton --}}
+                <template x-if="viewMode === 'list'">
+                    <div class="space-y-4">
+                        <template x-for="i in skeletonItems" :key="i">
+                            <div>
+                                <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
+                                    <div class="flex items-start justify-between gap-2">
+                                        <div class="min-w-0 flex-1 space-y-2">
+                                            <flux:skeleton.line class="w-4/5" size="lg" />
+                                            <flux:skeleton.line class="w-2/3" />
+                                        </div>
+                                        <div class="flex shrink-0 items-center gap-2">
+                                            <flux:skeleton class="h-6 w-14 rounded-full" />
+                                            <flux:skeleton class="size-8 shrink-0 rounded" />
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-2 pt-0.5">
+                                        <flux:skeleton class="h-5 w-16 rounded-full" />
+                                        <flux:skeleton class="h-5 w-20 rounded-full" />
+                                        <flux:skeleton class="h-5 w-14 rounded-full" />
+                                    </div>
+                                </flux:skeleton.group>
                             </div>
-                            <div class="flex flex-wrap items-center gap-2 pt-0.5">
-                                <flux:skeleton class="h-5 w-16 rounded-full" />
-                                <flux:skeleton class="h-5 w-20 rounded-full" />
-                                <flux:skeleton class="h-5 w-14 rounded-full" />
-                            </div>
-                        </flux:skeleton.group>
+                        </template>
+                    </div>
+                </template>
+
+                {{-- Kanban view skeleton --}}
+                <template x-if="viewMode === 'kanban'">
+                    <div class="w-full min-w-0">
+                        <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
+                            <template x-for="col in [0, 1, 2]" :key="col">
+                                <div class="flex w-full flex-col rounded-xl border border-border/60 bg-muted/30 shadow-sm">
+                                    <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+                                        <flux:skeleton.line class="w-1/2" />
+                                        <flux:skeleton class="h-5 w-10 rounded-full" />
+                                    </div>
+                                    <div class="flex min-h-[140px] flex-1 flex-col gap-2.5 overflow-visible p-2.5 sm:min-h-[160px] sm:gap-3 sm:p-3">
+                                        <template x-for="card in [0, 1, 2, 3, 4, 5]" :key="card">
+                                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 shadow-sm backdrop-blur">
+                                                <div class="flex items-start justify-between gap-2">
+                                                    <div class="min-w-0 flex-1 space-y-2">
+                                                        <flux:skeleton.line class="w-4/5" />
+                                                        <flux:skeleton.line class="w-3/5" />
+                                                    </div>
+                                                    <div class="flex shrink-0 items-center gap-2">
+                                                        <flux:skeleton class="h-5 w-12 rounded-full" />
+                                                    </div>
+                                                </div>
+                                                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                                    <flux:skeleton class="h-4 w-12 rounded-full" />
+                                                    <flux:skeleton class="h-4 w-10 rounded-full" />
+                                                </div>
+                                            </flux:skeleton.group>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </template>
             </div>

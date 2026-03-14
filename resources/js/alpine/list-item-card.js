@@ -420,6 +420,14 @@ export function listItemCard(config) {
             }
             this.hideCard = true;
             this.$dispatch('list-item-hidden', { fromOverdue: this.isOverdue });
+            if (this.kind === 'task' && this.itemId != null) {
+                window.dispatchEvent(
+                    new CustomEvent('workspace-item-visibility-updated', {
+                        detail: { kind: 'task', itemId: this.itemId, visible: false },
+                        bubbles: true,
+                    }),
+                );
+            }
         },
         isTaskStillRelevantForList(startDatetime, endDatetime) {
             if (this.kind !== 'task' || !this.listFilterDate) return true;
@@ -703,6 +711,19 @@ export function listItemCard(config) {
                 } else {
                     this.isEditingTitle = false;
                     this.titleSnapshot = null;
+                    if (this.kind === 'task' && this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-item-property-updated', {
+                                detail: {
+                                    kind: 'task',
+                                    itemId: this.itemId,
+                                    property: 'title',
+                                    value: trimmedTitle,
+                                },
+                                bubbles: true,
+                            }),
+                        );
+                    }
                     if (this.kind === 'project' && this.itemId != null) {
                         window.dispatchEvent(
                             new CustomEvent('workspace-project-name-updated', {
@@ -779,6 +800,19 @@ export function listItemCard(config) {
                 } else {
                     this.isEditingDescription = false;
                     this.descriptionSnapshot = null;
+                    if (this.kind === 'task' && this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-item-property-updated', {
+                                detail: {
+                                    kind: 'task',
+                                    itemId: this.itemId,
+                                    property: 'description',
+                                    value: valueToSave,
+                                },
+                                bubbles: true,
+                            }),
+                        );
+                    }
                 }
             } catch (error) {
                 this.editedDescription = snapshot;
@@ -875,6 +909,12 @@ export function listItemCard(config) {
                 if (d && d.property === 'status' && this.kind === 'task' && d.value) {
                     this.taskStatus = d.value;
                 }
+                 if (d && d.property === 'title' && this.kind === 'task') {
+                     this.editedTitle = d.value ?? '';
+                 }
+                 if (d && d.property === 'description' && this.kind === 'task') {
+                     this.editedDescription = d.value ?? '';
+                 }
                 if (d && ['startDatetime', 'endDatetime'].includes(d.property) && (this.kind === 'task' || this.kind === 'event')) {
                     const stillOverdue = this.isStillOverdue(d.startDatetime ?? null, d.endDatetime ?? null);
                     if (stillOverdue) {

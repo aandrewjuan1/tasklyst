@@ -104,6 +104,7 @@
 <div
     wire:ignore
     @task-status-updated.window="if ($event.detail?.itemId == itemId) status = $event.detail.status"
+    @workspace-item-property-updated.window="if ($event.detail?.kind === 'task' && Number($event.detail.itemId) === Number(itemId)) applyWorkspaceItemPropertyUpdate($event.detail)"
     x-data="{
         itemId: @js($item->id),
         updatePropertyMethod: @js($updatePropertyMethod),
@@ -353,6 +354,21 @@
                 else if (property === 'recurrence') this.recurrence = value;
 
                 $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
+                if (this.kind === 'task' && this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-item-property-updated', {
+                            detail: {
+                                kind: 'task',
+                                itemId: this.itemId,
+                                property,
+                                value,
+                                startDatetime: this.startDatetime,
+                                endDatetime: this.endDatetime,
+                            },
+                            bubbles: true,
+                        }),
+                    );
+                }
 
                 if (property === 'status') {
                     const opt = this.getOption(this.statusOptions, value);
@@ -483,6 +499,27 @@
                     detail: { path: 'recurrence', value: realValue ?? null },
                     bubbles: true,
                 }));
+            }
+        },
+        applyWorkspaceItemPropertyUpdate(detail) {
+            if (!detail || !detail.property) return;
+            const property = detail.property;
+            const value = detail.value;
+            if (property === 'status') {
+                // Status is already synchronized via task-status-updated events.
+                return;
+            }
+            if (property === 'priority') this.priority = value;
+            else if (property === 'complexity') this.complexity = value;
+            else if (property === 'duration') this.duration = value;
+            else if (property === 'startDatetime') this.startDatetime = detail.startDatetime ?? value;
+            else if (property === 'endDatetime') this.endDatetime = detail.endDatetime ?? value;
+            else if (property === 'recurrence') this.recurrence = value;
+            else if (property === 'tagIds') {
+                if (!this.formData || !this.formData.item) {
+                    this.formData = { item: { tagIds: [] } };
+                }
+                this.formData.item.tagIds = Array.isArray(value) ? [...value] : [];
             }
         },
     }"

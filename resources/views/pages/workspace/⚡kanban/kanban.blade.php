@@ -47,6 +47,7 @@
     x-data="kanbanBoard({{ \Illuminate\Support\Js::from($kanbanConfig) }})"
     @task-status-updated.window="onTaskStatusUpdated($event.detail)"
     @task-status-updated="onTaskStatusUpdated($event.detail)"
+    @workspace-item-visibility-updated.window="onItemVisibilityUpdated($event.detail)"
 >
     <div class="w-full min-w-0">
         <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
