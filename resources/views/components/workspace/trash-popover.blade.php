@@ -269,6 +269,14 @@
                 const ok = await $wire.$call('restoreTrashItem', item.kind, item.id);
                 if (ok) {
                     this.items = this.items.filter((i) => !(i.kind === item.kind && i.id === item.id));
+                    if (item.kind === 'task' && item.id != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-item-visibility-updated', {
+                                detail: { kind: 'task', itemId: item.id, visible: true },
+                                bubbles: true,
+                            }),
+                        );
+                    }
                 }
             } finally {
                 this.restoringId = null;

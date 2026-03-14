@@ -171,5 +171,34 @@ export function kanbanBoard(config) {
 
             setTimeout(moveCard, 140);
         },
+        onItemVisibilityUpdated(detail) {
+            if (!detail || detail.kind !== 'task' || detail.itemId == null) return;
+            const taskId = Number(detail.itemId);
+            if (!Number.isFinite(taskId)) return;
+
+            const cardSelector = '[data-kanban-card][data-task-id="' + taskId + '"]';
+            const card = this.$el.querySelector(cardSelector);
+            if (!card) return;
+
+            const column = card.closest('[data-kanban-column]');
+            if (!column) return;
+
+            const status = column.getAttribute('data-status');
+            const cardsContainer = column.querySelector('[data-kanban-column-cards]');
+            if (!status || !cardsContainer) return;
+
+            const wasHidden = card.style.display === 'none';
+            if (detail.visible === false && !wasHidden) {
+                const prevCount = this.columns[status]?.count ?? cardsContainer.children.length;
+                card.style.display = 'none';
+                if (!this.columns[status]) this.columns[status] = { count: 0 };
+                this.columns[status].count = Math.max(0, prevCount - 1);
+            } else if (detail.visible === true && wasHidden) {
+                card.style.display = '';
+                const prevCount = this.columns[status]?.count ?? cardsContainer.children.length;
+                if (!this.columns[status]) this.columns[status] = { count: 0 };
+                this.columns[status].count = prevCount + 1;
+            }
+        },
     };
 }
