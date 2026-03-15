@@ -69,6 +69,11 @@ class User extends Authenticatable
         return $this->hasMany(Comment::class);
     }
 
+    public function taskAssistantThreads(): HasMany
+    {
+        return $this->hasMany(TaskAssistantThread::class);
+    }
+
     public function pomodoroSetting(): HasOne
     {
         return $this->hasOne(PomodoroSetting::class);

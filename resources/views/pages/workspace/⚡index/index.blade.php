@@ -115,6 +115,19 @@
                 :filters="$this->getFilters()"
                 :tags="$this->tags"
             />
+            @auth
+                <flux:modal.trigger name="task-assistant-chat">
+                    <flux:button
+                        variant="ghost"
+                        size="sm"
+                        icon="chat-bubble-left-right"
+                        class="shrink-0"
+                        aria-label="{{ __('Open task assistant') }}"
+                    >
+                        {{ __('Assistant') }}
+                    </flux:button>
+                </flux:modal.trigger>
+            @endauth
         </div>
     </div>
 
@@ -309,4 +322,9 @@
         </div>
     {{-- /viewMode Alpine scope --}}
 
+    @auth
+        <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">
+            <livewire:assistant.chat-flyout />
+        </flux:modal>
+    @endauth
 </section>
