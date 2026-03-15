@@ -723,4 +723,21 @@ class Task extends Model
         return $query->whereNotNull('end_datetime')
             ->whereBetween('end_datetime', [$fromDate->copy()->startOfDay(), $endDate]);
     }
+
+    /**
+     * Tasks that are most relevant for the assistant snapshot for a given user and date.
+     *
+     * This intentionally returns a small, ordered window of active tasks.
+     */
+    public function scopeForAssistantSnapshot(Builder $query, int $userId, CarbonInterface $date, int $limit = 20): Builder
+    {
+        return $query
+            ->forUser($userId)
+            ->incomplete()
+            ->relevantForDate($date)
+            ->orderByPriority()
+            ->orderBy('end_datetime')
+            ->summaryColumns()
+            ->limit($limit);
+    }
 }

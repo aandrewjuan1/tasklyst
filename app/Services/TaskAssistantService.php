@@ -8,6 +8,7 @@ use App\Models\TaskAssistantThread;
 use App\Models\User;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Streaming\Events\TextDeltaEvent;
@@ -25,7 +26,8 @@ class TaskAssistantService
     private const MESSAGE_LIMIT = 50;
 
     public function __construct(
-        private readonly TaskAssistantPromptData $promptData
+        private readonly TaskAssistantPromptData $promptData,
+        private readonly TaskAssistantSnapshotService $snapshotService,
     ) {}
 
     /**
@@ -48,6 +50,13 @@ class TaskAssistantService
         $prismMessages[] = new UserMessage($userMessageContent);
         $tools = $this->resolveTools($user);
         $promptData = $this->promptData->forUser($user);
+        $snapshot = $this->snapshotService->buildForUser($user);
+        Log::info('task-assistant.snapshot', [
+            'user_id' => $user->id,
+            'thread_id' => $thread->id,
+            'snapshot' => $snapshot,
+        ]);
+        $promptData['snapshot'] = $snapshot;
         $timeout = (int) config('prism.request_timeout', 60);
 
         $this->bindTaskAssistantContext($thread->id, $assistantMessage->id);
@@ -78,6 +87,12 @@ class TaskAssistantService
      */
     public function broadcastStream(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
     {
+        Log::info('task-assistant.broadcastStream.start', [
+            'thread_id' => $thread->id,
+            'user_message_id' => $userMessageId,
+            'assistant_message_id' => $assistantMessageId,
+        ]);
+
         $userMessage = TaskAssistantMessage::query()
             ->where('thread_id', $thread->id)
             ->where('id', $userMessageId)
@@ -96,12 +111,25 @@ class TaskAssistantService
         $prismMessages[] = new UserMessage($userMessage->content ?? '');
         $tools = $this->resolveTools($user);
         $promptData = $this->promptData->forUser($user);
+        $snapshot = $this->snapshotService->buildForUser($user);
+        Log::info('task-assistant.snapshot', [
+            'user_id' => $user->id,
+            'thread_id' => $thread->id,
+            'snapshot' => $snapshot,
+        ]);
+        $promptData['snapshot'] = $snapshot;
         $timeout = (int) config('prism.request_timeout', 60);
-        $channel = new Channel('task-assistant.'.$thread->id);
+        $channel = new Channel('task-assistant.user.'.$user->id);
 
         $this->bindTaskAssistantContext($thread->id, $assistantMessage->id);
 
         try {
+            Log::info('task-assistant.broadcastStream.prism_start', [
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessageId,
+                'channel' => $channel->name,
+            ]);
+
             Prism::text()
                 ->using(Provider::Ollama, 'hermes3:3b')
                 ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
@@ -115,12 +143,21 @@ class TaskAssistantService
                             ->filter(fn ($e): bool => $e instanceof TextDeltaEvent)
                             ->map(fn (TextDeltaEvent $e): string => $e->delta)
                             ->join('');
+                        Log::info('task-assistant.broadcastStream.prism_complete', [
+                            'assistant_message_id' => $assistantMessage->id,
+                            'content_length' => mb_strlen($fullText),
+                        ]);
+
                         $assistantMessage->update(['content' => $fullText]);
                     } finally {
                         $this->clearTaskAssistantContext();
                     }
                 });
         } finally {
+            Log::info('task-assistant.broadcastStream.end', [
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessageId,
+            ]);
             $this->clearTaskAssistantContext();
         }
     }

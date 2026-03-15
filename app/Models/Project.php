@@ -242,6 +242,22 @@ class Project extends Model
     }
 
     /**
+     * Projects that are most relevant for the assistant snapshot for a given user and date.
+     *
+     * Prioritises active projects with incomplete tasks near the current date.
+     */
+    public function scopeForAssistantSnapshot(Builder $query, int $userId, CarbonInterface $date, int $limit = 8): Builder
+    {
+        return $query
+            ->forUser($userId)
+            ->notArchived()
+            ->withIncompleteTasks()
+            ->orderByStartTime()
+            ->orderByName()
+            ->limit($limit);
+    }
+
+    /**
      * Build a friendly toast payload for Project CRUD actions.
      *
      * @return array{type: 'success'|'error'|'info', message: string, icon: string}
