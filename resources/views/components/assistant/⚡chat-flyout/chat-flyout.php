@@ -35,6 +35,37 @@ new class extends Component
         $this->loadMessages();
     }
 
+    public function startNewChat(): void
+    {
+        $user = Auth::user();
+        if (! $user) {
+            return;
+        }
+
+        $existingEmptyThread = $user->taskAssistantThreads()
+            ->whereDoesntHave('messages')
+            ->latest('id')
+            ->first();
+
+        if ($existingEmptyThread) {
+            $this->thread = $existingEmptyThread;
+        } else {
+            $this->thread = $user->taskAssistantThreads()->create([
+                'title' => null,
+                'metadata' => [],
+            ]);
+        }
+
+        session(['task_assistant.current_thread_id' => $this->thread->id]);
+
+        $this->chatMessages = collect();
+        $this->newMessage = '';
+        $this->streamingContent = '';
+        $this->isStreaming = false;
+        $this->streamingMessageId = null;
+        $this->showWorking = false;
+    }
+
     /**
      * Prevent MethodNotFoundException when Livewire/Alpine serializes the component.
      */
@@ -131,6 +162,8 @@ new class extends Component
             'content' => '',
         ]);
 
+        session(['task_assistant.current_thread_id' => $this->thread->id]);
+
         $this->newMessage = '';
         $this->loadMessages();
         $this->isStreaming = true;
@@ -157,13 +190,25 @@ new class extends Component
             return;
         }
 
-        $this->thread = $user->taskAssistantThreads()->latest('id')->first();
-        if ($this->thread === null) {
+        $currentThreadId = (int) session('task_assistant.current_thread_id', 0);
+        if ($currentThreadId > 0) {
+            $this->thread = $user->taskAssistantThreads()
+                ->whereKey($currentThreadId)
+                ->first();
+        }
+
+        if (! $this->thread) {
+            $this->thread = $user->taskAssistantThreads()->latest('id')->first();
+        }
+
+        if (! $this->thread) {
             $this->thread = $user->taskAssistantThreads()->create([
                 'title' => null,
                 'metadata' => [],
             ]);
         }
+
+        session(['task_assistant.current_thread_id' => $this->thread->id]);
     }
 
     private function loadMessages(): void

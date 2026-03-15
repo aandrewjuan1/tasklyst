@@ -1,10 +1,27 @@
 <div
     class="grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto]"
-    x-data="{ scrollToBottom: () => $refs.messagesEnd?.scrollIntoView({ behavior: 'smooth' }) }"
-    x-init="$watch('$wire.streamingContent', () => scrollToBottom()); $watch(() => ($wire.chatMessages?.length ?? 0), () => scrollToBottom())"
+    x-data="{
+        scrollToBottom() {
+            $refs.messagesEnd?.scrollIntoView({ behavior: 'smooth' });
+        },
+        init() {
+            this.$nextTick(() => this.scrollToBottom());
+            this.$watch('$wire.streamingContent', () => this.scrollToBottom());
+            this.$watch(() => ($wire.chatMessages?.length ?? 0), () => this.scrollToBottom());
+        },
+    }"
 >
     <div class="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
         <flux:heading size="md">{{ __('Task assistant') }}</flux:heading>
+
+        <flux:button
+            size="xs"
+            variant="ghost"
+            class="ml-auto"
+            wire:click="startNewChat"
+        >
+            {{ __('New chat') }}
+        </flux:button>
     </div>
 
     <div class="flex min-h-0 flex-col gap-4 overflow-y-auto p-4" wire:key="messages-container">
