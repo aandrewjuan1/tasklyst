@@ -1,13 +1,50 @@
 <div
     class="grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto]"
     x-data="{
+        reconnectHint: false,
+        lastDeltaAt: null,
         scrollToBottom() {
             $refs.messagesEnd?.scrollIntoView({ behavior: 'smooth' });
         },
+        checkStale() {
+            if (! this.$wire.isStreaming) {
+                this.reconnectHint = false;
+                return;
+            }
+
+            const now = Date.now();
+            const last = this.lastDeltaAt ?? now;
+            const elapsed = now - last;
+
+            // Show hint if streaming but no new deltas for > 10 seconds
+            if (elapsed > 10000) {
+                this.reconnectHint = true;
+
+                // Force-refresh messages from the server in case
+                // the stream_end event was missed but the answer
+                // is already saved in the database.
+                this.$wire.refreshMessages();
+            }
+
+            setTimeout(() => this.checkStale(), 3000);
+        },
         init() {
             this.$nextTick(() => this.scrollToBottom());
-            this.$watch('$wire.streamingContent', () => this.scrollToBottom());
+            this.$watch('$wire.streamingContent', () => {
+                this.scrollToBottom();
+                this.lastDeltaAt = Date.now();
+                this.reconnectHint = false;
+            });
             this.$watch(() => ($wire.chatMessages?.length ?? 0), () => this.scrollToBottom());
+            this.$watch('$wire.isStreaming', (value) => {
+                if (value) {
+                    this.lastDeltaAt = Date.now();
+                    this.reconnectHint = false;
+                    this.checkStale();
+                } else {
+                    this.reconnectHint = false;
+                }
+            });
         },
     }"
 >
@@ -63,6 +100,13 @@
                         @if ($showWorking)
                             <flux:text class="text-sm text-zinc-500 dark:text-zinc-400">{{ __('Working…') }}</flux:text>
                         @endif
+                        <flux:text
+                            x-show="reconnectHint"
+                            x-transition
+                            class="mt-1 block text-xs text-amber-600 dark:text-amber-400"
+                        >
+                            {{ __('Reconnecting to assistant…') }}
+                        </flux:text>
                         <flux:text class="break-words whitespace-pre-wrap text-sm">{{ $streamingContent }}<span class="animate-pulse">|</span></flux:text>
                     </div>
                 </div>

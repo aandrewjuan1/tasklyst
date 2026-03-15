@@ -650,4 +650,23 @@ class Event extends Model
     {
         return $query->where('all_day', false);
     }
+
+    /**
+     * Events that are most relevant for the assistant snapshot for a given user.
+     *
+     * This focuses on a short upcoming window from "now".
+     */
+    public function scopeForAssistantSnapshot(Builder $query, int $userId, CarbonInterface $now, int $hours = 24, int $limit = 10): Builder
+    {
+        $windowEnd = $now->copy()->addHours($hours);
+
+        return $query
+            ->forUser($userId)
+            ->notCancelled()
+            ->notCompleted()
+            ->whereNotNull('start_datetime')
+            ->whereBetween('start_datetime', [$now, $windowEnd])
+            ->orderByStartTime()
+            ->limit($limit);
+    }
 }

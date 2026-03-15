@@ -6,6 +6,8 @@ use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 
@@ -13,6 +15,9 @@ new class extends Component
 {
     #[Locked]
     public ?TaskAssistantThread $thread = null;
+
+    #[Locked]
+    public ?int $userId = null;
 
     /** @var Collection<int, TaskAssistantMessage> */
     public Collection $chatMessages;
@@ -30,6 +35,7 @@ new class extends Component
 
     public function mount(): void
     {
+        $this->userId = Auth::id();
         $this->chatMessages = new Collection;
         $this->ensureThread();
         $this->loadMessages();
@@ -96,22 +102,7 @@ new class extends Component
         ];
     }
 
-    public function getListeners(): array
-    {
-        if (! $this->thread) {
-            return [];
-        }
-
-        $channel = 'task-assistant.'.$this->thread->id;
-
-        return [
-            "echo:{$channel},.text_delta" => 'appendStreamingDelta',
-            "echo:{$channel},.stream_end" => 'onStreamEnd',
-            "echo:{$channel},.tool_call" => 'onToolCall',
-            "echo:{$channel},.tool_result" => 'onToolResult',
-        ];
-    }
-
+    #[On('echo:task-assistant.user.{userId},.text_delta')]
     public function appendStreamingDelta(array $payload): void
     {
         $delta = $payload['delta'] ?? '';
@@ -120,20 +111,19 @@ new class extends Component
         }
     }
 
+    #[On('echo:task-assistant.user.{userId},.stream_end')]
     public function onStreamEnd(): void
     {
-        $this->isStreaming = false;
-        $this->showWorking = false;
-        $this->streamingContent = '';
-        $this->streamingMessageId = null;
         $this->refreshMessages();
     }
 
+    #[On('echo:task-assistant.user.{userId},.tool_call')]
     public function onToolCall(): void
     {
         $this->showWorking = true;
     }
 
+    #[On('echo:task-assistant.user.{userId},.tool_result')]
     public function onToolResult(): void
     {
         $this->showWorking = false;
@@ -153,6 +143,12 @@ new class extends Component
             return;
         }
 
+        Log::info('task-assistant.submit', [
+            'thread_id' => $this->thread->id,
+            'user_id' => Auth::id(),
+            'content' => $content,
+        ]);
+
         $userMessage = $this->thread->messages()->create([
             'role' => MessageRole::User,
             'content' => $content,
@@ -170,6 +166,13 @@ new class extends Component
         $this->streamingMessageId = $assistantMessage->id;
         $this->streamingContent = '';
         $this->showWorking = false;
+
+        Log::info('task-assistant.job.dispatch', [
+            'thread_id' => $this->thread->id,
+            'user_message_id' => $userMessage->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'user_id' => Auth::id(),
+        ]);
 
         BroadcastTaskAssistantStreamJob::dispatch(
             $this->thread->id,
@@ -218,8 +221,12 @@ new class extends Component
             : collect();
     }
 
-    private function refreshMessages(): void
+    public function refreshMessages(): void
     {
         $this->loadMessages();
+        $this->isStreaming = false;
+        $this->showWorking = false;
+        $this->streamingContent = '';
+        $this->streamingMessageId = null;
     }
 };
