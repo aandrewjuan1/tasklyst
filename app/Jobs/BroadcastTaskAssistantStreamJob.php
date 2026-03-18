@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\TaskAssistantIntent;
 use App\Models\TaskAssistantThread;
 use App\Services\TaskAssistantService;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -16,7 +17,8 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         public int $threadId,
         public int $userMessageId,
         public int $assistantMessageId,
-        public int $userId
+        public int $userId,
+        public TaskAssistantIntent $intent = TaskAssistantIntent::GeneralAdvice
     ) {}
 
     public function handle(TaskAssistantService $service): void
@@ -26,6 +28,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
             'user_message_id' => $this->userMessageId,
             'assistant_message_id' => $this->assistantMessageId,
             'user_id' => $this->userId,
+            'intent' => $this->intent->value,
         ]);
 
         $thread = TaskAssistantThread::query()->find($this->threadId);
@@ -45,6 +48,6 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
             'assistant_message_id' => $this->assistantMessageId,
         ]);
 
-        $service->broadcastStream($thread, $this->userMessageId, $this->assistantMessageId);
+        $service->processQueuedMessage($thread, $this->userMessageId, $this->assistantMessageId);
     }
 }

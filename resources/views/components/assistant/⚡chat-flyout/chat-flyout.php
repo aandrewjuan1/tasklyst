@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MessageRole;
+use App\Enums\TaskAssistantIntent;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
@@ -102,7 +103,7 @@ new class extends Component
         ];
     }
 
-    #[On('echo:task-assistant.user.{userId},.text_delta')]
+    #[On('echo:task-assistant.user.{userId},.json_delta')]
     public function appendStreamingDelta(array $payload): void
     {
         $delta = $payload['delta'] ?? '';
@@ -149,6 +150,11 @@ new class extends Component
             'content' => $content,
         ]);
 
+        session(['task_assistant.current_thread_id' => $this->thread->id]);
+
+        $this->newMessage = '';
+
+        // Always async: create messages then dispatch one job, which decides the flow and streams output.
         $userMessage = $this->thread->messages()->create([
             'role' => MessageRole::User,
             'content' => $content,
@@ -158,9 +164,6 @@ new class extends Component
             'content' => '',
         ]);
 
-        session(['task_assistant.current_thread_id' => $this->thread->id]);
-
-        $this->newMessage = '';
         $this->loadMessages();
         $this->isStreaming = true;
         $this->streamingMessageId = $assistantMessage->id;
@@ -172,13 +175,15 @@ new class extends Component
             'user_message_id' => $userMessage->id,
             'assistant_message_id' => $assistantMessage->id,
             'user_id' => Auth::id(),
+            'intent' => TaskAssistantIntent::GeneralAdvice->value,
         ]);
 
         BroadcastTaskAssistantStreamJob::dispatch(
             $this->thread->id,
             $userMessage->id,
             $assistantMessage->id,
-            (int) Auth::id()
+            (int) Auth::id(),
+            TaskAssistantIntent::GeneralAdvice
         );
     }
 
@@ -229,4 +234,5 @@ new class extends Component
         $this->streamingContent = '';
         $this->streamingMessageId = null;
     }
+
 };
