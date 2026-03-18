@@ -76,7 +76,7 @@
                         class="flex justify-end"
                     >
                         <div class="max-w-[85%] min-w-0 rounded-lg bg-zinc-200 px-3 py-2 dark:bg-zinc-600">
-                            <flux:text class="break-words text-sm">{{ $message->content }}</flux:text>
+                            <flux:text class="wrap-break-word text-sm">{{ $message->content }}</flux:text>
                         </div>
                     </div>
                 @elseif ($message->role->value === 'assistant' && $message->id !== $streamingMessageId)
@@ -85,7 +85,13 @@
                         class="flex justify-start"
                     >
                         <div class="max-w-[85%] min-w-0 rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-700">
-                            <flux:text class="break-words whitespace-pre-wrap text-sm">{{ $message->content ?: __('…') }}</flux:text>
+                            @php
+                                $decoded = is_string($message->content) ? json_decode($message->content, true) : null;
+                                $display = is_array($decoded)
+                                    ? json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                                    : ($message->content ?: __('…'));
+                            @endphp
+                            <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
                         </div>
                     </div>
                 @endif
@@ -107,7 +113,7 @@
                         >
                             {{ __('Reconnecting to assistant…') }}
                         </flux:text>
-                        <flux:text class="break-words whitespace-pre-wrap text-sm">{{ $streamingContent }}<span class="animate-pulse">|</span></flux:text>
+                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $streamingContent }}<span class="animate-pulse">|</span></flux:text>
                     </div>
                 </div>
             @endif

@@ -10,6 +10,46 @@ use Prism\Prism\Schema\StringSchema;
 final class TaskAssistantSchemas
 {
     /**
+     * Schema for general advisory responses (Phase 1+).
+     *
+     * This intentionally stays small and predictable so we can stream it as JSON consistently.
+     */
+    public static function advisorySchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'advisory',
+            description: 'Structured advisory response with actionable bullet points.',
+            properties: [
+                new StringSchema(
+                    name: 'summary',
+                    description: '1–2 sentence summary of the answer.'
+                ),
+                new ArraySchema(
+                    name: 'bullets',
+                    description: 'Short, actionable bullet points.',
+                    items: new StringSchema(
+                        name: 'bullet',
+                        description: 'A short actionable bullet.'
+                    )
+                ),
+                new ArraySchema(
+                    name: 'follow_ups',
+                    description: 'Optional follow-up questions to clarify the user goal.',
+                    items: new StringSchema(
+                        name: 'question',
+                        description: 'A concise follow-up question.'
+                    ),
+                    nullable: true
+                ),
+            ],
+            requiredFields: [
+                'summary',
+                'bullets',
+            ]
+        );
+    }
+
+    /**
      * Schema for the "choose next task and break into steps" flow.
      */
     public static function taskChoiceSchema(): ObjectSchema
