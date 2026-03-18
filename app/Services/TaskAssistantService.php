@@ -21,24 +21,27 @@ use Prism\Prism\ValueObjects\Messages\ToolResultMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
 use Prism\Prism\ValueObjects\ToolCall;
 use Prism\Prism\ValueObjects\ToolResult;
+use App\Services\Intent\IntentClassificationService;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class TaskAssistantService
 {
     private const MESSAGE_LIMIT = 50;
 
-    private const STREAM_CHUNK_SIZE = 40;
+    private const STREAM_CHUNK_SIZE = 200;
 
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
         private readonly TaskAssistantSnapshotService $snapshotService,
         private readonly TaskAssistantToolInterpreter $toolInterpreter,
+        private readonly TaskAssistantResponseProcessor $responseProcessor,
+        private readonly IntentClassificationService $intentClassifier,
     ) {}
 
     /**
      * Run a single request with tools and streaming; persist user and assistant messages.
      */
-    public function streamResponse(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantIntent $intent = TaskAssistantIntent::GeneralAdvice): StreamedResponse
+    public function streamResponse(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantIntent $intent = TaskAssistantIntent::ProductivityCoaching): StreamedResponse
     {
         $user = $thread->user;
         $userMessage = $thread->messages()->create([
@@ -62,13 +65,13 @@ class TaskAssistantService
             'snapshot' => $snapshot,
         ]);
         $promptData['snapshot'] = $snapshot;
-        $timeout = (int) config('prism.request_timeout', 60);
+        $timeout = (int) config('prism.request_timeout', 120);
 
         $this->bindTaskAssistantContext($thread->id, $assistantMessage->id);
 
         $schema = \App\Support\TaskAssistantSchemas::advisorySchema();
 
-        return response()->stream(function () use ($assistantMessage, $prismMessages, $tools, $promptData, $timeout, $thread): void {
+        return response()->stream(function () use ($assistantMessage, $prismMessages, $tools, $promptData, $timeout, $thread, $userMessageContent): void {
             try {
                 $structuredResponse = Prism::structured()
                     ->using(Provider::Ollama, 'hermes3:3b')
@@ -85,17 +88,40 @@ class TaskAssistantService
                     $payload = [];
                 }
 
-                $envelope = $this->buildJsonEnvelope(flow: 'advisory', data: $payload, threadId: $thread->id, assistantMessageId: $assistantMessage->id);
+                // Process response through ResponseProcessor for validation and formatting
+                $snapshot = $this->snapshotService->buildForUser($thread->user);
+                $processedResponse = $this->responseProcessor->processResponse(
+                    flow: 'advisory',
+                    data: $payload,
+                    snapshot: $snapshot,
+                    thread: $thread,
+                    originalUserMessage: $userMessageContent
+                );
+
+                // Build envelope with processed data
+                $envelope = $this->buildJsonEnvelope(
+                    flow: 'advisory', 
+                    data: $processedResponse['structured_data'], 
+                    threadId: $thread->id, 
+                    assistantMessageId: $assistantMessage->id,
+                    ok: $processedResponse['valid']
+                );
+                
+                // Store formatted content as the main content and structured data in metadata
                 $json = $this->encodeJson($envelope);
 
                 $assistantMessage->update([
-                    'content' => $json,
+                    'content' => $processedResponse['formatted_content'],
                     'metadata' => array_merge($assistantMessage->metadata ?? [], [
                         'structured' => $envelope,
+                        'validation_errors' => $processedResponse['errors'],
+                        'processed' => true,
                     ]),
                 ]);
 
-                foreach (mb_str_split($json, self::STREAM_CHUNK_SIZE) as $chunk) {
+                // Stream the formatted content instead of raw JSON
+                $contentToStream = $processedResponse['formatted_content'];
+                foreach (mb_str_split($contentToStream, self::STREAM_CHUNK_SIZE) as $chunk) {
                     if ($chunk === '') {
                         continue;
                     }
@@ -108,7 +134,7 @@ class TaskAssistantService
                 $this->clearTaskAssistantContext();
             }
         }, 200, [
-            'Content-Type' => 'application/json; charset=UTF-8',
+            'Content-Type' => 'text/plain; charset=UTF-8',
             'Cache-Control' => 'no-cache',
         ]);
     }
@@ -118,7 +144,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runTaskChoice(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantTaskChoiceRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::PlanNextTask): array
+    public function runTaskChoice(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantTaskChoiceRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::TaskPrioritization): array
     {
         $user = $thread->user;
 
@@ -141,17 +167,27 @@ class TaskAssistantService
 
             $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
 
-            $assistantContent = $result['valid']
-                ? $this->renderTaskChoiceMessage($result['data'])
+            // Process response through ResponseProcessor for additional validation and formatting
+            $snapshot = $this->snapshotService->buildForUser($user);
+            $processedResponse = $this->responseProcessor->processResponse(
+                flow: 'task_choice',
+                data: $result['data'],
+                snapshot: $snapshot,
+                thread: $thread,
+                originalUserMessage: $userMessageContent
+            );
+
+            $assistantContent = $result['valid'] && $processedResponse['valid']
+                ? $processedResponse['formatted_content']
                 : 'I had trouble understanding that suggestion. You can try asking again or pick a task directly from your list.';
 
             $assistantMessage->update([
                 'content' => $assistantContent,
-                'metadata' => $result['valid']
-                    ? array_merge($assistantMessage->metadata ?? [], [
-                        'task_choice' => $result['data'],
-                    ])
-                    : ($assistantMessage->metadata ?? []),
+                'metadata' => array_merge($assistantMessage->metadata ?? [], [
+                    'task_choice' => $result['data'],
+                    'processed' => $processedResponse['valid'],
+                    'validation_errors' => $processedResponse['errors'],
+                ]),
             ]);
 
             return [
@@ -185,7 +221,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runDailySchedule(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantDailyScheduleRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::PlanNextTask): array
+    public function runDailySchedule(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantDailyScheduleRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::TimeManagement): array
     {
         $user = $thread->user;
 
@@ -208,17 +244,27 @@ class TaskAssistantService
 
             $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
 
-            $assistantContent = $result['valid']
-                ? $this->renderDailyScheduleMessage($result['data'])
+            // Process response through ResponseProcessor for additional validation and formatting
+            $snapshot = $this->snapshotService->buildForUser($user);
+            $processedResponse = $this->responseProcessor->processResponse(
+                flow: 'daily_schedule',
+                data: $result['data'],
+                snapshot: $snapshot,
+                thread: $thread,
+                originalUserMessage: $userMessageContent
+            );
+
+            $assistantContent = $result['valid'] && $processedResponse['valid']
+                ? $processedResponse['formatted_content']
                 : 'I had trouble generating a schedule. You can try asking again or sketch one directly on your calendar.';
 
             $assistantMessage->update([
                 'content' => $assistantContent,
-                'metadata' => $result['valid']
-                    ? array_merge($assistantMessage->metadata ?? [], [
-                        'daily_schedule' => $result['data'],
-                    ])
-                    : ($assistantMessage->metadata ?? []),
+                'metadata' => array_merge($assistantMessage->metadata ?? [], [
+                    'daily_schedule' => $result['data'],
+                    'processed' => $processedResponse['valid'],
+                    'validation_errors' => $processedResponse['errors'],
+                ]),
             ]);
 
             return [
@@ -252,7 +298,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runStudyPlan(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantStudyPlanRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::PlanNextTask): array
+    public function runStudyPlan(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantStudyPlanRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::StudyPlanning): array
     {
         $user = $thread->user;
 
@@ -275,17 +321,27 @@ class TaskAssistantService
 
             $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
 
-            $assistantContent = $result['valid']
-                ? $this->renderStudyPlanMessage($result['data'])
+            // Process response through ResponseProcessor for additional validation and formatting
+            $snapshot = $this->snapshotService->buildForUser($user);
+            $processedResponse = $this->responseProcessor->processResponse(
+                flow: 'study_plan',
+                data: $result['data'],
+                snapshot: $snapshot,
+                thread: $thread,
+                originalUserMessage: $userMessageContent
+            );
+
+            $assistantContent = $result['valid'] && $processedResponse['valid']
+                ? $processedResponse['formatted_content']
                 : 'I had trouble generating a study plan. You can try asking again or sketch a short list directly.';
 
             $assistantMessage->update([
                 'content' => $assistantContent,
-                'metadata' => $result['valid']
-                    ? array_merge($assistantMessage->metadata ?? [], [
-                        'study_plan' => $result['data'],
-                    ])
-                    : ($assistantMessage->metadata ?? []),
+                'metadata' => array_merge($assistantMessage->metadata ?? [], [
+                    'study_plan' => $result['data'],
+                    'processed' => $processedResponse['valid'],
+                    'validation_errors' => $processedResponse['errors'],
+                ]),
             ]);
 
             return [
@@ -319,7 +375,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runReviewSummary(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantReviewSummaryRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::PlanNextTask): array
+    public function runReviewSummary(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantReviewSummaryRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::ProgressReview): array
     {
         $user = $thread->user;
 
@@ -342,17 +398,27 @@ class TaskAssistantService
 
             $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
 
-            $assistantContent = $result['valid']
-                ? $this->renderReviewSummaryMessage($result['data'])
+            // Process response through ResponseProcessor for additional validation and formatting
+            $snapshot = $this->snapshotService->buildForUser($user);
+            $processedResponse = $this->responseProcessor->processResponse(
+                flow: 'review_summary',
+                data: $result['data'],
+                snapshot: $snapshot,
+                thread: $thread,
+                originalUserMessage: $userMessageContent
+            );
+
+            $assistantContent = $result['valid'] && $processedResponse['valid']
+                ? $processedResponse['formatted_content']
                 : 'I had trouble summarizing your work. You can try asking again or review your task list directly.';
 
             $assistantMessage->update([
                 'content' => $assistantContent,
-                'metadata' => $result['valid']
-                    ? array_merge($assistantMessage->metadata ?? [], [
-                        'review_summary' => $result['data'],
-                    ])
-                    : ($assistantMessage->metadata ?? []),
+                'metadata' => array_merge($assistantMessage->metadata ?? [], [
+                    'review_summary' => $result['data'],
+                    'processed' => $processedResponse['valid'],
+                    'validation_errors' => $processedResponse['errors'],
+                ]),
             ]);
 
             return [
@@ -417,7 +483,7 @@ class TaskAssistantService
             ]);
             $promptData['snapshot'] = $snapshot;
 
-            $timeout = (int) config('prism.request_timeout', 60);
+            $timeout = (int) config('prism.request_timeout', 120);
 
             $schema = \App\Support\TaskAssistantSchemas::mutatingSuggestionSchema();
 
@@ -579,7 +645,7 @@ class TaskAssistantService
      * Run the Prism stream and broadcast to Reverb; persist assistant message in callback.
      * Caller must have already created the user message and placeholder assistant message.
      */
-    public function broadcastStream(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId, TaskAssistantIntent $intent = TaskAssistantIntent::GeneralAdvice): void
+    public function broadcastStream(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId, TaskAssistantIntent $intent = TaskAssistantIntent::ProductivityCoaching): void
     {
         Log::info('task-assistant.broadcastStream.start', [
             'thread_id' => $thread->id,
@@ -612,7 +678,7 @@ class TaskAssistantService
             'snapshot' => $snapshot,
         ]);
         $promptData['snapshot'] = $snapshot;
-        $timeout = (int) config('prism.request_timeout', 60);
+        $timeout = (int) config('prism.request_timeout', 120);
         $channel = new Channel('task-assistant.user.'.$user->id);
 
         $this->bindTaskAssistantContext($thread->id, $assistantMessage->id);
@@ -641,7 +707,34 @@ class TaskAssistantService
                 $payload = [];
             }
 
-            $envelope = $this->buildJsonEnvelope(flow: 'advisory', data: $payload, threadId: $thread->id, assistantMessageId: $assistantMessage->id);
+            // Process response through ResponseProcessor for validation and formatting
+            $processedResponse = $this->responseProcessor->processResponse(
+                flow: 'advisory',
+                data: $payload,
+                snapshot: $snapshot,
+                thread: $thread,
+                originalUserMessage: $userMessage->content ?? ''
+            );
+
+            // Build envelope with processed data
+            $envelope = $this->buildJsonEnvelope(
+                flow: 'advisory', 
+                data: $processedResponse['structured_data'], 
+                threadId: $thread->id, 
+                assistantMessageId: $assistantMessage->id,
+                ok: $processedResponse['valid']
+            );
+
+            // Update message with formatted content
+            $assistantMessage->update([
+                'content' => $processedResponse['formatted_content'],
+                'metadata' => array_merge($assistantMessage->metadata ?? [], [
+                    'structured' => $envelope,
+                    'validation_errors' => $processedResponse['errors'],
+                    'processed' => true,
+                ]),
+            ]);
+
             $this->streamFinalAssistantJson($user->id, $assistantMessage, $envelope);
         } finally {
             Log::info('task-assistant.broadcastStream.end', [
@@ -653,11 +746,11 @@ class TaskAssistantService
     }
 
     /**
-     * Unified async entrypoint: decide flow, run it, and stream output over Reverb.
+     * Process a queued user message and stream the assistant response.
      *
      * All flows update the existing assistant message and broadcast `.json_delta` + `.stream_end`.
      */
-    public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
+    public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId, TaskAssistantIntent $intent = TaskAssistantIntent::ProductivityCoaching): void
     {
         $userMessage = TaskAssistantMessage::query()
             ->where('thread_id', $thread->id)
@@ -683,7 +776,7 @@ class TaskAssistantService
         ]);
 
         if ($flow === 'advisory') {
-            $this->broadcastStream($thread, $userMessageId, $assistantMessageId, TaskAssistantIntent::GeneralAdvice);
+            $this->broadcastStream($thread, $userMessageId, $assistantMessageId, TaskAssistantIntent::ProductivityCoaching);
 
             return;
         }
@@ -770,7 +863,7 @@ class TaskAssistantService
             }
 
             // fallback to advisory if unknown
-            $this->broadcastStream($thread, $userMessageId, $assistantMessageId, TaskAssistantIntent::GeneralAdvice);
+            $this->broadcastStream($thread, $userMessageId, $assistantMessageId, TaskAssistantIntent::ProductivityCoaching);
         } finally {
             $this->clearTaskAssistantContext();
         }
@@ -778,49 +871,35 @@ class TaskAssistantService
 
     /**
      * Mirror of the Livewire classifier so the backend decides in the job.
+     * Now uses the centralized IntentClassificationService.
      */
     private function detectFlow(string $content): string
     {
-        $q = mb_strtolower($content);
-
-        if (preg_match('/\\b(create|update|delete|restore|complete|mark|archive|list)\\b/', $q) === 1) {
-            return 'mutating';
-        }
-
-        if (preg_match('/(what should i work on|help me choose|choose.*next task|pick.*next task)/', $q) === 1) {
-            return 'task_choice';
-        }
-
-        if (preg_match('/(schedule|propose.*schedule|plan my day|today.*schedule)/', $q) === 1) {
-            return 'daily_schedule';
-        }
-
-        if (preg_match('/(study plan|revision plan|study schedule|revise)/', $q) === 1) {
-            return 'study_plan';
-        }
-
-        if (preg_match('/(review.*done|what have i done|summary of work|progress summary)/', $q) === 1) {
-            return 'review_summary';
-        }
-
-        return 'advisory';
+        return $this->intentClassifier->getFlowForIntent(
+            $this->intentClassifier->classify($content)
+        );
     }
 
     /**
      * Broadcast a final assistant message as `.json_delta` chunks, then `.stream_end`.
+     * Note: The assistantMessage->content should already be formatted by ResponseProcessor.
      */
     private function streamFinalAssistantJson(int $userId, TaskAssistantMessage $assistantMessage, array $envelope): void
     {
-        $json = $this->encodeJson($envelope);
+        // The message content is already formatted by ResponseProcessor
+        // Stream the formatted content instead of raw JSON
+        $content = $assistantMessage->content ?? '';
 
+        // Update metadata with structured data for debugging
         $assistantMessage->update([
-            'content' => $json,
             'metadata' => array_merge($assistantMessage->metadata ?? [], [
                 'structured' => $envelope,
+                'streamed' => true,
             ]),
         ]);
 
-        foreach (mb_str_split($json, self::STREAM_CHUNK_SIZE) as $chunk) {
+        // Stream the formatted content in chunks
+        foreach (mb_str_split($content, self::STREAM_CHUNK_SIZE) as $chunk) {
             if ($chunk === '') {
                 continue;
             }
@@ -843,7 +922,7 @@ class TaskAssistantService
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
-        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::PlanNextTask);
+        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::TaskPrioritization);
         $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
 
         $assistantContent = $result['valid']
@@ -874,7 +953,7 @@ class TaskAssistantService
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
-        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::PlanNextTask);
+        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::TimeManagement);
         $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
 
         $assistantContent = $result['valid']
@@ -905,7 +984,7 @@ class TaskAssistantService
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
-        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::PlanNextTask);
+        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::StudyPlanning);
         $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
 
         $assistantContent = $result['valid']
@@ -936,7 +1015,7 @@ class TaskAssistantService
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
-        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::PlanNextTask);
+        $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::ProgressReview);
         $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
 
         $assistantContent = $result['valid']
@@ -977,7 +1056,7 @@ class TaskAssistantService
         $promptData = $this->promptData->forUser($user);
         $snapshot = $this->snapshotService->buildForUser($user);
         $promptData['snapshot'] = $snapshot;
-        $timeout = (int) config('prism.request_timeout', 60);
+        $timeout = (int) config('prism.request_timeout', 120);
         $schema = \App\Support\TaskAssistantSchemas::mutatingSuggestionSchema();
 
         $structuredResponse = Prism::structured()
@@ -1233,7 +1312,7 @@ class TaskAssistantService
      */
     private function resolveToolsForIntent(User $user, TaskAssistantIntent $intent): array
     {
-        if ($intent === TaskAssistantIntent::PlanNextTask || $intent === TaskAssistantIntent::GeneralAdvice) {
+        if ($intent === TaskAssistantIntent::TaskPrioritization || $intent === TaskAssistantIntent::ProductivityCoaching) {
             return [];
         }
 

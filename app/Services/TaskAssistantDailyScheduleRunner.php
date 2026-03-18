@@ -39,7 +39,7 @@ class TaskAssistantDailyScheduleRunner
         ]);
 
         $promptData['snapshot'] = $snapshot;
-        $timeout = (int) config('prism.request_timeout', 60);
+        $timeout = (int) config('prism.request_timeout', 120);
         $schema = TaskAssistantSchemas::dailyScheduleSchema();
 
         $baseMessages = $historyMessages->values();

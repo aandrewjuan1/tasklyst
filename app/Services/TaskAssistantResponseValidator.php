@@ -20,10 +20,10 @@ class TaskAssistantResponseValidator
         $rules = [
             'chosen_task_id' => ['nullable', 'integer'],
             'chosen_task_title' => ['nullable', 'string', 'max:200'],
-            'summary' => ['required', 'string', 'max:500'],
+            'suggestion' => ['required', 'string', 'max:500'],
             'reason' => ['required', 'string', 'max:500'],
-            'suggested_next_steps' => ['required', 'array', 'min:1', 'max:20'],
-            'suggested_next_steps.*' => ['string', 'max:200'],
+            'steps' => ['required', 'array', 'min:1', 'max:20'],
+            'steps.*' => ['string', 'max:200'],
         ];
 
         $validator = Validator::make($payload, $rules);

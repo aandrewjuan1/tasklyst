@@ -18,7 +18,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         public int $userMessageId,
         public int $assistantMessageId,
         public int $userId,
-        public TaskAssistantIntent $intent = TaskAssistantIntent::GeneralAdvice
+        public TaskAssistantIntent $intent = TaskAssistantIntent::ProductivityCoaching
     ) {}
 
     public function handle(TaskAssistantService $service): void
@@ -48,6 +48,6 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
             'assistant_message_id' => $this->assistantMessageId,
         ]);
 
-        $service->processQueuedMessage($thread, $this->userMessageId, $this->assistantMessageId);
+        $service->processQueuedMessage($thread, $this->userMessageId, $this->assistantMessageId, $this->intent);
     }
 }

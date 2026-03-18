@@ -39,7 +39,7 @@ class TaskAssistantTaskChoiceRunner
         ]);
 
         $promptData['snapshot'] = $snapshot;
-        $timeout = (int) config('prism.request_timeout', 60);
+        $timeout = (int) config('prism.request_timeout', 120);
         $schema = TaskAssistantSchemas::taskChoiceSchema();
 
         $baseMessages = $historyMessages->values();
