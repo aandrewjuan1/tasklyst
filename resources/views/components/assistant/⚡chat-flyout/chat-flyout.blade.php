@@ -86,10 +86,8 @@
                     >
                         <div class="max-w-[85%] min-w-0 rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-700">
                             @php
-                                $decoded = is_string($message->content) ? json_decode($message->content, true) : null;
-                                $display = is_array($decoded)
-                                    ? json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-                                    : ($message->content ?: __('…'));
+                                // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
+                                $display = $message->content ?: __('…');
                             @endphp
                             <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
                         </div>

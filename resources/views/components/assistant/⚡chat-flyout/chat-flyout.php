@@ -170,12 +170,15 @@ new class extends Component
         $this->streamingContent = '';
         $this->showWorking = false;
 
+        // Detect intent based on user message content
+        $intent = $this->detectIntent($content);
+
         Log::info('task-assistant.job.dispatch', [
             'thread_id' => $this->thread->id,
             'user_message_id' => $userMessage->id,
             'assistant_message_id' => $assistantMessage->id,
             'user_id' => Auth::id(),
-            'intent' => TaskAssistantIntent::GeneralAdvice->value,
+            'intent' => $intent->value,
         ]);
 
         BroadcastTaskAssistantStreamJob::dispatch(
@@ -183,7 +186,7 @@ new class extends Component
             $userMessage->id,
             $assistantMessage->id,
             (int) Auth::id(),
-            TaskAssistantIntent::GeneralAdvice
+            $intent
         );
     }
 
@@ -233,6 +236,15 @@ new class extends Component
         $this->showWorking = false;
         $this->streamingContent = '';
         $this->streamingMessageId = null;
+    }
+
+    /**
+     * Detect the appropriate intent based on user message content.
+     */
+    private function detectIntent(string $content): TaskAssistantIntent
+    {
+        $intentService = new \App\Services\Intent\IntentClassificationService();
+        return $intentService->classify($content);
     }
 
 };

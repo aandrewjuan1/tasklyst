@@ -37,7 +37,7 @@ class TaskAssistantReviewSummaryRunner
         ]);
 
         $promptData['snapshot'] = $snapshot;
-        $timeout = (int) config('prism.request_timeout', 60);
+        $timeout = (int) config('prism.request_timeout', 120);
         $schema = TaskAssistantSchemas::reviewSummarySchema();
 
         $baseMessages = $historyMessages->values();

@@ -6,311 +6,364 @@ use Prism\Prism\Schema\ArraySchema;
 use Prism\Prism\Schema\NumberSchema;
 use Prism\Prism\Schema\ObjectSchema;
 use Prism\Prism\Schema\StringSchema;
+use Prism\Prism\Schema\BooleanSchema;
 
 final class TaskAssistantSchemas
 {
     /**
-     * Schema for general advisory responses (Phase 1+).
-     *
-     * This intentionally stays small and predictable so we can stream it as JSON consistently.
+     * Advisory schema for small LLMs.
+     * Keeps structure simple so the model can freely produce rich text.
      */
     public static function advisorySchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'advisory',
-            description: 'Structured advisory response with actionable bullet points.',
+            description: 'Human-friendly advice with actionable points and an assistant voice.',
             properties: [
                 new StringSchema(
                     name: 'summary',
-                    description: '1–2 sentence summary of the answer.'
+                    description: 'A human-friendly summary of the recommendation or answer.'
                 ),
                 new ArraySchema(
-                    name: 'bullets',
-                    description: 'Short, actionable bullet points.',
-                    items: new StringSchema(
-                        name: 'bullet',
-                        description: 'A short actionable bullet.'
-                    )
+                    name: 'points',
+                    description: 'Ordered actionable points (each is a standalone instruction).',
+                    items: new StringSchema(name: 'point', description: 'An actionable instruction.')
+                ),
+                new StringSchema(
+                    name: 'assistant_line',
+                    description: 'A friendly line from the assistant reflecting companion tone.',
+                    nullable: true
+                ),
+                new NumberSchema(
+                    name: 'confidence',
+                    description: 'Optional confidence value (0.0 - 1.0).',
+                    nullable: true
                 ),
                 new ArraySchema(
                     name: 'follow_ups',
-                    description: 'Optional follow-up questions to clarify the user goal.',
-                    items: new StringSchema(
-                        name: 'question',
-                        description: 'A concise follow-up question.'
-                    ),
+                    description: 'Optional clarifying questions or prompts to refine the goal.',
+                    items: new StringSchema(name: 'question', description: 'A clarifying question.'),
                     nullable: true
+                ),
+                new ObjectSchema(
+                    name: 'meta',
+                    description: 'Optional machine-friendly metadata.',
+                    properties: [
+                        new ArraySchema(
+                            name: 'tags',
+                            description: 'Optional tags for classification.',
+                            items: new StringSchema(name: 'tag', description: 'Tag label.'),
+                            nullable: true
+                        ),
+                        new NumberSchema(
+                            name: 'estimated_minutes',
+                            description: 'Optional estimated minutes for suggested work.',
+                            nullable: true
+                        ),
+                    ],
+                    requiredFields: []
                 ),
             ],
             requiredFields: [
                 'summary',
-                'bullets',
+                'points'
             ]
         );
     }
 
     /**
-     * Schema for the "choose next task and break into steps" flow.
+     * Task choice schema: simple and predictable for small models.
      */
     public static function taskChoiceSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'task_choice',
-            description: 'Structured response for choosing the next task and breaking it into steps.',
+            description: 'Chosen task recommendation with rationale and ordered steps.',
             properties: [
                 new NumberSchema(
                     name: 'chosen_task_id',
-                    description: 'ID of the chosen task from snapshot.tasks, or null if no task is selected.',
+                    description: 'Task ID from snapshot.tasks, or null if none.',
                     nullable: true
                 ),
                 new StringSchema(
                     name: 'chosen_task_title',
-                    description: 'Title of the chosen task, matching the snapshot title for chosen_task_id when provided.',
+                    description: 'Title of the chosen task when available.',
                     nullable: true
                 ),
                 new StringSchema(
-                    name: 'summary',
-                    description: 'One or two sentence summary of what the user should focus on.'
+                    name: 'suggestion',
+                    description: 'Natural-language suggestion describing what to focus on next.'
                 ),
                 new StringSchema(
                     name: 'reason',
-                    description: 'Short rationale for why this task or plan was chosen.'
+                    description: 'Rationale explaining why this choice was made.'
                 ),
                 new ArraySchema(
-                    name: 'suggested_next_steps',
-                    description: 'Ordered list of short, concrete next steps.',
-                    items: new StringSchema(
-                        name: 'step',
-                        description: 'A short, concrete next step.'
-                    )
+                    name: 'steps',
+                    description: 'Ordered next steps. Each step is a simple instruction string.',
+                    items: new StringSchema(name: 'step', description: 'A concrete next step.')
+                ),
+                new NumberSchema(
+                    name: 'estimated_minutes',
+                    description: 'Optional estimated minutes to complete the next work.',
+                    nullable: true
+                ),
+                new NumberSchema(
+                    name: 'priority',
+                    description: 'Optional priority score (0-100).',
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'tags',
+                    description: 'Optional simple tags.',
+                    items: new StringSchema(name: 'tag', description: 'Tag label.'),
+                    nullable: true
                 ),
             ],
             requiredFields: [
-                'summary',
+                'suggestion',
                 'reason',
-                'suggested_next_steps',
+                'steps'
             ]
         );
     }
 
     /**
-     * Schema for PHP-driven mutating tool suggestions.
-     *
-     * The model suggests a simple JSON object like:
-     * { "action": "create_task", "args": { ... } }
+     * Mutating suggestion schema for tool actions.
+     * Minimal and explicit so the client can act on it safely.
      */
     public static function mutatingSuggestionSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'tool_suggestion',
-            description: 'Small JSON suggestion describing which action to run and its arguments.',
+            description: 'Suggested action with args and execution hints.',
             properties: [
                 new StringSchema(
                     name: 'action',
-                    description: 'Logical action name matching a configured tool key such as create_task, update_task, list_tasks.',
+                    description: 'Action key such as create_task, update_task, delete_task.'
                 ),
                 new ObjectSchema(
                     name: 'args',
-                    description: 'Arguments to pass to the suggested action. Keys should match the tool parameters.',
+                    description: 'Flat object of arguments for the action.',
                     properties: [],
-                    requiredFields: [],
+                    requiredFields: []
+                ),
+                new BooleanSchema(
+                    name: 'dry_run',
+                    description: 'If true, the suggestion is a preview and should not execute.',
+                    nullable: true
+                ),
+                new BooleanSchema(
+                    name: 'require_confirmation',
+                    description: 'If true, client should confirm with the user before executing.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'label',
+                    description: 'Human-readable description of the suggested action.',
+                    nullable: true
                 ),
             ],
             requiredFields: [
-                'action',
+                'action'
             ]
         );
     }
 
     /**
-     * Schema for a daily schedule proposal (Phase 4).
-     *
-     * The model proposes a small set of ordered time blocks for the day.
+     * Daily schedule schema with simple blocks.
      */
     public static function dailyScheduleSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'daily_schedule',
-            description: 'Proposed daily schedule with ordered time blocks referencing snapshot tasks or events.',
+            description: 'Ordered list of time blocks for the day with optional references.',
             properties: [
                 new ArraySchema(
                     name: 'blocks',
-                    description: 'Ordered list of time blocks for the day.',
+                    description: 'Ordered time blocks.',
                     items: new ObjectSchema(
                         name: 'block',
-                        description: 'Single time block in the day.',
+                        description: 'Single block with start/end and small metadata.',
                         properties: [
                             new StringSchema(
                                 name: 'start_time',
-                                description: 'Local start time in ISO8601 (or HH:MM) format.',
+                                description: 'Start time in HH:MM or ISO format.'
                             ),
                             new StringSchema(
                                 name: 'end_time',
-                                description: 'Local end time in ISO8601 (or HH:MM) format.',
+                                description: 'End time in HH:MM or ISO format.'
+                            ),
+                            new StringSchema(
+                                name: 'label',
+                                description: 'Optional label for the block.',
+                                nullable: true
                             ),
                             new NumberSchema(
                                 name: 'task_id',
-                                description: 'Optional ID of a task from snapshot.tasks scheduled in this block.',
+                                description: 'Optional task id reference.',
                                 nullable: true
                             ),
                             new NumberSchema(
                                 name: 'event_id',
-                                description: 'Optional ID of an event from snapshot.events scheduled in this block.',
+                                description: 'Optional event id reference.',
                                 nullable: true
                             ),
                             new StringSchema(
-                                name: 'label',
-                                description: 'Short label for the block when no specific task/event is referenced.',
+                                name: 'note',
+                                description: 'Optional note describing the block.',
                                 nullable: true
-                            ),
-                            new StringSchema(
-                                name: 'reason',
-                                description: 'One sentence reason for choosing this block contents.',
                             ),
                         ],
                         requiredFields: [
                             'start_time',
-                            'end_time',
-                            'reason',
+                            'end_time'
                         ]
                     )
                 ),
                 new StringSchema(
                     name: 'summary',
-                    description: 'One or two sentence overview of the proposed day.',
+                    description: 'Optional overview of the proposed day.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'assistant_note',
+                    description: 'Optional friendly line from the assistant.',
                     nullable: true
                 ),
             ],
             requiredFields: [
-                'blocks',
+                'blocks'
             ]
         );
     }
 
     /**
-     * Schema for a study / revision plan (Phase 4).
+     * Study plan schema with simple items.
      */
     public static function studyPlanSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'study_plan',
-            description: 'Structured study or revision plan referencing snapshot tasks where possible.',
+            description: 'Ordered study items with optional time estimates.',
             properties: [
                 new ArraySchema(
                     name: 'items',
-                    description: 'Ordered list of study or revision items.',
+                    description: 'Ordered study items.',
                     items: new ObjectSchema(
                         name: 'item',
-                        description: 'Single study or revision item.',
+                        description: 'Single study item.',
                         properties: [
                             new StringSchema(
                                 name: 'label',
-                                description: 'Short label for what to study or revise.',
+                                description: 'What to study.'
                             ),
                             new NumberSchema(
-                                name: 'task_id',
-                                description: 'Optional task ID from snapshot.tasks associated with this item.',
-                                nullable: true
-                            ),
-                            new NumberSchema(
-                                name: 'estimated_minutes',
-                                description: 'Estimated minutes to spend on this item.',
-                                nullable: true
-                            ),
-                            new StringSchema(
-                                name: 'reason',
-                                description: 'Short rationale for why this item is included.',
+                                name: 'minutes',
+                                description: 'Optional minutes estimate.',
                                 nullable: true
                             ),
                         ],
                         requiredFields: [
-                            'label',
+                            'label'
                         ]
                     )
                 ),
+                new NumberSchema(
+                    name: 'total_minutes',
+                    description: 'Optional total estimated minutes for the plan.',
+                    nullable: true
+                ),
                 new StringSchema(
                     name: 'summary',
-                    description: 'One or two sentence summary of the overall plan.',
+                    description: 'Optional overview of the plan.',
                     nullable: true
                 ),
             ],
             requiredFields: [
-                'items',
+                'items'
             ]
         );
     }
 
     /**
-     * Schema for a task review summary (Phase 4).
+     * Review summary schema: completed vs remaining and next steps.
      */
     public static function reviewSummarySchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'review_summary',
-            description: 'Summary of completed and remaining work with suggested next steps.',
+            description: 'Completed and remaining tasks with next steps and optional metadata.',
             properties: [
                 new ArraySchema(
                     name: 'completed',
-                    description: 'List of recently completed tasks by ID and title.',
+                    description: 'List of completed tasks.',
                     items: new ObjectSchema(
                         name: 'completed_item',
-                        description: 'Completed task summary.',
+                        description: 'Completed task entry.',
                         properties: [
                             new NumberSchema(
                                 name: 'task_id',
-                                description: 'ID of a completed task from snapshot.tasks.',
+                                description: 'Task id.'
                             ),
                             new StringSchema(
                                 name: 'title',
-                                description: 'Title of the completed task.',
+                                description: 'Task title.'
                             ),
                         ],
                         requiredFields: [
                             'task_id',
-                            'title',
+                            'title'
                         ]
                     )
                 ),
                 new ArraySchema(
                     name: 'remaining',
-                    description: 'List of remaining tasks by ID and title.',
+                    description: 'List of remaining tasks.',
                     items: new ObjectSchema(
                         name: 'remaining_item',
-                        description: 'Remaining task summary.',
+                        description: 'Remaining task entry.',
                         properties: [
                             new NumberSchema(
                                 name: 'task_id',
-                                description: 'ID of a remaining task from snapshot.tasks.',
+                                description: 'Task id.'
                             ),
                             new StringSchema(
                                 name: 'title',
-                                description: 'Title of the remaining task.',
+                                description: 'Task title.'
                             ),
                         ],
                         requiredFields: [
                             'task_id',
-                            'title',
+                            'title'
                         ]
                     )
                 ),
                 new StringSchema(
                     name: 'summary',
-                    description: 'Short narrative summary of what was completed and what remains.',
+                    description: 'Narrative summary of progress and status.'
                 ),
                 new ArraySchema(
                     name: 'next_steps',
-                    description: 'Short list of suggested next steps after this review.',
-                    items: new StringSchema(
-                        name: 'step',
-                        description: 'Single suggested next step.',
-                    )
+                    description: 'Ordered list of next steps as simple instruction strings.',
+                    items: new StringSchema(name: 'step', description: 'A step instruction.')
+                ),
+                new NumberSchema(
+                    name: 'confidence',
+                    description: 'Optional confidence value (0.0 - 1.0).',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'assistant_line',
+                    description: 'Optional friendly closing from the assistant.',
+                    nullable: true
                 ),
             ],
             requiredFields: [
                 'completed',
                 'remaining',
                 'summary',
-                'next_steps',
+                'next_steps'
             ]
         );
     }
