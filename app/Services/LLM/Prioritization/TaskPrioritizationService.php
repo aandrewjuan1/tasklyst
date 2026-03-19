@@ -2,11 +2,18 @@
 
 namespace App\Services\LLM\Prioritization;
 
+use App\Enums\EventStatus;
+use App\Enums\TaskStatus;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 final class TaskPrioritizationService
 {
+    private const TASK_DOING_BOOST = 75;
+
+    private const EVENT_ONGOING_BOOST = 50;
+
     /**
      * Build one ranked list of "focus candidates" across tasks, events, and projects.
      *
@@ -16,20 +23,21 @@ final class TaskPrioritizationService
      */
     public function prioritizeFocus(array $snapshot, array $context = []): array
     {
-        $today = (string) ($snapshot['today'] ?? date('Y-m-d'));
-        $now = new \DateTimeImmutable($today.'T00:00:00');
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $now = CarbonImmutable::now($timezone);
+        $today = $now->toDateString();
 
         $tasks = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
         $events = is_array($snapshot['events'] ?? null) ? $snapshot['events'] : [];
         $projects = is_array($snapshot['projects'] ?? null) ? $snapshot['projects'] : [];
 
-        $taskRanked = $this->prioritizeTasks($tasks, $today, $context);
+        $taskRanked = $this->prioritizeTasks($tasks, $now, $context);
         $eventRanked = $this->prioritizeEvents($events, $now, $context);
         $projectRanked = $this->prioritizeProjects($projects, $now, $context);
 
         $candidates = [];
 
-        foreach (array_slice($taskRanked, 0, 10) as $task) {
+        foreach ($taskRanked as $task) {
             $id = (int) ($task['id'] ?? 0);
             $title = (string) ($task['title'] ?? '');
             if ($id <= 0 || $title === '') {
@@ -41,12 +49,12 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => $score,
-                'reasoning' => $this->generateReasoning($task, $today),
+                'reasoning' => $this->generateReasoning($task, $now),
                 'raw' => $task,
             ];
         }
 
-        foreach (array_slice($eventRanked, 0, 10) as $event) {
+        foreach ($eventRanked as $event) {
             $id = (int) ($event['id'] ?? 0);
             $title = (string) ($event['title'] ?? '');
             if ($id <= 0 || $title === '') {
@@ -62,7 +70,7 @@ final class TaskPrioritizationService
             ];
         }
 
-        foreach (array_slice($projectRanked, 0, 10) as $project) {
+        foreach ($projectRanked as $project) {
             $id = (int) ($project['id'] ?? 0);
             $title = (string) ($project['name'] ?? '');
             if ($id <= 0 || $title === '') {
@@ -83,7 +91,20 @@ final class TaskPrioritizationService
                 return $b['score'] <=> $a['score'];
             }
             if ($a['type'] !== $b['type']) {
-                return strcmp($a['type'], $b['type']);
+                $typeOrder = [
+                    'task' => 3,
+                    'event' => 2,
+                    'project' => 1,
+                ];
+
+                $aRank = (int) ($typeOrder[$a['type']] ?? 0);
+                $bRank = (int) ($typeOrder[$b['type']] ?? 0);
+
+                if ($aRank !== $bRank) {
+                    return $bRank <=> $aRank;
+                }
+
+                return $a['id'] <=> $b['id'];
             }
 
             return $a['id'] <=> $b['id'];
@@ -98,8 +119,64 @@ final class TaskPrioritizationService
     public function getTopFocus(array $snapshot, array $context = []): ?array
     {
         $ranked = $this->prioritizeFocus($snapshot, $context);
+        $top = $ranked[0] ?? null;
 
-        return $ranked[0] ?? null;
+        if ($top) {
+            return $top;
+        }
+
+        // Fallback: if cross-type candidate building ended up with an empty list,
+        // still choose deterministically from the available task/event/project sets.
+        // This prevents "no tasks available" surprises in production + tests.
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $now = CarbonImmutable::now($timezone);
+
+        $tasks = is_array($snapshot['tasks'] ?? null) ? $snapshot['tasks'] : [];
+        $taskRanked = $this->prioritizeTasks($tasks, $now, $context);
+        if (! empty($taskRanked[0] ?? null)) {
+            $task = $taskRanked[0];
+
+            return [
+                'type' => 'task',
+                'id' => (int) ($task['id'] ?? 0),
+                'title' => (string) ($task['title'] ?? ''),
+                'score' => (int) (($task['deadline_score'] ?? 0) + ($task['priority_score'] ?? 0) + ($task['duration_score'] ?? 0)),
+                'reasoning' => $this->generateReasoning($task, $now),
+                'raw' => $task,
+            ];
+        }
+
+        $events = is_array($snapshot['events'] ?? null) ? $snapshot['events'] : [];
+        $eventRanked = $this->prioritizeEvents($events, $now, $context);
+        if (! empty($eventRanked[0] ?? null)) {
+            $event = $eventRanked[0];
+
+            return [
+                'type' => 'event',
+                'id' => (int) ($event['id'] ?? 0),
+                'title' => (string) ($event['title'] ?? ''),
+                'score' => (int) ($event['score'] ?? 0),
+                'reasoning' => (string) ($event['reasoning'] ?? 'Upcoming event'),
+                'raw' => $event,
+            ];
+        }
+
+        $projects = is_array($snapshot['projects'] ?? null) ? $snapshot['projects'] : [];
+        $projectRanked = $this->prioritizeProjects($projects, $now, $context);
+        if (! empty($projectRanked[0] ?? null)) {
+            $project = $projectRanked[0];
+
+            return [
+                'type' => 'project',
+                'id' => (int) ($project['id'] ?? 0),
+                'title' => (string) ($project['name'] ?? ''),
+                'score' => (int) ($project['score'] ?? 0),
+                'reasoning' => (string) ($project['reasoning'] ?? 'Active project'),
+                'raw' => $project,
+            ];
+        }
+
+        return null;
     }
 
     /**
@@ -110,18 +187,18 @@ final class TaskPrioritizationService
      * @param  array<string, mixed>  $context  Optional context filters
      * @return array<int, array<string, mixed>>
      */
-    public function prioritizeTasks(array $tasks, string $today, array $context = []): array
+    public function prioritizeTasks(array $tasks, \DateTimeImmutable $now, array $context = []): array
     {
         $collection = collect($tasks);
 
         // Apply context-aware filtering first
-        $collection = $this->applyContextFilters($collection, $context);
+        $collection = $this->applyContextFilters($collection, $context, $now);
 
         if ($collection->isEmpty()) {
             return [];
         }
 
-        $todayDate = new \DateTime($today);
+        $todayDate = $now;
 
         return $collection
             ->map(function (array $task) use ($todayDate) {
@@ -208,6 +285,16 @@ final class TaskPrioritizationService
                     }
                 }
 
+                if ($score > 0 && ($event['status'] ?? null) === EventStatus::Ongoing->value) {
+                    // Momentum boost, but intentionally small.
+                    $score += self::EVENT_ONGOING_BOOST;
+                    if ($reasoning === 'Upcoming event') {
+                        $reasoning = 'Ongoing event';
+                    } else {
+                        $reasoning .= ' (ongoing)';
+                    }
+                }
+
                 $event['score'] = $score;
                 $event['reasoning'] = $reasoning;
 
@@ -287,7 +374,9 @@ final class TaskPrioritizationService
      */
     public function getTopTask(array $tasks, string $today, array $context = []): ?array
     {
-        $prioritized = $this->prioritizeTasks($tasks, $today, $context);
+        $timezone = config('app.timezone', 'UTC');
+        $now = CarbonImmutable::createFromFormat('Y-m-d', $today, $timezone)->startOfDay();
+        $prioritized = $this->prioritizeTasks($tasks, $now, $context);
 
         if (empty($prioritized)) {
             return null;
@@ -296,7 +385,7 @@ final class TaskPrioritizationService
         $topTask = $prioritized[0];
 
         // Add reasoning for logging
-        $topTask['reasoning'] = $this->generateReasoning($topTask, $today);
+        $topTask['reasoning'] = $this->generateReasoning($topTask, $now);
 
         return $topTask;
     }
@@ -304,43 +393,61 @@ final class TaskPrioritizationService
     /**
      * Apply context-aware filters to task collection.
      */
-    private function applyContextFilters(Collection $tasks, array $context): Collection
+    private function applyContextFilters(Collection $tasks, array $context, \DateTimeImmutable $now): Collection
     {
-        // Priority level filtering
+        // Soft filtering: apply a filter only if it keeps at least one candidate.
+        // This avoids "no tasks available" outcomes from slightly-wrong extracted context.
+        $filtered = $tasks;
+
         if (! empty($context['priority_filters'])) {
-            $tasks = $tasks->filter(function (array $task) use ($context) {
-                return in_array($task['priority'] ?? 'medium', $context['priority_filters']);
+            $tmp = $filtered->filter(function (array $task) use ($context) {
+                return in_array($task['priority'] ?? 'medium', $context['priority_filters'], true);
             });
+
+            if ($tmp->isNotEmpty()) {
+                $filtered = $tmp;
+            }
         }
 
-        // Task keyword filtering
         if (! empty($context['task_keywords'])) {
-            $tasks = $tasks->filter(function (array $task) use ($context) {
-                $title = strtolower($task['title'] ?? '');
+            $tmp = $filtered->filter(function (array $task) use ($context) {
+                $title = strtolower((string) ($task['title'] ?? ''));
+
                 foreach ($context['task_keywords'] as $keyword) {
-                    if (str_contains($title, strtolower($keyword))) {
+                    if ($keyword === null) {
+                        continue;
+                    }
+
+                    $needle = strtolower((string) $keyword);
+                    if ($needle !== '' && str_contains($title, $needle)) {
                         return true;
                     }
                 }
 
                 return false;
             });
+
+            if ($tmp->isNotEmpty()) {
+                $filtered = $tmp;
+            }
         }
 
-        // Time constraint filtering
         if (! empty($context['time_constraint'])) {
-            $tasks = $this->applyTimeConstraintFilter($tasks, $context['time_constraint']);
+            $tmp = $this->applyTimeConstraintFilter($filtered, (string) $context['time_constraint'], $now);
+            if ($tmp->isNotEmpty()) {
+                $filtered = $tmp;
+            }
         }
 
-        return $tasks;
+        return $filtered;
     }
 
     /**
      * Apply time-based filtering.
      */
-    private function applyTimeConstraintFilter(Collection $tasks, string $constraint): Collection
+    private function applyTimeConstraintFilter(Collection $tasks, string $constraint, \DateTimeImmutable $now): Collection
     {
-        $today = new \DateTime;
+        $today = $now;
 
         return match ($constraint) {
             'today' => $tasks->filter(function (array $task) use ($today) {
@@ -373,14 +480,16 @@ final class TaskPrioritizationService
     }
 
     /**
-     * Calculate comprehensive priority score for a task.
-     *
-     * @param  array<string, mixed>  $task
-     * @return array<string, mixed>
+     * Calculate deadline score based on urgency.
+     * Higher score = more urgent
      */
-    private function calculateTaskScore(array $task, \DateTime $today): array
+    private function calculateTaskScore(array $task, \DateTimeImmutable $now): array
     {
-        $task['deadline_score'] = $this->calculateDeadlineScore($task, $today);
+        $task['deadline_score'] = $this->calculateDeadlineScore($task, $now);
+        if (($task['deadline_score'] ?? 0) > 0 && ($task['status'] ?? null) === TaskStatus::Doing->value) {
+            // Momentum boost, but kept small so it cannot override urgency buckets.
+            $task['deadline_score'] += self::TASK_DOING_BOOST;
+        }
         $task['priority_score'] = $this->calculatePriorityScore($task);
         $task['duration_score'] = $this->calculateDurationScore($task);
 
@@ -391,7 +500,7 @@ final class TaskPrioritizationService
      * Calculate deadline score based on urgency.
      * Higher score = more urgent
      */
-    private function calculateDeadlineScore(array $task, \DateTime $today): int
+    private function calculateDeadlineScore(array $task, \DateTimeImmutable $now): int
     {
         if (! isset($task['ends_at']) || $task['ends_at'] === null) {
             return 0; // No deadline = lowest urgency
@@ -399,11 +508,11 @@ final class TaskPrioritizationService
 
         try {
             $deadline = new \DateTime($task['ends_at']);
-            $interval = $today->diff($deadline);
+            $interval = $now->diff($deadline);
             $daysUntil = $interval->days;
 
             // Scoring system:
-            if ($deadline < $today) {
+            if ($deadline < $now) {
                 return 1000; // Overdue - highest priority
             }
 
@@ -481,7 +590,7 @@ final class TaskPrioritizationService
     /**
      * Generate human-readable reasoning for task selection.
      */
-    private function generateReasoning(array $task, string $today): string
+    private function generateReasoning(array $task, \DateTimeImmutable $now): string
     {
         $priority = ucfirst($task['priority'] ?? 'medium');
         $deadlineText = '';
@@ -489,10 +598,9 @@ final class TaskPrioritizationService
         if (isset($task['ends_at']) && $task['ends_at']) {
             try {
                 $deadline = new \DateTime($task['ends_at']);
-                $todayDate = new \DateTime($today);
-                $interval = $todayDate->diff($deadline);
+                $interval = $now->diff($deadline);
 
-                if ($deadline < $todayDate) {
+                if ($deadline < $now) {
                     $deadlineText = 'overdue';
                 } elseif ($interval->days === 0) {
                     $deadlineText = 'due today';

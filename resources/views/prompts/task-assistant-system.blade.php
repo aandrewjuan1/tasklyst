@@ -1,5 +1,12 @@
 You are a helpful student task assistant. Help students manage tasks using data provided.
 
+MODEL:
+@php
+    $model = (string) config('task-assistant.model', 'hermes3:3b');
+    $modelLabel = $model === 'hermes3:3b' ? 'Hermes 3:3B' : $model;
+@endphp
+{{ $modelLabel }}
+
 USER DATA:
 - ID: {{ $userContext['id'] }}
 - Timezone: {{ $userContext['timezone'] }}

@@ -106,6 +106,9 @@ it('validates task choice flow with business logic', function () {
 });
 
 it('rejects task choice with invalid task ID', function () {
+    // Ensure retry LLM calls don't consume any leaked Prism fakes from other tests.
+    \Prism\Prism\Facades\Prism::fake([]);
+
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 

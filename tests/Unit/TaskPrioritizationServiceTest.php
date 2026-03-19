@@ -1,19 +1,24 @@
 <?php
 
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use Carbon\CarbonImmutable;
 
 it('prioritizes overdue tasks over upcoming events and projects', function (): void {
     $service = app(TaskPrioritizationService::class);
 
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
     $snapshot = [
-        'today' => '2026-03-19',
-        'timezone' => 'UTC',
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
         'tasks' => [
             [
                 'id' => 1,
                 'title' => 'Overdue task',
                 'priority' => 'medium',
-                'ends_at' => '2026-03-18T12:00:00+00:00',
+                'status' => 'to_do',
+                'ends_at' => $now->subDay()->subHours(2)->toIso8601String(),
                 'duration_minutes' => 30,
             ],
         ],
@@ -21,17 +26,18 @@ it('prioritizes overdue tasks over upcoming events and projects', function (): v
             [
                 'id' => 10,
                 'title' => 'Event later today',
-                'starts_at' => '2026-03-19T18:00:00+00:00',
-                'ends_at' => '2026-03-19T19:00:00+00:00',
+                'starts_at' => $now->addHours(6)->toIso8601String(),
+                'ends_at' => $now->addHours(7)->toIso8601String(),
                 'all_day' => false,
+                'status' => 'scheduled',
             ],
         ],
         'projects' => [
             [
                 'id' => 20,
                 'name' => 'Project ends soon',
-                'start_at' => '2026-03-01T00:00:00+00:00',
-                'end_at' => '2026-03-22T00:00:00+00:00',
+                'start_at' => $now->subDays(20)->toIso8601String(),
+                'end_at' => $now->addDays(3)->toIso8601String(),
             ],
         ],
     ];
@@ -43,20 +49,32 @@ it('prioritizes overdue tasks over upcoming events and projects', function (): v
     expect($top['id'])->toBe(1);
 });
 
-it('prioritizes an event starting soon when there are no urgent tasks', function (): void {
+it('prioritizes the earliest upcoming event using real now', function (): void {
     $service = app(TaskPrioritizationService::class);
 
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
     $snapshot = [
-        'today' => '2026-03-19',
-        'timezone' => 'UTC',
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
         'tasks' => [],
         'events' => [
             [
                 'id' => 10,
                 'title' => 'Event in 30 minutes',
-                'starts_at' => '2026-03-19T00:30:00+00:00',
-                'ends_at' => '2026-03-19T01:00:00+00:00',
+                'starts_at' => $now->addMinutes(30)->toIso8601String(),
+                'ends_at' => $now->addMinutes(60)->toIso8601String(),
                 'all_day' => false,
+                'status' => 'scheduled',
+            ],
+            [
+                'id' => 11,
+                'title' => 'Event in 6 hours',
+                'starts_at' => $now->addHours(6)->toIso8601String(),
+                'ends_at' => $now->addHours(7)->toIso8601String(),
+                'all_day' => false,
+                'status' => 'scheduled',
             ],
         ],
         'projects' => [],
@@ -66,30 +84,91 @@ it('prioritizes an event starting soon when there are no urgent tasks', function
 
     expect($top)->not->toBeNull();
     expect($top['type'])->toBe('event');
-    expect($top['id'])->toBe(10);
+    expect($top['id'])->toBe(10); // now + 30m should beat now + 6h
 });
 
-it('prioritizes an overdue project when there are no tasks or events', function (): void {
+it('does not empty results when context filters exclude all tasks', function (): void {
     $service = app(TaskPrioritizationService::class);
 
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
     $snapshot = [
-        'today' => '2026-03-19',
-        'timezone' => 'UTC',
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
         'tasks' => [],
         'events' => [],
-        'projects' => [
+        'projects' => [],
+    ];
+
+    // All tasks are "low", but context asks for "urgent" only.
+    // With soft filtering, we should still pick a task rather than returning empty.
+    $snapshot['tasks'] = [
+        [
+            'id' => 1,
+            'title' => 'Low priority task A',
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Low priority task B',
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(6)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+    ];
+
+    $context = [
+        'priority_filters' => ['urgent'],
+    ];
+
+    $top = $service->getTopFocus($snapshot, $context);
+
+    expect($top)->not->toBeNull();
+    expect($top['type'])->toBe('task');
+    expect($top['id'])->toBe(1);
+});
+
+it('keeps urgency dominant over small doing momentum boost', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
+        'tasks' => [
+            // Due today, not doing.
             [
-                'id' => 20,
-                'name' => 'Overdue project',
-                'start_at' => '2026-02-01T00:00:00+00:00',
-                'end_at' => '2026-03-10T00:00:00+00:00',
+                'id' => 1,
+                'title' => 'Due today (to_do)',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(2)->toIso8601String(),
+                'duration_minutes' => 60,
+            ],
+            // Due tomorrow, doing (should not outrank due-today).
+            [
+                'id' => 2,
+                'title' => 'Due tomorrow (doing)',
+                'priority' => 'medium',
+                'status' => 'doing',
+                'ends_at' => $now->addDay()->addHours(1)->toIso8601String(),
+                'duration_minutes' => 60,
             ],
         ],
+        'events' => [],
+        'projects' => [],
     ];
 
     $top = $service->getTopFocus($snapshot);
 
     expect($top)->not->toBeNull();
-    expect($top['type'])->toBe('project');
-    expect($top['id'])->toBe(20);
+    expect($top['type'])->toBe('task');
+    expect($top['id'])->toBe(1);
 });

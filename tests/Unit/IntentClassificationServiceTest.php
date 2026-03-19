@@ -5,6 +5,9 @@ namespace Tests\Unit;
 use App\Enums\TaskAssistantIntent;
 use App\Services\LLM\Intent\IntentClassificationService;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Prism\Prism\Facades\Prism;
+use Prism\Prism\Testing\StructuredResponseFake;
+use Prism\Prism\ValueObjects\Usage;
 use Tests\TestCase;
 
 class IntentClassificationServiceTest extends TestCase
@@ -97,6 +100,31 @@ class IntentClassificationServiceTest extends TestCase
         $this->assertSame(TaskAssistantIntent::TaskManagement, $result);
     }
 
+    public function test_it_parses_llm_fallback_intent_from_structured_output(): void
+    {
+        Prism::fake([
+            StructuredResponseFake::make()
+                ->withStructured(['intent' => 'task_prioritization'])
+                ->withUsage(new Usage(1, 2)),
+        ]);
+
+        $result = $this->service->classify('This is a completely unrelated sentence.');
+
+        $this->assertSame(TaskAssistantIntent::TaskPrioritization, $result);
+    }
+
+    public function test_intent_prompt_requests_schema_aligned_json_object(): void
+    {
+        $method = new \ReflectionMethod(IntentClassificationService::class, 'buildIntentPrompt');
+        $method->setAccessible(true);
+
+        $prompt = $method->invoke($this->service, 'anything');
+
+        $this->assertIsString($prompt);
+        $this->assertStringContainsString('valid JSON object', $prompt);
+        $this->assertStringContainsString('"intent"', $prompt);
+    }
+
     /**
      * @return array<string, array{string, TaskAssistantIntent}>
      */
@@ -105,6 +133,8 @@ class IntentClassificationServiceTest extends TestCase
         return [
             'task choice basic' => ['What should I work on next?', TaskAssistantIntent::TaskPrioritization],
             'task choice variant' => ['Help me choose my next task', TaskAssistantIntent::TaskPrioritization],
+            'focus for today' => ['What should I focus for today?', TaskAssistantIntent::TaskPrioritization],
+            'work on today' => ['What should I work on today?', TaskAssistantIntent::TaskPrioritization],
             'prioritize tasks' => ['Prioritize my tasks', TaskAssistantIntent::TaskPrioritization],
             'which task first' => ['Which task should I do first?', TaskAssistantIntent::TaskPrioritization],
         ];

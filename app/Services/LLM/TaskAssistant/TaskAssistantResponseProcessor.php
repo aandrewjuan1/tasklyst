@@ -170,7 +170,19 @@ class TaskAssistantResponseProcessor
     private function validateTaskChoiceData(array $data, array $snapshot): array
     {
         $validator = new TaskAssistantResponseValidator;
-        $baseValidation = $validator->validateTaskChoice($data, $snapshot);
+        // Normalize commonly used aliases so the validator sees the expected shape.
+        // Some callers/tests provide `summary` instead of `suggestion`, and
+        // `suggested_next_steps` instead of `steps`.
+        $normalized = $data;
+        if (! array_key_exists('suggestion', $normalized) && array_key_exists('summary', $normalized)) {
+            $normalized['suggestion'] = $normalized['summary'];
+        }
+
+        if (! array_key_exists('steps', $normalized) && array_key_exists('suggested_next_steps', $normalized)) {
+            $normalized['steps'] = $normalized['suggested_next_steps'];
+        }
+
+        $baseValidation = $validator->validateTaskChoice($normalized, $snapshot);
 
         if (! $baseValidation['valid']) {
             return $baseValidation;
@@ -178,9 +190,9 @@ class TaskAssistantResponseProcessor
 
         // non-blocking content checks
         $errors = [];
-        $suggestion = (string) ($data['suggestion'] ?? $data['summary'] ?? $data['natural_suggestion'] ?? '');
-        $reason = (string) ($data['reason'] ?? '');
-        $steps = $data['steps'] ?? $data['suggested_next_steps'] ?? $data['suggested'] ?? [];
+        $suggestion = (string) ($normalized['suggestion'] ?? $normalized['summary'] ?? $normalized['natural_suggestion'] ?? '');
+        $reason = (string) ($normalized['reason'] ?? '');
+        $steps = $normalized['steps'] ?? $normalized['suggested_next_steps'] ?? $normalized['suggested'] ?? [];
 
         if ($suggestion !== '' && Str::length($suggestion) < 12) {
             $errors[] = 'Suggestion is short; consider richer explanation to help the user.';
@@ -202,7 +214,7 @@ class TaskAssistantResponseProcessor
             // non-fatal: return valid true but include warnings
             return [
                 'valid' => true,
-                'data' => $data,
+                'data' => $normalized,
                 'errors' => $errors,
             ];
         }
@@ -215,57 +227,75 @@ class TaskAssistantResponseProcessor
      */
     private function validateDailyScheduleData(array $data, array $snapshot): array
     {
-        // reuse original logic (kept for brevity) - you can keep existing implementation
-        // ... (call original implementation)
-        return (function () use ($data) {
-            $rules = [
-                'blocks' => ['required', 'array', 'min:1', 'max:48'],
-                'blocks.*.start_time' => ['required', 'string'],
-                'blocks.*.end_time' => ['required', 'string'],
-            ];
+        $rules = [
+            'blocks' => ['required', 'array', 'min:1', 'max:48'],
+            'blocks.*.start_time' => ['required', 'string', 'max:20'],
+            'blocks.*.end_time' => ['required', 'string', 'max:20'],
+            'blocks.*.label' => ['nullable', 'string', 'max:160'],
+            'blocks.*.task_id' => ['nullable', 'integer'],
+            'blocks.*.event_id' => ['nullable', 'integer'],
+            'blocks.*.note' => ['nullable', 'string', 'max:300'],
+            'summary' => ['nullable', 'string', 'max:500'],
+            'assistant_note' => ['nullable', 'string', 'max:500'],
+        ];
 
-            $validator = Validator::make($data, $rules);
-
-            if ($validator->fails()) {
-                return [
-                    'valid' => false,
-                    'data' => [],
-                    'errors' => $validator->errors()->all(),
-                ];
-            }
-
-            // Basic time ordering checks
-            $errors = [];
-            foreach ($data['blocks'] as $index => $block) {
-                $start = $block['start_time'] ?? '';
-                $end = $block['end_time'] ?? '';
-                if ($start !== '' && $end !== '' && $start >= $end) {
-                    $errors[] = "blocks.$index.start_time must be before end_time.";
-                }
-            }
-
-            if (! empty($errors)) {
-                return [
-                    'valid' => false,
-                    'data' => [],
-                    'errors' => $errors,
-                ];
-            }
-
+        $validator = Validator::make($data, $rules);
+        if ($validator->fails()) {
             return [
-                'valid' => true,
-                'data' => $data,
-                'errors' => [],
+                'valid' => false,
+                'data' => [],
+                'errors' => $validator->errors()->all(),
             ];
-        })();
+        }
+
+        $allowedTaskIds = collect($snapshot['tasks'] ?? [])
+            ->map(fn (array $task): int => (int) ($task['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        $allowedEventIds = collect($snapshot['events'] ?? [])
+            ->map(fn (array $event): int => (int) ($event['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        $errors = [];
+        foreach (($data['blocks'] ?? []) as $index => $block) {
+            $taskId = $block['task_id'] ?? null;
+            if ($taskId !== null && ! in_array((int) $taskId, $allowedTaskIds, true)) {
+                $errors[] = "blocks.$index.task_id must be null or one of the IDs from snapshot.tasks.";
+            }
+
+            $eventId = $block['event_id'] ?? null;
+            if ($eventId !== null && ! in_array((int) $eventId, $allowedEventIds, true)) {
+                $errors[] = "blocks.$index.event_id must be null or one of the IDs from snapshot.events.";
+            }
+        }
+
+        if ($errors !== []) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => $errors,
+            ];
+        }
+
+        return [
+            'valid' => true,
+            'data' => $data,
+            'errors' => [],
+        ];
     }
 
     private function validateStudyPlanData(array $data, array $snapshot): array
     {
-        // Keep it permissive: items required, labels must exist
         $rules = [
             'items' => ['required', 'array', 'min:1', 'max:20'],
             'items.*.label' => ['required', 'string', 'min:1', 'max:2000'],
+            'items.*.minutes' => ['nullable', 'integer', 'min:5', 'max:720'],
+            'total_minutes' => ['nullable', 'integer', 'min:0', 'max:1000000'],
+            'summary' => ['nullable', 'string', 'max:500'],
         ];
 
         $validator = Validator::make($data, $rules);
@@ -287,11 +317,18 @@ class TaskAssistantResponseProcessor
 
     private function validateReviewSummaryData(array $data, array $snapshot): array
     {
-        // Keep existing logic but permissive on lengths
         $rules = [
-            'completed' => ['required', 'array'],
-            'remaining' => ['required', 'array'],
-            'summary' => ['nullable', 'string', 'max:2000'],
+            'completed' => ['required', 'array', 'max:50'],
+            'completed.*.task_id' => ['required', 'integer'],
+            'completed.*.title' => ['required', 'string', 'max:160'],
+            'remaining' => ['required', 'array', 'max:50'],
+            'remaining.*.task_id' => ['required', 'integer'],
+            'remaining.*.title' => ['required', 'string', 'max:160'],
+            'summary' => ['required', 'string', 'max:500'],
+            'next_steps' => ['required', 'array', 'min:1', 'max:20'],
+            'next_steps.*' => ['string', 'max:200'],
+            'confidence' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'assistant_line' => ['nullable', 'string', 'max:300'],
         ];
 
         $validator = Validator::make($data, $rules);
@@ -304,6 +341,30 @@ class TaskAssistantResponseProcessor
             ];
         }
 
+        $allowedTaskIds = collect($snapshot['tasks'] ?? [])
+            ->map(fn (array $task): int => (int) ($task['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        $errors = [];
+        foreach (['completed', 'remaining'] as $section) {
+            foreach (($data[$section] ?? []) as $index => $item) {
+                $taskId = $item['task_id'] ?? null;
+                if ($taskId === null || ! in_array((int) $taskId, $allowedTaskIds, true)) {
+                    $errors[] = "{$section}.$index.task_id must be one of the IDs from snapshot.tasks.";
+                }
+            }
+        }
+
+        if ($errors !== []) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => $errors,
+            ];
+        }
+
         return [
             'valid' => true,
             'data' => $data,
@@ -313,7 +374,7 @@ class TaskAssistantResponseProcessor
 
     private function validateMutatingData(array $data): array
     {
-        if (! is_array($data) || empty($data)) {
+        if (! is_array($data) || $data === []) {
             return [
                 'valid' => false,
                 'data' => [],
@@ -321,10 +382,59 @@ class TaskAssistantResponseProcessor
             ];
         }
 
+        // Tool suggestion shape (mutatingSuggestionSchema())
+        if (isset($data['action']) && is_string($data['action']) && trim($data['action']) !== '') {
+            $rules = [
+                'action' => ['required', 'string', 'max:64'],
+                'args' => ['nullable', 'array'],
+                'dry_run' => ['nullable', 'boolean'],
+                'require_confirmation' => ['nullable', 'boolean'],
+                'label' => ['nullable', 'string', 'max:300'],
+            ];
+
+            $validator = Validator::make($data, $rules);
+            if ($validator->fails()) {
+                return [
+                    'valid' => false,
+                    'data' => [],
+                    'errors' => $validator->errors()->all(),
+                ];
+            }
+
+            return [
+                'valid' => true,
+                'data' => $data,
+                'errors' => [],
+            ];
+        }
+
+        // Execution result shape (what the mutating tool interpreter currently stores)
+        if (array_key_exists('ok', $data) || array_key_exists('message', $data)) {
+            $rules = [
+                'ok' => ['nullable', 'boolean'],
+                'message' => ['nullable', 'string', 'max:1000'],
+            ];
+
+            $validator = Validator::make($data, $rules);
+            if ($validator->fails()) {
+                return [
+                    'valid' => false,
+                    'data' => [],
+                    'errors' => $validator->errors()->all(),
+                ];
+            }
+
+            return [
+                'valid' => true,
+                'data' => $data,
+                'errors' => [],
+            ];
+        }
+
         return [
-            'valid' => true,
-            'data' => $data,
-            'errors' => [],
+            'valid' => false,
+            'data' => [],
+            'errors' => ['Mutating flow data must include an `action` (suggestion) or `ok/message` (execution result).'],
         ];
     }
 
@@ -440,6 +550,7 @@ class TaskAssistantResponseProcessor
             'daily_schedule' => TaskAssistantSchemas::dailyScheduleSchema(),
             'study_plan' => TaskAssistantSchemas::studyPlanSchema(),
             'review_summary' => TaskAssistantSchemas::reviewSummarySchema(),
+            'mutating' => TaskAssistantSchemas::mutatingSuggestionSchema(),
             default => TaskAssistantSchemas::advisorySchema(),
         };
     }
@@ -450,7 +561,7 @@ class TaskAssistantResponseProcessor
         return match ($flow) {
             'advisory' => [
                 'summary' => 'I need more details to provide tailored guidance. Could you clarify what you want help with?',
-                'bullets' => [
+                'points' => [
                     'Try asking about specific tasks or deadlines',
                     'Consider requesting help with prioritization',
                     'You can ask me to create or update tasks',
@@ -464,6 +575,11 @@ class TaskAssistantResponseProcessor
             'daily_schedule' => $this->buildDailyScheduleFallback($snapshot),
             'study_plan' => $this->buildStudyPlanFallback($snapshot),
             'review_summary' => $this->buildReviewSummaryFallback($snapshot),
+            'mutating' => [
+                'action' => 'list_tasks',
+                'args' => [],
+                'dry_run' => true,
+            ],
             default => [],
         };
     }
@@ -474,14 +590,17 @@ class TaskAssistantResponseProcessor
 
         if ($tasks->isEmpty()) {
             return [
+                'chosen_type' => null,
+                'chosen_id' => null,
+                'chosen_title' => null,
                 'chosen_task_id' => null,
                 'chosen_task_title' => null,
-                'summary' => 'No tasks are available. Consider creating some tasks to get started.',
-                'reason' => 'Without tasks, I cannot suggest specific next steps.',
-                'suggested_next_steps' => [
-                    'Create your first task for an important deadline',
-                    'Break down a large project into smaller tasks',
-                    'Set up a daily routine with task reminders',
+                'suggestion' => 'Create a task you care about (with a clear deadline and priority), and I will help you choose the best next step.',
+                'reason' => 'Without tasks in the snapshot, I cannot select a concrete focus item.',
+                'steps' => [
+                    'Add one or two tasks you want to prioritize',
+                    'Set a deadline and priority for each task',
+                    'Ask me what to focus on next',
                 ],
             ];
         }
@@ -489,14 +608,17 @@ class TaskAssistantResponseProcessor
         $chosen = $tasks->first();
 
         return [
-            'chosen_task_id' => $chosen['id'] ?? null,
-            'chosen_task_title' => $chosen['title'] ?? 'First available task',
-            'summary' => 'Focus on your most immediate task to build momentum.',
-            'reason' => 'Starting with a clear, actionable task helps establish productive habits.',
-            'suggested_next_steps' => [
-                'Review the task requirements carefully',
-                'Block dedicated time to work on it',
-                'Gather any resources or information needed',
+            'chosen_type' => 'task',
+            'chosen_id' => (int) ($chosen['id'] ?? 0),
+            'chosen_title' => (string) ($chosen['title'] ?? ''),
+            'chosen_task_id' => (int) ($chosen['id'] ?? 0),
+            'chosen_task_title' => (string) ($chosen['title'] ?? 'First available task'),
+            'suggestion' => 'Focus on "'.(string) ($chosen['title'] ?? '').'" next to build momentum.',
+            'reason' => 'Starting with a clear, actionable task helps establish productive habits and reduces decision fatigue.',
+            'steps' => [
+                'Review the task requirements briefly',
+                'Block a focused work session on your calendar',
+                'Gather the smallest amount of resources needed to start',
             ],
         ];
     }
@@ -511,7 +633,7 @@ class TaskAssistantResponseProcessor
                     'task_id' => null,
                     'event_id' => null,
                     'label' => 'Focus time',
-                    'reason' => 'Dedicated morning block for important work.',
+                    'note' => 'Dedicated morning block for important work.',
                 ],
                 [
                     'start_time' => '14:00',
@@ -519,7 +641,7 @@ class TaskAssistantResponseProcessor
                     'task_id' => null,
                     'event_id' => null,
                     'label' => 'Review and plan',
-                    'reason' => 'Afternoon block for reviewing progress and planning next steps.',
+                    'note' => 'Afternoon block for reviewing progress and planning next steps.',
                 ],
             ],
             'summary' => 'A simple schedule with focus blocks to structure your day effectively.',
@@ -532,20 +654,17 @@ class TaskAssistantResponseProcessor
             'items' => [
                 [
                     'label' => 'Review current task priorities',
-                    'task_id' => null,
-                    'estimated_minutes' => 25,
+                    'minutes' => 25,
                     'reason' => 'Start by understanding what needs attention most.',
                 ],
                 [
                     'label' => 'Break down complex tasks',
-                    'task_id' => null,
-                    'estimated_minutes' => 30,
+                    'minutes' => 30,
                     'reason' => 'Make large projects more manageable.',
                 ],
                 [
                     'label' => 'Set up daily review routine',
-                    'task_id' => null,
-                    'estimated_minutes' => 15,
+                    'minutes' => 15,
                     'reason' => 'Build consistency in tracking progress.',
                 ],
             ],
@@ -940,6 +1059,21 @@ class TaskAssistantResponseProcessor
 
     private function formatMutatingData(array $data): string
     {
+        if (isset($data['action']) && is_string($data['action']) && trim($data['action']) !== '') {
+            $label = trim((string) ($data['label'] ?? ''));
+            if ($label === '') {
+                $label = trim((string) $data['action']);
+            }
+
+            $dryRun = (bool) ($data['dry_run'] ?? false);
+            $requireConfirmation = (bool) ($data['require_confirmation'] ?? false);
+
+            $prefix = $dryRun ? 'Preview of the change:' : 'Proposed change:';
+            $question = $requireConfirmation ? ' Would you like me to proceed?' : '';
+
+            return trim($prefix.' '.$label.'.'.$question);
+        }
+
         if (isset($data['message']) && is_string($data['message'])) {
             return trim((string) $data['message']);
         }
