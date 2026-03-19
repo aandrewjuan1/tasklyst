@@ -2,10 +2,7 @@
 
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\LLM\TaskAssistant\TaskAssistantDailyScheduleRunner;
-use App\Services\LLM\TaskAssistant\TaskAssistantReviewSummaryRunner;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
-use App\Services\LLM\TaskAssistant\TaskAssistantStudyPlanRunner;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
@@ -42,9 +39,8 @@ test('runDailySchedule stores structured schedule metadata', function (): void {
     ]);
 
     $service = app(TaskAssistantService::class);
-    $runner = app(TaskAssistantDailyScheduleRunner::class);
 
-    $result = $service->runDailySchedule($thread, 'Propose a schedule for today.', $runner);
+    $result = $service->runDailySchedule($thread, 'Propose a schedule for today.');
 
     expect($result['valid'])->toBeTrue();
     expect($result['data']['blocks'])->toBeArray();
@@ -89,9 +85,8 @@ test('runStudyPlan stores structured study plan metadata', function (): void {
     ]);
 
     $service = app(TaskAssistantService::class);
-    $runner = app(TaskAssistantStudyPlanRunner::class);
 
-    $result = $service->runStudyPlan($thread, 'Create a study plan for tonight.', $runner);
+    $result = $service->runStudyPlan($thread, 'Create a study plan for tonight.');
 
     expect($result['valid'])->toBeTrue();
     expect($result['data']['items'])->toBeArray();
@@ -135,9 +130,8 @@ test('runReviewSummary stores structured review metadata', function (): void {
     ]);
 
     $service = app(TaskAssistantService::class);
-    $runner = app(TaskAssistantReviewSummaryRunner::class);
 
-    $result = $service->runReviewSummary($thread, 'Review what I have done recently.', $runner);
+    $result = $service->runReviewSummary($thread, 'Review what I have done recently.');
 
     // The runner will treat unknown task IDs as invalid. We only assert
     // that the flow returns a structured shape (either direct or fallback).

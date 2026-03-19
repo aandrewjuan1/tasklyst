@@ -170,15 +170,19 @@ VALID INTENTS (use EXACTLY):
 
 User message: \"{$content}\"
 
-Respond with ONLY one of these exact values:
-task_prioritization
-time_management
-study_planning
-progress_review
-task_management
-productivity_coaching
+Respond with ONLY a valid JSON object that matches this schema:
+{ \"intent\": \"task_prioritization\" }
 
-No explanation, no quotes, no extra text.";
+Rules:
+- The JSON MUST contain ONLY the key `intent`.
+- The value of `intent` MUST be exactly one of:
+  - task_prioritization
+  - time_management
+  - study_planning
+  - progress_review
+  - task_management
+  - productivity_coaching
+- No explanation, no markdown, no surrounding text.";
     }
 
     private function intentSchema(): ObjectSchema
@@ -221,6 +225,8 @@ No explanation, no quotes, no extra text.";
             '/\b(what should i work on|help me choose|choose.*next task|pick.*next task)\b/',
             '/\b(prioritize|priority|what.*next|which.*first|most.*important)\b/',
             '/\b(decide.*task|select.*task|focus.*on.*next)\b/',
+            '/\b(what should i (focus|work) (for )?today)\b/',
+            '/\b(focus (for )?today|work (on )?today)\b/',
         ];
     }
 
@@ -256,6 +262,7 @@ No explanation, no quotes, no extra text.";
         return [
             '/\b(review.*done|what have i done|summary of work|work summary|progress summary)\b/',
             '/\b(check.*progress|review.*work|completed.*task|finished)\b/',
+            '/\b(summarize.*work|summarize.*my.*work)\b/',
             '/\b(how.*far|what.*accomplished|progress.*report)\b/',
         ];
     }
@@ -288,7 +295,7 @@ No explanation, no quotes, no extra text.";
 
     private function hasExplicitTaskManagementWords(string $content): bool
     {
-        return preg_match('/\b(create|update|delete|complete|list|add|edit|remove)\b/', $content) === 1;
+        return preg_match('/\b(create|update|delete|restore|complete|mark|archive|list|add|new|edit|remove|show|get|find|all)\b/', $content) === 1;
     }
 
     private function hasExplicitTimeManagementWords(string $content): bool
@@ -303,12 +310,12 @@ No explanation, no quotes, no extra text.";
 
     private function hasExplicitProgressReviewWords(string $content): bool
     {
-        return preg_match('/\b(review|progress|summary|completed|finished|accomplished)\b/', $content) === 1;
+        return preg_match('/\b(review|summarize|progress|summary|completed|finished|accomplished)\b/', $content) === 1;
     }
 
     private function hasExplicitTaskPrioritizationWords(string $content): bool
     {
-        return preg_match('/\b(prioritize|priority|next|first|important|choose|select)\b/', $content) === 1;
+        return preg_match('/\b(prioritize|priority|next|first|important|choose|select|focus)\b/', $content) === 1;
     }
 
     private function hasExplicitProductivityCoachingWords(string $content): bool

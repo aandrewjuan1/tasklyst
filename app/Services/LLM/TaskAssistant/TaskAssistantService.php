@@ -4,12 +4,9 @@ namespace App\Services\LLM\TaskAssistant;
 
 use App\Enums\MessageRole;
 use App\Enums\TaskAssistantIntent;
-use App\Events\TaskAssistantJsonDelta;
-use App\Events\TaskAssistantStreamEnd;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\LLM\Intent\IntentClassificationService;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -39,7 +36,11 @@ class TaskAssistantService
         private readonly TaskAssistantSnapshotService $snapshotService,
         private readonly TaskAssistantToolInterpreter $toolInterpreter,
         private readonly TaskAssistantResponseProcessor $responseProcessor,
-        private readonly IntentClassificationService $intentClassifier,
+        private readonly TaskAssistantFlowPipeline $flowPipeline,
+        private readonly TaskAssistantFlowExecutionEngine $flowExecutionEngine,
+        private readonly TaskAssistantPrismTextDeltaExtractor $deltaExtractor,
+        private readonly TaskAssistantStructuredFlowGenerator $structuredFlowGenerator,
+        private readonly TaskAssistantStreamingBroadcaster $streamingBroadcaster,
     ) {}
 
     /**
@@ -87,7 +88,7 @@ class TaskAssistantService
                 $fullText = '';
                 if (method_exists($pending, 'asStream')) {
                     foreach ($pending->asStream() as $event) {
-                        $delta = $this->getStreamEventDelta($event);
+                        $delta = $this->deltaExtractor->extractDelta($event);
                         if ($delta !== null) {
                             $fullText .= $delta;
                             echo $delta;
@@ -146,28 +147,15 @@ class TaskAssistantService
 
             $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
 
-            // Process response through ResponseProcessor for additional validation and formatting
-            $snapshot = $this->snapshotService->buildForUser($user);
-            $processedResponse = $this->responseProcessor->processResponse(
+            $this->flowExecutionEngine->executeStructuredFlow(
                 flow: 'task_choice',
-                data: $result['data'],
-                snapshot: $snapshot,
+                metadataKey: 'task_choice',
                 thread: $thread,
-                originalUserMessage: $userMessageContent
+                assistantMessage: $assistantMessage,
+                generationResult: $result,
+                originalUserMessage: $userMessageContent,
+                assistantFallbackContent: 'I had trouble understanding that suggestion. You can try asking again or pick a task directly from your list.'
             );
-
-            $assistantContent = $result['valid'] && $processedResponse['valid']
-                ? $processedResponse['formatted_content']
-                : 'I had trouble understanding that suggestion. You can try asking again or pick a task directly from your list.';
-
-            $assistantMessage->update([
-                'content' => $assistantContent,
-                'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                    'task_choice' => $result['data'],
-                    'processed' => $processedResponse['valid'],
-                    'validation_errors' => $processedResponse['errors'],
-                ]),
-            ]);
 
             return [
                 'valid' => $result['valid'],
@@ -200,7 +188,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runDailySchedule(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantDailyScheduleRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::TimeManagement): array
+    public function runDailySchedule(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantIntent $intent = TaskAssistantIntent::TimeManagement): array
     {
         $user = $thread->user;
 
@@ -221,30 +209,17 @@ class TaskAssistantService
             $prismMessages = collect($this->mapToPrismMessages($historyMessages));
             $tools = $this->resolveToolsForIntent($user, $intent);
 
-            $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
+            $result = $this->structuredFlowGenerator->generateDailySchedule($thread, $userMessageContent, $prismMessages, $tools);
 
-            // Process response through ResponseProcessor for additional validation and formatting
-            $snapshot = $this->snapshotService->buildForUser($user);
-            $processedResponse = $this->responseProcessor->processResponse(
+            $this->flowExecutionEngine->executeStructuredFlow(
                 flow: 'daily_schedule',
-                data: $result['data'],
-                snapshot: $snapshot,
+                metadataKey: 'daily_schedule',
                 thread: $thread,
-                originalUserMessage: $userMessageContent
+                assistantMessage: $assistantMessage,
+                generationResult: $result,
+                originalUserMessage: $userMessageContent,
+                assistantFallbackContent: 'I had trouble generating a schedule. You can try asking again or sketch one directly on your calendar.'
             );
-
-            $assistantContent = $result['valid'] && $processedResponse['valid']
-                ? $processedResponse['formatted_content']
-                : 'I had trouble generating a schedule. You can try asking again or sketch one directly on your calendar.';
-
-            $assistantMessage->update([
-                'content' => $assistantContent,
-                'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                    'daily_schedule' => $result['data'],
-                    'processed' => $processedResponse['valid'],
-                    'validation_errors' => $processedResponse['errors'],
-                ]),
-            ]);
 
             return [
                 'valid' => $result['valid'],
@@ -277,7 +252,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runStudyPlan(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantStudyPlanRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::StudyPlanning): array
+    public function runStudyPlan(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantIntent $intent = TaskAssistantIntent::StudyPlanning): array
     {
         $user = $thread->user;
 
@@ -298,30 +273,17 @@ class TaskAssistantService
             $prismMessages = collect($this->mapToPrismMessages($historyMessages));
             $tools = $this->resolveToolsForIntent($user, $intent);
 
-            $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
+            $result = $this->structuredFlowGenerator->generateStudyPlan($thread, $userMessageContent, $prismMessages, $tools);
 
-            // Process response through ResponseProcessor for additional validation and formatting
-            $snapshot = $this->snapshotService->buildForUser($user);
-            $processedResponse = $this->responseProcessor->processResponse(
+            $this->flowExecutionEngine->executeStructuredFlow(
                 flow: 'study_plan',
-                data: $result['data'],
-                snapshot: $snapshot,
+                metadataKey: 'study_plan',
                 thread: $thread,
-                originalUserMessage: $userMessageContent
+                assistantMessage: $assistantMessage,
+                generationResult: $result,
+                originalUserMessage: $userMessageContent,
+                assistantFallbackContent: 'I had trouble generating a study plan. You can try asking again or sketch a short list directly.'
             );
-
-            $assistantContent = $result['valid'] && $processedResponse['valid']
-                ? $processedResponse['formatted_content']
-                : 'I had trouble generating a study plan. You can try asking again or sketch a short list directly.';
-
-            $assistantMessage->update([
-                'content' => $assistantContent,
-                'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                    'study_plan' => $result['data'],
-                    'processed' => $processedResponse['valid'],
-                    'validation_errors' => $processedResponse['errors'],
-                ]),
-            ]);
 
             return [
                 'valid' => $result['valid'],
@@ -354,7 +316,7 @@ class TaskAssistantService
      *
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>, user_message: string}
      */
-    public function runReviewSummary(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantReviewSummaryRunner $runner, TaskAssistantIntent $intent = TaskAssistantIntent::ProgressReview): array
+    public function runReviewSummary(TaskAssistantThread $thread, string $userMessageContent, TaskAssistantIntent $intent = TaskAssistantIntent::ProgressReview): array
     {
         $user = $thread->user;
 
@@ -375,30 +337,17 @@ class TaskAssistantService
             $prismMessages = collect($this->mapToPrismMessages($historyMessages));
             $tools = $this->resolveToolsForIntent($user, $intent);
 
-            $result = $runner->run($thread, $userMessageContent, $prismMessages, $tools);
+            $result = $this->structuredFlowGenerator->generateReviewSummary($thread, $userMessageContent, $prismMessages, $tools);
 
-            // Process response through ResponseProcessor for additional validation and formatting
-            $snapshot = $this->snapshotService->buildForUser($user);
-            $processedResponse = $this->responseProcessor->processResponse(
+            $this->flowExecutionEngine->executeStructuredFlow(
                 flow: 'review_summary',
-                data: $result['data'],
-                snapshot: $snapshot,
+                metadataKey: 'review_summary',
                 thread: $thread,
-                originalUserMessage: $userMessageContent
+                assistantMessage: $assistantMessage,
+                generationResult: $result,
+                originalUserMessage: $userMessageContent,
+                assistantFallbackContent: 'I had trouble summarizing your work. You can try asking again or review your task list directly.'
             );
-
-            $assistantContent = $result['valid'] && $processedResponse['valid']
-                ? $processedResponse['formatted_content']
-                : 'I had trouble summarizing your work. You can try asking again or review your task list directly.';
-
-            $assistantMessage->update([
-                'content' => $assistantContent,
-                'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                    'review_summary' => $result['data'],
-                    'processed' => $processedResponse['valid'],
-                    'validation_errors' => $processedResponse['errors'],
-                ]),
-            ]);
 
             return [
                 'valid' => $result['valid'],
@@ -678,44 +627,13 @@ class TaskAssistantService
                 ->withTools($tools)
                 ->withMaxSteps(4)
                 ->withClientOptions(['timeout' => $timeout]);
-
-            $fullText = '';
-            $lastPersistedLength = 0;
-
-            if (method_exists($pending, 'asStream')) {
-                foreach ($pending->asStream() as $event) {
-                    $delta = $this->getStreamEventDelta($event);
-                    if ($delta !== null) {
-                        $fullText .= $delta;
-                        broadcast(new TaskAssistantJsonDelta($user->id, $delta));
-
-                        if (strlen($fullText) - $lastPersistedLength >= 400) {
-                            $assistantMessage->update([
-                                'content' => $fullText,
-                            ]);
-                            $lastPersistedLength = strlen($fullText);
-                        }
-                    }
-                }
-            } else {
-                $textResponse = $pending->asText();
-                $fullText = (string) ($textResponse->text ?? '');
-                foreach (mb_str_split($fullText, self::STREAM_CHUNK_SIZE) as $chunk) {
-                    if ($chunk === '') {
-                        continue;
-                    }
-                    broadcast(new TaskAssistantJsonDelta($user->id, $chunk));
-                }
-            }
-
-            $assistantMessage->update([
-                'content' => $fullText,
-                'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                    'streamed' => true,
-                ]),
-            ]);
-
-            broadcast(new TaskAssistantStreamEnd($user->id));
+            $this->streamingBroadcaster->streamPrismTextToAssistant(
+                pending: $pending,
+                userId: $user->id,
+                assistantMessage: $assistantMessage,
+                persistEveryChars: 400,
+                fallbackChunkSize: self::STREAM_CHUNK_SIZE
+            );
         } finally {
             Log::info('task-assistant.broadcastStream.end', [
                 'thread_id' => $thread->id,
@@ -745,8 +663,8 @@ class TaskAssistantService
             return;
         }
 
-        $content = trim((string) ($userMessage->content ?? ''));
-        $flow = $this->detectFlow($content);
+        $context = $this->flowPipeline->buildContext($thread, $userMessage, $assistantMessage, $intent);
+        $flow = $context->flow;
 
         Log::info('task-assistant.processQueuedMessage.start', [
             'thread_id' => $thread->id,
@@ -795,9 +713,7 @@ class TaskAssistantService
             }
 
             if ($flow === 'daily_schedule') {
-                /** @var TaskAssistantDailyScheduleRunner $runner */
-                $runner = app(TaskAssistantDailyScheduleRunner::class);
-                $result = $this->runDailyScheduleOnExistingMessages($thread, $userMessage, $assistantMessage, $runner);
+                $result = $this->runDailyScheduleOnExistingMessages($thread, $userMessage, $assistantMessage);
                 $envelope = $this->buildJsonEnvelope(
                     flow: 'daily_schedule',
                     data: $result['data'] ?? [],
@@ -811,9 +727,7 @@ class TaskAssistantService
             }
 
             if ($flow === 'study_plan') {
-                /** @var TaskAssistantStudyPlanRunner $runner */
-                $runner = app(TaskAssistantStudyPlanRunner::class);
-                $result = $this->runStudyPlanOnExistingMessages($thread, $userMessage, $assistantMessage, $runner);
+                $result = $this->runStudyPlanOnExistingMessages($thread, $userMessage, $assistantMessage);
                 $envelope = $this->buildJsonEnvelope(
                     flow: 'study_plan',
                     data: $result['data'] ?? [],
@@ -827,9 +741,7 @@ class TaskAssistantService
             }
 
             if ($flow === 'review_summary') {
-                /** @var TaskAssistantReviewSummaryRunner $runner */
-                $runner = app(TaskAssistantReviewSummaryRunner::class);
-                $result = $this->runReviewSummaryOnExistingMessages($thread, $userMessage, $assistantMessage, $runner);
+                $result = $this->runReviewSummaryOnExistingMessages($thread, $userMessage, $assistantMessage);
                 $envelope = $this->buildJsonEnvelope(
                     flow: 'review_summary',
                     data: $result['data'] ?? [],
@@ -850,61 +762,17 @@ class TaskAssistantService
     }
 
     /**
-     * Mirror of the Livewire classifier so the backend decides in the job.
-     * Now uses the centralized IntentClassificationService.
-     */
-    private function detectFlow(string $content): string
-    {
-        return $this->intentClassifier->getFlowForIntent(
-            $this->intentClassifier->classify($content)
-        );
-    }
-
-    /**
-     * Stream content character by character via Reverb broadcasting
-     */
-    private function streamContent(int $userId, int $assistantMessageId, string $content): void
-    {
-        // Stream the formatted content in chunks
-        foreach (mb_str_split($content, self::STREAM_CHUNK_SIZE) as $chunk) {
-            if ($chunk === '') {
-                continue;
-            }
-
-            broadcast(new TaskAssistantJsonDelta($userId, $chunk));
-        }
-
-        broadcast(new TaskAssistantStreamEnd($userId));
-    }
-
-    /**
      * Broadcast a final assistant message as `.json_delta` chunks, then `.stream_end`.
      * Note: The assistantMessage->content should already be formatted by ResponseProcessor.
      */
     private function streamFinalAssistantJson(int $userId, TaskAssistantMessage $assistantMessage, array $envelope): void
     {
-        // The message content is already formatted by ResponseProcessor
-        // Stream the formatted content instead of raw JSON
-        $content = $assistantMessage->content ?? '';
-
-        // Update metadata with structured data for debugging
-        $assistantMessage->update([
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                'structured' => $envelope,
-                'streamed' => true,
-            ]),
-        ]);
-
-        // Stream the formatted content in chunks
-        foreach (mb_str_split($content, self::STREAM_CHUNK_SIZE) as $chunk) {
-            if ($chunk === '') {
-                continue;
-            }
-
-            broadcast(new TaskAssistantJsonDelta($userId, $chunk));
-        }
-
-        broadcast(new TaskAssistantStreamEnd($userId));
+        $this->streamingBroadcaster->streamFinalAssistantJson(
+            userId: $userId,
+            assistantMessage: $assistantMessage,
+            envelope: $envelope,
+            chunkSize: self::STREAM_CHUNK_SIZE
+        );
     }
 
     /**
@@ -921,160 +789,105 @@ class TaskAssistantService
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
         $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::TaskPrioritization);
         $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
-
-        $snapshot = $this->snapshotService->buildForUser($user);
-        $processedResponse = $this->responseProcessor->processResponse(
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'task_choice',
-            data: $result['data'] ?? [],
-            snapshot: $snapshot,
+            metadataKey: 'task_choice',
             thread: $thread,
-            originalUserMessage: (string) ($userMessage->content ?? '')
+            assistantMessage: $assistantMessage,
+            generationResult: $result,
+            originalUserMessage: (string) ($userMessage->content ?? ''),
+            assistantFallbackContent: 'I had trouble understanding that suggestion. You can try asking again or pick a task directly from your list.'
         );
 
-        $assistantContent = $result['valid'] && $processedResponse['valid']
-            ? $processedResponse['formatted_content']
-            : 'I had trouble understanding that suggestion. You can try asking again or pick a task directly from your list.';
-
-        $assistantMessage->update([
-            'content' => $assistantContent,
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                'task_choice' => $result['data'] ?? [],
-                'processed' => $processedResponse['valid'],
-                'validation_errors' => $processedResponse['errors'],
-            ]),
-        ]);
-
         return [
-            'valid' => $result['valid'] && $processedResponse['valid'],
-            'data' => $processedResponse['structured_data'],
-            'errors' => array_values(array_unique(array_merge($result['errors'] ?? [], $processedResponse['errors'] ?? []))),
-            'user_message' => $assistantContent,
+            'valid' => $execution['final_valid'],
+            'data' => $execution['structured_data'],
+            'errors' => $execution['merged_errors'],
+            'user_message' => $execution['assistant_content'],
         ];
     }
 
     private function runDailyScheduleOnExistingMessages(
         TaskAssistantThread $thread,
         TaskAssistantMessage $userMessage,
-        TaskAssistantMessage $assistantMessage,
-        TaskAssistantDailyScheduleRunner $runner
+        TaskAssistantMessage $assistantMessage
     ): array {
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
         $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::TimeManagement);
-        $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
-
-        $snapshot = $this->snapshotService->buildForUser($user);
-        $processedResponse = $this->responseProcessor->processResponse(
+        $result = $this->structuredFlowGenerator->generateDailySchedule($thread, (string) $userMessage->content, $prismMessages, $tools);
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'daily_schedule',
-            data: $result['data'] ?? [],
-            snapshot: $snapshot,
+            metadataKey: 'daily_schedule',
             thread: $thread,
-            originalUserMessage: (string) ($userMessage->content ?? '')
+            assistantMessage: $assistantMessage,
+            generationResult: $result,
+            originalUserMessage: (string) ($userMessage->content ?? ''),
+            assistantFallbackContent: 'I had trouble generating a schedule. You can try asking again or sketch one directly on your calendar.'
         );
 
-        $assistantContent = $result['valid'] && $processedResponse['valid']
-            ? $processedResponse['formatted_content']
-            : 'I had trouble generating a schedule. You can try asking again or sketch one directly on your calendar.';
-
-        $assistantMessage->update([
-            'content' => $assistantContent,
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                'daily_schedule' => $result['data'] ?? [],
-                'processed' => $processedResponse['valid'],
-                'validation_errors' => $processedResponse['errors'],
-            ]),
-        ]);
-
         return [
-            'valid' => $result['valid'] && $processedResponse['valid'],
-            'data' => $processedResponse['structured_data'],
-            'errors' => array_values(array_unique(array_merge($result['errors'] ?? [], $processedResponse['errors'] ?? []))),
-            'user_message' => $assistantContent,
+            'valid' => $execution['final_valid'],
+            'data' => $execution['structured_data'],
+            'errors' => $execution['merged_errors'],
+            'user_message' => $execution['assistant_content'],
         ];
     }
 
     private function runStudyPlanOnExistingMessages(
         TaskAssistantThread $thread,
         TaskAssistantMessage $userMessage,
-        TaskAssistantMessage $assistantMessage,
-        TaskAssistantStudyPlanRunner $runner
+        TaskAssistantMessage $assistantMessage
     ): array {
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
         $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::StudyPlanning);
-        $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
-
-        $snapshot = $this->snapshotService->buildForUser($user);
-        $processedResponse = $this->responseProcessor->processResponse(
+        $result = $this->structuredFlowGenerator->generateStudyPlan($thread, (string) $userMessage->content, $prismMessages, $tools);
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'study_plan',
-            data: $result['data'] ?? [],
-            snapshot: $snapshot,
+            metadataKey: 'study_plan',
             thread: $thread,
-            originalUserMessage: (string) ($userMessage->content ?? '')
+            assistantMessage: $assistantMessage,
+            generationResult: $result,
+            originalUserMessage: (string) ($userMessage->content ?? ''),
+            assistantFallbackContent: 'I had trouble generating a study plan. You can try asking again or sketch a short list directly.'
         );
 
-        $assistantContent = $result['valid'] && $processedResponse['valid']
-            ? $processedResponse['formatted_content']
-            : 'I had trouble generating a study plan. You can try asking again or sketch a short list directly.';
-
-        $assistantMessage->update([
-            'content' => $assistantContent,
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                'study_plan' => $result['data'] ?? [],
-                'processed' => $processedResponse['valid'],
-                'validation_errors' => $processedResponse['errors'],
-            ]),
-        ]);
-
         return [
-            'valid' => $result['valid'] && $processedResponse['valid'],
-            'data' => $processedResponse['structured_data'],
-            'errors' => array_values(array_unique(array_merge($result['errors'] ?? [], $processedResponse['errors'] ?? []))),
-            'user_message' => $assistantContent,
+            'valid' => $execution['final_valid'],
+            'data' => $execution['structured_data'],
+            'errors' => $execution['merged_errors'],
+            'user_message' => $execution['assistant_content'],
         ];
     }
 
     private function runReviewSummaryOnExistingMessages(
         TaskAssistantThread $thread,
         TaskAssistantMessage $userMessage,
-        TaskAssistantMessage $assistantMessage,
-        TaskAssistantReviewSummaryRunner $runner
+        TaskAssistantMessage $assistantMessage
     ): array {
         $user = $thread->user;
         $historyMessages = $this->loadHistoryMessages($thread, $userMessage->id);
         $prismMessages = collect($this->mapToPrismMessages($historyMessages));
         $tools = $this->resolveToolsForIntent($user, TaskAssistantIntent::ProgressReview);
-        $result = $runner->run($thread, (string) $userMessage->content, $prismMessages, $tools);
-
-        $snapshot = $this->snapshotService->buildForUser($user);
-        $processedResponse = $this->responseProcessor->processResponse(
+        $result = $this->structuredFlowGenerator->generateReviewSummary($thread, (string) $userMessage->content, $prismMessages, $tools);
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'review_summary',
-            data: $result['data'] ?? [],
-            snapshot: $snapshot,
+            metadataKey: 'review_summary',
             thread: $thread,
-            originalUserMessage: (string) ($userMessage->content ?? '')
+            assistantMessage: $assistantMessage,
+            generationResult: $result,
+            originalUserMessage: (string) ($userMessage->content ?? ''),
+            assistantFallbackContent: 'I had trouble summarizing your work. You can try asking again or review your task list directly.'
         );
 
-        $assistantContent = $result['valid'] && $processedResponse['valid']
-            ? $processedResponse['formatted_content']
-            : 'I had trouble summarizing your work. You can try asking again or review your task list directly.';
-
-        $assistantMessage->update([
-            'content' => $assistantContent,
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                'review_summary' => $result['data'] ?? [],
-                'processed' => $processedResponse['valid'],
-                'validation_errors' => $processedResponse['errors'],
-            ]),
-        ]);
-
         return [
-            'valid' => $result['valid'] && $processedResponse['valid'],
-            'data' => $processedResponse['structured_data'],
-            'errors' => array_values(array_unique(array_merge($result['errors'] ?? [], $processedResponse['errors'] ?? []))),
-            'user_message' => $assistantContent,
+            'valid' => $execution['final_valid'],
+            'data' => $execution['structured_data'],
+            'errors' => $execution['merged_errors'],
+            'user_message' => $execution['assistant_content'],
         ];
     }
 
@@ -1404,224 +1217,6 @@ class TaskAssistantService
         return $out;
     }
 
-    private function getStreamEventDelta(mixed $event): ?string
-    {
-        if (! is_object($event)) {
-            return null;
-        }
-
-        $vars = get_object_vars($event);
-        $delta = $vars['delta'] ?? null;
-
-        return is_string($delta) && $delta !== '' ? $delta : null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function renderTaskChoiceMessage(array $data): string
-    {
-        $lines = [];
-
-        $taskId = $data['chosen_task_id'] ?? null;
-        $taskTitle = $data['chosen_task_title'] ?? null;
-        if ($taskId !== null && $taskTitle !== null && $taskTitle !== '') {
-            $lines[] = 'I recommend focusing on: '.$taskTitle;
-        }
-
-        $suggestion = (string) ($data['suggestion'] ?? '');
-        if ($suggestion !== '') {
-            // Clean up the suggestion text
-            $cleanSuggestion = $this->formatAssistantText($suggestion);
-            $lines[] = $cleanSuggestion;
-        }
-
-        $reason = (string) ($data['reason'] ?? '');
-        if ($reason !== '') {
-            // Convert "Reason:" label to natural language
-            $cleanReason = $this->formatAssistantText($reason);
-            $lines[] = $cleanReason;
-        }
-
-        $steps = $data['steps'] ?? [];
-        if (is_array($steps) && $steps !== []) {
-            $lines[] = 'Here\'s what I suggest you do next:';
-            foreach (array_slice($steps, 0, 5) as $i => $step) {
-                $step = trim((string) $step);
-                if ($step === '') {
-                    continue;
-                }
-                $cleanStep = $this->formatAssistantText($step);
-                $lines[] = ($i + 1).'. '.$cleanStep;
-            }
-        }
-
-        return trim(implode("\n\n", $lines)) ?: 'Here\'s a structured plan to help you move forward with your tasks.';
-    }
-
-    /**
-     * Format assistant text to be more user-friendly
-     */
-    private function formatAssistantText(string $text): string
-    {
-        // Convert technical terms to user-friendly language
-        $text = str_replace('duration_minutes', 'duration', $text);
-        $text = str_replace('ends_at', 'due date', $text);
-        $text = str_replace('priority:', 'priority level is', $text);
-        $text = str_replace('status:', 'status is', $text);
-
-        // Convert ISO dates to readable format
-        $text = preg_replace_callback('/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{2}:\d{2})/', function ($matches) {
-            try {
-                $date = new \DateTime($matches[1]);
-
-                return $date->format('F j, Y at g:i A');
-            } catch (\Exception $e) {
-                return $matches[1];
-            }
-        }, $text);
-
-        // Convert minutes to hours when appropriate
-        $text = preg_replace_callback('/(\d+)\s*minutes?/', function ($matches) {
-            $minutes = (int) $matches[1];
-            if ($minutes >= 60) {
-                $hours = floor($minutes / 60);
-                $remainingMinutes = $minutes % 60;
-                if ($remainingMinutes > 0) {
-                    return $hours.' hour'.($hours > 1 ? 's' : '').' and '.$remainingMinutes.' minute'.($remainingMinutes > 1 ? 's' : '');
-                }
-
-                return $hours.' hour'.($hours > 1 ? 's' : '');
-            }
-
-            return $matches[0];
-        }, $text);
-
-        // Clean up any remaining technical formatting
-        $text = preg_replace('/[_-]+/', ' ', $text);
-        $text = preg_replace('/\s+/', ' ', $text);
-        $text = trim($text);
-
-        return $text;
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function renderDailyScheduleMessage(array $data): string
-    {
-        $lines = [];
-        $summary = (string) ($data['summary'] ?? '');
-        if ($summary !== '') {
-            $lines[] = $this->formatAssistantText($summary);
-        }
-
-        $blocks = $data['blocks'] ?? [];
-        if (is_array($blocks) && $blocks !== []) {
-            $lines[] = 'Here\'s your suggested daily schedule:';
-            foreach (array_slice($blocks, 0, 6) as $block) {
-                if (! is_array($block)) {
-                    continue;
-                }
-                $start = (string) ($block['start_time'] ?? '');
-                $end = (string) ($block['end_time'] ?? '');
-                $label = (string) ($block['label'] ?? '');
-                $taskId = $block['task_id'] ?? null;
-                $eventId = $block['event_id'] ?? null;
-
-                $ref = '';
-                if ($taskId !== null) {
-                    $ref = 'Task '.$taskId;
-                } elseif ($eventId !== null) {
-                    $ref = 'Event '.$eventId;
-                } elseif ($label !== '') {
-                    $ref = $this->formatAssistantText($label);
-                } else {
-                    $ref = 'Focus time';
-                }
-
-                $time = trim($start.' – '.$end, ' –');
-                $lines[] = trim($time.': '.$ref);
-            }
-        }
-
-        return trim(implode("\n\n", $lines)) ?: 'Here\'s a proposed schedule to help you make the most of your day.';
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function renderStudyPlanMessage(array $data): string
-    {
-        $lines = [];
-        $summary = (string) ($data['summary'] ?? '');
-        if ($summary !== '') {
-            $lines[] = $this->formatAssistantText($summary);
-        }
-
-        $items = $data['items'] ?? [];
-        if (is_array($items) && $items !== []) {
-            $lines[] = 'Here\'s your study plan:';
-            foreach (array_slice($items, 0, 6) as $i => $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-                $label = trim((string) ($item['label'] ?? ''));
-                if ($label === '') {
-                    continue;
-                }
-                $minutes = $item['minutes'] ?? null;
-                $suffix = '';
-                if (is_numeric($minutes)) {
-                    $minutes = (int) $minutes;
-                    if ($minutes >= 60) {
-                        $hours = floor($minutes / 60);
-                        $remainingMinutes = $minutes % 60;
-                        if ($remainingMinutes > 0) {
-                            $suffix = ' ('.$hours.' hour'.($hours > 1 ? 's' : '').' and '.$remainingMinutes.' minute'.($remainingMinutes > 1 ? 's' : '').')';
-                        } else {
-                            $suffix = ' ('.$hours.' hour'.($hours > 1 ? 's' : '').')';
-                        }
-                    } else {
-                        $suffix = ' ('.$minutes.' minute'.($minutes > 1 ? 's' : '').')';
-                    }
-                }
-                $cleanLabel = $this->formatAssistantText($label);
-                $lines[] = ($i + 1).'. '.$cleanLabel.$suffix;
-            }
-        }
-
-        return trim(implode("\n\n", $lines)) ?: 'Here\'s a structured study plan to help you learn effectively.';
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function renderReviewSummaryMessage(array $data): string
-    {
-        $summary = trim((string) ($data['summary'] ?? ''));
-        $nextSteps = $data['next_steps'] ?? [];
-
-        $lines = [];
-        if ($summary !== '') {
-            $lines[] = $this->formatAssistantText($summary);
-        }
-
-        if (is_array($nextSteps) && $nextSteps !== []) {
-            $lines[] = 'Here\'s what I recommend you focus on next:';
-            foreach (array_slice($nextSteps, 0, 5) as $i => $step) {
-                $step = trim((string) $step);
-                if ($step === '') {
-                    continue;
-                }
-                $cleanStep = $this->formatAssistantText($step);
-                $lines[] = ($i + 1).'. '.$cleanStep;
-            }
-        }
-
-        return trim(implode("\n\n", $lines)) ?: 'Here\'s a review of your progress and next steps.';
-    }
-
     /**
      * @param  array<string, mixed>  $data
      * @return array{type: 'task_assistant', ok: bool, flow: string, data: array<string, mixed>, meta: array<string, mixed>}
@@ -1638,15 +1233,5 @@ class TaskAssistantService
                 'assistant_message_id' => $assistantMessageId,
             ],
         ];
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function encodeJson(array $payload): string
-    {
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-        return is_string($json) ? $json : '{}';
     }
 }

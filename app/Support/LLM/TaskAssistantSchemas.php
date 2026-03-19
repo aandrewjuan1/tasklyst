@@ -277,6 +277,31 @@ final class TaskAssistantSchemas
     }
 
     /**
+     * Refinement schema: used when blocks are generated deterministically
+     * and the LLM only needs to write the narrative summary.
+     */
+    public static function dailyScheduleRefinementSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'daily_schedule_refinement',
+            description: 'Refine the narrative summary for a previously proposed daily schedule.',
+            properties: [
+                new StringSchema(
+                    name: 'summary',
+                    description: 'Short narrative summary of the schedule.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'assistant_note',
+                    description: 'Optional friendly note from the assistant.',
+                    nullable: true
+                ),
+            ],
+            requiredFields: []
+        );
+    }
+
+    /**
      * Study plan schema with simple items.
      */
     public static function studyPlanSchema(): ObjectSchema

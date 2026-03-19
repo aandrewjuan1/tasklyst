@@ -24,7 +24,7 @@ class StudentLifeSampleSeeder extends Seeder
 {
     private const TARGET_EMAIL = 'andrew.juan.cvt@eac.edu.ph';
 
-    private const DUE_DATE_FLOOR = '2026-03-13';
+    private const DUE_DATE_FLOOR = '2026-03-22';
 
     /**
      * @var array<int, array<string, mixed>>

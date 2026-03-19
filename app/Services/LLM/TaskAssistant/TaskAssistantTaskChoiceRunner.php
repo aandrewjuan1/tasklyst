@@ -2,9 +2,8 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
-use App\Services\LLM\Prioritization\TaskPrioritizationService;
-
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -82,6 +81,15 @@ class TaskAssistantTaskChoiceRunner
         // Step 3: Use LLM ONLY for natural language explanation (focus item already selected deterministically)
         $focusItem = $topFocus;
         $focusLabel = (string) ($focusItem['title'] ?? 'your next focus');
+
+        // Inject deterministic selection into the prompt so the LLM can only explain WHY,
+        // not re-select a different task.
+        $promptData['preselected_task'] = [
+            'id' => $focusItem['id'] ?? null,
+            'title' => $focusLabel,
+            'reasoning' => (string) ($topFocus['reasoning'] ?? 'No reasoning available'),
+        ];
+
         $explanation = $this->generateContextAwareExplanation(
             [
                 'id' => $focusItem['id'],

@@ -111,6 +111,8 @@ test('runTaskChoice stores validated structured task choice data', function (): 
 
     $task = Task::factory()->for($user)->create([
         'title' => 'Read chapter 1',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'priority' => \App\Enums\TaskPriority::High,
         'end_datetime' => now()->addDay(),
     ]);
 
@@ -164,6 +166,8 @@ test('task_choice queued path matches sync formatted output', function (): void 
 
     Task::factory()->for($user)->create([
         'title' => 'Read chapter 1',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'priority' => \App\Enums\TaskPriority::High,
         'end_datetime' => now()->addDay(),
     ]);
 
