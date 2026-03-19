@@ -2,7 +2,7 @@
 
 use App\Enums\TaskAssistantIntent;
 use App\Models\User;
-use App\Services\TaskAssistantService;
+use App\Services\LLM\TaskAssistant\TaskAssistantService;
 
 test('resolveToolsForIntent disables tools for advisory flows', function (): void {
     $user = User::factory()->create();
@@ -15,13 +15,15 @@ test('resolveToolsForIntent disables tools for advisory flows', function (): voi
     $resolveForIntent = new ReflectionMethod(TaskAssistantService::class, 'resolveToolsForIntent');
     $resolveForIntent->setAccessible(true);
 
-    $advisoryTools = $resolveForIntent->invoke($service, $user, TaskAssistantIntent::GeneralAdvice);
-    $planningTools = $resolveForIntent->invoke($service, $user, TaskAssistantIntent::PlanNextTask);
-    $mutatingTools = $resolveForIntent->invoke($service, $user, TaskAssistantIntent::MutatingAction);
+    $coachingTools = $resolveForIntent->invoke($service, $user, TaskAssistantIntent::ProductivityCoaching);
+    $prioritizationTools = $resolveForIntent->invoke($service, $user, TaskAssistantIntent::TaskPrioritization);
+    $mutatingTools = $resolveForIntent->invoke($service, $user, TaskAssistantIntent::TaskManagement);
 
-    expect($advisoryTools)->toBeArray()->toBeEmpty();
-    expect($planningTools)->toBeArray()->toBeEmpty();
+    expect($coachingTools)->toBeArray();
+    expect($prioritizationTools)->toBeArray();
     expect($mutatingTools)->toBeArray();
     expect($mutatingTools)->not->toBeEmpty();
+    expect(count($coachingTools))->toBeLessThan(count($mutatingTools));
+    expect(count($prioritizationTools))->toBeLessThan(count($mutatingTools));
     expect(count($mutatingTools))->toBe(count($allTools));
 });

@@ -5,7 +5,7 @@ use App\Enums\LlmToolCallStatus;
 use App\Models\LlmToolCall;
 use App\Models\Tag;
 use App\Models\User;
-use App\Tools\TaskAssistant\DeleteTagTool;
+use App\Tools\LLM\TaskAssistant\DeleteTagTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

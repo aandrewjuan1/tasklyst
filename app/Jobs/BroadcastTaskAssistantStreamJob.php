@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\TaskAssistantIntent;
 use App\Models\TaskAssistantThread;
-use App\Services\TaskAssistantService;
+use App\Services\LLM\TaskAssistant\TaskAssistantService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;

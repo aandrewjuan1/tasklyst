@@ -5,7 +5,7 @@ use App\Enums\LlmToolCallStatus;
 use App\Models\Event;
 use App\Models\LlmToolCall;
 use App\Models\User;
-use App\Tools\TaskAssistant\DeleteEventTool;
+use App\Tools\LLM\TaskAssistant\DeleteEventTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

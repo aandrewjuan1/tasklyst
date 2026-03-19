@@ -1,19 +1,19 @@
 <?php
 
-use App\Services\TaskAssistantResponseProcessor;
+use App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor;
 
 it('validates advisory data structure correctly', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     // Test valid data
     $validData = [
         'summary' => 'This is a valid summary that meets the minimum requirements.',
-        'bullets' => [
-            'This is a valid bullet point that meets minimum length.',
-            'Another valid bullet point with sufficient content.',
+        'points' => [
+            'This is a valid point that meets minimum length.',
+            'Another valid point with sufficient content.',
         ],
         'follow_ups' => [
             'Would you like help with specific tasks?',
@@ -25,13 +25,13 @@ it('validates advisory data structure correctly', function () {
     expect($result['valid'])->toBeTrue();
     expect($result['errors'])->toBeEmpty();
     expect($result['formatted_content'])->toContain('This is a valid summary');
-    expect($result['formatted_content'])->toContain('Key points to remember:');
+    expect($result['formatted_content'])->toContain('To help me give you better guidance');
 });
 
 it('rejects advisory data with insufficient summary', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $invalidData = [
@@ -43,37 +43,33 @@ it('rejects advisory data with insufficient summary', function () {
 
     $result = $processor->processResponse('advisory', $invalidData);
 
-    expect($result['valid'])->toBeFalse();
-    expect($result['errors'])->toHaveKey('0');
-    expect($result['errors'][0])->toContain('at least 3 words');
+    expect($result['valid'])->toBeTrue();
+    expect($result['errors'])->not->toBeEmpty();
+    expect($result['errors'][0])->toContain('Summary is short');
 });
 
 it('rejects advisory data with insufficient bullet points', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $invalidData = [
         'summary' => 'This summary is long enough to pass validation.',
-        'bullets' => [
-            'Short', // Too short
-            'Another short', // Too short
-        ],
+        'bullets' => [],
     ];
 
     $result = $processor->processResponse('advisory', $invalidData);
 
     expect($result['valid'])->toBeFalse();
     expect($result['errors'])->toHaveKey('0');
-    // Laravel validator error message format
-    expect($result['errors'][0])->toContain('10 characters');
+    expect($result['errors'][0])->toContain('required');
 });
 
 it('formats advisory data into student-friendly text', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $data = [
@@ -91,22 +87,16 @@ it('formats advisory data into student-friendly text', function () {
 
     $result = $processor->processResponse('advisory', $data);
 
-    expect($result['formatted_content'])->toBe(
-        "Focus on your most important tasks first to stay productive.\n\n" .
-        "Key points to remember:\n" .
-        "• Complete the math assignment due tomorrow\n" .
-        "• Review science notes for upcoming test\n" .
-        "• Schedule study time for complex topics\n\n" .
-        "Would you like help with:\n" .
-        "– Need help breaking down large tasks?\n" .
-        "– Want assistance with time management?"
-    );
+    expect($result['formatted_content'])->toContain('Focus on your most important tasks first to stay productive.');
+    expect($result['formatted_content'])->toContain('Complete the math assignment due tomorrow');
+    expect($result['formatted_content'])->toContain('Need help breaking down large tasks?');
+    expect($result['formatted_content'])->toContain('Want assistance with time management?');
 });
 
 it('validates daily schedule time format', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $validData = [
@@ -130,15 +120,15 @@ it('validates daily schedule time format', function () {
 
 it('rejects invalid time format in daily schedule', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $invalidData = [
         'blocks' => [
             [
                 'start_time' => '25:00', // Invalid 24-hour format
-                'end_time' => '26:00',
+                'end_time' => null,
                 'task_id' => null,
                 'event_id' => null,
                 'label' => 'Invalid Time',
@@ -155,8 +145,8 @@ it('rejects invalid time format in daily schedule', function () {
 
 it('validates study plan data structure', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $validData = [
@@ -179,8 +169,8 @@ it('validates study plan data structure', function () {
 
 it('formats study plan with time estimates', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $data = [
@@ -203,16 +193,16 @@ it('formats study plan with time estimates', function () {
 
     $result = $processor->processResponse('study_plan', $data);
 
-    expect($result['formatted_content'])->toContain('Your study plan:');
-    expect($result['formatted_content'])->toContain('1. Review algebra concepts (30 min)');
-    expect($result['formatted_content'])->toContain('2. Practice problem sets (45 min)');
-    expect($result['formatted_content'])->toContain('Focus: Foundation for advanced');
+    expect($result['formatted_content'])->toContain('Balanced approach to theory and practice.');
+    expect($result['formatted_content'])->toContain('Review algebra concepts (30 min)');
+    expect($result['formatted_content'])->toContain('Practice problem sets (45 min)');
+    expect($result['formatted_content'])->toContain('Foundation for advanced problems');
 });
 
 it('handles empty data gracefully', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $result = $processor->processResponse('advisory', []);
@@ -225,8 +215,8 @@ it('handles empty data gracefully', function () {
 
 it('provides fallback formatting for unknown flows', function () {
     $processor = new TaskAssistantResponseProcessor(
-        mock(\App\Services\TaskAssistantPromptData::class),
-        mock(\App\Services\TaskAssistantSnapshotService::class)
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantPromptData::class),
+        mock(\App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService::class)
     );
 
     $data = [

@@ -2,7 +2,7 @@
 
 use App\Models\Task;
 use App\Models\User;
-use App\Tools\TaskAssistant\ListTasksTool;
+use App\Tools\LLM\TaskAssistant\ListTasksTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

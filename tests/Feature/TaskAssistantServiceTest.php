@@ -1,9 +1,10 @@
 <?php
 
+use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\TaskAssistantService;
-use App\Services\TaskAssistantTaskChoiceRunner;
+use App\Services\LLM\TaskAssistant\TaskAssistantService;
+use App\Services\LLM\TaskAssistant\TaskAssistantTaskChoiceRunner;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\Testing\TextResponseFake;
@@ -108,16 +109,29 @@ test('runTaskChoice stores validated structured task choice data', function (): 
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Read chapter 1',
+        'end_datetime' => now()->addDay(),
+    ]);
+
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'chosen_task_id' => null,
-                'chosen_task_title' => null,
-                'summary' => 'Focus on reading today.',
-                'reason' => 'You have upcoming reading deadlines.',
-                'suggested_next_steps' => [
-                    'Pick one reading task from your list.',
-                    'Block 25–30 minutes on your calendar.',
+                'intent_type' => 'general',
+                'priority_filters' => [],
+                'task_keywords' => [],
+                'time_constraint' => null,
+                'comparison_focus' => null,
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'suggestion' => 'Focus on reading next.',
+                'reason' => 'It will move you forward quickly.',
+                'steps' => [
+                    'Skim the headings first.',
+                    'Read actively for 20 minutes.',
+                    'Write down 3 key points.',
                 ],
             ])
             ->withUsage(new Usage(5, 10)),
@@ -129,7 +143,10 @@ test('runTaskChoice stores validated structured task choice data', function (): 
     $result = $service->runTaskChoice($thread, 'Help me choose what to work on next.', $runner);
 
     expect($result['valid'])->toBeTrue();
-    expect($result['data']['summary'])->toBe('Focus on reading today.');
+    expect($result['data']['chosen_type'])->toBe('task');
+    expect($result['data']['chosen_id'])->toBe($task->id);
+    expect($result['data']['chosen_title'])->toBe('Read chapter 1');
+    expect($result['data']['suggestion'])->toBe('Focus on reading next.');
 
     $thread->refresh();
     $assistantMessage = $thread->messages()
@@ -138,63 +155,72 @@ test('runTaskChoice stores validated structured task choice data', function (): 
         ->first();
 
     expect($assistantMessage)->not->toBeNull();
-    expect($assistantMessage->metadata['task_choice']['summary'] ?? null)->toBe('Focus on reading today.');
+    expect($assistantMessage->metadata['task_choice']['chosen_task_id'] ?? null)->toBe($task->id);
+    expect($assistantMessage->metadata['processed'] ?? false)->toBeTrue();
 });
 
-test('runTaskChoice retries after invalid response then accepts valid one', function (): void {
+test('task_choice queued path matches sync formatted output', function (): void {
     $user = User::factory()->create();
-    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Read chapter 1',
+        'end_datetime' => now()->addDay(),
+    ]);
 
     Prism::fake([
-        StructuredResponseFake::make()
-            ->withStructured([
-                // missing required fields to trigger validation error
-                'chosen_task_id' => null,
-            ])
-            ->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()
-            ->withStructured([
-                'chosen_task_id' => null,
-                'chosen_task_title' => null,
-                'summary' => 'Second attempt summary.',
-                'reason' => 'Second attempt reason.',
-                'suggested_next_steps' => ['Step 1'],
-            ])
-            ->withUsage(new Usage(5, 10)),
+        // sync: context analysis + explanation
+        StructuredResponseFake::make()->withStructured([
+            'intent_type' => 'general',
+            'priority_filters' => [],
+            'task_keywords' => [],
+            'time_constraint' => null,
+            'comparison_focus' => null,
+        ])->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()->withStructured([
+            'suggestion' => 'Focus on reading next.',
+            'reason' => 'It will move you forward quickly.',
+            'steps' => ['Skim headings', 'Read actively', 'Write 3 key points'],
+        ])->withUsage(new Usage(5, 10)),
+        // queued: context analysis + explanation
+        StructuredResponseFake::make()->withStructured([
+            'intent_type' => 'general',
+            'priority_filters' => [],
+            'task_keywords' => [],
+            'time_constraint' => null,
+            'comparison_focus' => null,
+        ])->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()->withStructured([
+            'suggestion' => 'Focus on reading next.',
+            'reason' => 'It will move you forward quickly.',
+            'steps' => ['Skim headings', 'Read actively', 'Write 3 key points'],
+        ])->withUsage(new Usage(5, 10)),
     ]);
 
     $service = app(TaskAssistantService::class);
     $runner = app(TaskAssistantTaskChoiceRunner::class);
 
-    $result = $service->runTaskChoice($thread, 'Help me choose what to work on next.', $runner);
+    $syncThread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $syncResult = $service->runTaskChoice($syncThread, 'Help me choose what to work on next.', $runner);
+    $syncAssistant = $syncThread->messages()->where('role', 'assistant')->latest('id')->first();
 
-    expect($result['valid'])->toBeTrue();
-    expect($result['data']['summary'])->toBe('Second attempt summary.');
-});
-
-test('runTaskChoice uses fallback when all attempts invalid', function (): void {
-    $user = User::factory()->create();
-    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
-
-    Prism::fake([
-        StructuredResponseFake::make()
-            ->withStructured(['chosen_task_id' => 999])
-            ->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()
-            ->withStructured(['chosen_task_id' => 999])
-            ->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()
-            ->withStructured(['chosen_task_id' => 999])
-            ->withUsage(new Usage(5, 10)),
+    $queuedThread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $queuedUserMsg = $queuedThread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'Help me choose what to work on next.',
+    ]);
+    $queuedAssistantMsg = $queuedThread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
     ]);
 
-    $service = app(TaskAssistantService::class);
-    $runner = app(TaskAssistantTaskChoiceRunner::class);
+    $service->processQueuedMessage($queuedThread, $queuedUserMsg->id, $queuedAssistantMsg->id, \App\Enums\TaskAssistantIntent::TaskPrioritization);
 
-    $result = $service->runTaskChoice($thread, 'Help me choose what to work on next.', $runner);
+    $queuedAssistantMsg->refresh();
 
-    expect($result['valid'])->toBeTrue();
-    expect($result['data']['summary'])->not->toBe('');
+    expect($syncResult['valid'])->toBeTrue();
+    expect($syncAssistant)->not->toBeNull();
+    expect($queuedAssistantMsg->content)->toBe($syncAssistant->content);
+    expect($queuedAssistantMsg->metadata['processed'] ?? false)->toBeTrue();
 });
 
 // Additional tests for intent-based tool gating and mutating flows

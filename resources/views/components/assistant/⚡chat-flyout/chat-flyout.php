@@ -243,7 +243,7 @@ new class extends Component
      */
     private function detectIntent(string $content): TaskAssistantIntent
     {
-        $intentService = new \App\Services\Intent\IntentClassificationService();
+        $intentService = new \App\Services\LLM\Intent\IntentClassificationService();
         return $intentService->classify($content);
     }
 

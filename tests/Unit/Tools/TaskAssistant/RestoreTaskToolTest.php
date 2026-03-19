@@ -5,7 +5,7 @@ use App\Enums\LlmToolCallStatus;
 use App\Models\LlmToolCall;
 use App\Models\Task;
 use App\Models\User;
-use App\Tools\TaskAssistant\RestoreTaskTool;
+use App\Tools\LLM\TaskAssistant\RestoreTaskTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

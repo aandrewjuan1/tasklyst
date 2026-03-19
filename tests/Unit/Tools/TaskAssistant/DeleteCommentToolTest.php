@@ -6,7 +6,7 @@ use App\Models\Comment;
 use App\Models\LlmToolCall;
 use App\Models\Task;
 use App\Models\User;
-use App\Tools\TaskAssistant\DeleteCommentTool;
+use App\Tools\LLM\TaskAssistant\DeleteCommentTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

@@ -2,10 +2,10 @@
 
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\TaskAssistantDailyScheduleRunner;
-use App\Services\TaskAssistantReviewSummaryRunner;
-use App\Services\TaskAssistantService;
-use App\Services\TaskAssistantStudyPlanRunner;
+use App\Services\LLM\TaskAssistant\TaskAssistantDailyScheduleRunner;
+use App\Services\LLM\TaskAssistant\TaskAssistantReviewSummaryRunner;
+use App\Services\LLM\TaskAssistant\TaskAssistantService;
+use App\Services\LLM\TaskAssistant\TaskAssistantStudyPlanRunner;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
@@ -15,6 +15,15 @@ test('runDailySchedule stores structured schedule metadata', function (): void {
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
     Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent_type' => 'general',
+                'priority_filters' => [],
+                'task_keywords' => [],
+                'time_constraint' => null,
+                'comparison_focus' => null,
+            ])
+            ->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()
             ->withStructured([
                 'blocks' => [
@@ -57,6 +66,15 @@ test('runStudyPlan stores structured study plan metadata', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
+                'intent_type' => 'general',
+                'priority_filters' => [],
+                'task_keywords' => [],
+                'time_constraint' => null,
+                'comparison_focus' => null,
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
                 'items' => [
                     [
                         'label' => 'Review notes for math',
@@ -93,6 +111,15 @@ test('runReviewSummary stores structured review metadata', function (): void {
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
     Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent_type' => 'general',
+                'priority_filters' => [],
+                'task_keywords' => [],
+                'time_constraint' => null,
+                'comparison_focus' => null,
+            ])
+            ->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()
             ->withStructured([
                 'completed' => [

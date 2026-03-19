@@ -4,8 +4,8 @@ use App\Actions\Task\DeleteTaskAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Models\Task;
 use App\Models\User;
-use App\Tools\TaskAssistant\DeleteTaskTool;
-use App\Tools\TaskAssistant\UpdateTaskTool;
+use App\Tools\LLM\TaskAssistant\DeleteTaskTool;
+use App\Tools\LLM\TaskAssistant\UpdateTaskTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

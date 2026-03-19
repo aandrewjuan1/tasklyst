@@ -5,7 +5,7 @@ use App\Enums\LlmToolCallStatus;
 use App\Models\LlmToolCall;
 use App\Models\Project;
 use App\Models\User;
-use App\Tools\TaskAssistant\DeleteProjectTool;
+use App\Tools\LLM\TaskAssistant\DeleteProjectTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

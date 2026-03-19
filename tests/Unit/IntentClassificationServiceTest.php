@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Enums\TaskAssistantIntent;
-use App\Services\Intent\IntentClassificationService;
+use App\Services\LLM\Intent\IntentClassificationService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
@@ -14,14 +14,14 @@ class IntentClassificationServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->service = new IntentClassificationService();
+        $this->service = new IntentClassificationService;
     }
 
     #[DataProvider('taskPrioritizationIntentProvider')]
     public function test_it_classifies_task_prioritization_intents(string $content, TaskAssistantIntent $expected): void
     {
         $result = $this->service->classify($content);
-        
+
         $this->assertSame($expected, $result);
     }
 
@@ -29,7 +29,7 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_classifies_time_management_intents(string $content, TaskAssistantIntent $expected): void
     {
         $result = $this->service->classify($content);
-        
+
         $this->assertSame($expected, $result);
     }
 
@@ -37,7 +37,7 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_classifies_study_planning_intents(string $content, TaskAssistantIntent $expected): void
     {
         $result = $this->service->classify($content);
-        
+
         $this->assertSame($expected, $result);
     }
 
@@ -45,7 +45,7 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_classifies_progress_review_intents(string $content, TaskAssistantIntent $expected): void
     {
         $result = $this->service->classify($content);
-        
+
         $this->assertSame($expected, $result);
     }
 
@@ -53,7 +53,7 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_classifies_task_management_intents(string $content, TaskAssistantIntent $expected): void
     {
         $result = $this->service->classify($content);
-        
+
         $this->assertSame($expected, $result);
     }
 
@@ -61,7 +61,7 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_classifies_productivity_coaching_intents(string $content, TaskAssistantIntent $expected): void
     {
         $result = $this->service->classify($content);
-        
+
         $this->assertSame($expected, $result);
     }
 
@@ -78,7 +78,7 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_classifies_with_flow(): void
     {
         $result = $this->service->classifyWithFlow('What should I work on next?');
-        
+
         $this->assertSame(TaskAssistantIntent::TaskPrioritization, $result['intent']);
         $this->assertSame('task_choice', $result['flow']);
     }
@@ -86,14 +86,14 @@ class IntentClassificationServiceTest extends TestCase
     public function test_it_handles_empty_content(): void
     {
         $result = $this->service->classify('');
-        
+
         $this->assertSame(TaskAssistantIntent::ProductivityCoaching, $result);
     }
 
     public function test_it_handles_mixed_case_content(): void
     {
         $result = $this->service->classify('CREATE A TASK');
-        
+
         $this->assertSame(TaskAssistantIntent::TaskManagement, $result);
     }
 
