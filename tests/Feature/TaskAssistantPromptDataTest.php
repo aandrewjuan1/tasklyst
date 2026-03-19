@@ -1,7 +1,7 @@
 <?php
 
 use App\Models\User;
-use App\Services\TaskAssistantPromptData;
+use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
 
 test('task assistant system prompt view is renderable with builder data', function () {
     $user = User::factory()->create();

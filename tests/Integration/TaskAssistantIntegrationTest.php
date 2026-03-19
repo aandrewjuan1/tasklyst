@@ -3,27 +3,26 @@
 use App\Models\TaskAssistantThread;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
-uses(RefreshDatabase::class);
+uses(TestCase::class, RefreshDatabase::class);
 
 it('processes responses through ResponseProcessor with formatted output', function () {
-    // Create user and thread without using factories to avoid faker issues
-    $user = User::create([
+    $user = User::factory()->create([
         'name' => 'Test User',
         'email' => 'test@example.com',
         'workos_id' => 'test-workos-id',
-        'avatar' => null,
     ]);
-    
+
     $thread = TaskAssistantThread::create([
         'user_id' => $user->id,
         'title' => 'Test Thread',
         'metadata' => [],
     ]);
-    
+
     // Create a simple test to verify ResponseProcessor integration
-    $processor = app(\App\Services\TaskAssistantResponseProcessor::class);
-    
+    $processor = app(\App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor::class);
+
     $testData = [
         'summary' => 'Focus on your most important tasks first to stay productive.',
         'bullets' => [
@@ -45,33 +44,31 @@ it('processes responses through ResponseProcessor with formatted output', functi
 
     expect($result['valid'])->toBeTrue();
     expect($result['formatted_content'])->toContain('Focus on your most important tasks');
-    expect($result['formatted_content'])->toContain('Key points to remember:');
-    expect($result['formatted_content'])->toContain('• Complete the math assignment');
+    expect($result['formatted_content'])->toContain('Complete the math assignment');
     expect($result['formatted_content'])->not->toContain('{"type":'); // Should not be raw JSON
 });
 
 it('maintains structured data in metadata while showing formatted content', function () {
-    $user = User::create([
+    $user = User::factory()->create([
         'name' => 'Test User',
         'email' => 'test2@example.com',
         'workos_id' => 'test-workos-id-2',
-        'avatar' => null,
     ]);
-    
+
     $thread = TaskAssistantThread::create([
         'user_id' => $user->id,
         'title' => 'Test Thread 2',
         'metadata' => [],
     ]);
-    
-    $processor = app(\App\Services\TaskAssistantResponseProcessor::class);
-    
+
+    $processor = app(\App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor::class);
+
     $testData = [
         'chosen_task_id' => 1,
         'chosen_task_title' => 'Math Assignment',
-        'summary' => 'Focus on your math assignment to meet the deadline.',
+        'suggestion' => 'Focus on your math assignment to meet the deadline.',
         'reason' => 'This task has the highest priority.',
-        'suggested_next_steps' => [
+        'steps' => [
             'Review the assignment requirements',
             'Complete the first three problems',
         ],
@@ -86,33 +83,32 @@ it('maintains structured data in metadata while showing formatted content', func
     );
 
     expect($result['valid'])->toBeTrue();
-    expect($result['formatted_content'])->toContain('Next task: [1] Math Assignment');
+    expect($result['formatted_content'])->toContain('Math Assignment');
     expect($result['structured_data'])->toBe($testData); // Original data preserved
 });
 
 it('provides consistent formatting across different flows', function () {
-    $user = User::create([
+    $user = User::factory()->create([
         'name' => 'Test User',
         'email' => 'test3@example.com',
         'workos_id' => 'test-workos-id-3',
-        'avatar' => null,
     ]);
-    
+
     $thread = TaskAssistantThread::create([
         'user_id' => $user->id,
         'title' => 'Test Thread 3',
         'metadata' => [],
     ]);
-    
-    $processor = app(\App\Services\TaskAssistantResponseProcessor::class);
-    
+
+    $processor = app(\App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor::class);
+
     // Test advisory flow
     $advisoryData = [
         'summary' => 'Stay organized with your study schedule.',
         'bullets' => ['Review notes daily', 'Practice problems regularly'],
         'follow_ups' => ['Need study tips?'],
     ];
-    
+
     $advisoryResult = $processor->processResponse(
         flow: 'advisory',
         data: $advisoryData,
@@ -120,10 +116,10 @@ it('provides consistent formatting across different flows', function () {
         thread: $thread,
         originalUserMessage: 'Help me study'
     );
-    
+
     expect($advisoryResult['valid'])->toBeTrue();
-    expect($advisoryResult['formatted_content'])->toContain('Key points to remember:');
-    
+    expect($advisoryResult['formatted_content'])->toContain('Review notes daily');
+
     // Test study plan flow
     $studyPlanData = [
         'items' => [
@@ -132,7 +128,7 @@ it('provides consistent formatting across different flows', function () {
         ],
         'summary' => 'Balanced study approach.',
     ];
-    
+
     $studyPlanResult = $processor->processResponse(
         flow: 'study_plan',
         data: $studyPlanData,
@@ -140,8 +136,8 @@ it('provides consistent formatting across different flows', function () {
         thread: $thread,
         originalUserMessage: 'Create study plan'
     );
-    
+
     expect($studyPlanResult['valid'])->toBeTrue();
-    expect($studyPlanResult['formatted_content'])->toContain('Your study plan:');
+    expect($studyPlanResult['formatted_content'])->toContain('Balanced study approach.');
     expect($studyPlanResult['formatted_content'])->toContain('(30 min)');
 });

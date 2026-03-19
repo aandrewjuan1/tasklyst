@@ -4,7 +4,7 @@ use App\Actions\Tag\CreateTagAction;
 use App\Enums\LlmToolCallStatus;
 use App\Models\LlmToolCall;
 use App\Models\User;
-use App\Tools\TaskAssistant\CreateTagTool;
+use App\Tools\LLM\TaskAssistant\CreateTagTool;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);

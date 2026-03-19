@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\TaskAssistantResponseValidator;
+use App\Services\LLM\TaskAssistant\TaskAssistantResponseValidator;
 
 test('task choice validator accepts valid payload with matching task', function (): void {
     $snapshot = [
@@ -13,9 +13,9 @@ test('task choice validator accepts valid payload with matching task', function 
     $payload = [
         'chosen_task_id' => 1,
         'chosen_task_title' => 'Read chapter 1',
-        'summary' => 'Focus on reading chapter 1 today.',
         'reason' => 'It is due soon and has a clear scope.',
-        'suggested_next_steps' => [
+        'suggestion' => 'Focus on reading chapter 1 today.',
+        'steps' => [
             'Find a quiet place to study.',
             'Read section 1–3 carefully.',
         ],
@@ -27,6 +27,8 @@ test('task choice validator accepts valid payload with matching task', function 
     expect($result['valid'])->toBeTrue();
     expect($result['data']['chosen_task_id'])->toBe(1);
     expect($result['data']['chosen_task_title'])->toBe('Read chapter 1');
+    expect($result['data']['suggestion'])->toBe('Focus on reading chapter 1 today.');
+    expect($result['data']['steps'])->toHaveCount(2);
     expect($result['errors'])->toBe([]);
 });
 
@@ -56,9 +58,9 @@ test('task choice validator fails when chosen_task_id is not in snapshot', funct
     $payload = [
         'chosen_task_id' => 999,
         'chosen_task_title' => 'Some other task',
-        'summary' => 'Focus on something.',
+        'suggestion' => 'Focus on something.',
         'reason' => 'Reason text.',
-        'suggested_next_steps' => ['Step 1'],
+        'steps' => ['Step 1'],
     ];
 
     $validator = new TaskAssistantResponseValidator;
@@ -78,9 +80,9 @@ test('task choice validator fails when chosen_task_title does not match snapshot
     $payload = [
         'chosen_task_id' => 3,
         'chosen_task_title' => 'Wrong title',
-        'summary' => 'Summary text.',
+        'suggestion' => 'Summary text.',
         'reason' => 'Reason text.',
-        'suggested_next_steps' => ['Step 1'],
+        'steps' => ['Step 1'],
     ];
 
     $validator = new TaskAssistantResponseValidator;

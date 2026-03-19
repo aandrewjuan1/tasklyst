@@ -3,7 +3,7 @@
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\TaskAssistantService;
+use App\Services\LLM\TaskAssistant\TaskAssistantService;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;

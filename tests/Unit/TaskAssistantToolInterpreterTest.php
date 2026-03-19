@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\TaskAssistantToolInterpreter;
+use App\Services\LLM\TaskAssistant\TaskAssistantToolInterpreter;
 
 test('tool interpreter normalizes already-correct envelope', function (): void {
     $interpreter = new TaskAssistantToolInterpreter;
