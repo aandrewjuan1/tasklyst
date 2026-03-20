@@ -24,6 +24,7 @@ class ListTasksTool extends Tool
         $params = $this->normalizeParams(...$args);
         $query = Task::query()
             ->forUser($this->user->id)
+            ->incomplete()
             ->orderByDesc('updated_at');
         if (isset($params['projectId'])) {
             $query->forProject((int) $params['projectId']);
@@ -32,7 +33,11 @@ class ListTasksTool extends Tool
             $query->forEvent((int) $params['eventId']);
         }
         $limit = isset($params['limit']) ? min(100, (int) $params['limit']) : 50;
-        $tasks = $query->limit($limit)->get();
+        $tasks = $query
+            ->with(['tags'])
+            ->limit($limit)
+            ->get();
+
         $list = $tasks->map(fn (Task $task): array => [
             'id' => $task->id,
             'title' => $task->title,
@@ -40,8 +45,12 @@ class ListTasksTool extends Tool
             'priority' => $task->priority?->value ?? $task->priority,
             'project_id' => $task->project_id,
             'event_id' => $task->event_id,
+            'teacher_name' => $task->teacher_name,
+            'subject_name' => $task->subject_name,
             'start_datetime' => $task->start_datetime?->toIso8601String(),
             'end_datetime' => $task->end_datetime?->toIso8601String(),
+            'duration_minutes' => (int) ($task->duration ?? 0),
+            'tags' => $task->tags->pluck('name')->values()->all(),
         ])->values()->all();
 
         return json_encode(['ok' => true, 'tasks' => $list]);

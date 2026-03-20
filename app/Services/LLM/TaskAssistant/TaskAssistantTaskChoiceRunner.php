@@ -2,8 +2,10 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\RecurrenceExpander;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +21,7 @@ class TaskAssistantTaskChoiceRunner
         private readonly TaskAssistantResponseValidator $validator,
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
+        private readonly RecurrenceExpander $recurrenceExpander,
     ) {}
 
     /**
@@ -33,7 +36,18 @@ class TaskAssistantTaskChoiceRunner
     {
         $user = $thread->user;
         $promptData = $this->promptData->forUser($user);
-        $snapshot = $this->snapshotService->buildForUser($user);
+
+        $context = $this->constraintsExtractor->extract($userMessageContent);
+
+        $hasFilteringSignals = (! empty($context['task_keywords'] ?? []))
+            || (! empty($context['priority_filters'] ?? []))
+            || ! empty($context['time_constraint'] ?? null)
+            || (bool) ($context['recurring_requested'] ?? false);
+
+        // When users explicitly filter, we need a bigger candidate pool to avoid missing the best match.
+        $taskLimit = $hasFilteringSignals ? 200 : 20;
+
+        $snapshot = $this->snapshotService->buildForUser($user, $taskLimit);
         $scopedSnapshot = $this->applyUserRequestScopeToSnapshot($snapshot, $userMessageContent);
 
         Log::info('task-assistant.snapshot', [
@@ -41,9 +55,6 @@ class TaskAssistantTaskChoiceRunner
             'thread_id' => $thread->id,
             'snapshot' => $snapshot,
         ]);
-
-        // Step 1: Extract deterministic constraints from user text.
-        $context = $this->constraintsExtractor->extract($userMessageContent);
 
         // Step 2: Apply context-aware deterministic prioritization across tasks + events + projects
         $today = (string) ($snapshot['today'] ?? date('Y-m-d'));
@@ -55,6 +66,15 @@ class TaskAssistantTaskChoiceRunner
             'thread_id' => $thread->id,
             'context' => $context,
         ]);
+
+        // If the user explicitly asks for recurring tasks, prioritize the next occurrence window
+        // rather than the base task's static end datetime.
+        $scopedSnapshot = $this->applyRecurringOccurrenceWindowToSnapshot(
+            $scopedSnapshot,
+            $context,
+            $now,
+            $timezone
+        );
 
         $focusRanking = $this->prioritizationService->prioritizeFocus($scopedSnapshot, $context);
         $restrictToTasksOnly = ! $this->userExplicitlyRequestsEventsOrCalendar($userMessageContent);
@@ -189,6 +209,106 @@ class TaskAssistantTaskChoiceRunner
         $snapshot['projects'] = [];
 
         return $snapshot;
+    }
+
+    /**
+     * When `recurring_requested` is true, replace snapshot task `ends_at` values for recurring tasks
+     * with the earliest expanded occurrence within a short window (today -> today+6).
+     *
+     * Note: validation later uses snapshot.task ids/titles, so we only adjust the task attributes
+     * for tasks already present in the scoped snapshot to keep ids consistent.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function applyRecurringOccurrenceWindowToSnapshot(array $snapshot, array $context, \DateTimeImmutable $now, string $timezone): array
+    {
+        if (! ($context['recurring_requested'] ?? false)) {
+            return $snapshot;
+        }
+
+        $tasks = $snapshot['tasks'] ?? [];
+        if (! is_array($tasks) || $tasks === []) {
+            return $snapshot;
+        }
+
+        $taskIds = collect($tasks)
+            ->map(fn (array $t): int => (int) ($t['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        if ($taskIds === []) {
+            return $snapshot;
+        }
+
+        /** @var \Illuminate\Support\Collection<int, Task> $taskModels */
+        $taskModels = Task::query()
+            ->with('recurringTask')
+            ->whereIn('id', $taskIds)
+            ->get()
+            ->keyBy('id');
+
+        $recurringTaskModels = $taskModels->filter(fn (Task $t): bool => $t->recurringTask !== null)->values();
+        if ($recurringTaskModels->isEmpty()) {
+            // Nothing recurring in the current snapshot window; keep existing behavior.
+            return $snapshot;
+        }
+
+        $rangeStartDate = $now->format('Y-m-d');
+        $rangeEndDate = match ($context['time_constraint'] ?? null) {
+            'today' => $rangeStartDate,
+            'this_week' => (new \DateTimeImmutable($rangeStartDate, new \DateTimeZone($timezone)))->modify('+6 days')->format('Y-m-d'),
+            default => (new \DateTimeImmutable($rangeStartDate, new \DateTimeZone($timezone)))->modify('+6 days')->format('Y-m-d'),
+        };
+
+        $startCarbon = \Carbon\CarbonImmutable::createFromFormat('Y-m-d', $rangeStartDate, $timezone)->startOfDay();
+        $endCarbon = \Carbon\CarbonImmutable::createFromFormat('Y-m-d', $rangeEndDate, $timezone)->startOfDay();
+
+        $expandedRecurringTasks = [];
+
+        // Build an id => original snapshot entry map so we can override only `ends_at`.
+        $tasksById = collect($tasks)
+            ->keyBy(fn (array $t): int => (int) ($t['id'] ?? 0))
+            ->all();
+
+        foreach ($recurringTaskModels as $taskModel) {
+            $recurring = $taskModel->recurringTask;
+            if ($recurring === null) {
+                continue;
+            }
+
+            $occurrences = $this->recurrenceExpander->expand($recurring, $startCarbon, $endCarbon);
+            if ($occurrences === []) {
+                continue;
+            }
+
+            usort(
+                $occurrences,
+                fn (\Carbon\CarbonInterface $a, \Carbon\CarbonInterface $b): int => strcmp($a->format('Y-m-d'), $b->format('Y-m-d'))
+            );
+
+            $earliest = $occurrences[0];
+
+            $base = $tasksById[(int) $taskModel->id] ?? null;
+            if (! is_array($base)) {
+                continue;
+            }
+
+            $base['ends_at'] = $earliest->copy()->toIso8601String();
+            $expandedRecurringTasks[] = $base;
+        }
+
+        if ($expandedRecurringTasks === []) {
+            // Avoid "no tasks available" by falling back to the original scoped snapshot.
+            return $snapshot;
+        }
+
+        return [
+            ...$snapshot,
+            'tasks' => $expandedRecurringTasks,
+        ];
     }
 
     private function userExplicitlyRequestsEventsOrCalendar(string $userMessageContent): bool
@@ -589,8 +709,16 @@ Keep it concise and actionable.";
         }
 
         $contextInfo = '';
+        $taskPriority = strtolower((string) ($topTask['priority'] ?? 'medium'));
         if (! empty($context['priority_filters'])) {
-            $contextInfo .= 'User specifically asked for '.implode(', ', $context['priority_filters']).' priority tasks. ';
+            $matchingPriorityFilters = array_values(array_filter(
+                $context['priority_filters'],
+                fn (string $p): bool => strtolower($p) === $taskPriority
+            ));
+
+            if ($matchingPriorityFilters !== []) {
+                $contextInfo .= 'User specifically asked for '.implode(', ', $matchingPriorityFilters).' priority tasks. ';
+            }
         }
         if (! empty($context['task_keywords'])) {
             $contextInfo .= 'User is interested in tasks related to: '.implode(', ', $context['task_keywords']).'. ';
@@ -651,8 +779,16 @@ Keep it conversational and acknowledge their specific needs.";
 
         $reasoning = "This task was selected because it's {$priority} priority and {$deadlineText}";
 
+        $taskPriority = strtolower((string) ($topTask['priority'] ?? 'medium'));
         if (! empty($context['priority_filters'])) {
-            $reasoning .= ', and it matches your request for '.implode(', ', $context['priority_filters']).' priority tasks';
+            $matchingPriorityFilters = array_values(array_filter(
+                $context['priority_filters'],
+                fn (string $p): bool => strtolower($p) === $taskPriority
+            ));
+
+            if ($matchingPriorityFilters !== []) {
+                $reasoning .= ', and it matches your request for '.implode(', ', $matchingPriorityFilters).' priority tasks';
+            }
         }
 
         if (! empty($context['task_keywords'])) {

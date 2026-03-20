@@ -252,6 +252,69 @@ it('rejects generic task choice payload when snapshot has concrete tasks', funct
     expect(strtolower($result['formatted_content']))->toContain('math assignment');
 });
 
+it('accepts explicit no-match task_choice payload when filters exclude all tasks', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $processor = app(TaskAssistantResponseProcessor::class);
+
+    $snapshot = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Math Assignment'],
+            ['id' => 2, 'title' => 'Science Project'],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $noMatchPayload = [
+        'chosen_type' => null,
+        'chosen_id' => null,
+        'chosen_title' => null,
+        'chosen_task_id' => null,
+        'chosen_task_title' => null,
+        'suggestion' => 'No tasks found related to reading. Try other keywords or create relevant tasks.',
+        'reason' => 'No tasks matching your specified keywords were available.',
+        'steps' => [
+            'Add one or two tasks you care about most.',
+            'Choose one task and block 25–30 minutes to work on it.',
+        ],
+    ];
+
+    $result = $processor->processResponse(
+        flow: 'task_choice',
+        data: $noMatchPayload,
+        snapshot: $snapshot,
+        thread: $thread,
+        originalUserMessage: 'What should I focus on today? I need reading time',
+    );
+
+    expect($result['valid'])->toBeTrue();
+    expect($result['formatted_content'])->toContain('No tasks found related to reading');
+    expect($result['formatted_content'])->not->toContain('The task I\'m referring to is');
+});
+
+it('includes explicit no-match instructions in task_choice retry correction message', function (): void {
+    $processor = app(\App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor::class);
+
+    $method = new ReflectionMethod($processor, 'buildCorrectionMessage');
+    $method->setAccessible(true);
+
+    $message = $method->invoke($processor, 'task_choice', [
+        'Task choice response must include a concrete chosen task from snapshot.tasks.',
+    ], [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Math Assignment'],
+        ],
+        'events' => [],
+        'projects' => [],
+    ]);
+
+    expect($message)->toContain('explicit no-match payload');
+    expect($message)->toContain('chosen_task_id=null');
+    expect($message)->toContain('chosen_task_title=null');
+});
+
 it('validates daily schedule flow with time format', function () {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);

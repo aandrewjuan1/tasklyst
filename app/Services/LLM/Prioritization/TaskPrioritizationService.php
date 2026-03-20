@@ -514,23 +514,21 @@ final class TaskPrioritizationService
      */
     private function applyContextFilters(Collection $tasks, array $context, \DateTimeImmutable $now): Collection
     {
-        // Soft filtering: apply a filter only if it keeps at least one candidate.
-        // This avoids "no tasks available" outcomes from slightly-wrong extracted context.
+        // Filtering is a "preference cascade":
+        // - We always try to respect explicit subject/type keywords.
+        // - Priority and time constraints are relaxed if they would otherwise yield an empty candidate set.
         $filtered = $tasks;
 
-        if (! empty($context['priority_filters'])) {
-            $tmp = $filtered->filter(function (array $task) use ($context) {
-                return in_array($task['priority'] ?? 'medium', $context['priority_filters'], true);
-            });
-
-            if ($tmp->isNotEmpty()) {
-                $filtered = $tmp;
-            }
-        }
-
+        // 1) Subject/type keywords: strict if possible, otherwise relax.
         if (! empty($context['task_keywords'])) {
-            $tmp = $filtered->filter(function (array $task) use ($context) {
+            $keywordFiltered = $filtered->filter(function (array $task) use ($context): bool {
                 $title = strtolower((string) ($task['title'] ?? ''));
+                $subjectName = strtolower((string) ($task['subject_name'] ?? ''));
+                $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
+                $tagsLower = array_map(
+                    fn (mixed $t): string => strtolower((string) $t),
+                    $tags
+                );
 
                 foreach ($context['task_keywords'] as $keyword) {
                     if ($keyword === null) {
@@ -538,23 +536,79 @@ final class TaskPrioritizationService
                     }
 
                     $needle = strtolower((string) $keyword);
-                    if ($needle !== '' && str_contains($title, $needle)) {
+                    if ($needle === '') {
+                        continue;
+                    }
+
+                    if (str_contains($title, $needle) || str_contains($subjectName, $needle)) {
                         return true;
+                    }
+
+                    foreach ($tagsLower as $tag) {
+                        if ($tag !== '' && str_contains($tag, $needle)) {
+                            return true;
+                        }
                     }
                 }
 
                 return false;
             });
 
-            if ($tmp->isNotEmpty()) {
-                $filtered = $tmp;
+            // If the strict keyword filter excludes everything, relax it.
+            if (! $keywordFiltered->isEmpty()) {
+                $filtered = $keywordFiltered;
             }
         }
 
-        if (! empty($context['time_constraint'])) {
-            $tmp = $this->applyTimeConstraintFilter($filtered, (string) $context['time_constraint'], $now);
-            if ($tmp->isNotEmpty()) {
-                $filtered = $tmp;
+        $priorityFilters = $context['priority_filters'] ?? [];
+        $timeConstraint = $context['time_constraint'] ?? null;
+
+        $hasPriorityFilters = is_array($priorityFilters) && $priorityFilters !== [];
+        $hasTimeConstraint = is_string($timeConstraint) && $timeConstraint !== '';
+
+        // 2) Priority/time constraints: try intersection first, then relax.
+        if ($hasPriorityFilters && $hasTimeConstraint) {
+            $priorityOnly = $filtered->filter(function (array $task) use ($priorityFilters): bool {
+                return in_array($task['priority'] ?? 'medium', $priorityFilters, true);
+            });
+
+            $intersection = $this->applyTimeConstraintFilter($priorityOnly, (string) $timeConstraint, $now);
+
+            if (! $intersection->isEmpty()) {
+                return $intersection;
+            }
+
+            if (! $priorityOnly->isEmpty()) {
+                // Relax time constraint.
+                return $priorityOnly;
+            }
+
+            $timeOnly = $this->applyTimeConstraintFilter($filtered, (string) $timeConstraint, $now);
+
+            if (! $timeOnly->isEmpty()) {
+                // Relax priority constraint.
+                return $timeOnly;
+            }
+
+            // Relax both (fall back to keyword-filtered set).
+            return $filtered;
+        }
+
+        if ($hasPriorityFilters) {
+            $priorityOnly = $filtered->filter(function (array $task) use ($priorityFilters): bool {
+                return in_array($task['priority'] ?? 'medium', $priorityFilters, true);
+            });
+
+            if (! $priorityOnly->isEmpty()) {
+                return $priorityOnly;
+            }
+        }
+
+        if ($hasTimeConstraint) {
+            $timeOnly = $this->applyTimeConstraintFilter($filtered, (string) $timeConstraint, $now);
+
+            if (! $timeOnly->isEmpty()) {
+                return $timeOnly;
             }
         }
 

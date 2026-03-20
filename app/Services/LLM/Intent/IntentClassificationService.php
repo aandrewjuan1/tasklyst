@@ -232,7 +232,9 @@ Rules:
             '/\b(prioritize|priority|what.*next|which.*first|most.*important)\b/',
             '/\b(decide.*task|select.*task|focus.*on.*next)\b/',
             '/\b(what should i (focus|work) (for )?today)\b/',
+            '/\b(what should i (focus|work) on today)\b/',
             '/\b(focus (for )?today|work (on )?today)\b/',
+            '/\b(focus on today|work on today)\b/',
             '/\b(what should i focus on first)\b/',
             '/\b(from my task list)\b/',
             '/\b(next task based on urgency|based on urgency and due date)\b/',
@@ -242,7 +244,7 @@ Rules:
 
     private function isTaskSelectionQuestion(string $content): bool
     {
-        $hasTaskContext = preg_match('/\b(task|tasks|task list|to-do|todo)\b/', $content) === 1;
+        $hasTaskContext = preg_match('/\b(task|tasks|task list|to-do|todo|homework|assignment|assignments|schoolwork|school|coursework|classwork|chores|housework|cleaning|laundry|dishes|trash|vacuum)\b/', $content) === 1;
         $hasSelectionWords = preg_match('/\b(first|next|choose|which|what should i)\b/', $content) === 1;
 
         return $hasTaskContext && $hasSelectionWords;
@@ -291,9 +293,11 @@ Rules:
     private function getTaskManagementPatterns(): array
     {
         return [
-            '/\b(create.*task|update.*task|delete.*task|restore.*task|complete.*task|mark.*task|archive.*task|list.*task)\b/',
-            '/\b(add.*task|new.*task|edit.*task|remove.*task)\b/',
-            '/\b(show.*task|get.*task|find.*task|all.*task)\b/',
+            '/\b(create.*task(?:s)?|update.*task(?:s)?|delete.*task(?:s)?|restore.*task(?:s)?|complete.*task(?:s)?|mark.*task(?:s)?|archive.*task(?:s)?|list.*task(?:s)?)\b/',
+            '/\b(add.*task(?:s)?|new.*task(?:s)?|edit.*task(?:s)?|remove.*task(?:s)?)\b/',
+            // Avoid over-matching phrases like "get ahead ... Which task ..." (get.*task)
+            // by requiring "task" to appear without sentence-ending punctuation in between.
+            '/\b(show[^.?!]{0,40}\btask(?:s)?\b|get[^.?!]{0,40}\btask(?:s)?\b|find[^.?!]{0,40}\btask(?:s)?\b|all[^.?!]{0,40}\btask(?:s)?\b)\b/',
         ];
     }
 
@@ -333,7 +337,8 @@ Rules:
 
     private function hasExplicitTaskPrioritizationWords(string $content): bool
     {
-        return preg_match('/\b(prioritize|priority|next|first|important|choose|select|focus)\b/', $content) === 1;
+        return preg_match('/\b(prioritize|priority|next|first|important|choose|select|focus)\b/', $content) === 1
+            || preg_match('/\b(work|focus)\b.*\btoday\b/', $content) === 1;
     }
 
     private function hasExplicitProductivityCoachingWords(string $content): bool

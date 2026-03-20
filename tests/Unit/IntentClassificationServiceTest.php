@@ -134,10 +134,15 @@ class IntentClassificationServiceTest extends TestCase
             'task choice basic' => ['What should I work on next?', TaskAssistantIntent::TaskPrioritization],
             'task choice variant' => ['Help me choose my next task', TaskAssistantIntent::TaskPrioritization],
             'focus for today' => ['What should I focus for today?', TaskAssistantIntent::TaskPrioritization],
+            'focus on today (no task word)' => ['What should I focus on today? I need reading time.', TaskAssistantIntent::TaskPrioritization],
             'focus first from task list' => ['What should I focus on first from my task list today?', TaskAssistantIntent::TaskPrioritization],
             'work on today' => ['What should I work on today?', TaskAssistantIntent::TaskPrioritization],
             'prioritize tasks' => ['Prioritize my tasks', TaskAssistantIntent::TaskPrioritization],
             'which task first' => ['Which task should I do first?', TaskAssistantIntent::TaskPrioritization],
+            'which task first with get ahead' => ['I\'m trying to get ahead in math. Which task should I do first? Make it urgent for today.', TaskAssistantIntent::TaskPrioritization],
+            'which homework should i do first' => ['Which homework should I do first?', TaskAssistantIntent::TaskPrioritization],
+            'prioritize my chores for today' => ['Prioritize my chores for today', TaskAssistantIntent::TaskPrioritization],
+            'help me prioritize schoolwork today' => ['Help me prioritize schoolwork today', TaskAssistantIntent::TaskPrioritization],
         ];
     }
 
