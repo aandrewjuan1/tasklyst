@@ -105,6 +105,83 @@ it('validates task choice flow with business logic', function () {
     expect($result['formatted_content'])->toContain('Start by');
 });
 
+it('formats task choice steps without duplicating ordinal scaffolding', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $processor = app(TaskAssistantResponseProcessor::class);
+
+    $snapshot = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Math Assignment'],
+        ],
+    ];
+
+    $data = [
+        'chosen_task_id' => 1,
+        'chosen_task_title' => 'Math Assignment',
+        'summary' => 'Focus on your math assignment.',
+        'reason' => 'It helps you stay on track.',
+        'suggested_next_steps' => [
+            'First, review the key topics.',
+            'Next, do the first three problems.',
+            'Finally, check your answers and note what to study next.',
+        ],
+    ];
+
+    $result = $processor->processResponse(
+        flow: 'task_choice',
+        data: $data,
+        snapshot: $snapshot,
+        thread: $thread,
+        originalUserMessage: 'What should I work on next?'
+    );
+
+    expect($result['valid'])->toBeTrue();
+    expect(strtolower($result['formatted_content']))->toContain('start by review the key topics');
+    expect($result['formatted_content'])->not->toContain('start by first,');
+    expect($result['formatted_content'])->not->toContain('then next,');
+    expect($result['formatted_content'])->toContain('and finally check your answers');
+});
+
+it('trims trailing punctuation so joining steps stays readable', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $processor = app(TaskAssistantResponseProcessor::class);
+
+    $snapshot = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Math Assignment'],
+        ],
+    ];
+
+    $data = [
+        'chosen_task_id' => 1,
+        'chosen_task_title' => 'Math Assignment',
+        'summary' => 'Focus on your math assignment.',
+        'reason' => 'It helps you stay on track.',
+        'suggested_next_steps' => [
+            'Do the first review today.', // ends with a period
+            'Then complete the first three problems.', // ends with a period
+            'Finally, check your answers and note what to study next!', // ends with !
+        ],
+    ];
+
+    $result = $processor->processResponse(
+        flow: 'task_choice',
+        data: $data,
+        snapshot: $snapshot,
+        thread: $thread,
+        originalUserMessage: 'What should I work on next?'
+    );
+
+    expect($result['valid'])->toBeTrue();
+    expect($result['formatted_content'])->not->toContain('today., then');
+    expect($result['formatted_content'])->not->toContain('today.,');
+    expect($result['formatted_content'])->toContain('and finally check your answers');
+});
+
 it('rejects task choice with invalid task ID', function () {
     // Ensure retry LLM calls don't consume any leaked Prism fakes from other tests.
     \Prism\Prism\Facades\Prism::fake([]);
@@ -137,6 +214,40 @@ it('rejects task choice with invalid task ID', function () {
     );
 
     // With retry logic, it should provide fallback data and be marked as valid
+    expect($result['valid'])->toBeTrue();
+    expect(strtolower($result['formatted_content']))->toContain('math assignment');
+});
+
+it('rejects generic task choice payload when snapshot has concrete tasks', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $processor = app(TaskAssistantResponseProcessor::class);
+
+    $snapshot = [
+        'tasks' => [
+            ['id' => 1, 'title' => 'Math Assignment'],
+            ['id' => 2, 'title' => 'Science Project'],
+        ],
+    ];
+
+    $genericData = [
+        'suggestion' => 'Pick the highest priority task.',
+        'reason' => 'Urgency and due date matter most.',
+        'steps' => [
+            'Identify urgent tasks.',
+            'Select the top one due this week.',
+        ],
+    ];
+
+    $result = $processor->processResponse(
+        flow: 'task_choice',
+        data: $genericData,
+        snapshot: $snapshot,
+        thread: $thread,
+        originalUserMessage: 'Help me choose my next task based on urgency and due date.'
+    );
+
     expect($result['valid'])->toBeTrue();
     expect(strtolower($result['formatted_content']))->toContain('math assignment');
 });

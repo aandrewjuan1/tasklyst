@@ -105,6 +105,12 @@ class IntentClassificationService
             return TaskAssistantIntent::TaskPrioritization;
         }
 
+        // Guard: task-list selection phrasing should route to prioritization,
+        // even if "focus" keywords are also present.
+        if ($this->isTaskSelectionQuestion($normalizedContent)) {
+            return TaskAssistantIntent::TaskPrioritization;
+        }
+
         if ($this->matchesPattern($normalizedContent, $this->getProductivityCoachingPatterns())) {
             return TaskAssistantIntent::ProductivityCoaching;
         }
@@ -227,7 +233,19 @@ Rules:
             '/\b(decide.*task|select.*task|focus.*on.*next)\b/',
             '/\b(what should i (focus|work) (for )?today)\b/',
             '/\b(focus (for )?today|work (on )?today)\b/',
+            '/\b(what should i focus on first)\b/',
+            '/\b(from my task list)\b/',
+            '/\b(next task based on urgency|based on urgency and due date)\b/',
+            '/\b(which task should i do first)\b/',
         ];
+    }
+
+    private function isTaskSelectionQuestion(string $content): bool
+    {
+        $hasTaskContext = preg_match('/\b(task|tasks|task list|to-do|todo)\b/', $content) === 1;
+        $hasSelectionWords = preg_match('/\b(first|next|choose|which|what should i)\b/', $content) === 1;
+
+        return $hasTaskContext && $hasSelectionWords;
     }
 
     /**

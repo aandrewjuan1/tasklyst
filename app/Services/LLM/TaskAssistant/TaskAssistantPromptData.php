@@ -16,6 +16,8 @@ class TaskAssistantPromptData
         return [
             'userContext' => [
                 'id' => $user->id,
+                // Provide a stable display name so the LLM doesn't guess one.
+                'name' => (string) $user->name,
                 'timezone' => config('app.timezone'),
                 'date_format' => 'Y-m-d H:i',
             ],

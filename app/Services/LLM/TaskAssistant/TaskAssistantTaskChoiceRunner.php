@@ -18,7 +18,7 @@ class TaskAssistantTaskChoiceRunner
         private readonly TaskAssistantSnapshotService $snapshotService,
         private readonly TaskAssistantResponseValidator $validator,
         private readonly TaskPrioritizationService $prioritizationService,
-        private readonly TaskAssistantContextAnalyzer $contextAnalyzer,
+        private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
     ) {}
 
     /**
@@ -34,6 +34,7 @@ class TaskAssistantTaskChoiceRunner
         $user = $thread->user;
         $promptData = $this->promptData->forUser($user);
         $snapshot = $this->snapshotService->buildForUser($user);
+        $scopedSnapshot = $this->applyUserRequestScopeToSnapshot($snapshot, $userMessageContent);
 
         Log::info('task-assistant.snapshot', [
             'user_id' => $user->id,
@@ -41,11 +42,13 @@ class TaskAssistantTaskChoiceRunner
             'snapshot' => $snapshot,
         ]);
 
-        // Step 1: Analyze user context and intent
-        $context = $this->contextAnalyzer->analyzeUserContext($userMessageContent, $snapshot);
+        // Step 1: Extract deterministic constraints from user text.
+        $context = $this->constraintsExtractor->extract($userMessageContent);
 
         // Step 2: Apply context-aware deterministic prioritization across tasks + events + projects
-        $today = $snapshot['today'] ?? date('Y-m-d');
+        $today = (string) ($snapshot['today'] ?? date('Y-m-d'));
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $now = new \DateTimeImmutable('now', new \DateTimeZone($timezone));
 
         Log::info('task-assistant.context_analysis', [
             'user_id' => $user->id,
@@ -53,17 +56,43 @@ class TaskAssistantTaskChoiceRunner
             'context' => $context,
         ]);
 
-        $topFocus = $this->prioritizationService->getTopFocus($snapshot, $context);
-        $focusRanking = $this->prioritizationService->prioritizeFocus($snapshot, $context);
+        $focusRanking = $this->prioritizationService->prioritizeFocus($scopedSnapshot, $context);
+        $restrictToTasksOnly = ! $this->userExplicitlyRequestsEventsOrCalendar($userMessageContent);
+
+        if ($restrictToTasksOnly) {
+            $topTask = $this->prioritizationService->getTopTask($scopedSnapshot['tasks'] ?? [], (string) ($scopedSnapshot['today'] ?? $today), $context);
+            if ($topTask === null) {
+                return [
+                    'valid' => true,
+                    'data' => $this->buildNoTasksResponse($context),
+                    'errors' => [],
+                ];
+            }
+
+            $topFocus = [
+                'type' => 'task',
+                'id' => (int) ($topTask['id'] ?? 0),
+                'title' => (string) ($topTask['title'] ?? ''),
+                'score' => (int) (
+                    ($topTask['deadline_score'] ?? 0) +
+                    ($topTask['priority_score'] ?? 0) +
+                    ($topTask['duration_score'] ?? 0)
+                ),
+                'reasoning' => (string) ($topTask['reasoning'] ?? 'Selected task'),
+                'raw' => $topTask,
+            ];
+        } else {
+            $topFocus = $this->prioritizationService->getTopFocus($scopedSnapshot, $context);
+        }
 
         // Log context-aware deterministic decision
         Log::info('task-assistant.context_aware.prioritization', [
             'user_id' => $user->id,
             'thread_id' => $thread->id,
             'top_focus' => $topFocus,
-            'total_tasks' => count($snapshot['tasks'] ?? []),
-            'total_events' => count($snapshot['events'] ?? []),
-            'total_projects' => count($snapshot['projects'] ?? []),
+            'total_tasks' => count($scopedSnapshot['tasks'] ?? []),
+            'total_events' => count($scopedSnapshot['events'] ?? []),
+            'total_projects' => count($scopedSnapshot['projects'] ?? []),
             'ranked_candidates' => count($focusRanking),
             'context' => $context,
             'reasoning' => $topFocus['reasoning'] ?? 'No reasoning available',
@@ -90,20 +119,22 @@ class TaskAssistantTaskChoiceRunner
             'reasoning' => (string) ($topFocus['reasoning'] ?? 'No reasoning available'),
         ];
 
+        $taskContext = [
+            'id' => $focusItem['id'],
+            'title' => $focusLabel,
+            'priority' => $focusItem['raw']['priority'] ?? null,
+            'ends_at' => $focusItem['raw']['ends_at'] ?? ($focusItem['raw']['end_at'] ?? null),
+            'duration_minutes' => $focusItem['raw']['duration_minutes'] ?? null,
+        ];
         $explanation = $this->generateContextAwareExplanation(
-            [
-                'id' => $focusItem['id'],
-                'title' => $focusLabel,
-                'priority' => $focusItem['raw']['priority'] ?? null,
-                'ends_at' => $focusItem['raw']['ends_at'] ?? ($focusItem['raw']['end_at'] ?? null),
-                'duration_minutes' => $focusItem['raw']['duration_minutes'] ?? null,
-            ],
+            $taskContext,
             $userMessageContent,
             $historyMessages,
             $promptData,
             $snapshot,
             $context
         );
+        $deterministicSteps = $this->buildDeterministicSteps($taskContext, $now);
 
         // Build context-aware response with LLM explanation
         $response = [
@@ -114,7 +145,7 @@ class TaskAssistantTaskChoiceRunner
             'chosen_task_title' => $focusItem['type'] === 'task' ? $focusLabel : null,
             'suggestion' => $explanation['suggestion'],
             'reason' => $explanation['reason'],
-            'steps' => $explanation['steps'],
+            'steps' => $deterministicSteps,
             'estimated_minutes' => $focusItem['raw']['duration_minutes'] ?? null,
             'priority' => $focusItem['raw']['priority'] ?? null,
             'context_applied' => $context,
@@ -136,6 +167,33 @@ class TaskAssistantTaskChoiceRunner
             'data' => $response,
             'errors' => [],
         ];
+    }
+
+    /**
+     * Enforce that the model follows the user's request.
+     *
+     * For TaskPrioritization (task_choice flow), default to tasks-only unless the user explicitly
+     * mentions event/meeting/calendar keywords.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    private function applyUserRequestScopeToSnapshot(array $snapshot, string $userMessageContent): array
+    {
+        if ($this->userExplicitlyRequestsEventsOrCalendar($userMessageContent)) {
+            return $snapshot;
+        }
+
+        // Tasks-only by default: prevents "next task" requests from returning an event.
+        $snapshot['events'] = [];
+        $snapshot['projects'] = [];
+
+        return $snapshot;
+    }
+
+    private function userExplicitlyRequestsEventsOrCalendar(string $userMessageContent): bool
+    {
+        return preg_match('/\b(event|events|meeting|calendar|schedule|appointment|appointments|class|lecture|interview|exam|presentation)\b/i', $userMessageContent) === 1;
     }
 
     /**
@@ -250,7 +308,7 @@ class TaskAssistantTaskChoiceRunner
      * @param  Collection<int, \Prism\Prism\ValueObjects\Messages\UserMessage>  $historyMessages
      * @param  array<string, mixed>  $promptData
      * @param  array<string, mixed>  $snapshot
-     * @return array{suggestion: string, reason: string, steps: array<string>}
+     * @return array{suggestion: string, reason: string}
      */
     private function generateExplanationWithLLM(
         array $topTask,
@@ -286,9 +344,8 @@ class TaskAssistantTaskChoiceRunner
             ]);
 
             return [
-                'suggestion' => $payload['suggestion'] ?? "Focus on '{$topTask['title']}' next.",
-                'reason' => $payload['reason'] ?? 'This task has been selected as your priority.',
-                'steps' => $payload['steps'] ?? ['Start working on the task.'],
+                'suggestion' => $this->sanitizeNarrativeText((string) ($payload['suggestion'] ?? "Focus on '{$topTask['title']}' next."), 300),
+                'reason' => $this->sanitizeNarrativeText((string) ($payload['reason'] ?? 'This task has been selected as your priority.'), 500),
             ];
 
         } catch (\Throwable $e) {
@@ -340,6 +397,12 @@ class TaskAssistantTaskChoiceRunner
 1. A clear suggestion focusing on this specific task
 2. The reasoning based on deadline and priority
 3. 3-4 concrete next steps
+
+IMPORTANT RULES FOR NEXT STEPS:
+- ONLY use info available in the snapshot fields: task title, priority, due status (due today/tomorrow/this week/overdue), and duration (if present).
+- Do NOT invent project requirements, checklists, or milestones that are not present in the snapshot.
+- Do NOT guess any personal details (like the user's name).
+
 Keep it concise and actionable.";
     }
 
@@ -360,13 +423,8 @@ Keep it concise and actionable.";
                     name: 'reason',
                     description: 'Why this task was chosen'
                 ),
-                new \Prism\Prism\Schema\ArraySchema(
-                    name: 'steps',
-                    description: 'Next steps to complete the task',
-                    items: new \Prism\Prism\Schema\StringSchema(name: 'step', description: 'A concrete step')
-                ),
             ],
-            requiredFields: ['suggestion', 'reason', 'steps']
+            requiredFields: ['suggestion', 'reason']
         );
     }
 
@@ -405,11 +463,6 @@ Keep it concise and actionable.";
         return [
             'suggestion' => "Focus on '{$topTask['title']}' next. This {$priority} priority task is {$deadlineText} and needs your attention.",
             'reason' => "This task was selected as your priority because it's {$priority} priority and {$deadlineText}.",
-            'steps' => [
-                'Review the task details and requirements carefully.',
-                'Block dedicated time on your calendar to work on it.',
-                'Start with the most important sub-task first.',
-            ],
         ];
     }
 
@@ -485,9 +538,8 @@ Keep it concise and actionable.";
             ]);
 
             return [
-                'suggestion' => $payload['suggestion'] ?? "Focus on '{$topTask['title']}' next.",
-                'reason' => $payload['reason'] ?? 'This task has been selected as your priority.',
-                'steps' => $payload['steps'] ?? ['Start working on the task.'],
+                'suggestion' => $this->sanitizeNarrativeText((string) ($payload['suggestion'] ?? "Focus on '{$topTask['title']}' next."), 300),
+                'reason' => $this->sanitizeNarrativeText((string) ($payload['reason'] ?? 'This task has been selected as your priority.'), 500),
             ];
 
         } catch (\Throwable $e) {
@@ -556,6 +608,12 @@ Provide:
 1. A clear suggestion that acknowledges the user's specific request
 2. Reasoning that explains why this task matches their criteria
 3. 3-4 concrete next steps
+
+IMPORTANT RULES FOR NEXT STEPS:
+- ONLY use info available in the snapshot fields: task title, priority, due status (due today/tomorrow/this week/overdue), and duration (if present).
+- Do NOT invent project requirements, checklists, or milestones that are not present in the snapshot.
+- Do NOT guess any personal details (like the user's name).
+
 Keep it conversational and acknowledge their specific needs.";
     }
 
@@ -604,11 +662,97 @@ Keep it conversational and acknowledge their specific needs.";
         return [
             'suggestion' => "Focus on '{$topTask['title']}' next. This {$priority} priority task is {$deadlineText} and matches your specific request.",
             'reason' => $reasoning.'.',
-            'steps' => [
-                'Review the task details and requirements carefully.',
-                'Block dedicated time on your calendar to work on it.',
-                'Start with the most important sub-task first.',
-            ],
         ];
+    }
+
+    /**
+     * @param  array{id: mixed, title: mixed, priority: mixed, ends_at: mixed, duration_minutes: mixed}  $taskContext
+     * @return array<int, string>
+     */
+    private function buildDeterministicSteps(array $taskContext, \DateTimeImmutable $now): array
+    {
+        $title = (string) ($taskContext['title'] ?? 'this task');
+        $duration = (int) ($taskContext['duration_minutes'] ?? 0);
+        $priority = strtolower((string) ($taskContext['priority'] ?? 'medium'));
+        $dueBucket = $this->resolveDueBucket($taskContext['ends_at'] ?? null, $now);
+
+        $sessionMinutes = match (true) {
+            $duration > 0 && $duration <= 30 => 20,
+            $duration > 0 && $duration <= 90 => 30,
+            $duration > 0 && $duration <= 180 => 45,
+            default => 60,
+        };
+
+        $urgencyStep = match ($dueBucket) {
+            'overdue' => "Start with '{$title}' now and aim to complete the first meaningful chunk within {$sessionMinutes} minutes",
+            'today' => "Block {$sessionMinutes} focused minutes for '{$title}' before the end of today",
+            'tomorrow' => "Start '{$title}' today with a {$sessionMinutes}-minute kickoff so tomorrow is easier",
+            'this_week' => "Schedule '{$title}' in your next available {$sessionMinutes}-minute focus block this week",
+            default => "Schedule '{$title}' in your next available {$sessionMinutes}-minute focus block",
+        };
+
+        $priorityStep = match ($priority) {
+            'urgent' => 'Treat this as your top priority and delay lower-priority tasks until this block is done',
+            'high' => 'Handle this before medium/low tasks to keep your deadlines under control',
+            default => 'Finish this focus block first, then reassess what to do next',
+        };
+
+        return [
+            "Open '{$title}' and list the first 2-3 concrete actions you can do right away",
+            $urgencyStep,
+            $priorityStep,
+            "After the block, record progress and decide the next step for '{$title}'",
+        ];
+    }
+
+    private function resolveDueBucket(mixed $endsAt, \DateTimeImmutable $now): string
+    {
+        if (! is_string($endsAt) || $endsAt === '') {
+            return 'none';
+        }
+
+        try {
+            $deadline = new \DateTimeImmutable($endsAt);
+            if ($deadline < $now) {
+                return 'overdue';
+            }
+
+            // Bucket by calendar day in the snapshot timezone (not by 24h intervals).
+            $nowTz = $now->getTimezone();
+            $deadlineLocal = $deadline->setTimezone($nowTz);
+
+            $nowDate = $now->format('Y-m-d');
+            $deadlineDate = $deadlineLocal->format('Y-m-d');
+
+            if ($deadlineDate === $nowDate) {
+                return 'today';
+            }
+
+            $nowMidnight = new \DateTimeImmutable($nowDate.' 00:00:00', $nowTz);
+            $deadlineMidnight = new \DateTimeImmutable($deadlineDate.' 00:00:00', $nowTz);
+            $daysUntil = (int) $nowMidnight->diff($deadlineMidnight)->days;
+
+            if ($daysUntil === 1) {
+                return 'tomorrow';
+            }
+            if ($daysUntil <= 7) {
+                return 'this_week';
+            }
+        } catch (\Throwable) {
+            return 'none';
+        }
+
+        return 'later';
+    }
+
+    private function sanitizeNarrativeText(string $text, int $maxLength): string
+    {
+        $text = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+
+        if (mb_strlen($text) <= $maxLength) {
+            return $text;
+        }
+
+        return rtrim(mb_substr($text, 0, $maxLength - 1)).'…';
     }
 }

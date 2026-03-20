@@ -37,18 +37,43 @@ final class TaskPrioritizationService
 
         $candidates = [];
 
+        /**
+         * We want cross-type prioritization to be consistent with the task ordering
+         * policy: urgency first (deadline_score), then explicit priority, then shorter
+         * duration (duration_score), and finally deterministic tie-breakers.
+         *
+         * For events/projects we emulate priority via fixed priority_score values.
+         */
         foreach ($taskRanked as $task) {
             $id = (int) ($task['id'] ?? 0);
             $title = (string) ($task['title'] ?? '');
             if ($id <= 0 || $title === '') {
                 continue;
             }
-            $score = (int) (($task['deadline_score'] ?? 0) + ($task['priority_score'] ?? 0) + ($task['duration_score'] ?? 0));
+
+            $deadlineEpoch = PHP_INT_MAX;
+            if (is_string($task['ends_at'] ?? null) && ($task['ends_at'] ?? '') !== '') {
+                try {
+                    $deadlineEpoch = (new \DateTimeImmutable((string) $task['ends_at']))->getTimestamp();
+                } catch (\Throwable) {
+                    $deadlineEpoch = PHP_INT_MAX;
+                }
+            }
+
+            $deadlineScore = (int) ($task['deadline_score'] ?? 0);
+            $priorityScore = (int) ($task['priority_score'] ?? 0);
+            $durationScore = (int) ($task['duration_score'] ?? 0);
+
             $candidates[] = [
                 'type' => 'task',
                 'id' => $id,
                 'title' => $title,
-                'score' => $score,
+                'score' => $deadlineScore + $priorityScore + $durationScore,
+                'deadline_score' => $deadlineScore,
+                'priority_score' => $priorityScore,
+                'duration_score' => $durationScore,
+                'deadline_epoch' => $deadlineEpoch,
+                'duration_minutes' => (int) ($task['duration_minutes'] ?? 0),
                 'reasoning' => $this->generateReasoning($task, $now),
                 'raw' => $task,
             ];
@@ -60,11 +85,17 @@ final class TaskPrioritizationService
             if ($id <= 0 || $title === '') {
                 continue;
             }
+
             $candidates[] = [
                 'type' => 'event',
                 'id' => $id,
                 'title' => $title,
                 'score' => (int) ($event['score'] ?? 0),
+                'deadline_score' => (int) ($event['deadline_score'] ?? ($event['score'] ?? 0)),
+                'priority_score' => (int) ($event['priority_score'] ?? 0),
+                'duration_score' => (int) ($event['duration_score'] ?? 0),
+                'deadline_epoch' => (int) ($event['deadline_epoch'] ?? PHP_INT_MAX),
+                'duration_minutes' => 0,
                 'reasoning' => (string) ($event['reasoning'] ?? 'Upcoming event'),
                 'raw' => $event,
             ];
@@ -76,41 +107,62 @@ final class TaskPrioritizationService
             if ($id <= 0 || $title === '') {
                 continue;
             }
+
             $candidates[] = [
                 'type' => 'project',
                 'id' => $id,
                 'title' => $title,
                 'score' => (int) ($project['score'] ?? 0),
+                'deadline_score' => (int) ($project['deadline_score'] ?? ($project['score'] ?? 0)),
+                'priority_score' => (int) ($project['priority_score'] ?? 0),
+                'duration_score' => (int) ($project['duration_score'] ?? 0),
+                'deadline_epoch' => (int) ($project['deadline_epoch'] ?? PHP_INT_MAX),
+                'duration_minutes' => 0,
                 'reasoning' => (string) ($project['reasoning'] ?? 'Active project'),
                 'raw' => $project,
             ];
         }
 
         usort($candidates, function (array $a, array $b): int {
-            if ($a['score'] !== $b['score']) {
-                return $b['score'] <=> $a['score'];
-            }
-            if ($a['type'] !== $b['type']) {
-                $typeOrder = [
-                    'task' => 3,
-                    'event' => 2,
-                    'project' => 1,
-                ];
-
-                $aRank = (int) ($typeOrder[$a['type']] ?? 0);
-                $bRank = (int) ($typeOrder[$b['type']] ?? 0);
-
-                if ($aRank !== $bRank) {
-                    return $bRank <=> $aRank;
-                }
-
-                return $a['id'] <=> $b['id'];
+            $aDeadline = (int) ($a['deadline_score'] ?? 0);
+            $bDeadline = (int) ($b['deadline_score'] ?? 0);
+            if ($aDeadline !== $bDeadline) {
+                return $bDeadline <=> $aDeadline; // higher urgency wins
             }
 
-            return $a['id'] <=> $b['id'];
+            $aPriority = (int) ($a['priority_score'] ?? 0);
+            $bPriority = (int) ($b['priority_score'] ?? 0);
+            if ($aPriority !== $bPriority) {
+                return $bPriority <=> $aPriority; // then explicit priority
+            }
+
+            $aEpoch = (int) ($a['deadline_epoch'] ?? PHP_INT_MAX);
+            $bEpoch = (int) ($b['deadline_epoch'] ?? PHP_INT_MAX);
+            if ($aEpoch !== $bEpoch) {
+                return $aEpoch <=> $bEpoch; // earlier deadline/time wins
+            }
+
+            $aDurationScore = (int) ($a['duration_score'] ?? 0);
+            $bDurationScore = (int) ($b['duration_score'] ?? 0);
+            if ($aDurationScore !== $bDurationScore) {
+                return $bDurationScore <=> $aDurationScore; // prefer shorter duration
+            }
+
+            $aDurationMinutes = (int) ($a['duration_minutes'] ?? 0);
+            $bDurationMinutes = (int) ($b['duration_minutes'] ?? 0);
+            if ($aDurationMinutes !== $bDurationMinutes) {
+                return $aDurationMinutes <=> $bDurationMinutes;
+            }
+
+            return (int) ($a['id'] ?? 0) <=> (int) ($b['id'] ?? 0);
         });
 
-        return $candidates;
+        // Strip helper fields so the return shape matches callers.
+        return array_map(function (array $c): array {
+            unset($c['deadline_score'], $c['priority_score'], $c['duration_score'], $c['deadline_epoch'], $c['duration_minutes']);
+
+            return $c;
+        }, $candidates);
     }
 
     /**
@@ -198,17 +250,49 @@ final class TaskPrioritizationService
             return [];
         }
 
-        $todayDate = $now;
-
-        return $collection
-            ->map(function (array $task) use ($todayDate) {
-                return $this->calculateTaskScore($task, $todayDate);
+        $scored = $collection
+            ->map(function (array $task) use ($now) {
+                return $this->calculateTaskScore($task, $now);
             })
-            ->sortByDesc('priority_score')
-            ->sortByDesc('deadline_score')
-            ->sortBy('duration_minutes')
             ->values()
             ->all();
+
+        // IMPORTANT:
+        // Collection's chained `sortBy*()` calls are not a stable multi-key sort.
+        // The last call (`sortBy('duration_minutes')`) currently overrides earlier
+        // sorts, which can cause short-duration tasks to win over more urgent/deadline-heavy ones.
+        usort($scored, function (array $a, array $b): int {
+            $aDeadline = (int) ($a['deadline_score'] ?? 0);
+            $bDeadline = (int) ($b['deadline_score'] ?? 0);
+            if ($aDeadline !== $bDeadline) {
+                return $bDeadline <=> $aDeadline; // deadline first (urgent/overdue wins)
+            }
+
+            $aPriority = (int) ($a['priority_score'] ?? 0);
+            $bPriority = (int) ($b['priority_score'] ?? 0);
+            if ($aPriority !== $bPriority) {
+                return $bPriority <=> $aPriority; // then priority
+            }
+
+            $aDurationScore = (int) ($a['duration_score'] ?? 0);
+            $bDurationScore = (int) ($b['duration_score'] ?? 0);
+            if ($aDurationScore !== $bDurationScore) {
+                return $bDurationScore <=> $aDurationScore; // then prefers shorter tasks
+            }
+
+            $aDurationMinutes = (int) ($a['duration_minutes'] ?? PHP_INT_MAX);
+            $bDurationMinutes = (int) ($b['duration_minutes'] ?? PHP_INT_MAX);
+            if ($aDurationMinutes !== $bDurationMinutes) {
+                return $aDurationMinutes <=> $bDurationMinutes; // deterministic tie-break
+            }
+
+            $aId = (int) ($a['id'] ?? 0);
+            $bId = (int) ($b['id'] ?? 0);
+
+            return $aId <=> $bId;
+        });
+
+        return $scored;
     }
 
     /**
@@ -238,64 +322,82 @@ final class TaskPrioritizationService
 
         return $collection
             ->map(function (array $event) use ($now): array {
-                $score = 0;
                 $reasoning = 'Upcoming event';
 
                 $startsAt = $event['starts_at'] ?? null;
                 $endsAt = $event['ends_at'] ?? null;
                 $allDay = (bool) ($event['all_day'] ?? false);
 
+                $deadlineEpoch = PHP_INT_MAX;
+                $deadlineScore = 0;
+
                 if (is_string($startsAt) && $startsAt !== '') {
                     try {
                         $start = new \DateTimeImmutable($startsAt);
-                        $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
+                        $deadlineEpoch = $start->getTimestamp();
 
-                        if ($minutesUntil < 0) {
-                            $score += 900;
-                            $reasoning = 'Event already started';
-                        } elseif ($minutesUntil <= 60) {
-                            $score += 850;
-                            $reasoning = 'Event starts within 1 hour';
-                        } elseif ($minutesUntil <= 180) {
-                            $score += 750;
-                            $reasoning = 'Event starts soon';
-                        } elseif ($start->format('Y-m-d') === $now->format('Y-m-d')) {
-                            $score += 650;
-                            $reasoning = 'Event is today';
-                        } else {
-                            $score += 300;
+                        // Overdue is based on end time, not start time.
+                        if (is_string($endsAt) && $endsAt !== '') {
+                            try {
+                                $end = new \DateTimeImmutable($endsAt);
+                                if ($end < $now) {
+                                    $deadlineScore = 1000;
+                                }
+                            } catch (\Throwable) {
+                                // ignore invalid ends_at
+                            }
+                        }
+
+                        // If still not overdue, bucket by start time.
+                        if ($deadlineScore !== 1000) {
+                            $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
+
+                            if ($minutesUntil < 0) {
+                                $deadlineScore = 900; // started today (treated as due today urgency)
+                                $reasoning = 'Event already started';
+                            } elseif ($start->format('Y-m-d') === $now->format('Y-m-d')) {
+                                $deadlineScore = 900;
+                                $reasoning = $minutesUntil <= 60 ? 'Event starts within 1 hour' : 'Event is today';
+                            } else {
+                                $daysUntil = (int) $now->diff($start)->days;
+                                if ($daysUntil === 1) {
+                                    $deadlineScore = 800;
+                                    $reasoning = 'Event starts tomorrow';
+                                } elseif ($daysUntil <= 7) {
+                                    $deadlineScore = 700 - ($daysUntil * 50);
+                                    $reasoning = 'Event starts soon';
+                                } else {
+                                    $deadlineScore = max(100, 600 - ($daysUntil * 20));
+                                    $reasoning = 'Event starts later';
+                                }
+                            }
                         }
                     } catch (\Throwable) {
-                        $score += 100;
+                        $deadlineScore = 0;
+                        $deadlineEpoch = PHP_INT_MAX;
                     }
                 }
 
-                if ($allDay) {
-                    $score += 100;
+                if ($allDay && $deadlineScore > 0) {
+                    // All-day events should feel at least as urgent as timed events that start today.
                     $reasoning = $reasoning === 'Upcoming event' ? 'All-day event' : $reasoning;
                 }
 
-                if (is_string($endsAt) && $endsAt !== '') {
-                    try {
-                        $end = new \DateTimeImmutable($endsAt);
-                        if ($end < $now) {
-                            $score -= 300;
-                        }
-                    } catch (\Throwable) {
-                    }
+                // Map events to a strong priority because the user asked to prep for a time-bound item.
+                $priorityScore = ($event['status'] ?? null) === EventStatus::Ongoing->value ? 120 : 110;
+                $durationScore = 50;
+
+                // If we have no deadline score but we still have starts_at, treat as low urgency (so it doesn't beat tasks).
+                if ($deadlineScore === 0 && $deadlineEpoch !== PHP_INT_MAX) {
+                    $deadlineScore = 100;
                 }
 
-                if ($score > 0 && ($event['status'] ?? null) === EventStatus::Ongoing->value) {
-                    // Momentum boost, but intentionally small.
-                    $score += self::EVENT_ONGOING_BOOST;
-                    if ($reasoning === 'Upcoming event') {
-                        $reasoning = 'Ongoing event';
-                    } else {
-                        $reasoning .= ' (ongoing)';
-                    }
-                }
-
-                $event['score'] = $score;
+                // Preserve legacy $score field for any existing logs/diagnostics.
+                $event['score'] = $deadlineScore + $priorityScore + $durationScore;
+                $event['deadline_score'] = $deadlineScore;
+                $event['priority_score'] = $priorityScore;
+                $event['duration_score'] = $durationScore;
+                $event['deadline_epoch'] = $deadlineEpoch;
                 $event['reasoning'] = $reasoning;
 
                 return $event;
@@ -329,33 +431,50 @@ final class TaskPrioritizationService
 
         return $collection
             ->map(function (array $project) use ($now): array {
-                $score = 250;
                 $reasoning = 'Active project';
+                $deadlineEpoch = PHP_INT_MAX;
+                $deadlineScore = 0;
 
                 $endAt = $project['end_at'] ?? null;
                 if (is_string($endAt) && $endAt !== '') {
                     try {
                         $end = new \DateTimeImmutable($endAt);
+                        $deadlineEpoch = $end->getTimestamp();
+
                         $daysUntil = (int) floor(($end->getTimestamp() - $now->getTimestamp()) / 86400);
+
                         if ($end < $now) {
-                            $score += 700;
+                            $deadlineScore = 1000;
                             $reasoning = 'Project is overdue';
                         } elseif ($daysUntil === 0) {
-                            $score += 650;
+                            $deadlineScore = 900;
                             $reasoning = 'Project ends today';
                         } elseif ($daysUntil <= 7) {
-                            $score += 600 - ($daysUntil * 50);
+                            $deadlineScore = 700 - ($daysUntil * 50);
                             $reasoning = 'Project ends soon';
                         } else {
-                            $score += max(50, 400 - ($daysUntil * 10));
+                            $deadlineScore = max(100, 600 - ($daysUntil * 20));
                             $reasoning = 'Project has an upcoming end date';
                         }
                     } catch (\Throwable) {
-                        $score += 50;
+                        $deadlineScore = 0;
+                        $deadlineEpoch = PHP_INT_MAX;
                     }
                 }
 
-                $project['score'] = $score;
+                // Projects are important but not usually as time-urgent as events/tasks.
+                $priorityScore = 80;
+                $durationScore = 50;
+
+                if ($deadlineScore === 0 && $deadlineEpoch !== PHP_INT_MAX) {
+                    $deadlineScore = 100;
+                }
+
+                $project['score'] = $deadlineScore + $priorityScore + $durationScore;
+                $project['deadline_score'] = $deadlineScore;
+                $project['priority_score'] = $priorityScore;
+                $project['duration_score'] = $durationScore;
+                $project['deadline_epoch'] = $deadlineEpoch;
                 $project['reasoning'] = $reasoning;
 
                 return $project;
@@ -508,17 +627,24 @@ final class TaskPrioritizationService
 
         try {
             $deadline = new \DateTime($task['ends_at']);
-            $interval = $now->diff($deadline);
-            $daysUntil = $interval->days;
-
-            // Scoring system:
             if ($deadline < $now) {
                 return 1000; // Overdue - highest priority
             }
 
-            if ($daysUntil === 0) {
+            // Bucket by calendar day in the snapshot timezone (not by 24h intervals).
+            $nowTz = $now->getTimezone();
+            $deadlineLocal = $deadline->setTimezone($nowTz);
+
+            $nowDate = $now->format('Y-m-d');
+            $deadlineDate = $deadlineLocal->format('Y-m-d');
+
+            if ($deadlineDate === $nowDate) {
                 return 900; // Due today - very high priority
             }
+
+            $nowMidnight = new \DateTimeImmutable($nowDate.' 00:00:00', $nowTz);
+            $deadlineMidnight = new \DateTimeImmutable($deadlineDate.' 00:00:00', $nowTz);
+            $daysUntil = (int) $nowMidnight->diff($deadlineMidnight)->days;
 
             if ($daysUntil === 1) {
                 return 800; // Due tomorrow - high priority
