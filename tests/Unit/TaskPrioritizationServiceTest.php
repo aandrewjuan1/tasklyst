@@ -172,3 +172,81 @@ it('keeps urgency dominant over small doing momentum boost', function (): void {
     expect($top['type'])->toBe('task');
     expect($top['id'])->toBe(1);
 });
+
+it('prefers urgent sooner deadlines over short-duration future tasks', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+    $today = $now->toDateString();
+
+    $snapshot = [
+        'today' => $today,
+        'timezone' => $timezone,
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Urgent soon',
+                'priority' => 'urgent',
+                'status' => 'to_do',
+                'ends_at' => $now->addDays(2)->setTime(23, 59)->toIso8601String(),
+                'duration_minutes' => 240,
+            ],
+            [
+                'id' => 2,
+                'title' => 'Short future',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addDays(9)->setTime(23, 59)->toIso8601String(),
+                'duration_minutes' => 15,
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $top = $service->getTopFocus($snapshot);
+
+    expect($top)->not->toBeNull();
+    expect($top['type'])->toBe('task');
+    expect($top['id'])->toBe(1);
+});
+
+it('prefers near events over medium tasks due today', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Medium task due today',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(3)->toIso8601String(),
+                'duration_minutes' => 60,
+            ],
+        ],
+        'events' => [
+            [
+                'id' => 10,
+                'title' => 'Meeting soon',
+                'starts_at' => $now->addMinutes(30)->toIso8601String(),
+                'ends_at' => $now->addMinutes(60)->toIso8601String(),
+                'all_day' => false,
+                'status' => 'scheduled',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $top = $service->getTopFocus($snapshot);
+
+    expect($top)->not->toBeNull();
+    expect($top['type'])->toBe('event');
+    expect($top['id'])->toBe(10);
+});

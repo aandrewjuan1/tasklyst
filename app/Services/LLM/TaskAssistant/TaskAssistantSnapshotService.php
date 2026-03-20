@@ -45,7 +45,9 @@ class TaskAssistantSnapshotService
             ->all();
 
         $events = Event::query()
-            ->forAssistantSnapshot($user->id, $now)
+            // Make the event window large enough for "meeting soon" style prompts.
+            // Still bounded by an explicit limit to avoid oversized prompts.
+            ->forAssistantSnapshot($user->id, $now, 168, 30, 24)
             ->get()
             ->map(function (Event $event): array {
                 return [

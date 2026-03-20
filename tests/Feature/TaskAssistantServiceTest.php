@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\EventStatus;
+use App\Models\Event;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
@@ -113,28 +115,15 @@ test('runTaskChoice stores validated structured task choice data', function (): 
         'title' => 'Read chapter 1',
         'status' => \App\Enums\TaskStatus::ToDo,
         'priority' => \App\Enums\TaskPriority::High,
+        'start_datetime' => null,
         'end_datetime' => now()->addDay(),
     ]);
 
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'intent_type' => 'general',
-                'priority_filters' => [],
-                'task_keywords' => [],
-                'time_constraint' => null,
-                'comparison_focus' => null,
-            ])
-            ->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()
-            ->withStructured([
                 'suggestion' => 'Focus on reading next.',
                 'reason' => 'It will move you forward quickly.',
-                'steps' => [
-                    'Skim the headings first.',
-                    'Read actively for 20 minutes.',
-                    'Write down 3 key points.',
-                ],
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -168,35 +157,18 @@ test('task_choice queued path matches sync formatted output', function (): void 
         'title' => 'Read chapter 1',
         'status' => \App\Enums\TaskStatus::ToDo,
         'priority' => \App\Enums\TaskPriority::High,
+        'start_datetime' => null,
         'end_datetime' => now()->addDay(),
     ]);
 
     Prism::fake([
-        // sync: context analysis + explanation
         StructuredResponseFake::make()->withStructured([
-            'intent_type' => 'general',
-            'priority_filters' => [],
-            'task_keywords' => [],
-            'time_constraint' => null,
-            'comparison_focus' => null,
+            'suggestion' => 'Focus on reading next.',
+            'reason' => 'It will move you forward quickly.',
         ])->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()->withStructured([
             'suggestion' => 'Focus on reading next.',
             'reason' => 'It will move you forward quickly.',
-            'steps' => ['Skim headings', 'Read actively', 'Write 3 key points'],
-        ])->withUsage(new Usage(5, 10)),
-        // queued: context analysis + explanation
-        StructuredResponseFake::make()->withStructured([
-            'intent_type' => 'general',
-            'priority_filters' => [],
-            'task_keywords' => [],
-            'time_constraint' => null,
-            'comparison_focus' => null,
-        ])->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()->withStructured([
-            'suggestion' => 'Focus on reading next.',
-            'reason' => 'It will move you forward quickly.',
-            'steps' => ['Skim headings', 'Read actively', 'Write 3 key points'],
         ])->withUsage(new Usage(5, 10)),
     ]);
 
@@ -225,6 +197,96 @@ test('task_choice queued path matches sync formatted output', function (): void 
     expect($syncAssistant)->not->toBeNull();
     expect($queuedAssistantMsg->content)->toBe($syncAssistant->content);
     expect($queuedAssistantMsg->metadata['processed'] ?? false)->toBeTrue();
+});
+
+test('task_choice uses deterministic concrete steps even when llm narrative is generic', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $urgentTask = Task::factory()->for($user)->create([
+        'title' => 'Urgent task',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'priority' => \App\Enums\TaskPriority::Urgent,
+        'start_datetime' => null,
+        'end_datetime' => now()->addHours(6),
+        'duration' => 60,
+    ]);
+
+    $mediumTask = Task::factory()->for($user)->create([
+        'title' => 'Medium task',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'priority' => \App\Enums\TaskPriority::Medium,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDays(7),
+        'duration' => 60,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'suggestion' => 'Pick the most urgent one.',
+                'reason' => 'Urgency and due date.',
+            ])->withUsage(new Usage(5, 10)),
+    ]);
+
+    $service = app(TaskAssistantService::class);
+    $runner = app(TaskAssistantTaskChoiceRunner::class);
+
+    $result = $service->runTaskChoice($thread, 'What should I work on next from my task list?', $runner);
+
+    expect($result['valid'])->toBeTrue();
+    expect($result['data']['chosen_type'])->toBe('task');
+    expect($result['data']['chosen_task_id'])->toBe($urgentTask->id);
+    expect($result['data']['chosen_task_id'])->not->toBe($mediumTask->id);
+    expect($result['data']['steps'])->toHaveCount(4);
+    expect($result['data']['steps'][0])->toContain("Open '");
+});
+
+test('task_choice restricts to tasks-only when user asks for a task', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    // Create an event that would otherwise out-rank a task (to reproduce the run-2 issue).
+    Event::factory()->for($user)->create([
+        'title' => 'Upcoming meeting',
+        'all_day' => false,
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => now()->addMinutes(30),
+        'end_datetime' => now()->addMinutes(90),
+    ]);
+
+    // Task: urgent but with zero duration so its score is lower than the event.
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Urgent task',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'priority' => \App\Enums\TaskPriority::Urgent,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDays(2)->endOfDay(),
+        'duration' => 0,
+    ]);
+
+    Prism::fake([
+        // explanation (steps are deterministic; schema requires only suggestion + reason)
+        StructuredResponseFake::make()
+            ->withStructured([
+                'suggestion' => 'Focus on your urgent task next.',
+                'reason' => 'It is the best next choice based on urgency and due date.',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $service = app(TaskAssistantService::class);
+    $runner = app(TaskAssistantTaskChoiceRunner::class);
+
+    $result = $service->runTaskChoice(
+        $thread,
+        'Help me choose my next task based on urgency and due date.',
+        $runner
+    );
+
+    expect($result['valid'])->toBeTrue();
+    expect($result['data']['chosen_type'])->toBe('task');
+    expect($result['data']['chosen_task_id'])->toBe($task->id);
 });
 
 // Additional tests for intent-based tool gating and mutating flows

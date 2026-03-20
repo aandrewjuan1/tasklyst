@@ -656,16 +656,29 @@ class Event extends Model
      *
      * This focuses on a short upcoming window from "now".
      */
-    public function scopeForAssistantSnapshot(Builder $query, int $userId, CarbonInterface $now, int $hours = 24, int $limit = 10): Builder
-    {
+    public function scopeForAssistantSnapshot(
+        Builder $query,
+        int $userId,
+        CarbonInterface $now,
+        int $hours = 24,
+        int $limit = 10,
+        int $hoursBack = 6
+    ): Builder {
         $windowEnd = $now->copy()->addHours($hours);
+        $windowStart = $now->copy()->subHours($hoursBack);
 
         return $query
             ->forUser($userId)
             ->notCancelled()
             ->notCompleted()
             ->whereNotNull('start_datetime')
-            ->whereBetween('start_datetime', [$now, $windowEnd])
+            // Include events that overlap the assistant snapshot window:
+            // - start_datetime must be before the window end
+            // - end_datetime must be after the window start (or null = ongoing)
+            ->where('start_datetime', '<=', $windowEnd)
+            ->where(function (Builder $q) use ($windowStart): void {
+                $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', $windowStart);
+            })
             ->orderByStartTime()
             ->limit($limit);
     }

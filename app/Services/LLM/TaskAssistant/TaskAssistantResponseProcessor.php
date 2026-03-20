@@ -188,6 +188,33 @@ class TaskAssistantResponseProcessor
             return $baseValidation;
         }
 
+        $snapshotTaskCount = count($snapshot['tasks'] ?? []);
+        $hasConcreteChoice = (
+            isset($normalized['chosen_task_id']) &&
+            is_numeric($normalized['chosen_task_id']) &&
+            (int) $normalized['chosen_task_id'] > 0 &&
+            isset($normalized['chosen_task_title']) &&
+            is_string($normalized['chosen_task_title']) &&
+            trim($normalized['chosen_task_title']) !== ''
+        ) || (
+            isset($normalized['chosen_id']) &&
+            is_numeric($normalized['chosen_id']) &&
+            (int) $normalized['chosen_id'] > 0 &&
+            isset($normalized['chosen_title']) &&
+            is_string($normalized['chosen_title']) &&
+            trim($normalized['chosen_title']) !== ''
+        );
+
+        // If there are tasks in snapshot, prioritize concrete picks over generic guidance.
+        // This prevents retry paths from returning valid-but-vague payloads.
+        if ($snapshotTaskCount > 0 && ! $hasConcreteChoice) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => ['Task choice response must include a concrete chosen task from snapshot.tasks.'],
+            ];
+        }
+
         // non-blocking content checks
         $errors = [];
         $suggestion = (string) ($normalized['suggestion'] ?? $normalized['summary'] ?? $normalized['natural_suggestion'] ?? '');
@@ -904,8 +931,20 @@ class TaskAssistantResponseProcessor
             $step = preg_replace('/^[\d\.\-\*\s]+/', '', $step); // Remove numbers/bullets
             $step = preg_replace('/^(Step|Next|Action):\s*/i', '', $step); // Remove prefixes
 
-            if (! empty(trim($step))) {
-                $processedSteps[] = lcfirst(trim($step));
+            // Normalize common LLM scaffolding ("First,", "Next,", etc.) so we don't
+            // get duplicated phrasing like "Start by first, ... then next, ...".
+            $step = preg_replace('/^(first|next|then|finally)\s*,\s*/i', '', $step);
+            $step = preg_replace('/^(first|next|then|finally)\s*[:;]\s*/i', '', $step);
+            $step = preg_replace('/^and\s*finally\s*,?\s*/i', '', $step);
+
+            $step = trim((string) $step);
+
+            // Strip trailing punctuation so joining doesn't produce "today., then ..."
+            // The surrounding formatter controls where sentence-ending periods go.
+            $step = preg_replace('/[\\s\\,\\.\\!\\?]+$/u', '', $step) ?? $step;
+
+            if ($step !== '') {
+                $processedSteps[] = lcfirst($step);
             }
         }
 
