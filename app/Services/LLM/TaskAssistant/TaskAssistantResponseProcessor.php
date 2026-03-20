@@ -93,6 +93,7 @@ class TaskAssistantResponseProcessor
             'daily_schedule' => $this->validateDailyScheduleData($data, $snapshot),
             'study_plan' => $this->validateStudyPlanData($data, $snapshot),
             'review_summary' => $this->validateReviewSummaryData($data, $snapshot),
+            'task_list' => $this->validateTaskListData($data),
             'mutating' => $this->validateMutatingData($data),
             default => ['valid' => true, 'data' => $data, 'errors' => []],
         };
@@ -205,9 +206,20 @@ class TaskAssistantResponseProcessor
             trim($normalized['chosen_title']) !== ''
         );
 
+        $isExplicitNoMatch = array_key_exists('chosen_type', $normalized)
+            && $normalized['chosen_type'] === null
+            && array_key_exists('chosen_id', $normalized)
+            && $normalized['chosen_id'] === null
+            && array_key_exists('chosen_title', $normalized)
+            && $normalized['chosen_title'] === null
+            && array_key_exists('chosen_task_id', $normalized)
+            && $normalized['chosen_task_id'] === null
+            && array_key_exists('chosen_task_title', $normalized)
+            && $normalized['chosen_task_title'] === null;
+
         // If there are tasks in snapshot, prioritize concrete picks over generic guidance.
         // This prevents retry paths from returning valid-but-vague payloads.
-        if ($snapshotTaskCount > 0 && ! $hasConcreteChoice) {
+        if ($snapshotTaskCount > 0 && ! $hasConcreteChoice && ! $isExplicitNoMatch) {
             return [
                 'valid' => false,
                 'data' => [],
@@ -466,6 +478,109 @@ class TaskAssistantResponseProcessor
     }
 
     /**
+     * @param  array<string, mixed>  $data
+     * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
+     */
+    private function validateTaskListData(array $data): array
+    {
+        $items = $data['items'] ?? null;
+
+        if (! is_array($items)) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => ['task_list.items must be an array.'],
+            ];
+        }
+
+        if ($items === []) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => ['task_list.items must not be empty.'],
+            ];
+        }
+
+        $maxItems = 20;
+        if (count($items) > $maxItems) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => ["task_list.items must not contain more than {$maxItems} items."],
+            ];
+        }
+
+        $allowedPriorities = ['urgent', 'high', 'medium', 'low'];
+        $allowedNextStepsMax = 5;
+        $errors = [];
+
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                $errors[] = "items.{$index} must be an object.";
+
+                continue;
+            }
+
+            $taskId = $item['task_id'] ?? null;
+            $title = $item['title'] ?? null;
+            $reason = $item['reason'] ?? null;
+            $dueDate = $item['due_date'] ?? null;
+            $priority = $item['priority'] ?? null;
+            $nextSteps = $item['next_steps'] ?? null;
+
+            if (! is_numeric($taskId) || (int) $taskId <= 0) {
+                $errors[] = "items.{$index}.task_id must be a positive integer.";
+            }
+
+            if (! is_string($title) || trim($title) === '') {
+                $errors[] = "items.{$index}.title must be a non-empty string.";
+            }
+
+            if (! (is_null($reason) || is_string($reason))) {
+                $errors[] = "items.{$index}.reason must be a string or null.";
+            } elseif (is_string($reason) && trim($reason) === '') {
+                $errors[] = "items.{$index}.reason must not be an empty string.";
+            }
+
+            if (! is_array($nextSteps) || $nextSteps === []) {
+                $errors[] = "items.{$index}.next_steps must be a non-empty array.";
+            } elseif (count($nextSteps) > $allowedNextStepsMax) {
+                $errors[] = "items.{$index}.next_steps must not contain more than {$allowedNextStepsMax} items.";
+            } else {
+                foreach ($nextSteps as $stepIndex => $step) {
+                    if (! is_string($step) || trim($step) === '') {
+                        $errors[] = "items.{$index}.next_steps.{$stepIndex} must be a non-empty string.";
+                    }
+                }
+            }
+
+            if (! (is_null($dueDate) || is_string($dueDate))) {
+                $errors[] = "items.{$index}.due_date must be a string or null.";
+            }
+
+            if (! (is_null($priority) || is_string($priority))) {
+                $errors[] = "items.{$index}.priority must be a string or null.";
+            } elseif (is_string($priority) && $priority !== '' && ! in_array(strtolower($priority), $allowedPriorities, true)) {
+                $errors[] = "items.{$index}.priority must be one of: ".implode(', ', $allowedPriorities).'.';
+            }
+        }
+
+        if ($errors !== []) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => $errors,
+            ];
+        }
+
+        return [
+            'valid' => true,
+            'data' => $data,
+            'errors' => [],
+        ];
+    }
+
+    /**
      * Retry LLM request with correction message.
      * (unchanged)
      */
@@ -561,6 +676,7 @@ class TaskAssistantResponseProcessor
 
         match ($flow) {
             'advisory' => $parts[] = 'Ensure the JSON body contains the expected keys and valid arrays where applicable.',
+            'task_choice' => $parts[] = "For task_choice, return either:\n- a concrete chosen task/event/project that matches one item from the snapshot, OR\n- an explicit no-match payload when none match your filters:\n  chosen_type=null, chosen_id=null, chosen_title=null, chosen_task_id=null, chosen_task_title=null\nAvoid picking an unrelated task just to satisfy the schema.",
             default => null,
         };
 
@@ -577,6 +693,7 @@ class TaskAssistantResponseProcessor
             'daily_schedule' => TaskAssistantSchemas::dailyScheduleSchema(),
             'study_plan' => TaskAssistantSchemas::studyPlanSchema(),
             'review_summary' => TaskAssistantSchemas::reviewSummarySchema(),
+            'task_list' => TaskAssistantSchemas::taskListSchema(),
             'mutating' => TaskAssistantSchemas::mutatingSuggestionSchema(),
             default => TaskAssistantSchemas::advisorySchema(),
         };
@@ -602,6 +719,7 @@ class TaskAssistantResponseProcessor
             'daily_schedule' => $this->buildDailyScheduleFallback($snapshot),
             'study_plan' => $this->buildStudyPlanFallback($snapshot),
             'review_summary' => $this->buildReviewSummaryFallback($snapshot),
+            'task_list' => $this->buildTaskListFallback($snapshot),
             'mutating' => [
                 'action' => 'list_tasks',
                 'args' => [],
@@ -609,6 +727,36 @@ class TaskAssistantResponseProcessor
             ],
             default => [],
         };
+    }
+
+    private function buildTaskListFallback(array $snapshot): array
+    {
+        $tasks = collect($snapshot['tasks'] ?? [])
+            ->take(5)
+            ->map(function (array $task): array {
+                return [
+                    'task_id' => (int) ($task['id'] ?? 0),
+                    'title' => (string) ($task['title'] ?? ''),
+                    'due_date' => is_string($task['ends_at'] ?? null) ? (string) $task['ends_at'] : null,
+                    'priority' => is_string($task['priority'] ?? null) ? (string) $task['priority'] : null,
+                    'reason' => 'Selected based on urgency and priority.',
+                    'next_steps' => [
+                        'Start with a short 20-30 minute focused session on this task',
+                        'Break it into 2-3 smallest actionable subtasks and begin the earliest one',
+                        'After you make progress, set a follow-up time to continue',
+                    ],
+                ];
+            })
+            ->values()
+            ->all();
+
+        $tasks = array_values(array_filter($tasks, fn (array $t): bool => $t['task_id'] > 0 && $t['title'] !== ''));
+
+        return [
+            'summary' => 'Your top tasks.',
+            'limit_used' => count($tasks),
+            'items' => $tasks,
+        ];
     }
 
     private function buildTaskChoiceFallback(array $snapshot): array
@@ -732,11 +880,124 @@ class TaskAssistantResponseProcessor
             'daily_schedule' => $this->formatDailyScheduleData($data),
             'study_plan' => $this->formatStudyPlanData($data),
             'review_summary' => $this->formatReviewSummaryData($data),
+            'task_list' => $this->formatTaskListData($data),
             'mutating' => $this->formatMutatingData($data),
             default => $this->formatDefaultData($data),
         };
 
         return trim($body);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function formatTaskListData(array $data): string
+    {
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        $summary = trim((string) ($data['summary'] ?? ''));
+        $limitUsed = $data['limit_used'] ?? count($items);
+
+        if ($summary === '') {
+            $summary = "Here are your top {$limitUsed} tasks:";
+        }
+
+        $timezone = (string) config('app.timezone', 'UTC');
+        $now = new \DateTimeImmutable('now', new \DateTimeZone($timezone));
+        $today = $now->format('Y-m-d');
+        $tomorrow = $now->modify('+1 day')->format('Y-m-d');
+
+        $lines = [];
+        $lines[] = $summary;
+
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+
+            $dueLabel = null;
+            $dueDate = $item['due_date'] ?? null;
+            if (is_string($dueDate) && trim($dueDate) !== '') {
+                try {
+                    $dt = new \DateTimeImmutable($dueDate);
+                    $dtStr = $dt->format('Y-m-d');
+                    if ($dtStr === $today) {
+                        $dueLabel = 'due today';
+                    } elseif ($dtStr === $tomorrow) {
+                        $dueLabel = 'due tomorrow';
+                    } else {
+                        $dueLabel = 'due '.$dt->format('Y-m-d');
+                    }
+                } catch (\Throwable) {
+                    $dueLabel = 'due '.$dueDate;
+                }
+            }
+
+            $priority = $item['priority'] ?? null;
+            $priorityLabel = null;
+            if (is_string($priority) && trim($priority) !== '') {
+                $priorityLabel = strtolower(trim($priority));
+            }
+
+            $metaParts = [];
+            if ($dueLabel !== null) {
+                $metaParts[] = $dueLabel;
+            }
+            if ($priorityLabel !== null) {
+                $metaParts[] = $priorityLabel.' priority';
+            }
+
+            $taskLine = ($index + 1).'. '.$title;
+            if ($metaParts !== []) {
+                $taskLine .= ' ('.implode(', ', $metaParts).')';
+            }
+
+            $lines[] = $taskLine;
+
+            // Format reasoning + next steps in a conversational way.
+            $reason = trim((string) ($item['reason'] ?? ''));
+            $reasonSentence = '';
+            if ($reason !== '') {
+                // Typical engine output: "Selected as Medium priority task due today"
+                if (preg_match('/^Selected as\\s+(.+?)\\s+priority task\\s+(.*)$/i', $reason, $m) === 1) {
+                    $prio = strtolower(trim((string) ($m[1] ?? 'medium')));
+                    $deadlineText = trim((string) ($m[2] ?? ''));
+                    if ($deadlineText !== '') {
+                        $firstChar = strtolower(substr($prio, 0, 1));
+                        $article = in_array($firstChar, ['a', 'e', 'i', 'o', 'u'], true) ? 'an' : 'a';
+                        $reasonSentence = 'I picked this because it\'s '.$article.' '.$prio.' priority task '.$deadlineText.'.';
+                    }
+                } else {
+                    $reasonSentence = 'I picked this because '.$reason.'.';
+                }
+            }
+
+            $nextSteps = $item['next_steps'] ?? [];
+            $cleanSteps = [];
+            if (is_array($nextSteps) && ! empty($nextSteps)) {
+                $cleanSteps = array_values(array_filter(
+                    array_map(fn ($s): string => trim((string) $s), $nextSteps),
+                    fn (string $s): bool => $s !== ''
+                ));
+            }
+
+            if ($reasonSentence !== '' && ! empty($cleanSteps)) {
+                // Convert the array of “clauses” into a sentence list.
+                $stepText = $this->joinSentences($cleanSteps);
+                $lines[] = $reasonSentence.' Next, '.$stepText.'.';
+            } elseif ($reasonSentence !== '') {
+                $lines[] = $reasonSentence;
+            } elseif (! empty($cleanSteps)) {
+                $stepText = $this->joinSentences($cleanSteps);
+                $lines[] = 'Next, '.$stepText.'.';
+            }
+        }
+
+        return implode("\n\n", array_values(array_filter($lines, fn ($l): bool => trim((string) $l) !== '')));
     }
 
     /**

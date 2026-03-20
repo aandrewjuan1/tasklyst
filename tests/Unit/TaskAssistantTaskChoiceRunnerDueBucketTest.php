@@ -6,6 +6,7 @@ use App\Services\LLM\TaskAssistant\TaskAssistantResponseValidator;
 use App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService;
 use App\Services\LLM\TaskAssistant\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\TaskAssistant\TaskAssistantTaskChoiceRunner;
+use App\Services\RecurrenceExpander;
 
 it('buckets due dates using the provided timezone-aware now', function (): void {
     $runner = new TaskAssistantTaskChoiceRunner(
@@ -14,6 +15,7 @@ it('buckets due dates using the provided timezone-aware now', function (): void 
         app(TaskAssistantResponseValidator::class),
         app(TaskPrioritizationService::class),
         app(TaskAssistantTaskChoiceConstraintsExtractor::class),
+        app(RecurrenceExpander::class),
     );
 
     $method = new ReflectionMethod($runner, 'resolveDueBucket');

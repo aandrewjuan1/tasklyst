@@ -11,6 +11,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
      *   priority_filters: array<int, string>,
      *   task_keywords: array<int, string>,
      *   time_constraint: string|null,
+     *   recurring_requested: bool,
      *   comparison_focus: string|null
      * }
      */
@@ -32,12 +33,20 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             $timeConstraint = 'this_week';
         }
 
+        // Detect intent for recurring tasks (instance/occurrence-level selection).
+        $recurringRequested = preg_match('/\b(recurring|recurrence|repeat(e?d)?|every)\b/i', $userMessageContent) === 1;
+
         // Only allow subject keywords when the user explicitly mentions them.
         $subjectAllowList = [
             'coding',
             'code',
             'programming',
+            // School-related
             'math',
+            'science',
+            'biology',
+            'chemistry',
+            'physics',
             'study',
             'reading',
             'review',
@@ -47,6 +56,21 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'slides',
             'lab',
             'interview',
+            'homework',
+            'assignment',
+            'assignments',
+            'schoolwork',
+            'school',
+            'coursework',
+            'classwork',
+            // Chores-related
+            'chores',
+            'housework',
+            'cleaning',
+            'laundry',
+            'dishes',
+            'trash',
+            'vacuum',
         ];
 
         $taskKeywords = [];
@@ -56,10 +80,24 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             }
         }
 
+        // Map generic "chores" intent to your tag vocabulary, since titles often won't contain the word "chores".
+        // Your seed tags include: Household, Health.
+        $explicitChoresIntent = preg_match('/\bchores\b/i', $userMessageContent) === 1
+            || preg_match('/\b(housework|cleaning)\b/i', $userMessageContent) === 1;
+
+        if ($explicitChoresIntent) {
+            foreach (['household', 'health'] as $mappedTagKeyword) {
+                if (! in_array($mappedTagKeyword, $taskKeywords, true)) {
+                    $taskKeywords[] = $mappedTagKeyword;
+                }
+            }
+        }
+
         return [
             'priority_filters' => $priorityFilters,
             'task_keywords' => $taskKeywords,
             'time_constraint' => $timeConstraint,
+            'recurring_requested' => $recurringRequested,
             'comparison_focus' => null,
         ];
     }

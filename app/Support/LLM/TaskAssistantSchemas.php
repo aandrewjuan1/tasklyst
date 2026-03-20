@@ -209,6 +209,99 @@ final class TaskAssistantSchemas
     }
 
     /**
+     * Task list schema (final user-visible response).
+     */
+    public static function taskListSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'task_list',
+            description: 'Ordered list of the most important tasks for the user.',
+            properties: [
+                new ArraySchema(
+                    name: 'items',
+                    description: 'Ordered list of tasks as ranked by urgency.',
+                    items: new ObjectSchema(
+                        name: 'task_list_item',
+                        description: 'Single task entry.',
+                        properties: [
+                            new NumberSchema(
+                                name: 'task_id',
+                                description: 'Task id.'
+                            ),
+                            new StringSchema(
+                                name: 'title',
+                                description: 'Task title.'
+                            ),
+                            new StringSchema(
+                                name: 'reason',
+                                description: 'Why this task was selected.',
+                                nullable: true
+                            ),
+                            new StringSchema(
+                                name: 'due_date',
+                                description: 'Due date (ISO string or null).',
+                                nullable: true
+                            ),
+                            new StringSchema(
+                                name: 'priority',
+                                description: 'Priority level (urgent/high/medium/low) if available.',
+                                nullable: true
+                            ),
+                            new ArraySchema(
+                                name: 'next_steps',
+                                description: 'Ordered per-task next steps (2-3 actions).',
+                                items: new StringSchema(
+                                    name: 'step',
+                                    description: 'A concrete next step.'
+                                )
+                            ),
+                        ],
+                        requiredFields: [
+                            'task_id',
+                            'title',
+                            'reason',
+                            'next_steps',
+                        ]
+                    )
+                ),
+                new StringSchema(
+                    name: 'summary',
+                    description: 'Optional short summary of what the list represents.',
+                    nullable: true
+                ),
+                new NumberSchema(
+                    name: 'limit_used',
+                    description: 'Number of tasks returned in items.',
+                    nullable: true
+                ),
+            ],
+            requiredFields: [
+                'items',
+            ]
+        );
+    }
+
+    /**
+     * Minimal schema for a “tool-only” Prism call used to populate toolResults.
+     * We don't rely on the model's structured output; we only need the tool results.
+     */
+    public static function taskListToolCallSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'task_list_tool_call',
+            description: 'Tool-only structured response for task listing.',
+            properties: [
+                new NumberSchema(
+                    name: 'limit_requested',
+                    description: 'Optional requested limit for the tool call.',
+                    nullable: true
+                ),
+            ],
+            requiredFields: []
+        );
+    }
+
+    /**
      * Daily schedule schema with simple blocks.
      */
     public static function dailyScheduleSchema(): ObjectSchema

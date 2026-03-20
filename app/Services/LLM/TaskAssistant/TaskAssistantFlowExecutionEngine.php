@@ -10,6 +10,7 @@ final class TaskAssistantFlowExecutionEngine
     public function __construct(
         private readonly TaskAssistantResponseProcessor $responseProcessor,
         private readonly TaskAssistantSnapshotService $snapshotService,
+        private readonly TaskAssistantToolEventPersister $toolEventPersister,
     ) {}
 
     /**
@@ -40,6 +41,25 @@ final class TaskAssistantFlowExecutionEngine
         string $assistantFallbackContent
     ): array {
         $snapshot = $this->snapshotService->buildForUser($thread->user);
+
+        $toolCalls = $generationResult['tool_calls'] ?? [];
+        $toolResults = $generationResult['tool_results'] ?? [];
+
+        if ($toolCalls !== [] || $toolResults !== []) {
+            $toolCalls = $toolCalls instanceof \Illuminate\Support\Collection
+                ? $toolCalls->all()
+                : (is_array($toolCalls) ? $toolCalls : iterator_to_array($toolCalls));
+
+            $toolResults = $toolResults instanceof \Illuminate\Support\Collection
+                ? $toolResults->all()
+                : (is_array($toolResults) ? $toolResults : iterator_to_array($toolResults));
+
+            $this->toolEventPersister->persistToolCallsAndResults(
+                assistantMessage: $assistantMessage,
+                toolCalls: $toolCalls,
+                toolResults: $toolResults
+            );
+        }
 
         $payload = $generationResult['data'] ?? [];
         $generationValid = (bool) ($generationResult['valid'] ?? false);

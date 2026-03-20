@@ -133,6 +133,160 @@ it('does not empty results when context filters exclude all tasks', function ():
     expect($top['id'])->toBe(1);
 });
 
+it('relaxes empty priority+time intersection by choosing priority-only', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+    $today = $now->toDateString();
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Low due today',
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 60,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Urgent due tomorrow',
+            'priority' => 'urgent',
+            'status' => 'to_do',
+            'ends_at' => $now->addDay()->addHours(2)->toIso8601String(),
+            'duration_minutes' => 60,
+        ],
+    ];
+
+    $context = [
+        'priority_filters' => ['urgent'],
+        'time_constraint' => 'today',
+    ];
+
+    $top = $service->getTopTask($tasks, $today, $context);
+
+    expect($top)->not->toBeNull();
+    expect($top['id'])->toBe(2);
+});
+
+it('relaxes empty task keyword filtering and still picks best task', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+    $today = $now->toDateString();
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Physics notes',
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Biology homework',
+            'priority' => 'high',
+            'status' => 'to_do',
+            'ends_at' => $now->addDay()->addHours(2)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+    ];
+
+    $context = [
+        'task_keywords' => ['math'],
+    ];
+
+    $top = $service->getTopTask($tasks, $today, $context);
+
+    expect($top)->not->toBeNull();
+    expect($top['id'])->toBe(1);
+});
+
+it('matches task keywords against subject_name', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+    $today = $now->toDateString();
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Draft 1',
+            'subject_name' => 'ENG 105 – Academic Writing',
+            'tags' => [],
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Physics notes',
+            'subject_name' => 'Physics',
+            'tags' => [],
+            'priority' => 'urgent',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(3)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+    ];
+
+    $context = [
+        'task_keywords' => ['writing'],
+    ];
+
+    $top = $service->getTopTask($tasks, $today, $context);
+
+    // Keyword filtering should keep only the writing-related task (id=1).
+    expect($top)->not->toBeNull();
+    expect($top['id'])->toBe(1);
+});
+
+it('matches task keywords against tag names', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+    $today = $now->toDateString();
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Kitchen cleanup',
+            'subject_name' => null,
+            'tags' => ['Household'],
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Evening walk',
+            'subject_name' => null,
+            'tags' => ['Health'],
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(1)->toIso8601String(),
+            'duration_minutes' => 30,
+        ],
+    ];
+
+    $context = [
+        'task_keywords' => ['household'],
+    ];
+
+    $top = $service->getTopTask($tasks, $today, $context);
+
+    expect($top)->not->toBeNull();
+    expect($top['id'])->toBe(1);
+});
+
 it('keeps urgency dominant over small doing momentum boost', function (): void {
     $service = app(TaskPrioritizationService::class);
 

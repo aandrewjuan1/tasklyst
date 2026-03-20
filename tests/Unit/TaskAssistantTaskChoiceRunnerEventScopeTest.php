@@ -6,6 +6,7 @@ use App\Services\LLM\TaskAssistant\TaskAssistantResponseValidator;
 use App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService;
 use App\Services\LLM\TaskAssistant\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\TaskAssistant\TaskAssistantTaskChoiceRunner;
+use App\Services\RecurrenceExpander;
 
 it('treats appointment/class/interview language as event scope', function (): void {
     $runner = new TaskAssistantTaskChoiceRunner(
@@ -14,6 +15,7 @@ it('treats appointment/class/interview language as event scope', function (): vo
         app(TaskAssistantResponseValidator::class),
         app(TaskPrioritizationService::class),
         app(TaskAssistantTaskChoiceConstraintsExtractor::class),
+        app(RecurrenceExpander::class),
     );
 
     $method = new ReflectionMethod($runner, 'userExplicitlyRequestsEventsOrCalendar');

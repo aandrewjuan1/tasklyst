@@ -138,6 +138,9 @@ final class TaskAssistantStructuredFlowGenerator
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
 
+        $toolCalls = [];
+        $toolResults = [];
+
         try {
             $structuredResponse = Prism::structured()
                 ->using(Provider::Ollama, (string) config('task-assistant.model', 'hermes3:3b'))
@@ -150,6 +153,9 @@ final class TaskAssistantStructuredFlowGenerator
 
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
+
+            $toolCalls = $structuredResponse->toolCalls ?? [];
+            $toolResults = $structuredResponse->toolResults ?? [];
         } catch (\Throwable $e) {
             Log::warning('task-assistant.study-plan.generation_failed', [
                 'user_id' => $user->id,
@@ -164,6 +170,8 @@ final class TaskAssistantStructuredFlowGenerator
             'valid' => true,
             'data' => $payload,
             'errors' => [],
+            'tool_calls' => $toolCalls,
+            'tool_results' => $toolResults,
         ];
     }
 
@@ -200,6 +208,9 @@ final class TaskAssistantStructuredFlowGenerator
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
 
+        $toolCalls = [];
+        $toolResults = [];
+
         try {
             $structuredResponse = Prism::structured()
                 ->using(Provider::Ollama, (string) config('task-assistant.model', 'hermes3:3b'))
@@ -212,6 +223,9 @@ final class TaskAssistantStructuredFlowGenerator
 
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
+
+            $toolCalls = $structuredResponse->toolCalls ?? [];
+            $toolResults = $structuredResponse->toolResults ?? [];
         } catch (\Throwable $e) {
             Log::warning('task-assistant.review-summary.generation_failed', [
                 'user_id' => $user->id,
@@ -226,6 +240,8 @@ final class TaskAssistantStructuredFlowGenerator
             'valid' => true,
             'data' => $payload,
             'errors' => [],
+            'tool_calls' => $toolCalls,
+            'tool_results' => $toolResults,
         ];
     }
 
