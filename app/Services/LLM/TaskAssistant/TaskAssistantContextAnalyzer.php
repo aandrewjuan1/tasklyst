@@ -20,22 +20,17 @@ class TaskAssistantContextAnalyzer
      */
     public function analyzeUserContext(string $userMessage, array $snapshot): array
     {
-        $timeout = (int) config('prism.request_timeout', 30); // Short timeout for quick analysis
+        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
 
         try {
-            $response = Prism::structured()
-                ->using(Provider::Ollama, (string) config('task-assistant.model', 'hermes3:3b'))
-                ->withPrompt($this->buildContextPrompt($userMessage, $snapshot))
-                ->withSchema($this->contextSchema())
-                ->withClientOptions(['timeout' => $timeout])
-                ->asStructured();
+            $response = $this->attemptContextAnalysis($userMessage, $snapshot, $maxRetries);
 
             $analysis = $response->structured ?? [];
             $analysis = is_array($analysis) ? $analysis : [];
             $analysis = $this->normalizeAnalysis($analysis);
 
             Log::info('task-assistant.context_analysis', [
-                'user_message' => substr($userMessage, 0, 100),
+                'user_message_length' => mb_strlen($userMessage),
                 'analysis' => $analysis,
             ]);
 
@@ -43,7 +38,7 @@ class TaskAssistantContextAnalyzer
 
         } catch (\Throwable $e) {
             Log::warning('task-assistant.context_analysis_failed', [
-                'user_message' => substr($userMessage, 0, 100),
+                'user_message_length' => mb_strlen($userMessage),
                 'error' => $e->getMessage(),
             ]);
 
@@ -231,5 +226,57 @@ Rules for output:
             'time_constraint' => $timeConstraint,
             'comparison_focus' => $comparisonFocus !== '' ? $comparisonFocus : null,
         ];
+    }
+
+    private function resolveProvider(): Provider
+    {
+        $provider = strtolower((string) config('task-assistant.provider', 'ollama'));
+
+        return match ($provider) {
+            'ollama' => Provider::Ollama,
+            default => Provider::Ollama,
+        };
+    }
+
+    private function resolveModel(): string
+    {
+        return (string) config('task-assistant.model', 'hermes3:3b');
+    }
+
+    /**
+     * @return array<string, int|float>
+     */
+    private function resolveClientOptionsForRoute(string $route): array
+    {
+        $temperature = config('task-assistant.generation.'.$route.'.temperature');
+        $maxTokens = config('task-assistant.generation.'.$route.'.max_tokens');
+        $topP = config('task-assistant.generation.'.$route.'.top_p');
+
+        return [
+            'timeout' => (int) config('prism.request_timeout', 30),
+            'temperature' => is_numeric($temperature) ? (float) $temperature : (float) config('task-assistant.generation.temperature', 0.3),
+            'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
+            'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
+        ];
+    }
+
+    private function attemptContextAnalysis(string $userMessage, array $snapshot, int $maxRetries): mixed
+    {
+        for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
+            try {
+                return Prism::structured()
+                    ->using($this->resolveProvider(), $this->resolveModel())
+                    ->withPrompt($this->buildContextPrompt($userMessage, $snapshot))
+                    ->withSchema($this->contextSchema())
+                    ->withClientOptions($this->resolveClientOptionsForRoute('context'))
+                    ->asStructured();
+            } catch (\Throwable $exception) {
+                if ($attempt === $maxRetries) {
+                    throw $exception;
+                }
+            }
+        }
+
+        throw new \RuntimeException('Unreachable context analysis retry state.');
     }
 }

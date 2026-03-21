@@ -2,22 +2,43 @@
 
 namespace App\Jobs;
 
+use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
+use App\Services\LLM\TaskAssistant\TaskAssistantStreamingBroadcaster;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class BroadcastTaskAssistantStreamJob implements ShouldQueue
 {
     use Queueable;
+
+    public int $tries;
 
     public function __construct(
         public int $threadId,
         public int $userMessageId,
         public int $assistantMessageId,
         public int $userId,
-    ) {}
+    ) {
+        $this->tries = max(1, (int) config('task-assistant.retry.max_retries', 2) + 1);
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    public function backoff(): array
+    {
+        return [2, 10, 30];
+    }
+
+    public function retryUntil(): CarbonImmutable
+    {
+        return now()->addMinutes(3)->toImmutable();
+    }
 
     public function handle(TaskAssistantService $service): void
     {
@@ -36,6 +57,8 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
                 'found_thread_user_id' => $thread?->user_id,
             ]);
 
+            $this->persistFailureAndEndStream('assistant_thread_mismatch');
+
             return;
         }
 
@@ -46,5 +69,53 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         ]);
 
         $service->processQueuedMessage($thread, $this->userMessageId, $this->assistantMessageId);
+    }
+
+    public function failed(Throwable $exception): void
+    {
+        Log::error('task-assistant.job.failed', [
+            'thread_id' => $this->threadId,
+            'user_message_id' => $this->userMessageId,
+            'assistant_message_id' => $this->assistantMessageId,
+            'user_id' => $this->userId,
+            'error' => $exception->getMessage(),
+        ]);
+
+        $this->persistFailureAndEndStream('assistant_processing_failed');
+    }
+
+    private function persistFailureAndEndStream(string $errorCode): void
+    {
+        $assistantMessage = TaskAssistantMessage::query()
+            ->where('thread_id', $this->threadId)
+            ->where('id', $this->assistantMessageId)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if (! $assistantMessage) {
+            return;
+        }
+
+        $assistantMessage->update([
+            'content' => 'I ran into a temporary issue while preparing your response. Please try again.',
+        ]);
+
+        app(TaskAssistantStreamingBroadcaster::class)->streamFinalAssistantJson(
+            userId: $this->userId,
+            assistantMessage: $assistantMessage,
+            envelope: [
+                'type' => 'task_assistant',
+                'ok' => false,
+                'flow' => 'error',
+                'data' => [
+                    'message' => (string) $assistantMessage->content,
+                    'error_code' => $errorCode,
+                ],
+                'meta' => [
+                    'thread_id' => $this->threadId,
+                    'assistant_message_id' => $this->assistantMessageId,
+                ],
+            ],
+        );
     }
 }

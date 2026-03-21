@@ -6,9 +6,9 @@ use App\Enums\MessageRole;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\LLM\Intent\IntentClassificationService;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Tool;
@@ -21,9 +21,6 @@ final class TaskAssistantService
 
     private const STREAM_CHUNK_SIZE = 200;
 
-    /** @var string[] */
-    private const READ_ONLY_TOOL_KEYS = ['list_tasks'];
-
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
         private readonly TaskAssistantSnapshotService $snapshotService,
@@ -33,7 +30,7 @@ final class TaskAssistantService
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
         private readonly TaskAssistantConversationStateService $conversationState,
-        private readonly IntentClassificationService $intentClassifier,
+        private readonly IntentRoutingPolicy $routingPolicy,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -52,52 +49,36 @@ final class TaskAssistantService
         }
 
         $content = (string) ($userMessage->content ?? '');
-        $route = $this->resolveRoute($content);
+        $plan = $this->buildExecutionPlan($thread, $content);
+        $this->logRoutingDecision($thread, $assistantMessage, $plan);
 
-        if ($route === 'prioritize') {
-            $this->runPrioritizeFlow($thread, $assistantMessage, $content);
-
-            return;
-        }
-
-        if ($route === 'schedule') {
-            $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content);
+        if ($plan->clarificationNeeded) {
+            $this->runClarificationFlow($thread, $assistantMessage, $plan);
 
             return;
         }
 
-        $this->runChatFlow($thread, $userMessage, $assistantMessage, $content);
-    }
+        if ($plan->flow === 'prioritize') {
+            $this->runPrioritizeFlow($thread, $assistantMessage, $content, $plan);
 
-    private function resolveRoute(string $content): string
-    {
-        $normalized = mb_strtolower(trim($content));
-        if ($normalized === '') {
-            return 'chat';
+            return;
         }
 
-        if ($this->intentClassifier->isScheduleLikeRequest($normalized)) {
-            return 'schedule';
+        if ($plan->flow === 'schedule') {
+            $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+
+            return;
         }
 
-        if ($this->isPrioritizeRequest($normalized)) {
-            return 'prioritize';
-        }
-
-        return 'chat';
+        $this->runChatFlow($thread, $userMessage, $assistantMessage, $content, $plan);
     }
 
-    private function isPrioritizeRequest(string $content): bool
-    {
-        return preg_match('/\b(top|priorit|first|next|important|focus|list.*task|show.*task|which task)\b/i', $content) === 1;
-    }
-
-    private function runPrioritizeFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, string $content): void
+    private function runPrioritizeFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, string $content, ExecutionPlan $plan): void
     {
         $snapshot = $this->snapshotService->buildForUser($thread->user, 100);
         $context = $this->constraintsExtractor->extract($content);
         $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
-        $limit = $this->extractRequestedCount($content, 3);
+        $limit = $plan->countLimit;
         $items = array_slice($ranked, 0, $limit);
 
         $selected = [];
@@ -162,18 +143,18 @@ final class TaskAssistantService
         TaskAssistantThread $thread,
         TaskAssistantMessage $userMessage,
         TaskAssistantMessage $assistantMessage,
-        string $content
+        string $content,
+        ExecutionPlan $plan,
     ): void {
         $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
-        $selected = $this->conversationState->selectedEntities($thread);
-        $scheduleTargets = $this->resolveScheduleTargets($content, $selected);
-        $timeWindowHint = $this->extractTimeWindowHint($content);
+        $scheduleTargets = $plan->targetEntities;
+        $timeWindowHint = $plan->timeWindowHint;
 
         $result = $this->structuredFlowGenerator->generateDailySchedule(
             thread: $thread,
             userMessageContent: $content,
             historyMessages: $historyMessages,
-            tools: $this->resolveReadOnlyTools($thread->user),
+            tools: $this->resolveToolsForRoute($thread->user, 'schedule'),
             options: [
                 'target_entities' => $scheduleTargets,
                 'time_window_hint' => $timeWindowHint,
@@ -203,21 +184,22 @@ final class TaskAssistantService
         TaskAssistantThread $thread,
         TaskAssistantMessage $userMessage,
         TaskAssistantMessage $assistantMessage,
-        string $content
+        string $content,
+        ExecutionPlan $plan,
     ): void {
         $historyMessages = $this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id));
         $historyMessages[] = new UserMessage($content);
         $promptData = $this->promptData->forUser($thread->user);
         $promptData['snapshot'] = $this->snapshotService->buildForUser($thread->user);
-        $promptData['toolManifest'] = $this->buildToolManifestFromTools($this->resolveReadOnlyTools($thread->user));
+        $promptData['toolManifest'] = $this->buildToolManifestFromTools($this->resolveToolsForRoute($thread->user, $plan->flow));
 
         $text = Prism::text()
-            ->using(Provider::Ollama, (string) config('task-assistant.model', 'hermes3:3b'))
+            ->using($this->resolveProvider(), $this->resolveModel())
             ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
             ->withMessages($historyMessages)
-            ->withTools($this->resolveReadOnlyTools($thread->user))
+            ->withTools($this->resolveToolsForRoute($thread->user, $plan->flow))
             ->withMaxSteps(3)
-            ->withClientOptions(['timeout' => (int) config('prism.request_timeout', 120)])
+            ->withClientOptions($this->resolveClientOptionsForRoute($plan->generationProfile))
             ->asText();
 
         $assistantMessage->update([
@@ -233,43 +215,37 @@ final class TaskAssistantService
         ));
     }
 
-    private function extractRequestedCount(string $content, int $default = 3): int
+    private function runClarificationFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void
     {
-        $normalized = mb_strtolower($content);
-        if (preg_match('/\b(top|first|only|limit)\s+(\d+)\b/', $normalized, $matches) === 1) {
-            return max(1, min((int) ($matches[2] ?? $default), 10));
-        }
+        $assistantMessage->update([
+            'content' => (string) ($plan->clarificationQuestion ?? 'Could you clarify whether you want prioritization, scheduling, or general assistance?'),
+            'metadata' => array_merge($assistantMessage->metadata ?? [], [
+                'clarification' => [
+                    'needed' => true,
+                    'reason_codes' => $plan->reasonCodes,
+                    'confidence' => $plan->confidence,
+                    'target_flow' => $plan->flow,
+                ],
+            ]),
+        ]);
 
-        return $default;
-    }
+        $state = $this->conversationState->get($thread);
+        $state['pending_clarification'] = [
+            'target_flow' => $plan->flow,
+            'reason_codes' => $plan->reasonCodes,
+        ];
+        $this->conversationState->put($thread, $state);
 
-    private function extractTimeWindowHint(string $content): ?string
-    {
-        $normalized = mb_strtolower($content);
-        if (str_contains($normalized, 'later afternoon') || str_contains($normalized, 'afternoon')) {
-            return 'later_afternoon';
-        }
-        if (str_contains($normalized, 'morning')) {
-            return 'morning';
-        }
-        if (str_contains($normalized, 'evening') || str_contains($normalized, 'night')) {
-            return 'evening';
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<int, array{entity_type: string, entity_id: int, title: string}>  $selected
-     * @return array<int, array{entity_type: string, entity_id: int, title: string}>
-     */
-    private function resolveScheduleTargets(string $content, array $selected): array
-    {
-        if (preg_match('/\b(those|them|those\s+\d+|the\s+above)\b/i', $content) === 1) {
-            return $selected;
-        }
-
-        return [];
+        $this->streamFinalAssistantJson($thread->user_id, $assistantMessage, $this->buildJsonEnvelope(
+            flow: 'clarify',
+            data: [
+                'message' => (string) $assistantMessage->content,
+                'reason_codes' => $plan->reasonCodes,
+            ],
+            threadId: $thread->id,
+            assistantMessageId: $assistantMessage->id,
+            ok: false,
+        ));
     }
 
     /**
@@ -309,11 +285,16 @@ final class TaskAssistantService
     /**
      * @return Tool[]
      */
-    private function resolveReadOnlyTools(User $user): array
+    private function resolveToolsForRoute(User $user, string $route): array
     {
         $tools = [];
         $config = config('prism-tools', []);
-        foreach (self::READ_ONLY_TOOL_KEYS as $key) {
+        $routeTools = config('task-assistant.tools.routes.'.$route, []);
+        if (! is_array($routeTools)) {
+            $routeTools = [];
+        }
+
+        foreach ($routeTools as $key) {
             $class = $config[$key] ?? null;
             if (! is_string($class) || ! class_exists($class)) {
                 continue;
@@ -339,6 +320,48 @@ final class TaskAssistantService
         }
 
         return $out;
+    }
+
+    private function resolveProvider(): Provider
+    {
+        $provider = strtolower((string) config('task-assistant.provider', 'ollama'));
+
+        return match ($provider) {
+            'ollama' => Provider::Ollama,
+            default => $this->fallbackProvider($provider),
+        };
+    }
+
+    private function fallbackProvider(string $provider): Provider
+    {
+        Log::warning('task-assistant.provider.fallback', [
+            'requested_provider' => $provider,
+            'fallback_provider' => 'ollama',
+        ]);
+
+        return Provider::Ollama;
+    }
+
+    private function resolveModel(): string
+    {
+        return (string) config('task-assistant.model', 'hermes3:3b');
+    }
+
+    /**
+     * @return array<string, int|float|null>
+     */
+    private function resolveClientOptionsForRoute(string $route): array
+    {
+        $temperature = config('task-assistant.generation.'.$route.'.temperature');
+        $maxTokens = config('task-assistant.generation.'.$route.'.max_tokens');
+        $topP = config('task-assistant.generation.'.$route.'.top_p');
+
+        return [
+            'timeout' => (int) config('prism.request_timeout', 120),
+            'temperature' => is_numeric($temperature) ? (float) $temperature : (float) config('task-assistant.generation.temperature', 0.3),
+            'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
+            'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
+        ];
     }
 
     private function buildJsonEnvelope(string $flow, array $data, int $threadId, int $assistantMessageId, bool $ok = true): array
@@ -385,5 +408,45 @@ final class TaskAssistantService
                 ok: (bool) ($execution['final_valid'] ?? false),
             )
         );
+    }
+
+    private function buildExecutionPlan(TaskAssistantThread $thread, string $content): ExecutionPlan
+    {
+        $usePolicyRouting = (bool) config('task-assistant.routing.policy_enabled', false);
+        $decision = $this->routingPolicy->decide($thread, $content, $usePolicyRouting);
+        $constraints = $decision->constraints;
+        $flow = in_array($decision->flow, ['chat', 'prioritize', 'schedule'], true) ? $decision->flow : 'chat';
+        $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
+        $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;
+        $targetEntities = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
+
+        return new ExecutionPlan(
+            flow: $flow,
+            confidence: $decision->confidence,
+            clarificationNeeded: $decision->clarificationNeeded,
+            clarificationQuestion: $decision->clarificationQuestion,
+            reasonCodes: $decision->reasonCodes,
+            constraints: $constraints,
+            targetEntities: $targetEntities,
+            timeWindowHint: $timeWindowHint,
+            countLimit: $countLimit,
+            generationProfile: $flow === 'schedule' ? 'schedule' : ($flow === 'prioritize' ? 'prioritize' : 'chat'),
+        );
+    }
+
+    private function logRoutingDecision(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void
+    {
+        Log::info('task-assistant.routing_decision', [
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'flow' => $plan->flow,
+            'confidence' => $plan->confidence,
+            'clarification_needed' => $plan->clarificationNeeded,
+            'reason_codes' => $plan->reasonCodes,
+            'target_entities_count' => count($plan->targetEntities),
+            'time_window_hint' => $plan->timeWindowHint,
+            'count_limit' => $plan->countLimit,
+            'policy_enabled' => (bool) config('task-assistant.routing.policy_enabled', false),
+        ]);
     }
 }

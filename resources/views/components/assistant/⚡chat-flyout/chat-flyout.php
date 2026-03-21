@@ -10,6 +10,8 @@ use App\Tools\LLM\TaskAssistant\UpdateTaskTool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -105,7 +107,7 @@ new class extends Component
         ];
     }
 
-    #[On('echo:task-assistant.user.{userId},.json_delta')]
+    #[On('echo-private:task-assistant.user.{userId},.json_delta')]
     public function appendStreamingDelta(array $payload): void
     {
         $delta = $payload['delta'] ?? '';
@@ -114,19 +116,19 @@ new class extends Component
         }
     }
 
-    #[On('echo:task-assistant.user.{userId},.stream_end')]
+    #[On('echo-private:task-assistant.user.{userId},.stream_end')]
     public function onStreamEnd(): void
     {
         $this->refreshMessages();
     }
 
-    #[On('echo:task-assistant.user.{userId},.tool_call')]
+    #[On('echo-private:task-assistant.user.{userId},.tool_call')]
     public function onToolCall(): void
     {
         $this->showWorking = true;
     }
 
-    #[On('echo:task-assistant.user.{userId},.tool_result')]
+    #[On('echo-private:task-assistant.user.{userId},.tool_result')]
     public function onToolResult(): void
     {
         $this->showWorking = false;
@@ -135,6 +137,7 @@ new class extends Component
     public function submitMessage(): void
     {
         $this->validate();
+        $this->enforceRateLimit();
 
         $this->ensureThread();
         if (! $this->thread) {
@@ -149,7 +152,7 @@ new class extends Component
         Log::info('task-assistant.submit', [
             'thread_id' => $this->thread->id,
             'user_id' => Auth::id(),
-            'content' => $content,
+            'content_length' => mb_strlen($content),
         ]);
 
         session(['task_assistant.current_thread_id' => $this->thread->id]);
@@ -217,6 +220,25 @@ new class extends Component
         }
 
         session(['task_assistant.current_thread_id' => $this->thread->id]);
+    }
+
+    private function enforceRateLimit(): void
+    {
+        $userId = Auth::id();
+        if (! $userId) {
+            return;
+        }
+
+        $maxAttempts = (int) config('task-assistant.rate_limit.submissions_per_minute', 15);
+        $rateLimitKey = 'task-assistant:submit:'.$userId;
+
+        if (RateLimiter::tooManyAttempts($rateLimitKey, $maxAttempts)) {
+            throw ValidationException::withMessages([
+                'newMessage' => __('You are sending messages too quickly. Please wait a minute and try again.'),
+            ]);
+        }
+
+        RateLimiter::hit($rateLimitKey, 60);
     }
 
     private function loadMessages(): void

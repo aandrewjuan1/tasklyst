@@ -38,7 +38,9 @@ final class TaskAssistantStructuredFlowGenerator
         Log::info('task-assistant.snapshot', [
             'user_id' => $user->id,
             'thread_id' => $thread->id,
-            'snapshot' => $snapshot,
+            'task_count' => count($snapshot['tasks'] ?? []),
+            'event_count' => count($snapshot['events'] ?? []),
+            'project_count' => count($snapshot['projects'] ?? []),
         ]);
 
         $context = $this->contextAnalyzer->analyzeUserContext($userMessageContent, $snapshot);
@@ -47,7 +49,7 @@ final class TaskAssistantStructuredFlowGenerator
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
 
-        $timeout = (int) config('prism.request_timeout', 120);
+        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
 
         $proposals = $this->generateDeterministicProposals($contextualSnapshot, $context);
         $blocks = $this->buildLegacyBlocksFromProposals($proposals);
@@ -80,14 +82,7 @@ final class TaskAssistantStructuredFlowGenerator
         $assumptions = [];
 
         try {
-            $structuredResponse = Prism::structured()
-                ->using(Provider::Ollama, (string) config('task-assistant.model', 'hermes3:3b'))
-                ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
-                ->withMessages($messages->all())
-                ->withTools([])
-                ->withSchema($refinementSchema)
-                ->withClientOptions(['timeout' => $timeout])
-                ->asStructured();
+            $structuredResponse = $this->attemptRefinement($messages, $promptData, $refinementSchema, $maxRetries);
 
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
@@ -142,6 +137,60 @@ final class TaskAssistantStructuredFlowGenerator
             ],
             'errors' => [],
         ];
+    }
+
+    private function resolveProvider(): Provider
+    {
+        $provider = strtolower((string) config('task-assistant.provider', 'ollama'));
+
+        return match ($provider) {
+            'ollama' => Provider::Ollama,
+            default => Provider::Ollama,
+        };
+    }
+
+    private function resolveModel(): string
+    {
+        return (string) config('task-assistant.model', 'hermes3:3b');
+    }
+
+    /**
+     * @return array<string, int|float>
+     */
+    private function resolveClientOptionsForRoute(string $route): array
+    {
+        $temperature = config('task-assistant.generation.'.$route.'.temperature');
+        $maxTokens = config('task-assistant.generation.'.$route.'.max_tokens');
+        $topP = config('task-assistant.generation.'.$route.'.top_p');
+
+        return [
+            'timeout' => (int) config('prism.request_timeout', 120),
+            'temperature' => is_numeric($temperature) ? (float) $temperature : (float) config('task-assistant.generation.temperature', 0.3),
+            'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
+            'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
+        ];
+    }
+
+    private function attemptRefinement(Collection $messages, array $promptData, mixed $refinementSchema, int $maxRetries): mixed
+    {
+        for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
+            try {
+                return Prism::structured()
+                    ->using($this->resolveProvider(), $this->resolveModel())
+                    ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
+                    ->withMessages($messages->all())
+                    ->withTools([])
+                    ->withSchema($refinementSchema)
+                    ->withClientOptions($this->resolveClientOptionsForRoute('schedule'))
+                    ->asStructured();
+            } catch (\Throwable $exception) {
+                if ($attempt === $maxRetries) {
+                    throw $exception;
+                }
+            }
+        }
+
+        throw new \RuntimeException('Unreachable schedule refinement retry state.');
     }
 
     /**
