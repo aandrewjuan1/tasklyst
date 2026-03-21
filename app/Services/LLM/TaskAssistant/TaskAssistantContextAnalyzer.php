@@ -11,6 +11,10 @@ use Prism\Prism\Schema\StringSchema;
 
 class TaskAssistantContextAnalyzer
 {
+    private const ALLOWED_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
+
+    private const ALLOWED_TIME_CONSTRAINTS = ['today', 'this_week', 'none'];
+
     /**
      * Analyze user message to extract context and filtering criteria.
      */
@@ -27,6 +31,8 @@ class TaskAssistantContextAnalyzer
                 ->asStructured();
 
             $analysis = $response->structured ?? [];
+            $analysis = is_array($analysis) ? $analysis : [];
+            $analysis = $this->normalizeAnalysis($analysis);
 
             Log::info('task-assistant.context_analysis', [
                 'user_message' => substr($userMessage, 0, 100),
@@ -52,20 +58,24 @@ class TaskAssistantContextAnalyzer
     {
         $taskList = $this->formatTasksForPrompt($snapshot['tasks'] ?? []);
 
-        return "Analyze the user's request for task prioritization context.
+        return "Analyze the user's request for scheduling context.
 
 USER MESSAGE: \"{$userMessage}\"
 
 AVAILABLE TASKS:
 {$taskList}
 
-Extract the user's intent and any specific filtering criteria. Focus on:
+Extract scheduling criteria. Focus on:
 1. Priority level mentions (urgent, high, medium, low)
 2. Task type mentions (coding, math, study, etc.)
 3. Time constraints (today, this week, etc.)
 4. Specific task comparisons or choices
 
-Respond with structured analysis of what the user is specifically asking about.";
+Rules for output:
+- `priority_filters` must only contain values from: urgent, high, medium, low
+- `time_constraint` must be one of: today, this_week, none
+- `task_keywords` must be practical domain keywords (e.g. math, coding, reading), not generic words like schedule/day/tasks
+- keep output concise and machine-friendly.";
     }
 
     /**
@@ -79,7 +89,7 @@ Respond with structured analysis of what the user is specifically asking about."
             properties: [
                 new StringSchema(
                     name: 'intent_type',
-                    description: 'Type of prioritization request (general_urgent, specific_comparison, time_constrained, etc.)'
+                    description: 'Type of scheduling request (general, urgent_focus, time_constrained, specific_comparison).'
                 ),
                 new ArraySchema(
                     name: 'priority_filters',
@@ -93,7 +103,7 @@ Respond with structured analysis of what the user is specifically asking about."
                 ),
                 new StringSchema(
                     name: 'time_constraint',
-                    description: 'Time constraint mentioned (today, this_week, etc.)'
+                    description: 'Time constraint: today, this_week, or none'
                 ),
                 new StringSchema(
                     name: 'comparison_focus',
@@ -158,6 +168,68 @@ Respond with structured analysis of what the user is specifically asking about."
             $analysis['comparison_focus'] = 'user_specified_choice';
         }
 
-        return $analysis;
+        return $this->normalizeAnalysis($analysis);
+    }
+
+    /**
+     * @param  array<string, mixed>  $analysis
+     * @return array<string, mixed>
+     */
+    private function normalizeAnalysis(array $analysis): array
+    {
+        $intentType = is_string($analysis['intent_type'] ?? null)
+            ? trim((string) $analysis['intent_type'])
+            : 'general';
+
+        $rawPriorities = $analysis['priority_filters'] ?? [];
+        $priorities = [];
+        if (is_array($rawPriorities)) {
+            foreach ($rawPriorities as $priority) {
+                $candidate = strtolower(trim((string) $priority));
+                foreach (self::ALLOWED_PRIORITIES as $allowed) {
+                    if (preg_match('/\b'.preg_quote($allowed, '/').'\b/i', $candidate) === 1) {
+                        $priorities[] = $allowed;
+                    }
+                }
+            }
+        }
+        $priorities = array_values(array_unique($priorities));
+
+        $rawKeywords = $analysis['task_keywords'] ?? [];
+        $keywords = [];
+        $genericKeywords = ['schedule', 'day', 'today', 'tasks', 'task', 'plan'];
+        if (is_array($rawKeywords)) {
+            foreach ($rawKeywords as $keyword) {
+                $candidate = strtolower(trim((string) $keyword));
+                if ($candidate === '' || in_array($candidate, $genericKeywords, true)) {
+                    continue;
+                }
+                $keywords[] = $candidate;
+            }
+        }
+        $keywords = array_values(array_unique($keywords));
+
+        $timeConstraintRaw = strtolower(trim((string) ($analysis['time_constraint'] ?? 'none')));
+        $timeConstraint = 'none';
+        if (str_contains($timeConstraintRaw, 'today')) {
+            $timeConstraint = 'today';
+        } elseif (str_contains($timeConstraintRaw, 'week')) {
+            $timeConstraint = 'this_week';
+        }
+        if (! in_array($timeConstraint, self::ALLOWED_TIME_CONSTRAINTS, true)) {
+            $timeConstraint = 'none';
+        }
+
+        $comparisonFocus = is_string($analysis['comparison_focus'] ?? null)
+            ? trim((string) $analysis['comparison_focus'])
+            : null;
+
+        return [
+            'intent_type' => $intentType === '' ? 'general' : $intentType,
+            'priority_filters' => $priorities,
+            'task_keywords' => $keywords,
+            'time_constraint' => $timeConstraint,
+            'comparison_focus' => $comparisonFocus !== '' ? $comparisonFocus : null,
+        ];
     }
 }

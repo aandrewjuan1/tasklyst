@@ -88,8 +88,51 @@
                             @php
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
                                 $display = $message->content ?: __('…');
+                                $proposals = data_get($message->metadata, 'daily_schedule.proposals', data_get($message->metadata, 'structured.data.proposals', []));
                             @endphp
                             <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
+
+                            @if (is_array($proposals) && count($proposals) > 0)
+                                <div class="mt-3 flex flex-col gap-2">
+                                    @foreach ($proposals as $proposal)
+                                        @if (is_array($proposal))
+                                            @php
+                                                $proposalId = (string) ($proposal['proposal_id'] ?? '');
+                                                $status = (string) ($proposal['status'] ?? 'pending');
+                                                $startAt = (string) ($proposal['start_datetime'] ?? '');
+                                                $endAt = (string) ($proposal['end_datetime'] ?? '');
+                                                $title = (string) ($proposal['title'] ?? 'Scheduled item');
+                                                $isPending = $status === 'pending';
+                                            @endphp
+                                            <div class="rounded-md border border-zinc-300 p-2 dark:border-zinc-600">
+                                                <flux:text class="text-sm font-medium">{{ $title }}</flux:text>
+                                                <flux:text class="text-xs text-zinc-500 dark:text-zinc-400">
+                                                    {{ $startAt }}@if($endAt !== '') - {{ $endAt }} @endif
+                                                </flux:text>
+                                                <flux:text class="text-xs">{{ __('Status: :status', ['status' => $status]) }}</flux:text>
+                                                <div class="mt-2 flex gap-2">
+                                                    <flux:button
+                                                        size="xs"
+                                                        variant="primary"
+                                                        wire:click="acceptScheduleProposalItem({{ $message->id }}, '{{ $proposalId }}')"
+                                                        wire:loading.attr="disabled"
+                                                    >
+                                                        {{ __('Accept') }}
+                                                    </flux:button>
+                                                    <flux:button
+                                                        size="xs"
+                                                        variant="ghost"
+                                                        wire:click="declineScheduleProposalItem({{ $message->id }}, '{{ $proposalId }}')"
+                                                        wire:loading.attr="disabled"
+                                                    >
+                                                        {{ __('Decline') }}
+                                                    </flux:button>
+                                                </div>
+                                            </div>
+                                        @endif
+                                    @endforeach
+                                </div>
+                            @endif
                         </div>
                     </div>
                 @endif
