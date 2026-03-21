@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -21,9 +21,9 @@ class TaskAssistantToolResult implements ShouldBroadcastNow
         public ?string $error = null,
     ) {}
 
-    public function broadcastOn(): Channel
+    public function broadcastOn(): PrivateChannel
     {
-        return new Channel('task-assistant.user.'.$this->userId);
+        return new PrivateChannel('task-assistant.user.'.$this->userId);
     }
 
     public function broadcastAs(): string

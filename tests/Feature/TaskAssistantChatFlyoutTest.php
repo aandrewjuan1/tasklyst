@@ -41,6 +41,22 @@ test('chat flyout component dispatches job on submit', function () {
     });
 });
 
+test('chat flyout rate limits rapid submissions per user', function () {
+    /** @var \Illuminate\Foundation\Testing\TestCase $this */
+    Bus::fake();
+    config()->set('task-assistant.rate_limit.submissions_per_minute', 1);
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'First')
+        ->call('submitMessage')
+        ->set('newMessage', 'Second')
+        ->call('submitMessage')
+        ->assertHasErrors(['newMessage']);
+});
+
 test('chat flyout submits prioritize-oriented message and dispatches job', function () {
     /** @var \Illuminate\Foundation\Testing\TestCase $this */
     Bus::fake();

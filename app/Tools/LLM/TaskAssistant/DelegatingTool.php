@@ -3,6 +3,8 @@
 namespace App\Tools\LLM\TaskAssistant;
 
 use App\Enums\LlmToolCallStatus;
+use App\Events\TaskAssistantToolCall;
+use App\Events\TaskAssistantToolResult;
 use App\Models\LlmToolCall;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -24,6 +26,8 @@ abstract class DelegatingTool extends Tool
      */
     protected function runDelegatedAction(array $params, string $toolName, ?string $operationToken = null): string
     {
+        $operationToken ??= $this->buildDefaultOperationToken($toolName, $params);
+
         if ($operationToken !== null && $operationToken !== '') {
             $existing = LlmToolCall::query()
                 ->where('operation_token', $operationToken)
@@ -57,6 +61,13 @@ abstract class DelegatingTool extends Tool
             'status' => 'pending',
         ]);
 
+        broadcast(new TaskAssistantToolCall(
+            userId: $this->user->id,
+            toolCallId: (string) $call->id,
+            toolName: $toolName,
+            arguments: []
+        ));
+
         try {
             $result = ($this->action)($params);
             $call->update([
@@ -71,6 +82,14 @@ abstract class DelegatingTool extends Tool
                 'user_id' => $this->user->id,
                 'status' => 'success',
             ]);
+
+            broadcast(new TaskAssistantToolResult(
+                userId: $this->user->id,
+                toolCallId: (string) $call->id,
+                toolName: $toolName,
+                result: is_string($result) ? $result : json_encode($result),
+                success: true
+            ));
 
             return json_encode($result);
         } catch (\Throwable $e) {
@@ -87,12 +106,33 @@ abstract class DelegatingTool extends Tool
                 'status' => 'failed',
             ]);
 
+            broadcast(new TaskAssistantToolResult(
+                userId: $this->user->id,
+                toolCallId: (string) $call->id,
+                toolName: $toolName,
+                result: '',
+                success: false,
+                error: $e->getMessage()
+            ));
+
             return json_encode([
                 'ok' => false,
                 'message' => 'Tool execution failed',
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $params
+     */
+    private function buildDefaultOperationToken(string $toolName, array $params): string
+    {
+        $threadId = app()->bound('task_assistant.thread_id') ? (string) app('task_assistant.thread_id') : 'none';
+        $messageId = app()->bound('task_assistant.message_id') ? (string) app('task_assistant.message_id') : 'none';
+        $payload = $toolName.'|'.$this->user->id.'|'.$threadId.'|'.$messageId.'|'.json_encode($params);
+
+        return hash('sha256', $payload);
     }
 
     /**
