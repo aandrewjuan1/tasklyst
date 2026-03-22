@@ -119,6 +119,12 @@ new class extends Component
     #[On('echo-private:task-assistant.user.{userId},.stream_end')]
     public function onStreamEnd(): void
     {
+        Log::debug('task-assistant.ui', [
+            'layer' => 'ui',
+            'stage' => 'echo_stream_end',
+            'user_id' => $this->userId,
+        ]);
+
         $this->refreshMessages();
     }
 
@@ -136,7 +142,19 @@ new class extends Component
 
     public function submitMessage(): void
     {
-        $this->validate();
+        try {
+            $this->validate();
+        } catch (ValidationException $e) {
+            Log::info('task-assistant.ui', [
+                'layer' => 'ui',
+                'stage' => 'validation_failed',
+                'user_id' => Auth::id(),
+                'thread_id' => $this->thread?->id,
+                'errors' => $e->errors(),
+            ]);
+            throw $e;
+        }
+
         $this->enforceRateLimit();
 
         $this->ensureThread();
@@ -150,6 +168,7 @@ new class extends Component
         }
 
         Log::info('task-assistant.submit', [
+            'layer' => 'ui',
             'thread_id' => $this->thread->id,
             'user_id' => Auth::id(),
             'content_length' => mb_strlen($content),
@@ -176,6 +195,7 @@ new class extends Component
         $this->showWorking = false;
 
         Log::info('task-assistant.job.dispatch', [
+            'layer' => 'ui',
             'thread_id' => $this->thread->id,
             'user_message_id' => $userMessage->id,
             'assistant_message_id' => $assistantMessage->id,
@@ -233,6 +253,13 @@ new class extends Component
         $rateLimitKey = 'task-assistant:submit:'.$userId;
 
         if (RateLimiter::tooManyAttempts($rateLimitKey, $maxAttempts)) {
+            Log::warning('task-assistant.ui', [
+                'layer' => 'ui',
+                'stage' => 'rate_limited',
+                'user_id' => $userId,
+                'max_attempts' => $maxAttempts,
+            ]);
+
             throw ValidationException::withMessages([
                 'newMessage' => __('You are sending messages too quickly. Please wait a minute and try again.'),
             ]);
@@ -282,6 +309,7 @@ new class extends Component
             $this->setProposalStatus($message, $path, $index, 'accepted');
         } catch (\Throwable $e) {
             Log::warning('task-assistant.proposal.accept_failed', [
+                'layer' => 'ui',
                 'message_id' => $assistantMessageId,
                 'proposal_id' => $proposalId,
                 'error' => $e->getMessage(),

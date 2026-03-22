@@ -53,7 +53,8 @@ abstract class DelegatingTool extends Tool
             'user_id' => $this->user->id,
         ]);
 
-        Log::info('task_assistant.tool_call', [
+        Log::info('task-assistant.tool_call', [
+            'layer' => 'tool',
             'thread_id' => $threadId,
             'operation_token' => $operationToken,
             'tool_name' => $toolName,
@@ -75,7 +76,8 @@ abstract class DelegatingTool extends Tool
                 'status' => LlmToolCallStatus::Success,
             ]);
 
-            Log::info('task_assistant.tool_call', [
+            Log::info('task-assistant.tool_call', [
+                'layer' => 'tool',
                 'thread_id' => $threadId,
                 'operation_token' => $operationToken,
                 'tool_name' => $toolName,
@@ -98,7 +100,8 @@ abstract class DelegatingTool extends Tool
                 'status' => LlmToolCallStatus::Failed,
             ]);
 
-            Log::info('task_assistant.tool_call', [
+            Log::info('task-assistant.tool_call', [
+                'layer' => 'tool',
                 'thread_id' => $threadId,
                 'operation_token' => $operationToken,
                 'tool_name' => $toolName,

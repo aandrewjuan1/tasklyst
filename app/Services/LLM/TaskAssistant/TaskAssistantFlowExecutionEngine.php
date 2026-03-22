@@ -4,6 +4,7 @@ namespace App\Services\LLM\TaskAssistant;
 
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use Illuminate\Support\Facades\Log;
 
 final class TaskAssistantFlowExecutionEngine
 {
@@ -88,6 +89,19 @@ final class TaskAssistantFlowExecutionEngine
 
         $mergedErrors = array_values(array_unique(array_merge($generationErrors, $processedResponse['errors'] ?? [])));
 
+        Log::info('task-assistant.flow_execution', [
+            'layer' => 'flow_execution',
+            'flow' => $flow,
+            'metadata_key' => $metadataKey,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'generation_valid' => $generationValid,
+            'processed_valid' => $processedValid,
+            'final_valid' => $finalValid,
+            'merged_errors' => $mergedErrors,
+            'generation_payload_summary' => self::summarizeGenerationPayload($flow, $payload),
+        ]);
+
         return [
             'final_valid' => $finalValid,
             'assistant_content' => $assistantContent,
@@ -96,5 +110,29 @@ final class TaskAssistantFlowExecutionEngine
             'processed_valid' => $processedValid,
             'processed_errors' => $processedResponse['errors'] ?? [],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private static function summarizeGenerationPayload(string $flow, array $payload): array
+    {
+        $summary = ['flow' => $flow];
+
+        if ($flow === 'prioritize' || $flow === 'browse') {
+            $items = $payload['items'] ?? [];
+            $summary['items_count'] = is_array($items) ? count($items) : 0;
+            $summary['limit_used'] = $payload['limit_used'] ?? null;
+        }
+
+        if ($flow === 'daily_schedule') {
+            $proposals = $payload['proposals'] ?? [];
+            $blocks = $payload['blocks'] ?? [];
+            $summary['proposals_count'] = is_array($proposals) ? count($proposals) : 0;
+            $summary['blocks_count'] = is_array($blocks) ? count($blocks) : 0;
+        }
+
+        return $summary;
     }
 }

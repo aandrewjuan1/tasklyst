@@ -37,6 +37,7 @@ final class TaskAssistantStructuredFlowGenerator
         $snapshot = $this->snapshotService->buildForUser($user);
 
         Log::info('task-assistant.snapshot', [
+            'layer' => 'structured_generation',
             'user_id' => $user->id,
             'thread_id' => $thread->id,
             'task_count' => count($snapshot['tasks'] ?? []),
@@ -66,18 +67,33 @@ final class TaskAssistantStructuredFlowGenerator
             $user->id,
         );
 
+        $data = [
+            'proposals' => $proposals,
+            'blocks' => $blocks,
+            'summary' => $narrative['summary'],
+            'assistant_note' => $narrative['assistant_note'],
+            'reasoning' => $narrative['reasoning'],
+            'strategy_points' => $narrative['strategy_points'],
+            'suggested_next_steps' => $narrative['suggested_next_steps'],
+            'assumptions' => $narrative['assumptions'],
+        ];
+
+        Log::info('task-assistant.structured_generation', [
+            'layer' => 'structured_generation',
+            'thread_id' => $thread->id,
+            'user_id' => $user->id,
+            'flow' => 'daily_schedule',
+            'proposals_count' => count($proposals),
+            'blocks_count' => count($blocks),
+            'target_entities_in_options' => isset($options['target_entities']) && is_array($options['target_entities'])
+                ? count($options['target_entities'])
+                : 0,
+            'time_window_hint' => $options['time_window_hint'] ?? null,
+        ]);
+
         return [
             'valid' => true,
-            'data' => [
-                'proposals' => $proposals,
-                'blocks' => $blocks,
-                'summary' => $narrative['summary'],
-                'assistant_note' => $narrative['assistant_note'],
-                'reasoning' => $narrative['reasoning'],
-                'strategy_points' => $narrative['strategy_points'],
-                'suggested_next_steps' => $narrative['suggested_next_steps'],
-                'assumptions' => $narrative['assumptions'],
-            ],
+            'data' => $data,
             'errors' => [],
         ];
     }

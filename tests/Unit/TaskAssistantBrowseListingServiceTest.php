@@ -51,6 +51,9 @@ class TaskAssistantBrowseListingServiceTest extends TestCase
 
         $this->assertTrue($result['ambiguous']);
         $this->assertLessThanOrEqual(5, count($result['items']));
+        $this->assertStringContainsString('ordered by urgency', $result['deterministic_summary']);
+        $this->assertNotEmpty($result['items'][0]['due_bucket'] ?? null);
+        $this->assertStringContainsString('·', $result['items'][0]['reason']);
     }
 
     public function test_school_keyword_request_is_not_ambiguous(): void
@@ -83,5 +86,21 @@ class TaskAssistantBrowseListingServiceTest extends TestCase
 
         $this->assertFalse($result['ambiguous']);
         $this->assertStringContainsString('school', strtolower($result['filter_description']));
+    }
+
+    public function test_build_deterministic_assumptions_describes_filter_and_buckets(): void
+    {
+        $service = app(TaskAssistantBrowseListingService::class);
+
+        $items = [
+            ['entity_type' => 'task', 'due_bucket' => 'due_today'],
+            ['entity_type' => 'task', 'due_bucket' => 'due_tomorrow'],
+        ];
+
+        $lines = $service->buildDeterministicAssumptions(false, 'time: this_week', $items);
+
+        $this->assertNotEmpty($lines);
+        $this->assertTrue(collect($lines)->contains(fn (string $l): bool => str_contains($l, 'time: this_week')));
+        $this->assertTrue(collect($lines)->contains(fn (string $l): bool => str_contains($l, 'due today')));
     }
 }

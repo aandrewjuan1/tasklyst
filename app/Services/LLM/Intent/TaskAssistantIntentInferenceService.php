@@ -19,6 +19,12 @@ final class TaskAssistantIntentInferenceService
     {
         $trimmed = trim($userMessage);
         if ($trimmed === '') {
+            Log::info('task-assistant.intent_inference', [
+                'layer' => 'intent_inference',
+                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+                'outcome' => 'empty_input',
+            ]);
+
             return new TaskAssistantIntentInferenceResult(
                 intent: null,
                 confidence: 0.0,
@@ -48,7 +54,12 @@ final class TaskAssistantIntentInferenceService
 
             if ($intent === null) {
                 Log::warning('task-assistant.intent_inference_invalid_label', [
+                    'layer' => 'intent_inference',
+                    'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
                     'intent_raw' => $intentRaw,
+                    'structured_raw' => $structured,
+                    'provider' => (string) config('task-assistant.provider', 'ollama'),
+                    'model' => $this->resolveModel(),
                 ]);
 
                 return new TaskAssistantIntentInferenceResult(
@@ -59,6 +70,17 @@ final class TaskAssistantIntentInferenceService
                 );
             }
 
+            Log::info('task-assistant.intent_inference', [
+                'layer' => 'intent_inference',
+                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+                'structured_raw' => $structured,
+                'intent' => $intent->value,
+                'confidence' => $confidence,
+                'rationale' => $rationale,
+                'provider' => (string) config('task-assistant.provider', 'ollama'),
+                'model' => $this->resolveModel(),
+            ]);
+
             return new TaskAssistantIntentInferenceResult(
                 intent: $intent,
                 confidence: $confidence,
@@ -67,7 +89,11 @@ final class TaskAssistantIntentInferenceService
             );
         } catch (\Throwable $e) {
             Log::warning('task-assistant.intent_inference_failed', [
+                'layer' => 'intent_inference',
+                'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
                 'error' => $e->getMessage(),
+                'provider' => (string) config('task-assistant.provider', 'ollama'),
+                'model' => $this->resolveModel(),
             ]);
 
             return new TaskAssistantIntentInferenceResult(
@@ -153,6 +179,7 @@ PROMPT;
     private function fallbackProvider(string $provider): Provider
     {
         Log::warning('task-assistant.provider.fallback', [
+            'layer' => 'intent_inference',
             'requested_provider' => $provider,
             'fallback_provider' => 'ollama',
         ]);

@@ -33,6 +33,8 @@ final class TaskAssistantScheduleContextBuilder
         $normalized = $this->buildScheduleContext($userMessage, $extracted);
 
         Log::info('task-assistant.schedule_context_deterministic', [
+            'layer' => 'structured_generation',
+            'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
             'user_message_length' => mb_strlen($userMessage),
             'analysis' => $normalized,
             'snapshot_task_count' => is_array($snapshot['tasks'] ?? null) ? count($snapshot['tasks']) : 0,

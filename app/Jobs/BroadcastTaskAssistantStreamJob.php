@@ -43,6 +43,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
     public function handle(TaskAssistantService $service): void
     {
         Log::info('task-assistant.job.handle', [
+            'layer' => 'queue_job',
             'thread_id' => $this->threadId,
             'user_message_id' => $this->userMessageId,
             'assistant_message_id' => $this->assistantMessageId,
@@ -63,6 +64,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         }
 
         Log::info('task-assistant.job.broadcastStream.call', [
+            'layer' => 'queue_job',
             'thread_id' => $this->threadId,
             'user_message_id' => $this->userMessageId,
             'assistant_message_id' => $this->assistantMessageId,
@@ -74,6 +76,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
     public function failed(Throwable $exception): void
     {
         Log::error('task-assistant.job.failed', [
+            'layer' => 'queue_job',
             'thread_id' => $this->threadId,
             'user_message_id' => $this->userMessageId,
             'assistant_message_id' => $this->assistantMessageId,
@@ -95,6 +98,15 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         if (! $assistantMessage) {
             return;
         }
+
+        Log::warning('task-assistant.broadcast', [
+            'layer' => 'broadcast',
+            'stage' => 'failure_envelope',
+            'thread_id' => $this->threadId,
+            'assistant_message_id' => $this->assistantMessageId,
+            'user_id' => $this->userId,
+            'error_code' => $errorCode,
+        ]);
 
         $assistantMessage->update([
             'content' => 'I ran into a temporary issue while preparing your response. Please try again.',

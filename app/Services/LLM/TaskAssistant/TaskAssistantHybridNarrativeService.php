@@ -104,6 +104,7 @@ final class TaskAssistantHybridNarrativeService
             }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.daily-schedule.refinement_failed', [
+                'layer' => 'llm_narrative',
                 'user_id' => $userId,
                 'thread_id' => $threadId,
                 'error' => $e->getMessage(),
@@ -204,6 +205,7 @@ final class TaskAssistantHybridNarrativeService
             }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.prioritize.narrative_failed', [
+                'layer' => 'llm_narrative',
                 'user_id' => $userId,
                 'thread_id' => $threadId,
                 'error' => $e->getMessage(),
@@ -240,19 +242,28 @@ final class TaskAssistantHybridNarrativeService
         array $items,
         string $deterministicSummary,
         string $filterDescription,
+        bool $ambiguous,
         int $threadId,
         int $userId,
     ): array {
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-        $refinementSchema = TaskAssistantSchemas::hybridNarrativeSchema();
+        $refinementSchema = TaskAssistantSchemas::browseNarrativeSchema();
         $itemsJson = json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $listLabel = $ambiguous
+            ? 'The user asked for a general list; the backend returned a short ranked slice (see FILTER_CONTEXT).'
+            : 'The user asked with filters; the backend applied FILTER_CONTEXT and ranking.';
 
         $messages = collect([
             new UserMessage($userMessage),
             new UserMessage(
-                'The following tasks were selected by backend filtering and ranking rules. '.
-                'Do NOT change ordering or membership. Only write supportive narrative JSON fields.'."\n\n".
-                'Include suggested_next_steps that invite the user to prioritize this list or schedule time for these tasks when helpful.'."\n\n".
+                'The following tasks were selected by backend filtering and ranking. '.
+                'Do NOT change ordering or membership. Only fill narrative JSON fields in the schema.'."\n\n".
+                $listLabel."\n\n".
+                'Answer in the user\'s voice: mirror their request (what they asked to see) in the summary and reasoning. '.
+                'Do not claim all tasks are due on one day unless the items support that. '.
+                'Do not invent tasks, deadlines, or priorities. '.
+                'Suggested next steps must match what they asked (e.g. refine filters, pick a task), not generic calendar scheduling unless they asked about time.'."\n\n".
                 'FILTER_CONTEXT: '.$filterDescription."\n\n".
                 'ITEMS_JSON: '.$itemsJson
             ),
@@ -263,7 +274,6 @@ final class TaskAssistantHybridNarrativeService
         $reasoning = null;
         $strategyPoints = [];
         $suggestedNextSteps = [];
-        $assumptions = [];
 
         try {
             $structuredResponse = $this->attemptStructured(
@@ -299,14 +309,9 @@ final class TaskAssistantHybridNarrativeService
                     static fn (string $value): bool => $value !== ''
                 ));
             }
-            if (is_array($payload['assumptions'] ?? null)) {
-                $assumptions = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['assumptions']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.browse.narrative_failed', [
+                'layer' => 'llm_narrative',
                 'user_id' => $userId,
                 'thread_id' => $threadId,
                 'error' => $e->getMessage(),
@@ -319,7 +324,7 @@ final class TaskAssistantHybridNarrativeService
             'reasoning' => $reasoning,
             'strategy_points' => $strategyPoints,
             'suggested_next_steps' => $suggestedNextSteps,
-            'assumptions' => $assumptions,
+            'assumptions' => [],
         ];
     }
 
@@ -366,6 +371,7 @@ final class TaskAssistantHybridNarrativeService
     private function fallbackProvider(string $provider): Provider
     {
         Log::warning('task-assistant.provider.fallback', [
+            'layer' => 'llm_narrative',
             'requested_provider' => $provider,
             'fallback_provider' => 'ollama',
         ]);
