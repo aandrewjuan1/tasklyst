@@ -1,21 +1,21 @@
 <?php
 
-namespace App\Services\LLM\TaskAssistant;
+namespace App\Services\LLM\Scheduling;
 
 use App\Models\TaskAssistantThread;
-use App\Support\LLM\TaskAssistantSchemas;
+use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
+use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
+use App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Prism\Prism\Enums\Provider;
-use Prism\Prism\Facades\Prism;
-use Prism\Prism\ValueObjects\Messages\UserMessage;
 
 final class TaskAssistantStructuredFlowGenerator
 {
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
         private readonly TaskAssistantSnapshotService $snapshotService,
-        private readonly TaskAssistantContextAnalyzer $contextAnalyzer,
+        private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
+        private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
     ) {}
 
     /**
@@ -43,154 +43,42 @@ final class TaskAssistantStructuredFlowGenerator
             'project_count' => count($snapshot['projects'] ?? []),
         ]);
 
-        $context = $this->contextAnalyzer->analyzeUserContext($userMessageContent, $snapshot);
+        $context = $this->scheduleContextBuilder->build($userMessageContent, $snapshot);
 
         $contextualSnapshot = $this->applyContextToSnapshot($snapshot, $context, $options);
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
 
-        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-
         $proposals = $this->generateDeterministicProposals($contextualSnapshot, $context);
         $blocks = $this->buildLegacyBlocksFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context);
 
-        // LLM is used only for short narrative refinement (not for block generation).
-        $refinementSchema = TaskAssistantSchemas::dailyScheduleRefinementSchema();
         $blocksJson = json_encode($blocks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        $messages = $historyMessages->values();
-        $messages->push(new UserMessage($userMessageContent));
-        $messages->push(new UserMessage(
-            'Here are the proposed schedule blocks (task_id/event_id values are internal and must not be mentioned). '.
-            'Refine narrative fields to sound natural, supportive, and practical. Return JSON only.'."\n\n".
-            'Write concise, human-sounding guidance:'."\n".
-            '- summary: clear day overview'."\n".
-            '- reasoning: why this order and timing make sense today'."\n".
-            '- strategy_points: 2-4 practical rationale points'."\n".
-            '- suggested_next_steps: 2-4 actionable execution steps'."\n".
-            '- assumptions: optional, only if relevant'."\n".
-            '- assistant_note: friendly one-liner with encouraging tone'."\n\n".
-            'BLOCKS_JSON: '.$blocksJson
-        ));
-
-        $summary = $deterministicSummary;
-        $assistantNote = null;
-        $reasoning = null;
-        $strategyPoints = [];
-        $suggestedNextSteps = [];
-        $assumptions = [];
-
-        try {
-            $structuredResponse = $this->attemptRefinement($messages, $promptData, $refinementSchema, $maxRetries);
-
-            $payload = $structuredResponse->structured ?? [];
-            $payload = is_array($payload) ? $payload : [];
-
-            if (isset($payload['summary']) && is_string($payload['summary'])) {
-                $summary = $payload['summary'] !== '' ? $payload['summary'] : $deterministicSummary;
-            }
-
-            if (isset($payload['assistant_note']) && is_string($payload['assistant_note'])) {
-                $assistantNote = $payload['assistant_note'] !== '' ? $payload['assistant_note'] : null;
-            }
-            if (isset($payload['reasoning']) && is_string($payload['reasoning'])) {
-                $reasoning = $payload['reasoning'] !== '' ? $payload['reasoning'] : null;
-            }
-            if (is_array($payload['strategy_points'] ?? null)) {
-                $strategyPoints = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['strategy_points']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-            if (is_array($payload['suggested_next_steps'] ?? null)) {
-                $suggestedNextSteps = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['suggested_next_steps']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-            if (is_array($payload['assumptions'] ?? null)) {
-                $assumptions = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['assumptions']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-        } catch (\Throwable $e) {
-            Log::warning('task-assistant.daily-schedule.refinement_failed', [
-                'user_id' => $user->id,
-                'thread_id' => $thread->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $narrative = $this->hybridNarrative->refineDailySchedule(
+            $historyMessages,
+            $promptData,
+            $userMessageContent,
+            (string) $blocksJson,
+            $deterministicSummary,
+            $thread->id,
+            $user->id,
+        );
 
         return [
             'valid' => true,
             'data' => [
                 'proposals' => $proposals,
                 'blocks' => $blocks,
-                'summary' => $summary,
-                'assistant_note' => $assistantNote,
-                'reasoning' => $reasoning,
-                'strategy_points' => $strategyPoints,
-                'suggested_next_steps' => $suggestedNextSteps,
-                'assumptions' => $assumptions,
+                'summary' => $narrative['summary'],
+                'assistant_note' => $narrative['assistant_note'],
+                'reasoning' => $narrative['reasoning'],
+                'strategy_points' => $narrative['strategy_points'],
+                'suggested_next_steps' => $narrative['suggested_next_steps'],
+                'assumptions' => $narrative['assumptions'],
             ],
             'errors' => [],
         ];
-    }
-
-    private function resolveProvider(): Provider
-    {
-        $provider = strtolower((string) config('task-assistant.provider', 'ollama'));
-
-        return match ($provider) {
-            'ollama' => Provider::Ollama,
-            default => Provider::Ollama,
-        };
-    }
-
-    private function resolveModel(): string
-    {
-        return (string) config('task-assistant.model', 'hermes3:3b');
-    }
-
-    /**
-     * @return array<string, int|float>
-     */
-    private function resolveClientOptionsForRoute(string $route): array
-    {
-        $temperature = config('task-assistant.generation.'.$route.'.temperature');
-        $maxTokens = config('task-assistant.generation.'.$route.'.max_tokens');
-        $topP = config('task-assistant.generation.'.$route.'.top_p');
-
-        return [
-            'timeout' => (int) config('prism.request_timeout', 120),
-            'temperature' => is_numeric($temperature) ? (float) $temperature : (float) config('task-assistant.generation.temperature', 0.3),
-            'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
-            'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
-        ];
-    }
-
-    private function attemptRefinement(Collection $messages, array $promptData, mixed $refinementSchema, int $maxRetries): mixed
-    {
-        for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
-            try {
-                return Prism::structured()
-                    ->using($this->resolveProvider(), $this->resolveModel())
-                    ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
-                    ->withMessages($messages->all())
-                    ->withTools([])
-                    ->withSchema($refinementSchema)
-                    ->withClientOptions($this->resolveClientOptionsForRoute('schedule'))
-                    ->asStructured();
-            } catch (\Throwable $exception) {
-                if ($attempt === $maxRetries) {
-                    throw $exception;
-                }
-            }
-        }
-
-        throw new \RuntimeException('Unreachable schedule refinement retry state.');
     }
 
     /**

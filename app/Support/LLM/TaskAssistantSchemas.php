@@ -183,6 +183,14 @@ final class TaskAssistantSchemas
     }
 
     /**
+     * Shared narrative schema for hybrid flows (schedule refinement and prioritize explanation).
+     */
+    public static function hybridNarrativeSchema(): ObjectSchema
+    {
+        return self::dailyScheduleRefinementSchema();
+    }
+
+    /**
      * Refinement schema: used when blocks are generated deterministically
      * and the LLM only needs to write the narrative summary.
      */

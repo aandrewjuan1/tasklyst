@@ -40,6 +40,11 @@ AVAILABLE TOOLS:
 @endforeach
 @endif
 
+@isset($route_context)
+ROUTE CONTEXT:
+{{ $route_context }}
+@endif
+
 CORE RULES:
 1. Use ONLY tasks/events from the snapshot above
 2. Do NOT invent tasks, events, or facts

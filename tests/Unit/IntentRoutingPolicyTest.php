@@ -4,34 +4,103 @@ use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\TaskAssistant\ExecutionPlan;
 use App\Services\LLM\TaskAssistant\IntentRoutingPolicy;
+use Prism\Prism\Facades\Prism;
+use Prism\Prism\Testing\StructuredResponseFake;
+use Prism\Prism\ValueObjects\Usage;
 
-test('legacy routing keeps deterministic route selection when policy is disabled', function (): void {
+test('empty message routes to chat with empty_message reason', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule my day', false);
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, '   ');
 
-    expect($decision->flow)->toBe('schedule');
-    expect($decision->confidence)->toBe(1.0);
-    expect($decision->clarificationNeeded)->toBeFalse();
-    expect($decision->reasonCodes)->toContain('legacy_routing');
+    expect($decision->flow)->toBe('chat');
+    expect($decision->reasonCodes)->toContain('empty_message');
 });
 
-test('policy routing can request clarification based on thresholds', function (): void {
-    config()->set('task-assistant.routing.execute_threshold', 0.9);
-    config()->set('task-assistant.routing.clarify_threshold', 0.45);
+test('LLM intent listing maps to browse flow', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'listing',
+                'confidence' => 0.92,
+                'rationale' => 'User wants to see tasks.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
 
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule my day', true);
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'List my tasks with high priority');
 
-    expect($decision->flow)->toBe('schedule');
-    expect($decision->clarificationNeeded)->toBeTrue();
-    expect($decision->clarificationQuestion)->not->toBeNull();
+    expect($decision->flow)->toBe('browse');
+    expect($decision->reasonCodes)->toContain('llm_intent_listing');
 });
 
-test('policy routing resolves multi-turn target entities and constraints', function (): void {
+test('LLM intent scheduling maps to schedule flow', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'scheduling',
+                'confidence' => 0.95,
+                'rationale' => 'User wants calendar planning.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule my day');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->reasonCodes)->toContain('llm_intent_scheduling');
+});
+
+test('invalid LLM intent label falls back to chat', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'not_a_valid_intent',
+                'confidence' => 0.5,
+                'rationale' => 'bad',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Hello there');
+
+    expect($decision->flow)->toBe('chat');
+    expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_chat');
+});
+
+test('signal-only mode with strong prioritize cues routes to prioritize', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'What are my top 3 tasks');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('signal_only');
+});
+
+test('policy routing resolves multiturn target entities and constraints', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'scheduling',
+                'confidence' => 0.9,
+                'rationale' => 'Scheduling follow-up.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
@@ -41,7 +110,7 @@ test('policy routing resolves multi-turn target entities and constraints', funct
         'title' => 'Deep work block',
     ]], 1);
 
-    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those 2 in the afternoon', true);
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those 2 in the afternoon');
 
     expect($decision->constraints['count_limit'])->toBe(2);
     expect($decision->constraints['time_window_hint'])->toBe('later_afternoon');
@@ -54,7 +123,7 @@ test('execution plan holds normalized orchestration fields', function (): void {
         confidence: 0.82,
         clarificationNeeded: false,
         clarificationQuestion: null,
-        reasonCodes: ['schedule_signal_detected'],
+        reasonCodes: ['llm_intent_scheduling'],
         constraints: ['count_limit' => 2],
         targetEntities: [],
         timeWindowHint: 'morning',

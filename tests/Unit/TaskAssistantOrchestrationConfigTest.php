@@ -22,6 +22,7 @@ test('service resolves route tool allowlist from config', function (): void {
         'list_tasks' => \App\Tools\LLM\TaskAssistant\ListTasksTool::class,
     ]);
     config()->set('task-assistant.tools.routes.chat', ['list_tasks']);
+    config()->set('task-assistant.tools.routes.browse', []);
     config()->set('task-assistant.tools.routes.prioritize', []);
 
     $service = app(TaskAssistantService::class);
@@ -30,9 +31,11 @@ test('service resolves route tool allowlist from config', function (): void {
     $user = User::factory()->create();
 
     $chatTools = $method->invoke($service, $user, 'chat');
+    $browseTools = $method->invoke($service, $user, 'browse');
     $prioritizeTools = $method->invoke($service, $user, 'prioritize');
 
     expect($chatTools)->toHaveCount(1);
+    expect($browseTools)->toHaveCount(0);
     expect($prioritizeTools)->toHaveCount(0);
 });
 
@@ -54,4 +57,14 @@ test('service reads route-specific generation client options', function (): void
     expect($options['temperature'])->toBe(0.2);
     expect($options['max_tokens'])->toBe(700);
     expect($options['top_p'])->toBe(0.85);
+
+    config()->set('task-assistant.generation.browse.temperature', 0.15);
+    config()->set('task-assistant.generation.browse.max_tokens', 800);
+    config()->set('task-assistant.generation.browse.top_p', 0.88);
+
+    $browseOptions = $method->invoke($service, 'browse');
+
+    expect($browseOptions['temperature'])->toBe(0.15);
+    expect($browseOptions['max_tokens'])->toBe(800);
+    expect($browseOptions['top_p'])->toBe(0.88);
 });

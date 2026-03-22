@@ -67,11 +67,19 @@ test('chat flyout submits prioritize-oriented message and dispatches job', funct
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'chosen_task_id' => null,
-                'chosen_task_title' => null,
-                'summary' => 'Structured task choice summary.',
-                'reason' => 'Because it is sensible.',
-                'suggested_next_steps' => ['Step 1'],
+                'intent' => 'prioritization',
+                'confidence' => 0.9,
+                'rationale' => 'User wants help choosing what to work on.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'summary' => 'Here is a sensible order to tackle things.',
+                'assistant_note' => 'Pick one task and start a short focus block.',
+                'reasoning' => 'Balances urgency with available time.',
+                'strategy_points' => ['Start with the smallest win if energy is low.'],
+                'suggested_next_steps' => ['Block 25 minutes for the first item.'],
+                'assumptions' => [],
             ])
             ->withUsage(new Usage(5, 10)),
     ]);

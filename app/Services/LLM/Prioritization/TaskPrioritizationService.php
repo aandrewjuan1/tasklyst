@@ -519,6 +519,16 @@ final class TaskPrioritizationService
         // - Priority and time constraints are relaxed if they would otherwise yield an empty candidate set.
         $filtered = $tasks;
 
+        if (! empty($context['recurring_requested'])) {
+            $recurringOnly = $filtered->filter(function (array $task): bool {
+                return ! empty($task['is_recurring']);
+            });
+
+            if (! $recurringOnly->isEmpty()) {
+                $filtered = $recurringOnly;
+            }
+        }
+
         // 1) Subject/type keywords: strict if possible, otherwise relax.
         if (! empty($context['task_keywords'])) {
             $keywordFiltered = $filtered->filter(function (array $task) use ($context): bool {
