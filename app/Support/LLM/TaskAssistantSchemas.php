@@ -183,6 +183,53 @@ final class TaskAssistantSchemas
     }
 
     /**
+     * Narrative fields for browse/listing: tasks are fixed by the backend; the model only polishes wording.
+     */
+    public static function browseNarrativeSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'browse_listing_narrative',
+            description: 'Student-friendly wording for a read-only task list. Do not change which tasks appear or their order.',
+            properties: [
+                new StringSchema(
+                    name: 'summary',
+                    description: 'One or two sentences that directly answer the user\'s question. Mention the active filter (from FILTER_CONTEXT) when relevant.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'assistant_note',
+                    description: 'Optional short friendly line (no new facts).',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'reasoning',
+                    description: 'Briefly explain why this filter and ranking match what the user asked for (listing context, not scheduling).',
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'strategy_points',
+                    description: 'Optional 0-4 short bullets about how to read or use this list (not calendar execution).',
+                    items: new StringSchema(name: 'point', description: 'One point.'),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'suggested_next_steps',
+                    description: '2-3 concrete next steps tied to browsing: narrow filters, pick a task to open, or ask for a different slice. Avoid calendar scheduling unless the user asked about time.',
+                    items: new StringSchema(name: 'step', description: 'One step.'),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'assumptions',
+                    description: 'Prefer empty. If used, only state facts visible in FILTER_CONTEXT or ITEMS_JSON.',
+                    items: new StringSchema(name: 'assumption', description: 'One fact.'),
+                    nullable: true
+                ),
+            ],
+            requiredFields: []
+        );
+    }
+
+    /**
      * Shared narrative schema for hybrid flows (schedule refinement and prioritize explanation).
      */
     public static function hybridNarrativeSchema(): ObjectSchema

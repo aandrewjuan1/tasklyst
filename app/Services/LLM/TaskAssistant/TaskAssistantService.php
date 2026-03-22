@@ -58,6 +58,16 @@ final class TaskAssistantService
             ->first();
 
         if (! $userMessage || ! $assistantMessage) {
+            Log::warning('task-assistant.orchestration', [
+                'layer' => 'orchestration',
+                'stage' => 'aborted_missing_message',
+                'thread_id' => $thread->id,
+                'user_message_id' => $userMessageId,
+                'assistant_message_id' => $assistantMessageId,
+                'has_user_message' => (bool) $userMessage,
+                'has_assistant_message' => (bool) $assistantMessage,
+            ]);
+
             return;
         }
 
@@ -65,6 +75,15 @@ final class TaskAssistantService
         app()->instance('task_assistant.message_id', $assistantMessageId);
 
         try {
+            Log::info('task-assistant.orchestration', [
+                'layer' => 'orchestration',
+                'stage' => 'start',
+                'thread_id' => $thread->id,
+                'user_id' => $thread->user_id,
+                'user_message_id' => $userMessageId,
+                'assistant_message_id' => $assistantMessageId,
+            ]);
+
             $content = (string) ($userMessage->content ?? '');
             $plan = $this->buildExecutionPlan($thread, $content);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
@@ -102,6 +121,14 @@ final class TaskAssistantService
 
     private function runPrioritizeFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, string $content, ExecutionPlan $plan): void
     {
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'prioritize',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'count_limit' => $plan->countLimit,
+        ]);
+
         $snapshot = $this->snapshotService->buildForUser($thread->user, 100);
         $context = $this->constraintsExtractor->extract($content);
         $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
@@ -191,6 +218,15 @@ final class TaskAssistantService
         string $content,
         ExecutionPlan $plan,
     ): void {
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'schedule',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'target_entities_count' => count($plan->targetEntities),
+            'time_window_hint' => $plan->timeWindowHint,
+        ]);
+
         $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
         $scheduleTargets = $plan->targetEntities;
         $timeWindowHint = $plan->timeWindowHint;
@@ -230,6 +266,13 @@ final class TaskAssistantService
         string $content,
         ExecutionPlan $plan,
     ): void {
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'browse',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+        ]);
+
         $taskLimit = max(1, (int) config('task-assistant.browse.snapshot_task_limit', 200));
         $snapshot = $this->snapshotService->buildForUser($thread->user, $taskLimit);
         $selection = $this->browseListingService->build($content, $snapshot);
@@ -261,6 +304,7 @@ final class TaskAssistantService
                 $items,
                 $selection['deterministic_summary'],
                 $selection['filter_description'],
+                $selection['ambiguous'],
                 $thread->id,
                 $thread->user_id,
             );
@@ -273,7 +317,11 @@ final class TaskAssistantService
                 'assistant_note' => $narrative['assistant_note'],
                 'strategy_points' => $narrative['strategy_points'],
                 'suggested_next_steps' => $narrative['suggested_next_steps'],
-                'assumptions' => $narrative['assumptions'],
+                'assumptions' => $this->browseListingService->buildDeterministicAssumptions(
+                    $selection['ambiguous'],
+                    $selection['filter_description'],
+                    $items
+                ),
                 'filter_description' => $selection['filter_description'],
             ];
         }
@@ -325,6 +373,24 @@ final class TaskAssistantService
             ->withClientOptions($this->resolveClientOptionsForRoute($plan->generationProfile))
             ->asText();
 
+        Log::info('task-assistant.llm.chat', [
+            'layer' => 'llm_chat',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'user_message_id' => $userMessage->id,
+            'generation_profile' => $plan->generationProfile,
+            'provider' => (string) config('task-assistant.provider', 'ollama'),
+            'model' => $this->resolveModel(),
+            'text_length' => mb_strlen((string) ($textResponse->text ?? '')),
+            'tool_calls_count' => count($textResponse->toolCalls ?? []),
+            'tool_results_count' => count($textResponse->toolResults ?? []),
+            'finish_reason' => isset($textResponse->finishReason)
+                ? ($textResponse->finishReason instanceof \UnitEnum
+                    ? $textResponse->finishReason->name
+                    : (string) $textResponse->finishReason)
+                : null,
+        ]);
+
         $this->toolEventPersister->persistToolCallsAndResults(
             $assistantMessage,
             $textResponse->toolCalls,
@@ -346,6 +412,15 @@ final class TaskAssistantService
 
     private function runClarificationFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void
     {
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'clarify',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'target_flow' => $plan->flow,
+            'reason_codes' => $plan->reasonCodes,
+        ]);
+
         $assistantMessage->update([
             'content' => (string) ($plan->clarificationQuestion ?? 'Could you clarify whether you want prioritization, scheduling, or general assistance?'),
             'metadata' => array_merge($assistantMessage->metadata ?? [], [
@@ -514,6 +589,7 @@ final class TaskAssistantService
     private function fallbackProvider(string $provider): Provider
     {
         Log::warning('task-assistant.provider.fallback', [
+            'layer' => 'llm_chat',
             'requested_provider' => $provider,
             'fallback_provider' => 'ollama',
         ]);
@@ -625,6 +701,7 @@ final class TaskAssistantService
     private function logRoutingDecision(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void
     {
         Log::info('task-assistant.routing_decision', [
+            'layer' => 'routing',
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
             'flow' => $plan->flow,
@@ -634,6 +711,7 @@ final class TaskAssistantService
             'target_entities_count' => count($plan->targetEntities),
             'time_window_hint' => $plan->timeWindowHint,
             'count_limit' => $plan->countLimit,
+            'generation_profile' => $plan->generationProfile,
             'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
         ]);
     }

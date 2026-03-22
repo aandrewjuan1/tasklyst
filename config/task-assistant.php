@@ -92,7 +92,15 @@ return [
         'max_items' => (int) env('TASK_ASSISTANT_BROWSE_MAX_ITEMS', 50),
     ],
 
-    'browse_route_context' => 'Browse mode: task lists are produced by backend filtering and ranking from the user snapshot. Narration only refines wording; it does not change which tasks were selected. Offer helpful next steps such as prioritizing or scheduling when relevant.',
+    'browse_route_context' => <<<'TXT'
+Browse mode (read-only listing): The task list, order, and filters are fixed by backend rules on the user snapshot. Your job is to phrase the answer clearly for a student. Do not add or remove tasks, change order, or invent deadlines.
+
+Mirror the user's actual question in the summary and reasoning (e.g. "this week", "my tasks", a keyword) using only FILTER_CONTEXT and ITEMS_JSON.
+
+Suggested next steps must follow from what they asked: refine the view (narrow filters, search), open a task, or ask for a different slice of the list. Do not suggest calendar time-blocking or "schedule your day" unless the user's message clearly asks about when to work or scheduling.
+
+You may add at most one optional line about prioritizing or scheduling only if their wording already asks what to do first or when to do something.
+TXT,
 
     'intent' => [
         'use_llm' => env('TASK_ASSISTANT_INTENT_USE_LLM', true),

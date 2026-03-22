@@ -4,6 +4,7 @@ namespace App\Services\LLM\Browse;
 
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use Carbon\CarbonImmutable;
 
 /**
  * Deterministic listing: applies the same constraint + ranking pipeline as prioritization,
@@ -19,7 +20,7 @@ final class TaskAssistantBrowseListingService
     /**
      * @param  array<string, mixed>  $snapshot
      * @return array{
-     *   items: list<array{entity_type:string,entity_id:int,title:string,reason:string}>,
+     *   items: list<array{entity_type:string,entity_id:int,title:string,reason:string,due_bucket:string}>,
      *   deterministic_summary: string,
      *   filter_description: string,
      *   ambiguous: bool
@@ -27,6 +28,9 @@ final class TaskAssistantBrowseListingService
      */
     public function build(string $userMessage, array $snapshot): array
     {
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $now = CarbonImmutable::now($timezone);
+
         $context = $this->constraintsExtractor->extract($userMessage);
         $ambiguous = $this->isAmbiguousBrowseListRequest($userMessage, $context);
 
@@ -54,11 +58,16 @@ final class TaskAssistantBrowseListingService
 
         $items = [];
         foreach ($tasksOnly as $row) {
+            $rawTask = is_array($row['raw'] ?? null) ? $row['raw'] : [];
+            $dueBucket = $this->classifyDueBucket($rawTask, $now, $timezone);
+            $reason = trim((string) ($row['reasoning'] ?? ''));
+
             $items[] = [
                 'entity_type' => 'task',
                 'entity_id' => (int) ($row['id'] ?? 0),
                 'title' => (string) ($row['title'] ?? ''),
-                'reason' => trim((string) ($row['reasoning'] ?? '')),
+                'reason' => $this->humanizeBrowseReason($reason),
+                'due_bucket' => $dueBucket,
             ];
         }
 
@@ -71,6 +80,106 @@ final class TaskAssistantBrowseListingService
             'filter_description' => $filterDescription,
             'ambiguous' => $ambiguous,
         ];
+    }
+
+    /**
+     * Short, grounded lines for browse responses (replaces free-form LLM assumptions).
+     *
+     * @param  list<array{entity_type?:string, due_bucket?:string}>  $items
+     * @return list<string>
+     */
+    public function buildDeterministicAssumptions(bool $ambiguous, string $filterDescription, array $items): array
+    {
+        $lines = [
+            'Tasks and order come from your data and the active filter, using the same ranking rules as the rest of the assistant.',
+        ];
+
+        if ($ambiguous) {
+            $lines[] = 'This is a short ranked slice of your tasks (no strict filter). Ask for a narrower search if you need more.';
+        } else {
+            $lines[] = 'Active filter: '.$filterDescription.'.';
+        }
+
+        $counts = [];
+        foreach ($items as $item) {
+            $b = (string) ($item['due_bucket'] ?? 'unknown');
+            $counts[$b] = ($counts[$b] ?? 0) + 1;
+        }
+
+        $parts = [];
+        foreach ($counts as $bucket => $count) {
+            if ($count <= 0) {
+                continue;
+            }
+            $parts[] = $count.' '.$this->dueBucketLabel($bucket);
+        }
+
+        if ($parts !== []) {
+            $lines[] = 'In this list: '.implode(', ', $parts).'.';
+        }
+
+        return array_values(array_filter($lines, static fn (string $s): bool => $s !== ''));
+    }
+
+    private function dueBucketLabel(string $bucket): string
+    {
+        return match ($bucket) {
+            'overdue' => 'overdue',
+            'due_today' => 'due today',
+            'due_tomorrow' => 'due tomorrow',
+            'due_this_week' => 'due this week',
+            'due_later' => 'due later',
+            'no_deadline' => 'with no deadline',
+            default => 'tasks',
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $task
+     */
+    private function classifyDueBucket(array $task, CarbonImmutable $now, string $timezone): string
+    {
+        if (! isset($task['ends_at']) || $task['ends_at'] === null || $task['ends_at'] === '') {
+            return 'no_deadline';
+        }
+
+        try {
+            $deadline = CarbonImmutable::parse((string) $task['ends_at'], $timezone);
+        } catch (\Throwable) {
+            return 'no_deadline';
+        }
+
+        if ($deadline->lt($now)) {
+            return 'overdue';
+        }
+
+        if ($deadline->isSameDay($now)) {
+            return 'due_today';
+        }
+
+        if ($deadline->isSameDay($now->addDay())) {
+            return 'due_tomorrow';
+        }
+
+        if ($deadline->lte($now->addDays(7))) {
+            return 'due_this_week';
+        }
+
+        return 'due_later';
+    }
+
+    private function humanizeBrowseReason(string $reason): string
+    {
+        $r = trim($reason);
+        if ($r === '') {
+            return $r;
+        }
+
+        if (preg_match('/^Selected as\s+(.+?)\s+priority task\s+(.+)$/iu', $r, $m) === 1) {
+            return trim($m[1]).' priority · '.trim($m[2]);
+        }
+
+        return $r;
     }
 
     /**
@@ -125,7 +234,7 @@ final class TaskAssistantBrowseListingService
         }
 
         if ($ambiguous) {
-            return 'Here are your top '.$count.' tasks to focus on right now:';
+            return 'Here are '.$count.' tasks from your list, ordered by urgency and due dates:';
         }
 
         return 'Found '.$count.' task(s) matching '.$filterDescription.'.';

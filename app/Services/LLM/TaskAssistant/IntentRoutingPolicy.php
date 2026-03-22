@@ -6,6 +6,7 @@ use App\Models\TaskAssistantThread;
 use App\Services\LLM\Intent\TaskAssistantIntentInferenceService;
 use App\Services\LLM\Intent\TaskAssistantIntentResolutionService;
 use App\Services\LLM\Intent\TaskAssistantIntentSignalExtractor;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Sole entry point for task-assistant route intent: heuristic signals, optional
@@ -24,6 +25,13 @@ final class IntentRoutingPolicy
     {
         $normalized = mb_strtolower(trim($content));
         if ($normalized === '') {
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'thread_id' => $thread->id,
+                'outcome' => 'empty_message',
+                'flow' => 'chat',
+            ]);
+
             return new IntentRoutingDecision(
                 flow: 'chat',
                 confidence: 1.0,
@@ -37,17 +45,40 @@ final class IntentRoutingPolicy
         $signals = $this->signalExtractor->extract($normalized);
 
         $inference = null;
-        if ((bool) config('task-assistant.intent.use_llm', true)) {
+        $useLlm = (bool) config('task-assistant.intent.use_llm', true);
+        if ($useLlm) {
             $inference = $this->intentInference->infer($content);
         }
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
 
+        $constraints = $this->buildConstraints($thread, $normalized);
+
+        Log::info('task-assistant.intent.policy', [
+            'layer' => 'intent_policy',
+            'thread_id' => $thread->id,
+            'outcome' => 'resolved',
+            'use_llm' => $useLlm,
+            'signals' => $signals,
+            'resolved_flow' => $decision->flow,
+            'confidence' => $decision->confidence,
+            'reason_codes' => $decision->reasonCodes,
+            'clarification_needed' => $decision->clarificationNeeded,
+            'constraints' => [
+                'count_limit' => $constraints['count_limit'] ?? null,
+                'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                    ? count($constraints['target_entities'])
+                    : 0,
+            ],
+            'message_length' => mb_strlen($content),
+        ]);
+
         return new IntentRoutingDecision(
             flow: $decision->flow,
             confidence: $decision->confidence,
             reasonCodes: $decision->reasonCodes,
-            constraints: $this->buildConstraints($thread, $normalized),
+            constraints: $constraints,
             clarificationNeeded: $decision->clarificationNeeded,
             clarificationQuestion: $decision->clarificationQuestion,
         );

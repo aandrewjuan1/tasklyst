@@ -223,6 +223,7 @@ final class TaskAssistantIntentResolutionService
         bool $clarificationNeeded,
     ): void {
         Log::info('task-assistant.intent_resolution', [
+            'layer' => 'intent_resolution',
             'thread_id' => $thread->id,
             'llm_intent' => $llmIntent,
             'llm_confidence' => $llmConfidence,

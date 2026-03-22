@@ -2,10 +2,17 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 final class TaskAssistantResponseProcessor
 {
+    private const FORMATTED_MESSAGE_LOG_MAX_CHARS = 50000;
+
+    public function __construct(
+        private readonly TaskAssistantMessageFormatter $messageFormatter,
+    ) {}
+
     /**
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>  $snapshot
@@ -17,7 +24,34 @@ final class TaskAssistantResponseProcessor
         array $snapshot = [],
     ): array {
         $validation = $this->validateFlowData($flow, $data, $snapshot);
-        $formattedContent = $this->formatFlowData($flow, $data);
+        $formattedContent = $this->messageFormatter->format($flow, $data, $snapshot);
+
+        $contentLength = mb_strlen($formattedContent);
+        $loggedBody = $formattedContent;
+        $truncated = false;
+        if ($contentLength > self::FORMATTED_MESSAGE_LOG_MAX_CHARS) {
+            $loggedBody = mb_substr($formattedContent, 0, self::FORMATTED_MESSAGE_LOG_MAX_CHARS).'…';
+            $truncated = true;
+        }
+
+        Log::info('task-assistant.formatted_message', [
+            'layer' => 'message_format',
+            'flow' => $flow,
+            'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
+            'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+            'validation_valid' => $validation['valid'],
+            'content_length' => $contentLength,
+            'formatted_message_truncated' => $truncated,
+            'formatted_message' => $loggedBody,
+        ]);
+
+        Log::info('task-assistant.validation', [
+            'layer' => 'validation',
+            'flow' => $flow,
+            'valid' => $validation['valid'],
+            'errors' => $validation['errors'],
+            'data_keys' => array_keys($data),
+        ]);
 
         return [
             'valid' => $validation['valid'],
@@ -92,6 +126,7 @@ final class TaskAssistantResponseProcessor
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
             'items.*.reason' => ['nullable', 'string', 'max:500'],
+            'items.*.due_bucket' => ['nullable', 'string', 'max:32'],
         ];
 
         $validator = Validator::make($data, $rules);
@@ -214,219 +249,5 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
-    }
-
-    private function formatFlowData(string $flow, array $data): string
-    {
-        $body = match ($flow) {
-            'prioritize' => $this->formatPrioritizeData($data),
-            'browse' => $this->formatBrowseData($data),
-            'daily_schedule' => $this->formatDailyScheduleData($data),
-            default => $this->formatDefaultData($data),
-        };
-
-        return trim($body);
-    }
-
-    private function formatDailyScheduleData(array $data): string
-    {
-        $summary = trim((string) ($data['summary'] ?? ''));
-        $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
-        $blocks = $data['blocks'] ?? [];
-        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
-        $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
-        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
-
-        $paragraphs = [];
-        if ($summary !== '') {
-            $paragraphs[] = $summary;
-        }
-        if ($reasoning !== '') {
-            $paragraphs[] = 'Why this schedule works: '.$reasoning;
-        }
-
-        if (is_array($blocks) && ! empty($blocks)) {
-            $sentences = [];
-            foreach ($blocks as $block) {
-                if (! is_array($block)) {
-                    continue;
-                }
-                $start = (string) ($block['start_time'] ?? '');
-                $end = (string) ($block['end_time'] ?? '');
-                $label = (string) ($block['label'] ?? $block['title'] ?? 'Focus time');
-                $reason = (string) ($block['reason'] ?? $block['note'] ?? '');
-                $ref = $label;
-                if ($block['task_id'] ?? null) {
-                    $ref .= ' (task '.$block['task_id'].')';
-                } elseif ($block['event_id'] ?? null) {
-                    $ref .= ' (event '.$block['event_id'].')';
-                }
-
-                $time = trim($start.'–'.$end, '–');
-                $sentence = ($time !== '' ? $time.': ' : '').$ref;
-                if ($reason !== '') {
-                    $sentence .= ' — '.$reason;
-                }
-
-                $sentences[] = $sentence;
-            }
-
-            if (! empty($sentences)) {
-                $paragraphs[] = 'Planned time blocks: '.$this->joinSentences($sentences);
-            }
-        }
-
-        $strategyPoints = array_values(array_filter(
-            array_map(static fn (mixed $value): string => trim((string) $value), $strategyPoints),
-            static fn (string $value): bool => $value !== ''
-        ));
-        if ($strategyPoints !== []) {
-            $paragraphs[] = 'Scheduling strategy: '.$this->joinSentences($strategyPoints).'.';
-        }
-
-        $nextSteps = array_values(array_filter(
-            array_map(static fn (mixed $value): string => trim((string) $value), $nextSteps),
-            static fn (string $value): bool => $value !== ''
-        ));
-        if ($nextSteps !== []) {
-            $paragraphs[] = 'Suggested next steps: '.$this->joinSentences($nextSteps).'.';
-        }
-
-        $assumptions = array_values(array_filter(
-            array_map(static fn (mixed $value): string => trim((string) $value), $assumptions),
-            static fn (string $value): bool => $value !== ''
-        ));
-        if ($assumptions !== []) {
-            $paragraphs[] = 'Assumptions used: '.$this->joinSentences($assumptions).'.';
-        }
-
-        $proposals = $data['proposals'] ?? [];
-        if (is_array($proposals) && ! empty($proposals)) {
-            $paragraphs[] = 'Use Accept/Decline on each proposed item to apply schedule updates.';
-        }
-        if ($assistantNote !== '') {
-            $paragraphs[] = $assistantNote;
-        }
-
-        return implode("\n\n", $paragraphs);
-    }
-
-    private function formatPrioritizeData(array $data): string
-    {
-        $summary = trim((string) ($data['summary'] ?? ''));
-        $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
-        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
-        $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
-        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
-        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-
-        $paragraphs = [];
-        if ($summary !== '') {
-            $paragraphs[] = $summary;
-        }
-        if ($reasoning !== '') {
-            $paragraphs[] = 'Why these priorities: '.$reasoning;
-        }
-
-        $lines = [];
-        foreach ($items as $index => $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $type = (string) ($item['entity_type'] ?? 'task');
-            $title = trim((string) ($item['title'] ?? ''));
-            if ($title === '') {
-                continue;
-            }
-            $reason = trim((string) ($item['reason'] ?? ''));
-            $line = ($index + 1).". [{$type}] {$title}";
-            if ($reason !== '') {
-                $line .= ' - '.$reason;
-            }
-            $lines[] = $line;
-        }
-        if ($lines !== []) {
-            $paragraphs[] = implode("\n", $lines);
-        }
-
-        $strategyPoints = array_values(array_filter(
-            array_map(static fn (mixed $value): string => trim((string) $value), $strategyPoints),
-            static fn (string $value): bool => $value !== ''
-        ));
-        if ($strategyPoints !== []) {
-            $paragraphs[] = 'Focus strategy: '.$this->joinSentences($strategyPoints).'.';
-        }
-
-        $nextSteps = array_values(array_filter(
-            array_map(static fn (mixed $value): string => trim((string) $value), $nextSteps),
-            static fn (string $value): bool => $value !== ''
-        ));
-        if ($nextSteps !== []) {
-            $paragraphs[] = 'Suggested next steps: '.$this->joinSentences($nextSteps).'.';
-        }
-
-        $assumptions = array_values(array_filter(
-            array_map(static fn (mixed $value): string => trim((string) $value), $assumptions),
-            static fn (string $value): bool => $value !== ''
-        ));
-        if ($assumptions !== []) {
-            $paragraphs[] = 'Notes: '.$this->joinSentences($assumptions).'.';
-        }
-
-        if ($assistantNote !== '') {
-            $paragraphs[] = $assistantNote;
-        }
-
-        return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
-    }
-
-    private function formatBrowseData(array $data): string
-    {
-        $filterDescription = trim((string) ($data['filter_description'] ?? ''));
-        $body = $this->formatPrioritizeData($data);
-        if ($filterDescription === '') {
-            return $body;
-        }
-
-        return trim('Filters applied: '.$filterDescription.'.'."\n\n".$body);
-    }
-
-    private function formatDefaultData(array $data): string
-    {
-        if (isset($data['message']) && is_string($data['message'])) {
-            return $data['message'];
-        }
-
-        if (isset($data['summary']) && is_string($data['summary'])) {
-            return $data['summary'];
-        }
-
-        return 'I\'ve processed your request. Is there anything specific you\'d like me to help you with next?';
-    }
-
-    /**
-     * Join sentences into a natural flowing paragraph. Uses commas and conjunction for readability.
-     *
-     * @param  array<int, string>  $sentences
-     */
-    private function joinSentences(array $sentences): string
-    {
-        $sentences = array_values($sentences);
-        $count = count($sentences);
-        if ($count === 0) {
-            return '';
-        }
-        if ($count === 1) {
-            return $sentences[0];
-        }
-        if ($count === 2) {
-            return $sentences[0].' and '.$sentences[1];
-        }
-
-        $last = array_pop($sentences);
-
-        return implode(', ', $sentences).', and '.$last;
     }
 }
