@@ -53,6 +53,13 @@ final class TaskAssistantConversationStateService
         $this->put($thread, $state);
     }
 
+    public function clearSelectedEntities(TaskAssistantThread $thread): void
+    {
+        $state = $this->get($thread);
+        unset($state['selected_entities']);
+        $this->put($thread, $state);
+    }
+
     /**
      * @return array<int, array{entity_type: string, entity_id: int, title: string}>
      */

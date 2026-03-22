@@ -146,8 +146,18 @@ PROMPT;
 
         return match ($provider) {
             'ollama' => Provider::Ollama,
-            default => Provider::Ollama,
+            default => $this->fallbackProvider($provider),
         };
+    }
+
+    private function fallbackProvider(string $provider): Provider
+    {
+        Log::warning('task-assistant.provider.fallback', [
+            'requested_provider' => $provider,
+            'fallback_provider' => 'ollama',
+        ]);
+
+        return Provider::Ollama;
     }
 
     private function resolveModel(): string

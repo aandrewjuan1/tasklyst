@@ -16,7 +16,10 @@ use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Tool;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
+use Prism\Prism\ValueObjects\Messages\ToolResultMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
+use Prism\Prism\ValueObjects\ToolCall;
+use Prism\Prism\ValueObjects\ToolResult;
 
 /**
  * Task Assistant orchestration: queued messages are routed once via
@@ -40,6 +43,7 @@ final class TaskAssistantService
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
         private readonly TaskAssistantBrowseListingService $browseListingService,
+        private readonly TaskAssistantToolEventPersister $toolEventPersister,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -57,35 +61,43 @@ final class TaskAssistantService
             return;
         }
 
-        $content = (string) ($userMessage->content ?? '');
-        $plan = $this->buildExecutionPlan($thread, $content);
-        $this->logRoutingDecision($thread, $assistantMessage, $plan);
+        app()->instance('task_assistant.thread_id', $thread->id);
+        app()->instance('task_assistant.message_id', $assistantMessageId);
 
-        if ($plan->clarificationNeeded) {
-            $this->runClarificationFlow($thread, $assistantMessage, $plan);
+        try {
+            $content = (string) ($userMessage->content ?? '');
+            $plan = $this->buildExecutionPlan($thread, $content);
+            $this->logRoutingDecision($thread, $assistantMessage, $plan);
 
-            return;
+            if ($plan->clarificationNeeded) {
+                $this->runClarificationFlow($thread, $assistantMessage, $plan);
+
+                return;
+            }
+
+            if ($plan->flow === 'prioritize') {
+                $this->runPrioritizeFlow($thread, $assistantMessage, $content, $plan);
+
+                return;
+            }
+
+            if ($plan->flow === 'schedule') {
+                $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+
+                return;
+            }
+
+            if ($plan->flow === 'browse') {
+                $this->runBrowseFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+
+                return;
+            }
+
+            $this->runChatFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+        } finally {
+            app()->forgetInstance('task_assistant.thread_id');
+            app()->forgetInstance('task_assistant.message_id');
         }
-
-        if ($plan->flow === 'prioritize') {
-            $this->runPrioritizeFlow($thread, $assistantMessage, $content, $plan);
-
-            return;
-        }
-
-        if ($plan->flow === 'schedule') {
-            $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $plan);
-
-            return;
-        }
-
-        if ($plan->flow === 'browse') {
-            $this->runBrowseFlow($thread, $userMessage, $assistantMessage, $content, $plan);
-
-            return;
-        }
-
-        $this->runChatFlow($thread, $userMessage, $assistantMessage, $content, $plan);
     }
 
     private function runPrioritizeFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, string $content, ExecutionPlan $plan): void
@@ -152,7 +164,6 @@ final class TaskAssistantService
             thread: $thread,
             assistantMessage: $assistantMessage,
             generationResult: $generationResult,
-            originalUserMessage: $content,
             assistantFallbackContent: 'I could not prioritize your items yet. Please ask me to list your top tasks again.'
         );
 
@@ -188,7 +199,6 @@ final class TaskAssistantService
             thread: $thread,
             userMessageContent: $content,
             historyMessages: $historyMessages,
-            tools: $this->resolveToolsForRoute($thread->user, 'schedule'),
             options: [
                 'target_entities' => $scheduleTargets,
                 'time_window_hint' => $timeWindowHint,
@@ -201,7 +211,6 @@ final class TaskAssistantService
             thread: $thread,
             assistantMessage: $assistantMessage,
             generationResult: $result,
-            originalUserMessage: $content,
             assistantFallbackContent: 'I had trouble scheduling these items. Please try again with more details.'
         );
 
@@ -281,7 +290,6 @@ final class TaskAssistantService
             thread: $thread,
             assistantMessage: $assistantMessage,
             generationResult: $generationResult,
-            originalUserMessage: $content,
             assistantFallbackContent: 'I could not build a task list yet. Try again with a bit more detail.',
         );
 
@@ -291,6 +299,8 @@ final class TaskAssistantService
             flow: 'browse',
             execution: $execution
         );
+
+        $this->conversationState->clearSelectedEntities($thread);
     }
 
     private function runChatFlow(
@@ -306,7 +316,7 @@ final class TaskAssistantService
         $promptData['snapshot'] = $this->snapshotService->buildForUser($thread->user);
         $promptData['toolManifest'] = $this->buildToolManifestFromTools($this->resolveToolsForRoute($thread->user, $plan->flow));
 
-        $text = Prism::text()
+        $textResponse = Prism::text()
             ->using($this->resolveProvider(), $this->resolveModel())
             ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
             ->withMessages($historyMessages)
@@ -315,8 +325,14 @@ final class TaskAssistantService
             ->withClientOptions($this->resolveClientOptionsForRoute($plan->generationProfile))
             ->asText();
 
+        $this->toolEventPersister->persistToolCallsAndResults(
+            $assistantMessage,
+            $textResponse->toolCalls,
+            $textResponse->toolResults,
+        );
+
         $assistantMessage->update([
-            'content' => (string) ($text->text ?? 'How can I help with prioritizing or scheduling your tasks?'),
+            'content' => (string) ($textResponse->text ?? 'How can I help with prioritizing or scheduling your tasks?'),
         ]);
 
         $this->streamFinalAssistantJson($thread->user_id, $assistantMessage, $this->buildJsonEnvelope(
@@ -376,7 +392,7 @@ final class TaskAssistantService
 
     /**
      * @param  Collection<int, TaskAssistantMessage>  $messages
-     * @return array<int, UserMessage|AssistantMessage>
+     * @return array<int, UserMessage|AssistantMessage|ToolResultMessage>
      */
     private function mapToPrismMessages(Collection $messages): array
     {
@@ -388,11 +404,61 @@ final class TaskAssistantService
                 continue;
             }
             if ($msg->role === MessageRole::Assistant) {
-                $out[] = new AssistantMessage($msg->content ?? '');
+                $prismToolCalls = [];
+                foreach ($msg->tool_calls ?? [] as $tc) {
+                    if (! is_array($tc)) {
+                        continue;
+                    }
+                    $id = (string) ($tc['id'] ?? '');
+                    if ($id === '') {
+                        continue;
+                    }
+                    $prismToolCalls[] = new ToolCall(
+                        id: $id,
+                        name: (string) ($tc['name'] ?? ''),
+                        arguments: $tc['arguments'] ?? [],
+                    );
+                }
+                $out[] = new AssistantMessage($msg->content ?? '', $prismToolCalls);
+
+                continue;
+            }
+            if ($msg->role === MessageRole::Tool) {
+                $meta = $msg->metadata ?? [];
+                $toolCallId = (string) ($meta['tool_call_id'] ?? '');
+                if ($toolCallId === '') {
+                    continue;
+                }
+                $toolName = (string) ($meta['tool_name'] ?? '');
+                $args = is_array($meta['args'] ?? null) ? $meta['args'] : [];
+                $result = $this->decodeToolMessageResult((string) ($msg->content ?? ''));
+                $out[] = new ToolResultMessage([
+                    new ToolResult($toolCallId, $toolName, $args, $result),
+                ]);
             }
         }
 
         return $out;
+    }
+
+    private function decodeToolMessageResult(string $raw): array|float|int|string|null
+    {
+        $trim = trim($raw);
+        if ($trim === '') {
+            return '';
+        }
+        if (str_starts_with($trim, '{') || str_starts_with($trim, '[')) {
+            $decoded = json_decode($trim, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                if (is_bool($decoded)) {
+                    return $decoded ? 'true' : 'false';
+                }
+
+                return $decoded;
+            }
+        }
+
+        return $raw;
     }
 
     /**

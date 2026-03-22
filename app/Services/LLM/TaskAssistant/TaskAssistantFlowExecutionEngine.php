@@ -37,7 +37,6 @@ final class TaskAssistantFlowExecutionEngine
         TaskAssistantThread $thread,
         TaskAssistantMessage $assistantMessage,
         array $generationResult,
-        string $originalUserMessage,
         string $assistantFallbackContent
     ): array {
         $snapshot = $this->snapshotService->buildForUser($thread->user);
@@ -69,8 +68,6 @@ final class TaskAssistantFlowExecutionEngine
             flow: $flow,
             data: $payload,
             snapshot: $snapshot,
-            thread: $thread,
-            originalUserMessage: $originalUserMessage,
         );
 
         $processedValid = (bool) ($processedResponse['valid'] ?? false);
