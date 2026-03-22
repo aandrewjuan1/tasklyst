@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services\LLM\TaskAssistant;
+namespace App\Services\LLM\Prioritization;
 
 final class TaskAssistantTaskChoiceConstraintsExtractor
 {

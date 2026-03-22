@@ -33,6 +33,7 @@ final class TaskAssistantResponseProcessor
     {
         return match ($flow) {
             'prioritize' => $this->validatePrioritizeData($data),
+            'browse' => $this->validateBrowseData($data),
             'daily_schedule' => $this->validateDailyScheduleData($data, $snapshot),
             default => ['valid' => true, 'data' => $data, 'errors' => []],
         };
@@ -42,8 +43,53 @@ final class TaskAssistantResponseProcessor
     {
         $rules = [
             'summary' => ['nullable', 'string', 'max:1000'],
+            'reasoning' => ['nullable', 'string', 'max:1200'],
+            'assistant_note' => ['nullable', 'string', 'max:500'],
+            'strategy_points' => ['nullable', 'array', 'max:6'],
+            'strategy_points.*' => ['string', 'max:300'],
+            'suggested_next_steps' => ['nullable', 'array', 'max:8'],
+            'suggested_next_steps.*' => ['string', 'max:300'],
+            'assumptions' => ['nullable', 'array', 'max:6'],
+            'assumptions.*' => ['string', 'max:300'],
             'limit_used' => ['required', 'integer', 'min:0', 'max:20'],
             'items' => ['required', 'array', 'max:20'],
+            'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
+            'items.*.entity_id' => ['required', 'integer', 'min:1'],
+            'items.*.title' => ['required', 'string', 'max:200'],
+            'items.*.reason' => ['nullable', 'string', 'max:500'],
+        ];
+
+        $validator = Validator::make($data, $rules);
+        if ($validator->fails()) {
+            return [
+                'valid' => false,
+                'data' => [],
+                'errors' => $validator->errors()->all(),
+            ];
+        }
+
+        return [
+            'valid' => true,
+            'data' => $data,
+            'errors' => [],
+        ];
+    }
+
+    private function validateBrowseData(array $data): array
+    {
+        $rules = [
+            'summary' => ['nullable', 'string', 'max:1000'],
+            'reasoning' => ['nullable', 'string', 'max:1200'],
+            'assistant_note' => ['nullable', 'string', 'max:500'],
+            'strategy_points' => ['nullable', 'array', 'max:6'],
+            'strategy_points.*' => ['string', 'max:300'],
+            'suggested_next_steps' => ['nullable', 'array', 'max:8'],
+            'suggested_next_steps.*' => ['string', 'max:300'],
+            'assumptions' => ['nullable', 'array', 'max:6'],
+            'assumptions.*' => ['string', 'max:300'],
+            'filter_description' => ['nullable', 'string', 'max:500'],
+            'limit_used' => ['required', 'integer', 'min:0', 'max:50'],
+            'items' => ['required', 'array', 'max:50'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
@@ -176,6 +222,7 @@ final class TaskAssistantResponseProcessor
     {
         $body = match ($flow) {
             'prioritize' => $this->formatPrioritizeData($data),
+            'browse' => $this->formatBrowseData($data),
             'daily_schedule' => $this->formatDailyScheduleData($data),
             default => $this->formatDefaultData($data),
         };
@@ -270,13 +317,22 @@ final class TaskAssistantResponseProcessor
     private function formatPrioritizeData(array $data): string
     {
         $summary = trim((string) ($data['summary'] ?? ''));
+        $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
+        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
+        $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
+        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
 
-        $lines = [];
+        $paragraphs = [];
         if ($summary !== '') {
-            $lines[] = $summary;
+            $paragraphs[] = $summary;
+        }
+        if ($reasoning !== '') {
+            $paragraphs[] = 'Why these priorities: '.$reasoning;
         }
 
+        $lines = [];
         foreach ($items as $index => $item) {
             if (! is_array($item)) {
                 continue;
@@ -293,8 +349,50 @@ final class TaskAssistantResponseProcessor
             }
             $lines[] = $line;
         }
+        if ($lines !== []) {
+            $paragraphs[] = implode("\n", $lines);
+        }
 
-        return implode("\n\n", $lines);
+        $strategyPoints = array_values(array_filter(
+            array_map(static fn (mixed $value): string => trim((string) $value), $strategyPoints),
+            static fn (string $value): bool => $value !== ''
+        ));
+        if ($strategyPoints !== []) {
+            $paragraphs[] = 'Focus strategy: '.$this->joinSentences($strategyPoints).'.';
+        }
+
+        $nextSteps = array_values(array_filter(
+            array_map(static fn (mixed $value): string => trim((string) $value), $nextSteps),
+            static fn (string $value): bool => $value !== ''
+        ));
+        if ($nextSteps !== []) {
+            $paragraphs[] = 'Suggested next steps: '.$this->joinSentences($nextSteps).'.';
+        }
+
+        $assumptions = array_values(array_filter(
+            array_map(static fn (mixed $value): string => trim((string) $value), $assumptions),
+            static fn (string $value): bool => $value !== ''
+        ));
+        if ($assumptions !== []) {
+            $paragraphs[] = 'Notes: '.$this->joinSentences($assumptions).'.';
+        }
+
+        if ($assistantNote !== '') {
+            $paragraphs[] = $assistantNote;
+        }
+
+        return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
+    }
+
+    private function formatBrowseData(array $data): string
+    {
+        $filterDescription = trim((string) ($data['filter_description'] ?? ''));
+        $body = $this->formatPrioritizeData($data);
+        if ($filterDescription === '') {
+            return $body;
+        }
+
+        return trim('Filters applied: '.$filterDescription.'.'."\n\n".$body);
     }
 
     private function formatDefaultData(array $data): string

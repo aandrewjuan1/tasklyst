@@ -6,7 +6,10 @@ use App\Enums\MessageRole;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use App\Services\LLM\Browse\TaskAssistantBrowseListingService;
+use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
@@ -15,6 +18,10 @@ use Prism\Prism\Tool;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
 
+/**
+ * Task Assistant orchestration: queued messages are routed once via
+ * {@see IntentRoutingPolicy} (LLM + validation), then executed in a flow branch.
+ */
 final class TaskAssistantService
 {
     private const MESSAGE_LIMIT = 50;
@@ -31,6 +38,8 @@ final class TaskAssistantService
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
         private readonly TaskAssistantConversationStateService $conversationState,
         private readonly IntentRoutingPolicy $routingPolicy,
+        private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
+        private readonly TaskAssistantBrowseListingService $browseListingService,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -70,6 +79,12 @@ final class TaskAssistantService
             return;
         }
 
+        if ($plan->flow === 'browse') {
+            $this->runBrowseFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+
+            return;
+        }
+
         $this->runChatFlow($thread, $userMessage, $assistantMessage, $content, $plan);
     }
 
@@ -101,10 +116,29 @@ final class TaskAssistantService
             ];
         }
 
+        $promptData = $this->promptData->forUser($thread->user);
+        $promptData['snapshot'] = $snapshot;
+
+        $deterministicSummary = 'Here are your top '.max(1, $limit).' priorities:';
+
+        $narrative = $this->hybridNarrative->refinePrioritize(
+            $promptData,
+            $content,
+            $selected,
+            $deterministicSummary,
+            $thread->id,
+            $thread->user_id,
+        );
+
         $prioritizeData = [
-            'summary' => 'Here are your top '.max(1, $limit).' priorities:',
+            'summary' => $narrative['summary'],
             'items' => $selected,
             'limit_used' => count($selected),
+            'reasoning' => $narrative['reasoning'],
+            'assistant_note' => $narrative['assistant_note'],
+            'strategy_points' => $narrative['strategy_points'],
+            'suggested_next_steps' => $narrative['suggested_next_steps'],
+            'assumptions' => $narrative['assumptions'],
         ];
         $generationResult = [
             'valid' => $selected !== [],
@@ -176,6 +210,85 @@ final class TaskAssistantService
             thread: $thread,
             assistantMessage: $assistantMessage,
             flow: 'schedule',
+            execution: $execution
+        );
+    }
+
+    private function runBrowseFlow(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $userMessage,
+        TaskAssistantMessage $assistantMessage,
+        string $content,
+        ExecutionPlan $plan,
+    ): void {
+        $taskLimit = max(1, (int) config('task-assistant.browse.snapshot_task_limit', 200));
+        $snapshot = $this->snapshotService->buildForUser($thread->user, $taskLimit);
+        $selection = $this->browseListingService->build($content, $snapshot);
+        $items = $selection['items'];
+
+        $promptData = $this->promptData->forUser($thread->user);
+        $promptData['snapshot'] = $snapshot;
+        $promptData['route_context'] = (string) config('task-assistant.browse_route_context', '');
+
+        if ($items === []) {
+            $browseData = [
+                'summary' => $selection['deterministic_summary'],
+                'items' => [],
+                'limit_used' => 0,
+                'reasoning' => null,
+                'assistant_note' => null,
+                'strategy_points' => [],
+                'suggested_next_steps' => [
+                    'Try widening your filters or add tasks that match what you need.',
+                    'Ask me to prioritize or schedule when you have tasks to work with.',
+                ],
+                'assumptions' => [],
+                'filter_description' => $selection['filter_description'],
+            ];
+        } else {
+            $narrative = $this->hybridNarrative->refineBrowseListing(
+                $promptData,
+                $content,
+                $items,
+                $selection['deterministic_summary'],
+                $selection['filter_description'],
+                $thread->id,
+                $thread->user_id,
+            );
+
+            $browseData = [
+                'summary' => $narrative['summary'],
+                'items' => $items,
+                'limit_used' => count($items),
+                'reasoning' => $narrative['reasoning'],
+                'assistant_note' => $narrative['assistant_note'],
+                'strategy_points' => $narrative['strategy_points'],
+                'suggested_next_steps' => $narrative['suggested_next_steps'],
+                'assumptions' => $narrative['assumptions'],
+                'filter_description' => $selection['filter_description'],
+            ];
+        }
+
+        $generationResult = [
+            'valid' => true,
+            'data' => $browseData,
+            'errors' => [],
+        ];
+
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
+            flow: 'browse',
+            metadataKey: 'browse',
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            generationResult: $generationResult,
+            originalUserMessage: $content,
+            assistantFallbackContent: 'I could not build a task list yet. Try again with a bit more detail.',
+        );
+
+        $this->streamFlowEnvelope(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            flow: 'browse',
             execution: $execution
         );
     }
@@ -410,15 +523,24 @@ final class TaskAssistantService
         );
     }
 
+    /**
+     * Builds the execution plan using the application intent pipeline (no alternate router).
+     */
     private function buildExecutionPlan(TaskAssistantThread $thread, string $content): ExecutionPlan
     {
-        $usePolicyRouting = (bool) config('task-assistant.routing.policy_enabled', false);
-        $decision = $this->routingPolicy->decide($thread, $content, $usePolicyRouting);
+        $decision = $this->routingPolicy->decide($thread, $content);
         $constraints = $decision->constraints;
-        $flow = in_array($decision->flow, ['chat', 'prioritize', 'schedule'], true) ? $decision->flow : 'chat';
+        $flow = in_array($decision->flow, ['chat', 'browse', 'prioritize', 'schedule'], true) ? $decision->flow : 'chat';
         $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
         $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;
         $targetEntities = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
+
+        $generationProfile = match ($flow) {
+            'schedule' => 'schedule',
+            'prioritize' => 'prioritize',
+            'browse' => 'browse',
+            default => 'chat',
+        };
 
         return new ExecutionPlan(
             flow: $flow,
@@ -430,7 +552,7 @@ final class TaskAssistantService
             targetEntities: $targetEntities,
             timeWindowHint: $timeWindowHint,
             countLimit: $countLimit,
-            generationProfile: $flow === 'schedule' ? 'schedule' : ($flow === 'prioritize' ? 'prioritize' : 'chat'),
+            generationProfile: $generationProfile,
         );
     }
 
@@ -446,7 +568,7 @@ final class TaskAssistantService
             'target_entities_count' => count($plan->targetEntities),
             'time_window_hint' => $plan->timeWindowHint,
             'count_limit' => $plan->countLimit,
-            'policy_enabled' => (bool) config('task-assistant.routing.policy_enabled', false),
+            'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
         ]);
     }
 }

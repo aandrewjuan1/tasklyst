@@ -1,6 +1,6 @@
 <?php
 
-use App\Services\LLM\TaskAssistant\TaskAssistantTaskChoiceConstraintsExtractor;
+use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 
 it('extracts urgent + today + math keywords', function (): void {
     $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);

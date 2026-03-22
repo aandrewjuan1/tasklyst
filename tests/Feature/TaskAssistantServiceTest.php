@@ -12,6 +12,26 @@ use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
 
 test('queued prioritize flow stores selected entities for multiturn state', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'prioritization',
+                'confidence' => 0.95,
+                'rationale' => 'User asked for top tasks.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'summary' => 'Your top tasks by urgency and deadline.',
+                'assistant_note' => 'Start with the first item when ready.',
+                'reasoning' => 'These items score highest on the planner.',
+                'strategy_points' => ['Tackle high-impact work first.'],
+                'suggested_next_steps' => ['Open the first task and set a timer.'],
+                'assumptions' => [],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
@@ -55,6 +75,26 @@ test('multiturn schedule can target previous prioritized selection', function ()
 
     $service = app(TaskAssistantService::class);
 
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'prioritization',
+                'confidence' => 0.95,
+                'rationale' => 'User asked for top tasks.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'summary' => 'Your top tasks by urgency and deadline.',
+                'assistant_note' => null,
+                'reasoning' => null,
+                'strategy_points' => [],
+                'suggested_next_steps' => [],
+                'assumptions' => [],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
     $firstUser = $thread->messages()->create([
         'role' => MessageRole::User,
         'content' => 'List my top 3 tasks',
@@ -68,13 +108,11 @@ test('multiturn schedule can target previous prioritized selection', function ()
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'intent_type' => 'general',
-                'priority_filters' => [],
-                'task_keywords' => [],
-                'time_constraint' => 'today',
-                'comparison_focus' => null,
+                'intent' => 'scheduling',
+                'confidence' => 0.95,
+                'rationale' => 'User wants to schedule selected items.',
             ])
-            ->withUsage(new Usage(5, 10)),
+            ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
                 'summary' => 'Afternoon-focused plan.',

@@ -16,7 +16,7 @@ class TaskAssistantSnapshotService
      * @return array{
      *     today: string,
      *     timezone: string,
-     *     tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,ends_at:?string,project_id:?int,event_id:?int,duration_minutes:?int}>,
+     *     tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,ends_at:?string,project_id:?int,event_id:?int,duration_minutes:?int,is_recurring:bool}>,
      *     events: list<array{id:int,title:string,starts_at:?string,ends_at:?string,all_day:bool,status:?string}>,
      *     projects: list<array{id:int,name:string,start_at:?string,end_at:?string}>
      * }
@@ -27,7 +27,7 @@ class TaskAssistantSnapshotService
         $now = now()->setTimezone($timezone);
 
         $tasks = Task::query()
-            ->with(['tags'])
+            ->with(['tags', 'recurringTask'])
             ->forAssistantSnapshot($user->id, $now, $taskLimit)
             ->get()
             ->map(function (Task $task): array {
@@ -43,6 +43,7 @@ class TaskAssistantSnapshotService
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,
                     'duration_minutes' => $task->duration,
+                    'is_recurring' => $task->recurringTask !== null,
                 ];
             })
             ->values()
