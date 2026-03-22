@@ -404,3 +404,45 @@ it('prefers near events over medium tasks due today', function (): void {
     expect($top['type'])->toBe('event');
     expect($top['id'])->toBe(10);
 });
+
+it('school browse domain keeps academic tasks and drops errands like school bag titles', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Prepare tomorrow’s school bag',
+            'subject_name' => null,
+            'teacher_name' => null,
+            'tags' => [],
+            'priority' => 'medium',
+            'status' => 'to_do',
+            'ends_at' => $now->addDay()->toIso8601String(),
+            'duration_minutes' => 30,
+            'is_recurring' => true,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Problem set chapter 4',
+            'subject_name' => 'Mathematics',
+            'teacher_name' => null,
+            'tags' => [],
+            'priority' => 'high',
+            'status' => 'to_do',
+            'ends_at' => $now->addDay()->toIso8601String(),
+            'duration_minutes' => 45,
+            'is_recurring' => false,
+        ],
+    ];
+
+    $ranked = $service->prioritizeTasks($tasks, $now, [
+        'browse_domain' => 'school',
+        'time_constraint' => 'this_week',
+    ]);
+
+    expect($ranked)->toHaveCount(1);
+    expect($ranked[0]['id'])->toBe(2);
+});

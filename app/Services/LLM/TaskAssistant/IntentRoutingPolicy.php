@@ -42,6 +42,24 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyPureGreeting($normalized)) {
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'thread_id' => $thread->id,
+                'outcome' => 'greeting_shortcircuit_chat',
+                'flow' => 'chat',
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'chat',
+                confidence: 1.0,
+                reasonCodes: ['greeting_shortcircuit_chat'],
+                constraints: $this->buildConstraints($thread, $normalized),
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         $signals = $this->signalExtractor->extract($normalized);
 
         $inference = null;
@@ -125,5 +143,20 @@ final class IntentRoutingPolicy
         }
 
         return null;
+    }
+
+    /**
+     * Very short social openers with no task intent — route to chat so the listing LLM is not invoked.
+     */
+    private function isLikelyPureGreeting(string $normalized): bool
+    {
+        if (mb_strlen($normalized) > 48) {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|gm|hiya)(\s+there)?[!?.]*\s*$/u',
+            $normalized
+        );
     }
 }

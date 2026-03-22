@@ -189,43 +189,23 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'browse_listing_narrative',
-            description: 'Student-friendly wording for a read-only task list. Do not change which tasks appear or their order.',
+            description: 'Assistant voice: read-only task list. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
             properties: [
                 new StringSchema(
-                    name: 'summary',
-                    description: 'One or two sentences that directly answer the user\'s question. Mention the active filter (from FILTER_CONTEXT) when relevant.',
-                    nullable: true
-                ),
-                new StringSchema(
-                    name: 'assistant_note',
-                    description: 'Optional short friendly line (no new facts).',
-                    nullable: true
-                ),
-                new StringSchema(
                     name: 'reasoning',
-                    description: 'Briefly explain why this filter and ranking match what the user asked for (listing context, not scheduling).',
-                    nullable: true
+                    description: 'Required: 1-3 short sentences. Task assistant to the student (you/your or neutral). No student first-person (no I/my). Why this list matches their request; base only on tasks and dates shown—never say "snapshot" or "data".',
+                    nullable: false
                 ),
-                new ArraySchema(
-                    name: 'strategy_points',
-                    description: 'Optional 0-4 short bullets about how to read or use this list (not calendar execution).',
-                    items: new StringSchema(name: 'point', description: 'One point.'),
-                    nullable: true
-                ),
-                new ArraySchema(
-                    name: 'suggested_next_steps',
-                    description: '2-3 concrete next steps tied to browsing: narrow filters, pick a task to open, or ask for a different slice. Avoid calendar scheduling unless the user asked about time.',
-                    items: new StringSchema(name: 'step', description: 'One step.'),
-                    nullable: true
-                ),
-                new ArraySchema(
-                    name: 'assumptions',
-                    description: 'Prefer empty. If used, only state facts visible in FILTER_CONTEXT or ITEMS_JSON.',
-                    items: new StringSchema(name: 'assumption', description: 'One fact.'),
-                    nullable: true
+                new StringSchema(
+                    name: 'suggested_guidance',
+                    description: 'Required: one short paragraph (2-5 sentences). Start with "I suggest" or "I recommend". Warm, practical advice (e.g. avoiding overwhelm, managing time). No bullet characters. No mention of snapshot/JSON/backend. No invented durations.',
+                    nullable: false
                 ),
             ],
-            requiredFields: []
+            requiredFields: [
+                'reasoning',
+                'suggested_guidance',
+            ]
         );
     }
 

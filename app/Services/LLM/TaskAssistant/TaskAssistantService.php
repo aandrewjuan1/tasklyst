@@ -10,6 +10,7 @@ use App\Services\LLM\Browse\TaskAssistantBrowseListingService;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
+use App\Support\LLM\TaskAssistantBrowseDefaults;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
@@ -283,19 +284,19 @@ final class TaskAssistantService
         $promptData['route_context'] = (string) config('task-assistant.browse_route_context', '');
 
         if ($items === []) {
+            $fallbacks = TaskAssistantHybridNarrativeService::browseNarrativeFallbacks();
+            $emptyReasoning = trim((string) $selection['deterministic_summary']);
             $browseData = [
-                'summary' => $selection['deterministic_summary'],
                 'items' => [],
                 'limit_used' => 0,
-                'reasoning' => null,
-                'assistant_note' => null,
-                'strategy_points' => [],
-                'suggested_next_steps' => [
-                    'Try widening your filters or add tasks that match what you need.',
-                    'Ask me to prioritize or schedule when you have tasks to work with.',
-                ],
-                'assumptions' => [],
-                'filter_description' => $selection['filter_description'],
+                'reasoning' => TaskAssistantBrowseDefaults::clampBrowseReasoning(
+                    $emptyReasoning !== ''
+                        ? $emptyReasoning
+                        : TaskAssistantBrowseDefaults::reasoningWhenEmpty()
+                ),
+                'suggested_guidance' => TaskAssistantBrowseDefaults::clampBrowseSuggestedGuidance(
+                    $fallbacks['suggested_guidance']
+                ),
             ];
         } else {
             $narrative = $this->hybridNarrative->refineBrowseListing(
@@ -303,26 +304,17 @@ final class TaskAssistantService
                 $content,
                 $items,
                 $selection['deterministic_summary'],
-                $selection['filter_description'],
+                $selection['filter_context_for_prompt'],
                 $selection['ambiguous'],
                 $thread->id,
                 $thread->user_id,
             );
 
             $browseData = [
-                'summary' => $narrative['summary'],
                 'items' => $items,
                 'limit_used' => count($items),
-                'reasoning' => $narrative['reasoning'],
-                'assistant_note' => $narrative['assistant_note'],
-                'strategy_points' => $narrative['strategy_points'],
-                'suggested_next_steps' => $narrative['suggested_next_steps'],
-                'assumptions' => $this->browseListingService->buildDeterministicAssumptions(
-                    $selection['ambiguous'],
-                    $selection['filter_description'],
-                    $items
-                ),
-                'filter_description' => $selection['filter_description'],
+                'reasoning' => TaskAssistantBrowseDefaults::clampBrowseReasoning((string) $narrative['reasoning']),
+                'suggested_guidance' => TaskAssistantBrowseDefaults::clampBrowseSuggestedGuidance((string) $narrative['suggested_guidance']),
             ];
         }
 

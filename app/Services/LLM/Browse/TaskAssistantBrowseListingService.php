@@ -2,8 +2,10 @@
 
 namespace App\Services\LLM\Browse;
 
+use App\Enums\TaskComplexity;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Support\LLM\TaskAssistantBrowseDefaults;
 use Carbon\CarbonImmutable;
 
 /**
@@ -20,9 +22,9 @@ final class TaskAssistantBrowseListingService
     /**
      * @param  array<string, mixed>  $snapshot
      * @return array{
-     *   items: list<array{entity_type:string,entity_id:int,title:string,reason:string,due_bucket:string}>,
+     *   items: list<array<string, mixed>>,
      *   deterministic_summary: string,
-     *   filter_description: string,
+     *   filter_context_for_prompt: string,
      *   ambiguous: bool
      * }
      */
@@ -41,6 +43,7 @@ final class TaskAssistantBrowseListingService
                 'time_constraint' => null,
                 'recurring_requested' => false,
                 'comparison_focus' => null,
+                'browse_domain' => null,
             ];
         }
 
@@ -60,77 +63,78 @@ final class TaskAssistantBrowseListingService
         foreach ($tasksOnly as $row) {
             $rawTask = is_array($row['raw'] ?? null) ? $row['raw'] : [];
             $dueBucket = $this->classifyDueBucket($rawTask, $now, $timezone);
-            $reason = trim((string) ($row['reasoning'] ?? ''));
+            $priority = strtolower(trim((string) ($rawTask['priority'] ?? 'medium')));
+            $complexityRaw = $rawTask['complexity'] ?? null;
+            $complexityLabel = TaskAssistantBrowseDefaults::complexityNotSetLabel();
+            if (is_string($complexityRaw) && $complexityRaw !== '') {
+                $complexityEnum = TaskComplexity::tryFrom($complexityRaw);
+                if ($complexityEnum !== null) {
+                    $complexityLabel = $complexityEnum->label();
+                }
+            }
+
+            $deadline = $this->resolveDeadline($rawTask, $timezone);
+            $dueOn = $this->formatDueOn($deadline, $timezone);
+            $duePhrase = $this->buildDuePhrase($dueBucket);
 
             $items[] = [
                 'entity_type' => 'task',
                 'entity_id' => (int) ($row['id'] ?? 0),
                 'title' => (string) ($row['title'] ?? ''),
-                'reason' => $this->humanizeBrowseReason($reason),
+                'priority' => $priority,
                 'due_bucket' => $dueBucket,
+                'due_phrase' => $duePhrase,
+                'due_on' => $dueOn,
+                'complexity_label' => $complexityLabel,
             ];
         }
 
-        $filterDescription = $this->describeFilters($ambiguous, $context);
-        $deterministicSummary = $this->buildDeterministicSummary(count($items), $ambiguous, $filterDescription);
+        $filterContextForPrompt = $this->describeFilters($ambiguous, $context);
+        $deterministicSummary = $this->buildDeterministicSummary(count($items), $ambiguous);
 
         return [
             'items' => $items,
             'deterministic_summary' => $deterministicSummary,
-            'filter_description' => $filterDescription,
+            'filter_context_for_prompt' => $filterContextForPrompt,
             'ambiguous' => $ambiguous,
         ];
     }
 
     /**
-     * Short, grounded lines for browse responses (replaces free-form LLM assumptions).
-     *
-     * @param  list<array{entity_type?:string, due_bucket?:string}>  $items
-     * @return list<string>
+     * @param  array<string, mixed>  $task
      */
-    public function buildDeterministicAssumptions(bool $ambiguous, string $filterDescription, array $items): array
+    private function resolveDeadline(array $task, string $timezone): ?CarbonImmutable
     {
-        $lines = [
-            'Tasks and order come from your data and the active filter, using the same ranking rules as the rest of the assistant.',
-        ];
-
-        if ($ambiguous) {
-            $lines[] = 'This is a short ranked slice of your tasks (no strict filter). Ask for a narrower search if you need more.';
-        } else {
-            $lines[] = 'Active filter: '.$filterDescription.'.';
+        if (! isset($task['ends_at']) || $task['ends_at'] === null || $task['ends_at'] === '') {
+            return null;
         }
 
-        $counts = [];
-        foreach ($items as $item) {
-            $b = (string) ($item['due_bucket'] ?? 'unknown');
-            $counts[$b] = ($counts[$b] ?? 0) + 1;
+        try {
+            return CarbonImmutable::parse((string) $task['ends_at'], $timezone);
+        } catch (\Throwable) {
+            return null;
         }
-
-        $parts = [];
-        foreach ($counts as $bucket => $count) {
-            if ($count <= 0) {
-                continue;
-            }
-            $parts[] = $count.' '.$this->dueBucketLabel($bucket);
-        }
-
-        if ($parts !== []) {
-            $lines[] = 'In this list: '.implode(', ', $parts).'.';
-        }
-
-        return array_values(array_filter($lines, static fn (string $s): bool => $s !== ''));
     }
 
-    private function dueBucketLabel(string $bucket): string
+    private function formatDueOn(?CarbonImmutable $deadline, string $timezone): string
     {
-        return match ($bucket) {
+        if ($deadline === null) {
+            return '—';
+        }
+
+        return $deadline->locale((string) config('app.locale', 'en'))->translatedFormat('M j, Y');
+    }
+
+    private function buildDuePhrase(string $dueBucket): string
+    {
+        return match ($dueBucket) {
             'overdue' => 'overdue',
             'due_today' => 'due today',
             'due_tomorrow' => 'due tomorrow',
             'due_this_week' => 'due this week',
             'due_later' => 'due later',
-            'no_deadline' => 'with no deadline',
-            default => 'tasks',
+            'no_deadline' => 'no due date',
+            default => 'scheduled',
         };
     }
 
@@ -168,25 +172,15 @@ final class TaskAssistantBrowseListingService
         return 'due_later';
     }
 
-    private function humanizeBrowseReason(string $reason): string
-    {
-        $r = trim($reason);
-        if ($r === '') {
-            return $r;
-        }
-
-        if (preg_match('/^Selected as\s+(.+?)\s+priority task\s+(.+)$/iu', $r, $m) === 1) {
-            return trim($m[1]).' priority · '.trim($m[2]);
-        }
-
-        return $r;
-    }
-
     /**
      * @param  array<string, mixed>  $context
      */
     private function isAmbiguousBrowseListRequest(string $message, array $context): bool
     {
+        if (($context['browse_domain'] ?? null) !== null) {
+            return false;
+        }
+
         if (($context['recurring_requested'] ?? false)
             || ($context['time_constraint'] ?? null) !== null
             || (! empty($context['task_keywords'] ?? []))
@@ -210,6 +204,38 @@ final class TaskAssistantBrowseListingService
             return 'no strong filters; showing top-ranked tasks for now';
         }
 
+        if (($context['browse_domain'] ?? null) === 'school') {
+            $parts = [];
+            if (($context['time_constraint'] ?? null) !== null) {
+                $parts[] = 'time: '.(string) $context['time_constraint'];
+            }
+            if (! empty($context['task_keywords'] ?? [])) {
+                $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
+            }
+            $domainLine = 'domain: school (subjects, teachers, or academic tags — not generic errands)';
+            if ($parts === []) {
+                return $domainLine;
+            }
+
+            return $domainLine.'; '.implode('; ', $parts);
+        }
+
+        if (($context['browse_domain'] ?? null) === 'chores') {
+            $parts = [];
+            if (($context['time_constraint'] ?? null) !== null) {
+                $parts[] = 'time: '.(string) $context['time_constraint'];
+            }
+            if (! empty($context['task_keywords'] ?? [])) {
+                $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
+            }
+            $domainLine = 'domain: chores / household (prefers recurring when available)';
+            if ($parts === []) {
+                return $domainLine;
+            }
+
+            return $domainLine.'; '.implode('; ', $parts);
+        }
+
         $parts = [];
         if (! empty($context['recurring_requested'])) {
             $parts[] = 'recurring tasks only';
@@ -224,19 +250,19 @@ final class TaskAssistantBrowseListingService
             $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
         }
 
-        return $parts === [] ? 'all matching tasks in the current snapshot' : implode('; ', $parts);
+        return $parts === [] ? 'all matching tasks in your list (ranked by urgency)' : implode('; ', $parts);
     }
 
-    private function buildDeterministicSummary(int $count, bool $ambiguous, string $filterDescription): string
+    private function buildDeterministicSummary(int $count, bool $ambiguous): string
     {
         if ($count === 0) {
-            return 'No tasks matched your request ('.$filterDescription.').';
+            return 'No tasks matched your request.';
         }
 
         if ($ambiguous) {
             return 'Here are '.$count.' tasks from your list, ordered by urgency and due dates:';
         }
 
-        return 'Found '.$count.' task(s) matching '.$filterDescription.'.';
+        return 'Found '.$count.' task(s).';
     }
 }

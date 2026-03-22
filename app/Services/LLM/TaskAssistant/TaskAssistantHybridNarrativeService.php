@@ -2,6 +2,7 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Support\LLM\TaskAssistantBrowseDefaults;
 use App\Support\LLM\TaskAssistantSchemas;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -228,12 +229,8 @@ final class TaskAssistantHybridNarrativeService
      * @param  array<string, mixed>  $promptData
      * @param  list<array<string, mixed>>  $items
      * @return array{
-     *   summary: string,
-     *   assistant_note: string|null,
-     *   reasoning: string|null,
-     *   strategy_points: list<string>,
-     *   suggested_next_steps: list<string>,
-     *   assumptions: list<string>
+     *   reasoning: string,
+     *   suggested_guidance: string
      * }
      */
     public function refineBrowseListing(
@@ -241,7 +238,7 @@ final class TaskAssistantHybridNarrativeService
         string $userMessage,
         array $items,
         string $deterministicSummary,
-        string $filterDescription,
+        string $filterContextForPrompt,
         bool $ambiguous,
         int $threadId,
         int $userId,
@@ -260,20 +257,24 @@ final class TaskAssistantHybridNarrativeService
                 'The following tasks were selected by backend filtering and ranking. '.
                 'Do NOT change ordering or membership. Only fill narrative JSON fields in the schema.'."\n\n".
                 $listLabel."\n\n".
-                'Answer in the user\'s voice: mirror their request (what they asked to see) in the summary and reasoning. '.
+                'You are the task assistant speaking to the student. '.
+                'In reasoning and suggested_guidance: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
+                'Write ONLY a short reasoning field (1-3 sentences): second person ("you") or neutral ("Here are…"). '.
+                'Do NOT write as the student: never use "I", "my", or "I need to" in reasoning. Do NOT use meta phrases like "The user requested". '.
+                'Explain briefly why these rows match what they asked, using only task titles and dates from the list below. '.
+                'Do not repeat the full task list in reasoning. '.
                 'Do not claim all tasks are due on one day unless the items support that. '.
-                'Do not invent tasks, deadlines, or priorities. '.
-                'Suggested next steps must match what they asked (e.g. refine filters, pick a task), not generic calendar scheduling unless they asked about time.'."\n\n".
-                'FILTER_CONTEXT: '.$filterDescription."\n\n".
+                'Do not invent tasks, deadlines, durations, or priorities. '.
+                'For suggested_guidance: ONE paragraph (2-5 sentences), no bullets. Start with "I suggest" or "I recommend". '.
+                'Include supportive coaching (e.g. managing time, not getting overwhelmed) where natural. '.
+                'Concrete, gentle advice referencing their tasks by title when helpful.'."\n\n".
+                'FILTER_CONTEXT: '.$filterContextForPrompt."\n\n".
                 'ITEMS_JSON: '.$itemsJson
             ),
         ]);
 
-        $summary = $deterministicSummary;
-        $assistantNote = null;
         $reasoning = null;
-        $strategyPoints = [];
-        $suggestedNextSteps = [];
+        $suggestedGuidance = null;
 
         try {
             $structuredResponse = $this->attemptStructured(
@@ -287,27 +288,13 @@ final class TaskAssistantHybridNarrativeService
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
 
-            if (isset($payload['summary']) && is_string($payload['summary'])) {
-                $summary = $payload['summary'] !== '' ? $payload['summary'] : $deterministicSummary;
-            }
-
-            if (isset($payload['assistant_note']) && is_string($payload['assistant_note'])) {
-                $assistantNote = $payload['assistant_note'] !== '' ? $payload['assistant_note'] : null;
-            }
             if (isset($payload['reasoning']) && is_string($payload['reasoning'])) {
                 $reasoning = $payload['reasoning'] !== '' ? $payload['reasoning'] : null;
             }
-            if (is_array($payload['strategy_points'] ?? null)) {
-                $strategyPoints = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['strategy_points']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-            if (is_array($payload['suggested_next_steps'] ?? null)) {
-                $suggestedNextSteps = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['suggested_next_steps']),
-                    static fn (string $value): bool => $value !== ''
-                ));
+            if (isset($payload['suggested_guidance']) && is_string($payload['suggested_guidance'])) {
+                $suggestedGuidance = trim($payload['suggested_guidance']) !== ''
+                    ? trim($payload['suggested_guidance'])
+                    : null;
             }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.browse.narrative_failed', [
@@ -318,13 +305,29 @@ final class TaskAssistantHybridNarrativeService
             ]);
         }
 
+        if (! is_string($suggestedGuidance) || $suggestedGuidance === '') {
+            $suggestedGuidance = self::browseNarrativeFallbacks()['suggested_guidance'];
+        }
+
+        $reasoningText = is_string($reasoning) && trim($reasoning) !== ''
+            ? trim($reasoning)
+            : (trim($deterministicSummary) !== ''
+                ? trim($deterministicSummary)
+                : TaskAssistantBrowseDefaults::reasoningWhenEmpty());
+
         return [
-            'summary' => $summary,
-            'assistant_note' => $assistantNote,
-            'reasoning' => $reasoning,
-            'strategy_points' => $strategyPoints,
-            'suggested_next_steps' => $suggestedNextSteps,
-            'assumptions' => [],
+            'reasoning' => TaskAssistantBrowseDefaults::clampBrowseReasoning($reasoningText),
+            'suggested_guidance' => TaskAssistantBrowseDefaults::clampBrowseSuggestedGuidance($suggestedGuidance),
+        ];
+    }
+
+    /**
+     * @return array{suggested_guidance: string}
+     */
+    public static function browseNarrativeFallbacks(): array
+    {
+        return [
+            'suggested_guidance' => TaskAssistantBrowseDefaults::defaultSuggestedGuidance(),
         ];
     }
 

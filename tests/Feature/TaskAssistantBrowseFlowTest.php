@@ -22,12 +22,8 @@ test('browse flow returns structured listing with hybrid narrative', function ()
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Here is what matched.',
-                'assistant_note' => null,
-                'reasoning' => null,
-                'strategy_points' => [],
-                'suggested_next_steps' => ['Ask me to prioritize these.'],
-                'assumptions' => [],
+                'reasoning' => 'These tasks matched your filters.',
+                'suggested_guidance' => 'I suggest picking one task to start with so you don\'t get overwhelmed. If you want, we can narrow the list or plan what to tackle first.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
