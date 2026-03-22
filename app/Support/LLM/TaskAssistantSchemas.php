@@ -193,12 +193,12 @@ final class TaskAssistantSchemas
             properties: [
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Required: 1-3 short sentences. Task assistant to the student (you/your or neutral). No student first-person (no I/my). Why this list matches their request; base only on tasks and dates shown—never say "snapshot" or "data".',
+                    description: 'Required: 1-3 short sentences. Task assistant to the student (you/your or neutral). No student first-person (no I/my). Why this list matches their request; use only task titles, dates, and fields from the list. If you mention how many tasks there are, the number MUST exactly match the provided LISTED_TASK_COUNT—never miscount. Never say "snapshot" or "data".',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'suggested_guidance',
-                    description: 'Required: one short paragraph (2-5 sentences). Start with "I suggest" or "I recommend". Warm, practical advice (e.g. avoiding overwhelm, managing time). No bullet characters. No mention of snapshot/JSON/backend. No invented durations.',
+                    description: 'Required: one short paragraph (2-5 sentences). Start with "I suggest" or "I recommend". Warm, practical advice (e.g. avoiding overwhelm, managing time). No bullet characters. No mention of snapshot/JSON/backend. No invented durations. When you mention priority, each task must match its priority field in the list—do not call a task high-priority if it is medium or low; you may highlight only the high-priority rows or speak about the mix without mislabeling.',
                     nullable: false
                 ),
             ],
