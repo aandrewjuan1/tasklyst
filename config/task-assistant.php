@@ -90,16 +90,38 @@ return [
         'snapshot_task_limit' => (int) env('TASK_ASSISTANT_BROWSE_SNAPSHOT_TASK_LIMIT', 200),
         'ambiguous_top_limit' => (int) env('TASK_ASSISTANT_BROWSE_AMBIGUOUS_TOP', 5),
         'max_items' => (int) env('TASK_ASSISTANT_BROWSE_MAX_ITEMS', 50),
+        /** Must match Prism browse narrative output clamp and {@see TaskAssistantResponseProcessor::validateBrowseData}. */
+        'max_reasoning_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_REASONING_CHARS', 800),
+        /** Single-paragraph recommendations field (suggested_guidance). */
+        'max_suggested_guidance_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_SUGGESTED_GUIDANCE_CHARS', 1200),
+        /*
+        | School vs chores browse domains use subjects, teachers, and tags — not a raw
+        | substring match on the word "school" in titles (avoids false positives like
+        | "school bag"). Title patterns below exclude common errands from school lists.
+        */
+        'school_academic_tag_keywords' => [
+            'school', 'academic', 'education', 'course', 'class', 'lecture', 'homework',
+            'assignment', 'exam', 'quiz', 'study', 'math', 'science', 'english', 'history',
+        ],
+        'chore_indicator_tags' => [
+            'household', 'health', 'chores', 'cleaning', 'laundry', 'errands',
+        ],
+        'school_exclusion_title_patterns' => [
+            '/\bschool\s+bag\b/i',
+            '/\b(groceries|grocery)\b/i',
+            '/\b(laundry|dishes|vacuum|trash)\b/i',
+            '/\b(pack|packing)\b.*\b(bag|lunch)\b/i',
+        ],
     ],
 
     'browse_route_context' => <<<'TXT'
-Browse mode (read-only listing): The task list, order, and filters are fixed by backend rules on the user snapshot. Your job is to phrase the answer clearly for a student. Do not add or remove tasks, change order, or invent deadlines.
+Browse mode (read-only listing): Task order and membership are fixed. Speak as the assistant: "you/your" or neutral. Never say snapshot, snapshot data, JSON, backend, or database in student-visible text.
 
-Mirror the user's actual question in the summary and reasoning (e.g. "this week", "my tasks", a keyword) using only FILTER_CONTEXT and ITEMS_JSON.
+Reasoning: briefly why this list matches their request—only use titles and dates from the task list.
 
-Suggested next steps must follow from what they asked: refine the view (narrow filters, search), open a task, or ask for a different slice of the list. Do not suggest calendar time-blocking or "schedule your day" unless the user's message clearly asks about when to work or scheduling.
+Suggested guidance: one paragraph starting with "I suggest" or "I recommend"; warm tips (time management, avoiding overwhelm). No bullets. No invented durations.
 
-You may add at most one optional line about prioritizing or scheduling only if their wording already asks what to do first or when to do something.
+Do not suggest calendar blocking unless they asked about scheduling.
 TXT,
 
     'intent' => [

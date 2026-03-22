@@ -529,6 +529,28 @@ final class TaskPrioritizationService
             }
         }
 
+        $browseDomain = $context['browse_domain'] ?? null;
+
+        if ($browseDomain === 'school') {
+            $filtered = $filtered->filter(function (array $task): bool {
+                return $this->taskMatchesSchoolAcademicContext($task);
+            });
+        }
+
+        if ($browseDomain === 'chores') {
+            $filtered = $filtered->filter(function (array $task): bool {
+                return $this->taskMatchesChoreDomain($task);
+            });
+
+            $recurringChores = $filtered->filter(function (array $task): bool {
+                return ! empty($task['is_recurring']);
+            });
+
+            if (! $recurringChores->isEmpty()) {
+                $filtered = $recurringChores;
+            }
+        }
+
         // 1) Subject/type keywords: strict if possible, otherwise relax.
         if (! empty($context['task_keywords'])) {
             $keywordFiltered = $filtered->filter(function (array $task) use ($context): bool {
@@ -790,6 +812,100 @@ final class TaskPrioritizationService
         }
 
         return 50; // Long tasks
+    }
+
+    /**
+     * School browse domain: subjects, teachers, or academic tags — not generic "school" in titles.
+     */
+    private function taskMatchesSchoolAcademicContext(array $task): bool
+    {
+        if ($this->taskTitleMatchesSchoolExclusionPatterns($task)) {
+            return false;
+        }
+
+        $subject = trim((string) ($task['subject_name'] ?? ''));
+        if ($subject !== '') {
+            return true;
+        }
+
+        $teacher = trim((string) ($task['teacher_name'] ?? ''));
+        if ($teacher !== '') {
+            return true;
+        }
+
+        $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
+        $academicTags = config('task-assistant.browse.school_academic_tag_keywords', []);
+        foreach ($tags as $tag) {
+            $t = strtolower((string) $tag);
+            foreach ($academicTags as $ac) {
+                $acLower = strtolower((string) $ac);
+                if ($acLower !== '' && str_contains($t, $acLower)) {
+                    return true;
+                }
+            }
+            if (preg_match('/\b(homework|assignment|exam|quiz|study|lecture|syllabus|course|class)\b/i', (string) $tag) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function taskTitleMatchesSchoolExclusionPatterns(array $task): bool
+    {
+        $title = (string) ($task['title'] ?? '');
+        $patterns = config('task-assistant.browse.school_exclusion_title_patterns', []);
+        if (! is_array($patterns)) {
+            return false;
+        }
+        foreach ($patterns as $pattern) {
+            if (is_string($pattern) && preg_match($pattern, $title) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Chores browse domain: household/errand-style work; recurring instances preferred when present.
+     */
+    private function taskMatchesChoreDomain(array $task): bool
+    {
+        if ($this->taskMatchesSchoolAcademicContext($task) && ! $this->taskHasChoreIndicatorTag($task)) {
+            return false;
+        }
+
+        if ($this->taskHasChoreIndicatorTag($task)) {
+            return true;
+        }
+
+        if ($this->taskTitleMatchesSchoolExclusionPatterns($task)) {
+            return true;
+        }
+
+        $title = (string) ($task['title'] ?? '');
+        if (preg_match('/\b(laundry|dishes|clean|cleaning|vacuum|chores|groceries|trash|garbage|housework)\b/i', $title) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function taskHasChoreIndicatorTag(array $task): bool
+    {
+        $choreTags = config('task-assistant.browse.chore_indicator_tags', []);
+        $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
+        foreach ($tags as $tag) {
+            $t = strtolower((string) $tag);
+            foreach ($choreTags as $ch) {
+                if (str_contains($t, strtolower((string) $ch))) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

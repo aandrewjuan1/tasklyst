@@ -16,7 +16,7 @@ class TaskAssistantSnapshotService
      * @return array{
      *     today: string,
      *     timezone: string,
-     *     tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,ends_at:?string,project_id:?int,event_id:?int,duration_minutes:?int,is_recurring:bool}>,
+     *     tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,complexity:?string,ends_at:?string,project_id:?int,event_id:?int,duration_minutes:?int,is_recurring:bool}>,
      *     events: list<array{id:int,title:string,starts_at:?string,ends_at:?string,all_day:bool,status:?string}>,
      *     projects: list<array{id:int,name:string,start_at:?string,end_at:?string}>
      * }
@@ -39,6 +39,7 @@ class TaskAssistantSnapshotService
                     'tags' => $task->tags->pluck('name')->values()->all(),
                     'status' => $task->status?->value,
                     'priority' => $task->priority?->value,
+                    'complexity' => $task->complexity?->value,
                     'ends_at' => $task->end_datetime?->toIso8601String(),
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,

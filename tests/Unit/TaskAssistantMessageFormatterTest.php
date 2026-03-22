@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\LLM\TaskAssistant\TaskAssistantMessageFormatter;
+use App\Support\LLM\TaskAssistantBrowseDefaults;
 use Tests\TestCase;
 
 class TaskAssistantMessageFormatterTest extends TestCase
@@ -31,30 +32,77 @@ class TaskAssistantMessageFormatterTest extends TestCase
         );
     }
 
-    public function test_browse_uses_why_this_list_not_why_these_priorities(): void
+    public function test_browse_orders_reasoning_then_items_then_guidance_paragraph(): void
     {
+        $guidance = 'I suggest opening one task first so you can manage your time without feeling overwhelmed.';
         $out = $this->formatter->format('browse', [
-            'summary' => 'Here is your list.',
             'reasoning' => 'You asked to see tasks.',
-            'assistant_note' => null,
-            'strategy_points' => [],
-            'suggested_next_steps' => [],
-            'assumptions' => ['One fact.'],
-            'filter_description' => 'time: this_week',
+            'suggested_guidance' => $guidance,
             'limit_used' => 1,
             'items' => [
                 [
                     'entity_type' => 'task',
                     'entity_id' => 1,
                     'title' => 'A',
-                    'reason' => 'High · due today',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
                 ],
             ],
         ]);
 
-        $this->assertStringContainsString('Why this list:', $out);
+        $this->assertStringNotContainsString('Why this list:', $out);
         $this->assertStringNotContainsString('Why these priorities:', $out);
-        $this->assertStringContainsString('Looking at:', $out);
+        $this->assertStringNotContainsString('Looking at:', $out);
+        $this->assertStringNotContainsString('[task]', $out);
+        $posReasoning = strpos($out, 'You asked to see tasks.');
+        $posItems = strpos($out, '1. A —');
+        $posGuidance = strpos($out, $guidance);
+        $this->assertNotFalse($posReasoning);
+        $this->assertNotFalse($posItems);
+        $this->assertNotFalse($posGuidance);
+        $this->assertLessThan($posItems, $posReasoning);
+        $this->assertLessThan($posGuidance, $posItems);
+        $this->assertStringNotContainsString('• ', $out);
+        $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
+        $this->assertStringContainsString('Complexity: Simple', $out);
+    }
+
+    public function test_browse_item_lines_always_show_priority_date_and_complexity_defaults(): void
+    {
+        $out = $this->formatter->format('browse', [
+            'reasoning' => 'Why.',
+            'suggested_guidance' => 'I recommend starting with one small task to avoid feeling overwhelmed.',
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Untimed',
+                    'priority' => '',
+                    'due_phrase' => '',
+                    'due_on' => '—',
+                    'complexity_label' => '',
+                ],
+            ],
+        ]);
+
+        $this->assertStringContainsString('Medium priority', $out);
+        $this->assertStringContainsString(TaskAssistantBrowseDefaults::noDueDateLabel(), $out);
+        $this->assertStringContainsString('Complexity: '.TaskAssistantBrowseDefaults::complexityNotSetLabel(), $out);
+        $this->assertStringContainsString('I recommend starting', $out);
+    }
+
+    public function test_browse_uses_default_reasoning_when_payload_omits_it(): void
+    {
+        $out = $this->formatter->format('browse', [
+            'suggested_guidance' => TaskAssistantBrowseDefaults::defaultSuggestedGuidance(),
+            'limit_used' => 0,
+            'items' => [],
+        ]);
+
+        $this->assertStringContainsString(TaskAssistantBrowseDefaults::reasoningWhenEmpty(), $out);
     }
 
     public function test_prioritize_uses_why_these_priorities(): void

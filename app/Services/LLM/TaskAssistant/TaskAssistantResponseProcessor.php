@@ -2,6 +2,7 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Support\LLM\TaskAssistantBrowseDefaults;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
@@ -107,26 +108,29 @@ final class TaskAssistantResponseProcessor
         ];
     }
 
+    /**
+     * Browse merged payload: backend items plus narrative reasoning and suggested_guidance paragraph.
+     * No summary field; formatted message order is reasoning, items, then guidance.
+     *
+     * @param  array<string, mixed>  $data
+     */
     private function validateBrowseData(array $data): array
     {
+        $maxReasoning = TaskAssistantBrowseDefaults::maxReasoningChars();
+        $maxGuidance = TaskAssistantBrowseDefaults::maxSuggestedGuidanceChars();
         $rules = [
-            'summary' => ['nullable', 'string', 'max:1000'],
-            'reasoning' => ['nullable', 'string', 'max:1200'],
-            'assistant_note' => ['nullable', 'string', 'max:500'],
-            'strategy_points' => ['nullable', 'array', 'max:6'],
-            'strategy_points.*' => ['string', 'max:300'],
-            'suggested_next_steps' => ['nullable', 'array', 'max:8'],
-            'suggested_next_steps.*' => ['string', 'max:300'],
-            'assumptions' => ['nullable', 'array', 'max:6'],
-            'assumptions.*' => ['string', 'max:300'],
-            'filter_description' => ['nullable', 'string', 'max:500'],
+            'reasoning' => ['required', 'string', 'min:1', 'max:'.$maxReasoning],
+            'suggested_guidance' => ['required', 'string', 'min:20', 'max:'.$maxGuidance],
             'limit_used' => ['required', 'integer', 'min:0', 'max:50'],
             'items' => ['required', 'array', 'max:50'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
-            'items.*.reason' => ['nullable', 'string', 'max:500'],
+            'items.*.priority' => ['nullable', 'string', 'max:32'],
             'items.*.due_bucket' => ['nullable', 'string', 'max:32'],
+            'items.*.due_phrase' => ['nullable', 'string', 'max:64'],
+            'items.*.due_on' => ['nullable', 'string', 'max:64'],
+            'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
         ];
 
         $validator = Validator::make($data, $rules);

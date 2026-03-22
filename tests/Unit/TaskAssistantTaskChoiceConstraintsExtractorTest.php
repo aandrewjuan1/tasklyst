@@ -36,6 +36,17 @@ it('extracts schoolwork keywords and supports this week time constraint', functi
     expect($context['priority_filters'])->toEqual([]);
     expect($context['task_keywords'])->toContain('schoolwork');
     expect($context['time_constraint'])->toBe('this_week');
+    expect($context['browse_domain'])->toBe('school');
+});
+
+it('sets school browse domain without using bare school as a substring keyword', function (): void {
+    $extractor = app(TaskAssistantTaskChoiceConstraintsExtractor::class);
+
+    $context = $extractor->extract('list my school related tasks only for this week');
+
+    expect($context['browse_domain'])->toBe('school');
+    expect($context['task_keywords'])->not->toContain('school');
+    expect($context['time_constraint'])->toBe('this_week');
 });
 
 it('does not set time constraint for unsupported days', function (): void {

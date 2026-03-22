@@ -230,12 +230,8 @@ test('browse flow clears prior selected_entities from conversation state', funct
             ->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Browse results.',
-                'assistant_note' => null,
-                'reasoning' => null,
-                'strategy_points' => [],
-                'suggested_next_steps' => [],
-                'assumptions' => [],
+                'reasoning' => 'Ranked by urgency.',
+                'suggested_guidance' => 'I recommend picking one task to open first so you can focus without feeling overwhelmed. Tell me if you want a tighter filter or help prioritizing.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);

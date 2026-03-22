@@ -2,6 +2,8 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Support\LLM\TaskAssistantBrowseDefaults;
+
 /**
  * Single place to turn validated structured assistant payloads into the user-visible message body.
  * Used for prioritize, browse, and daily_schedule flows.
@@ -43,6 +45,18 @@ final class TaskAssistantMessageFormatter
 
         foreach ($parts as $part) {
             if ($part === '') {
+                continue;
+            }
+
+            if (preg_match('/^domain:\s*school\b/i', $part) === 1) {
+                $out[] = 'School coursework (subjects, teachers, or academic tags; generic errands excluded).';
+
+                continue;
+            }
+
+            if (preg_match('/^domain:\s*chores/i', $part) === 1) {
+                $out[] = 'Chores and household work (recurring when available).';
+
                 continue;
             }
 
@@ -150,60 +164,87 @@ final class TaskAssistantMessageFormatter
     }
 
     /**
-     * @param  array<string, mixed>  $data
+     * Browse body: reasoning (short intro), then numbered items, then suggested_guidance paragraph.
+     * Same keys as browse validation in TaskAssistantResponseProcessor.
+     *
+     * @param  array{
+     *   reasoning?: string,
+     *   items?: list<array<string, mixed>>,
+     *   suggested_guidance?: string,
+     *   limit_used?: int
+     * }  $data
      */
     private function formatBrowseMessage(array $data): string
     {
-        $filterDescription = trim((string) ($data['filter_description'] ?? ''));
-        $humanFilter = $this->humanizeFilterDescription($filterDescription);
-
-        $summary = trim((string) ($data['summary'] ?? ''));
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
-        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
-        $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
-        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
+        if ($reasoning === '') {
+            $reasoning = TaskAssistantBrowseDefaults::reasoningWhenEmpty();
+        }
+        $guidance = trim((string) ($data['suggested_guidance'] ?? ''));
+        if ($guidance === '') {
+            $guidance = TaskAssistantBrowseDefaults::defaultSuggestedGuidance();
+        }
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
 
         $paragraphs = [];
 
-        if ($humanFilter !== '') {
-            $paragraphs[] = 'Looking at: '.$humanFilter;
-        }
+        $paragraphs[] = $reasoning;
 
-        if ($summary !== '') {
-            $paragraphs[] = $summary;
-        }
-
-        if ($reasoning !== '') {
-            $paragraphs[] = 'Why this list: '.$reasoning;
-        }
-
-        $lines = $this->buildItemLines($items);
+        $lines = $this->formatBrowseItemLines($items);
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);
         }
 
-        $strategyPoints = $this->normalizeStringList($strategyPoints);
-        if ($strategyPoints !== []) {
-            $paragraphs[] = 'How to use this list: '.$this->joinSentences($strategyPoints).'.';
-        }
-
-        $nextSteps = $this->normalizeStringList($nextSteps);
-        if ($nextSteps !== []) {
-            $paragraphs[] = 'Suggested next steps: '.$this->joinSentences($nextSteps).'.';
-        }
-
-        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
-        if ($assumptionsBlock !== null) {
-            $paragraphs[] = $assumptionsBlock;
-        }
-
-        if ($assistantNote !== '') {
-            $paragraphs[] = $assistantNote;
-        }
+        $paragraphs[] = $guidance;
 
         return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<string>
+     */
+    private function formatBrowseItemLines(array $items): array
+    {
+        $lines = [];
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+
+            $priority = ucfirst(trim((string) ($item['priority'] ?? 'medium')));
+            if ($priority === '') {
+                $priority = 'Medium';
+            }
+            $duePhrase = trim((string) ($item['due_phrase'] ?? ''));
+            $dueOn = trim((string) ($item['due_on'] ?? ''));
+            $complexity = trim((string) ($item['complexity_label'] ?? ''));
+            if ($complexity === '') {
+                $complexity = TaskAssistantBrowseDefaults::complexityNotSetLabel();
+            }
+
+            $detailParts = [];
+            $detailParts[] = $priority.' priority';
+
+            if ($dueOn !== '' && $dueOn !== '—') {
+                $detailParts[] = $duePhrase !== '' ? $duePhrase.' ('.$dueOn.')' : $dueOn;
+            } else {
+                $detailParts[] = $duePhrase !== ''
+                    ? $duePhrase.' · '.TaskAssistantBrowseDefaults::noDueDateLabel()
+                    : TaskAssistantBrowseDefaults::noDueDateLabel();
+            }
+
+            $detailParts[] = 'Complexity: '.$complexity;
+
+            $detail = implode(' · ', array_filter($detailParts, static fn (string $p): bool => $p !== ''));
+            $lines[] = ($index + 1).'. '.$title.' — '.$detail;
+        }
+
+        return $lines;
     }
 
     /**
