@@ -626,6 +626,21 @@ final class TaskPrioritizationService
     }
 
     /**
+     * Filter tasks by the same time rules used for prioritization/browse.
+     *
+     * @param  array<int, array<string, mixed>>  $tasks
+     * @return array<int, array<string, mixed>>
+     */
+    public function filterTasksForTimeConstraint(array $tasks, ?string $constraint, \DateTimeImmutable $now): array
+    {
+        if ($constraint === null || $constraint === '' || $constraint === 'none') {
+            return $tasks;
+        }
+
+        return $this->applyTimeConstraintFilter(collect($tasks), $constraint, $now)->values()->all();
+    }
+
+    /**
      * Apply time-based filtering.
      */
     private function applyTimeConstraintFilter(Collection $tasks, string $constraint, \DateTimeImmutable $now): Collection

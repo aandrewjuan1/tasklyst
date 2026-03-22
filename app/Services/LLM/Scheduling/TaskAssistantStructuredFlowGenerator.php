@@ -3,9 +3,11 @@
 namespace App\Services\LLM\Scheduling;
 
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
 use App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -16,18 +18,17 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantSnapshotService $snapshotService,
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
+        private readonly TaskPrioritizationService $prioritizationService,
     ) {}
 
     /**
      * @param  Collection<int, mixed>  $historyMessages
-     * @param  array<string, mixed>  $tools
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
      */
     public function generateDailySchedule(
         TaskAssistantThread $thread,
         string $userMessageContent,
         Collection $historyMessages,
-        array $tools,
         array $options = []
     ): array {
         $user = $thread->user;
@@ -127,6 +128,16 @@ final class TaskAssistantStructuredFlowGenerator
             ));
         }
 
+        if (! empty($context['recurring_requested'])) {
+            $recurringOnly = array_values(array_filter(
+                $contextualSnapshot['tasks'] ?? [],
+                static fn (array $task): bool => ! empty($task['is_recurring'])
+            ));
+            if ($recurringOnly !== []) {
+                $contextualSnapshot['tasks'] = $recurringOnly;
+            }
+        }
+
         if (! empty($context['priority_filters'])) {
             $filtered = collect($snapshot['tasks'] ?? [])
                 ->filter(function (array $task) use ($context): bool {
@@ -178,6 +189,17 @@ final class TaskAssistantStructuredFlowGenerator
                 ->all();
             if ($contextualSnapshot['tasks'] === []) {
                 $contextualSnapshot['tasks'] = $snapshot['tasks'] ?? [];
+            }
+        }
+
+        if (($context['time_constraint'] ?? null) === 'this_week') {
+            $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+            $now = CarbonImmutable::now($timezone);
+            $tasksBefore = $contextualSnapshot['tasks'] ?? [];
+            $filtered = $this->prioritizationService->filterTasksForTimeConstraint($tasksBefore, 'this_week', $now);
+            $contextualSnapshot['tasks'] = $filtered;
+            if ($contextualSnapshot['tasks'] === []) {
+                $contextualSnapshot['tasks'] = $tasksBefore;
             }
         }
 

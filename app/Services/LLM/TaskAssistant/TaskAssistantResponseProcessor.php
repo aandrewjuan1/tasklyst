@@ -15,8 +15,6 @@ final class TaskAssistantResponseProcessor
         string $flow,
         array $data,
         array $snapshot = [],
-        ?\App\Models\TaskAssistantThread $thread = null,
-        ?string $originalUserMessage = null
     ): array {
         $validation = $this->validateFlowData($flow, $data, $snapshot);
         $formattedContent = $this->formatFlowData($flow, $data);

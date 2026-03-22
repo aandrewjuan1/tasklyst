@@ -10,10 +10,9 @@ use Prism\Prism\ValueObjects\ToolResult;
 final class TaskAssistantToolEventPersister
 {
     /**
-     * Persist a Prism tool call into the assistant message.
+     * Persist a Prism tool call into the assistant message (`task_assistant_messages.tool_calls`).
      *
-     * This writes into `task_assistant_messages.tool_calls` using the
-     * shape expected by `TaskAssistantService::parseToolCalls()`.
+     * Used by {@see TaskAssistantService} (chat) and {@see TaskAssistantFlowExecutionEngine} (structured flows).
      *
      * @param  array<string, true>  $seenToolCallIds
      */

@@ -7,8 +7,13 @@ use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
+use Prism\Prism\Enums\FinishReason;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
+use Prism\Prism\Testing\TextResponseFake;
+use Prism\Prism\ValueObjects\Meta;
+use Prism\Prism\ValueObjects\ToolCall;
+use Prism\Prism\ValueObjects\ToolResult;
 use Prism\Prism\ValueObjects\Usage;
 
 test('queued prioritize flow stores selected entities for multiturn state', function (): void {
@@ -139,4 +144,137 @@ test('multiturn schedule can target previous prioritized selection', function ()
 
     expect($secondAssistant->metadata['structured']['flow'] ?? null)->toBe('schedule');
     expect($secondAssistant->metadata['schedule']['proposals'] ?? null)->toBeArray();
+});
+
+test('processQueuedMessage clears task assistant container bindings after run', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        TextResponseFake::make()
+            ->withText('Hello.')
+            ->withFinishReason(FinishReason::Stop)
+            ->withToolCalls([])
+            ->withToolResults([])
+            ->withUsage(new Usage(1, 2))
+            ->withMeta(new Meta('fake', 'fake')),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'hello',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    expect(app()->bound('task_assistant.thread_id'))->toBeFalse();
+    expect(app()->bound('task_assistant.message_id'))->toBeFalse();
+});
+
+test('chat flow persists prism tool calls on the assistant message', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $toolCall = new ToolCall('call-1', 'list_tasks', []);
+    $toolResult = new ToolResult('call-1', 'list_tasks', [], '{"ok":true,"tasks":[]}');
+
+    Prism::fake([
+        TextResponseFake::make()
+            ->withText('Here are your tasks.')
+            ->withFinishReason(FinishReason::Stop)
+            ->withToolCalls([$toolCall])
+            ->withToolResults([$toolResult])
+            ->withUsage(new Usage(1, 2))
+            ->withMeta(new Meta('fake', 'fake')),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'hello',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->tool_calls)->toBeArray();
+    expect($assistantMessage->tool_calls)->not->toBeEmpty();
+    expect($assistantMessage->tool_calls[0]['name'] ?? null)->toBe('list_tasks');
+});
+
+test('browse flow clears prior selected_entities from conversation state', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'summary' => 'Top tasks.',
+                'assistant_note' => null,
+                'reasoning' => null,
+                'strategy_points' => [],
+                'suggested_next_steps' => [],
+                'assumptions' => [],
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'summary' => 'Browse results.',
+                'assistant_note' => null,
+                'reasoning' => null,
+                'strategy_points' => [],
+                'suggested_next_steps' => [],
+                'assumptions' => [],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $prioritizeUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Give me my top 3 tasks',
+    ]);
+    $prioritizeAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $prioritizeUser->id, $prioritizeAssistant->id);
+
+    $thread->refresh();
+    expect($thread->metadata['conversation_state']['selected_entities'] ?? [])->not->toBeEmpty();
+
+    $browseUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'list my tasks',
+    ]);
+    $browseAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $browseUser->id, $browseAssistant->id);
+
+    $thread->refresh();
+    expect($thread->metadata['conversation_state']['selected_entities'] ?? null)->toBeNull();
 });

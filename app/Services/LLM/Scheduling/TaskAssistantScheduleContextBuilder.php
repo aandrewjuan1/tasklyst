@@ -2,17 +2,19 @@
 
 namespace App\Services\LLM\Scheduling;
 
+use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Deterministic scheduling context extracted from the user message (no LLM).
+ * Delegates shared signals to {@see TaskAssistantTaskChoiceConstraintsExtractor} so schedule matches prioritize/browse.
  * Output shape matches {@see TaskAssistantStructuredFlowGenerator::applyContextToSnapshot} expectations.
  */
 final class TaskAssistantScheduleContextBuilder
 {
-    private const ALLOWED_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
-
-    private const ALLOWED_TIME_CONSTRAINTS = ['today', 'this_week', 'none'];
+    public function __construct(
+        private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $snapshot
@@ -21,13 +23,14 @@ final class TaskAssistantScheduleContextBuilder
      *   priority_filters: list<string>,
      *   task_keywords: list<string>,
      *   time_constraint: string,
-     *   comparison_focus: string|null
+     *   comparison_focus: string|null,
+     *   recurring_requested: bool
      * }
      */
     public function build(string $userMessage, array $snapshot): array
     {
-        $analysis = $this->analyzeFromMessage(mb_strtolower($userMessage));
-        $normalized = $this->normalizeAnalysis($analysis);
+        $extracted = $this->constraintsExtractor->extract($userMessage);
+        $normalized = $this->buildScheduleContext($userMessage, $extracted);
 
         Log::info('task-assistant.schedule_context_deterministic', [
             'user_message_length' => mb_strlen($userMessage),
@@ -39,114 +42,45 @@ final class TaskAssistantScheduleContextBuilder
     }
 
     /**
-     * @return array<string, mixed>
-     */
-    private function analyzeFromMessage(string $message): array
-    {
-        $analysis = [
-            'intent_type' => 'general',
-            'priority_filters' => [],
-            'task_keywords' => [],
-            'time_constraint' => null,
-            'comparison_focus' => null,
-        ];
-
-        foreach (self::ALLOWED_PRIORITIES as $priority) {
-            if (preg_match('/\b'.preg_quote($priority, '/').'\b/', $message) === 1) {
-                $analysis['priority_filters'][] = $priority;
-            }
-        }
-
-        if (in_array('urgent', $analysis['priority_filters'], true)) {
-            $analysis['intent_type'] = 'urgent_focus';
-        }
-
-        $domainHints = ['coding', 'math', 'reading', 'study', 'science', 'writing', 'physics', 'chemistry'];
-        foreach ($domainHints as $hint) {
-            if (str_contains($message, $hint)) {
-                $analysis['task_keywords'][] = $hint;
-            }
-        }
-
-        if (str_contains($message, 'this week') || str_contains($message, 'this_week')) {
-            $analysis['time_constraint'] = 'this_week';
-        } elseif (str_contains($message, 'today')) {
-            $analysis['time_constraint'] = 'today';
-        }
-
-        if (str_contains($message, 'between') && str_contains($message, 'and')) {
-            $analysis['intent_type'] = 'specific_comparison';
-            $analysis['comparison_focus'] = 'user_specified_choice';
-        }
-
-        return $analysis;
-    }
-
-    /**
-     * @param  array<string, mixed>  $analysis
+     * @param  array<string, mixed>  $extracted
      * @return array{
      *   intent_type: string,
      *   priority_filters: list<string>,
      *   task_keywords: list<string>,
      *   time_constraint: string,
-     *   comparison_focus: string|null
+     *   comparison_focus: string|null,
+     *   recurring_requested: bool
      * }
      */
-    private function normalizeAnalysis(array $analysis): array
+    private function buildScheduleContext(string $userMessage, array $extracted): array
     {
-        $intentType = is_string($analysis['intent_type'] ?? null)
-            ? trim((string) $analysis['intent_type'])
-            : 'general';
+        $messageLower = mb_strtolower($userMessage);
 
-        $rawPriorities = $analysis['priority_filters'] ?? [];
-        $priorities = [];
-        if (is_array($rawPriorities)) {
-            foreach ($rawPriorities as $priority) {
-                $candidate = strtolower(trim((string) $priority));
-                foreach (self::ALLOWED_PRIORITIES as $allowed) {
-                    if (preg_match('/\b'.preg_quote($allowed, '/').'\b/i', $candidate) === 1) {
-                        $priorities[] = $allowed;
-                    }
-                }
-            }
+        $intentType = 'general';
+        $comparisonFocus = null;
+
+        if (str_contains($messageLower, 'between') && str_contains($messageLower, 'and')) {
+            $intentType = 'specific_comparison';
+            $comparisonFocus = 'user_specified_choice';
+        } elseif (in_array('urgent', $extracted['priority_filters'] ?? [], true)) {
+            $intentType = 'urgent_focus';
         }
-        $priorities = array_values(array_unique($priorities));
 
-        $rawKeywords = $analysis['task_keywords'] ?? [];
-        $keywords = [];
-        $genericKeywords = ['schedule', 'day', 'today', 'tasks', 'task', 'plan'];
-        if (is_array($rawKeywords)) {
-            foreach ($rawKeywords as $keyword) {
-                $candidate = strtolower(trim((string) $keyword));
-                if ($candidate === '' || in_array($candidate, $genericKeywords, true)) {
-                    continue;
-                }
-                $keywords[] = $candidate;
-            }
-        }
-        $keywords = array_values(array_unique($keywords));
-
-        $timeConstraintRaw = strtolower(trim((string) ($analysis['time_constraint'] ?? 'none')));
+        $timeConstraintRaw = $extracted['time_constraint'] ?? null;
         $timeConstraint = 'none';
-        if (str_contains($timeConstraintRaw, 'today')) {
+        if ($timeConstraintRaw === 'today') {
             $timeConstraint = 'today';
-        } elseif (str_contains($timeConstraintRaw, 'week')) {
+        } elseif ($timeConstraintRaw === 'this_week') {
             $timeConstraint = 'this_week';
         }
-        if (! in_array($timeConstraint, self::ALLOWED_TIME_CONSTRAINTS, true)) {
-            $timeConstraint = 'none';
-        }
-
-        $comparisonFocus = is_string($analysis['comparison_focus'] ?? null)
-            ? trim((string) $analysis['comparison_focus'])
-            : null;
 
         return [
-            'intent_type' => $intentType === '' ? 'general' : $intentType,
-            'priority_filters' => $priorities,
-            'task_keywords' => $keywords,
+            'intent_type' => $intentType,
+            'priority_filters' => array_values(array_unique($extracted['priority_filters'] ?? [])),
+            'task_keywords' => array_values(array_unique($extracted['task_keywords'] ?? [])),
             'time_constraint' => $timeConstraint,
-            'comparison_focus' => $comparisonFocus !== '' ? $comparisonFocus : null,
+            'comparison_focus' => $comparisonFocus,
+            'recurring_requested' => (bool) ($extracted['recurring_requested'] ?? false),
         ];
     }
 }

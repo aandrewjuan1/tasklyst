@@ -9,7 +9,7 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
 {
     public function test_it_normalizes_deterministic_priority_and_time_keywords(): void
     {
-        $builder = new TaskAssistantScheduleContextBuilder;
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
 
         $analysis = $builder->build('Show urgent high priority tasks due today', [
             'tasks' => [],
@@ -22,7 +22,7 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
 
     public function test_it_detects_domain_keywords_and_comparison_focus(): void
     {
-        $builder = new TaskAssistantScheduleContextBuilder;
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
 
         $analysis = $builder->build('Schedule coding between math and reading this week', [
             'tasks' => [],
