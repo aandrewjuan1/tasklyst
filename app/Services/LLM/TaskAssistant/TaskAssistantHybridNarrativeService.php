@@ -246,6 +246,7 @@ final class TaskAssistantHybridNarrativeService
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
         $refinementSchema = TaskAssistantSchemas::browseNarrativeSchema();
         $itemsJson = json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $listedTaskCount = count($items);
 
         $listLabel = $ambiguous
             ? 'The user asked for a general list; the backend returned a short ranked slice (see FILTER_CONTEXT).'
@@ -261,10 +262,12 @@ final class TaskAssistantHybridNarrativeService
                 'In reasoning and suggested_guidance: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'Write ONLY a short reasoning field (1-3 sentences): second person ("you") or neutral ("Here are…"). '.
                 'Do NOT write as the student: never use "I", "my", or "I need to" in reasoning. Do NOT use meta phrases like "The user requested". '.
+                'LISTED_TASK_COUNT: '.$listedTaskCount.' (if reasoning mentions how many tasks, this number MUST match exactly). '."\n".
                 'Explain briefly why these rows match what they asked, using only task titles and dates from the list below. '.
                 'Do not repeat the full task list in reasoning. '.
                 'Do not claim all tasks are due on one day unless the items support that. '.
                 'Do not invent tasks, deadlines, durations, or priorities. '.
+                'Each task has a priority field: only describe a task as high/medium/low priority if it matches that field—never call the whole set "high-priority" if any item is medium or low. '.
                 'For suggested_guidance: ONE paragraph (2-5 sentences), no bullets. Start with "I suggest" or "I recommend". '.
                 'Include supportive coaching (e.g. managing time, not getting overwhelmed) where natural. '.
                 'Concrete, gentle advice referencing their tasks by title when helpful.'."\n\n".

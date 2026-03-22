@@ -139,6 +139,9 @@ final class TaskAssistantBrowseListingService
     }
 
     /**
+     * Buckets by calendar date in the user timezone so a deadline later "today" is never labeled overdue
+     * just because its clock time is earlier than the current instant (e.g. midnight due time).
+     *
      * @param  array<string, mixed>  $task
      */
     private function classifyDueBucket(array $task, CarbonImmutable $now, string $timezone): string
@@ -153,7 +156,9 @@ final class TaskAssistantBrowseListingService
             return 'no_deadline';
         }
 
-        if ($deadline->lt($now)) {
+        $startOfToday = $now->startOfDay();
+
+        if ($deadline->lt($startOfToday)) {
             return 'overdue';
         }
 
@@ -161,7 +166,8 @@ final class TaskAssistantBrowseListingService
             return 'due_today';
         }
 
-        if ($deadline->isSameDay($now->addDay())) {
+        $tomorrow = $now->addDay();
+        if ($deadline->isSameDay($tomorrow)) {
             return 'due_tomorrow';
         }
 

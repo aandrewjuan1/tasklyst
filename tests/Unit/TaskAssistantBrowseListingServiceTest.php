@@ -93,4 +93,74 @@ class TaskAssistantBrowseListingServiceTest extends TestCase
         $this->assertFalse($result['ambiguous']);
         $this->assertStringContainsString('domain: school', strtolower($result['filter_context_for_prompt']));
     }
+
+    public function test_same_calendar_day_deadline_is_due_today_not_overdue_if_clock_time_has_passed(): void
+    {
+        $this->travelTo('2026-03-22 15:30:00');
+
+        $service = app(TaskAssistantBrowseListingService::class);
+
+        $snapshot = [
+            'timezone' => 'UTC',
+            'tasks' => [
+                [
+                    'id' => 1,
+                    'title' => 'Morning deadline',
+                    'subject_name' => null,
+                    'teacher_name' => null,
+                    'tags' => [],
+                    'status' => 'to_do',
+                    'priority' => 'medium',
+                    'ends_at' => '2026-03-22T00:00:00+00:00',
+                    'project_id' => null,
+                    'event_id' => null,
+                    'duration_minutes' => 30,
+                    'complexity' => null,
+                    'is_recurring' => false,
+                ],
+            ],
+            'events' => [],
+            'projects' => [],
+        ];
+
+        $result = $service->build('List my tasks', $snapshot);
+
+        $this->assertSame('due_today', $result['items'][0]['due_bucket'] ?? null);
+        $this->assertSame('due today', $result['items'][0]['due_phrase'] ?? null);
+    }
+
+    public function test_previous_calendar_day_deadline_is_overdue(): void
+    {
+        $this->travelTo('2026-03-22 12:00:00');
+
+        $service = app(TaskAssistantBrowseListingService::class);
+
+        $snapshot = [
+            'timezone' => 'UTC',
+            'tasks' => [
+                [
+                    'id' => 1,
+                    'title' => 'Yesterday',
+                    'subject_name' => null,
+                    'teacher_name' => null,
+                    'tags' => [],
+                    'status' => 'to_do',
+                    'priority' => 'medium',
+                    'ends_at' => '2026-03-21T23:59:00+00:00',
+                    'project_id' => null,
+                    'event_id' => null,
+                    'duration_minutes' => 30,
+                    'complexity' => null,
+                    'is_recurring' => false,
+                ],
+            ],
+            'events' => [],
+            'projects' => [],
+        ];
+
+        $result = $service->build('List my tasks', $snapshot);
+
+        $this->assertSame('overdue', $result['items'][0]['due_bucket'] ?? null);
+        $this->assertSame('overdue', $result['items'][0]['due_phrase'] ?? null);
+    }
 }
