@@ -50,10 +50,11 @@ final class TaskAssistantStructuredFlowGenerator
         $contextualSnapshot = $this->applyContextToSnapshot($snapshot, $context, $options);
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
+        $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
 
         $proposals = $this->generateDeterministicProposals($contextualSnapshot, $context);
         $blocks = $this->buildLegacyBlocksFromProposals($proposals);
-        $deterministicSummary = $this->buildDeterministicSummary($context);
+        $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
 
         $blocksJson = json_encode($blocks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
@@ -78,6 +79,7 @@ final class TaskAssistantStructuredFlowGenerator
             'assumptions' => $narrative['assumptions'],
         ];
 
+        $horizonLog = $contextualSnapshot['schedule_horizon'] ?? null;
         Log::info('task-assistant.structured_generation', [
             'layer' => 'structured_generation',
             'thread_id' => $thread->id,
@@ -89,6 +91,10 @@ final class TaskAssistantStructuredFlowGenerator
                 ? count($options['target_entities'])
                 : 0,
             'time_window_hint' => $options['time_window_hint'] ?? null,
+            'schedule_mode' => is_array($horizonLog) ? ($horizonLog['mode'] ?? null) : null,
+            'horizon_start' => is_array($horizonLog) ? ($horizonLog['start_date'] ?? null) : null,
+            'horizon_end' => is_array($horizonLog) ? ($horizonLog['end_date'] ?? null) : null,
+            'horizon_label' => is_array($horizonLog) ? ($horizonLog['label'] ?? null) : null,
         ]);
 
         return [
@@ -228,6 +234,14 @@ final class TaskAssistantStructuredFlowGenerator
             $contextualSnapshot['time_window'] = ['start' => '18:00', 'end' => '22:00'];
         }
 
+        $horizon = $context['schedule_horizon'] ?? null;
+        if (is_array($horizon) && isset($horizon['start_date'], $horizon['end_date'])) {
+            $contextualSnapshot['schedule_horizon'] = $horizon;
+            if (($horizon['mode'] ?? '') === 'single_day' || $horizon['start_date'] === $horizon['end_date']) {
+                $contextualSnapshot['today'] = $horizon['start_date'];
+            }
+        }
+
         return $contextualSnapshot;
     }
 
@@ -235,6 +249,22 @@ final class TaskAssistantStructuredFlowGenerator
      * @return array<int, array<string, mixed>>
      */
     private function generateDeterministicProposals(array $snapshot, array $context): array
+    {
+        $horizon = $snapshot['schedule_horizon'] ?? null;
+        if (is_array($horizon)
+            && ($horizon['mode'] ?? '') === 'range'
+            && isset($horizon['start_date'], $horizon['end_date'])
+            && $horizon['start_date'] !== $horizon['end_date']) {
+            return $this->generateProposalsAcrossHorizon($snapshot, $context, $horizon);
+        }
+
+        return $this->generateProposalsSingleDay($snapshot, $context);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function generateProposalsSingleDay(array $snapshot, array $context): array
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
         $day = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
@@ -261,46 +291,145 @@ final class TaskAssistantStructuredFlowGenerator
             [$windowIndex, $startAt] = $fitted;
             $endAt = $startAt->modify("+{$minutes} minutes");
 
-            $proposal = [
-                'proposal_id' => (string) \Illuminate\Support\Str::uuid(),
-                'status' => 'pending',
-                'entity_type' => $candidate['entity_type'],
-                'entity_id' => $candidate['entity_id'],
-                'title' => $candidate['title'],
-                'reason_score' => $candidate['score'],
-                'start_datetime' => $startAt->format(\DateTimeInterface::ATOM),
-                'end_datetime' => $candidate['entity_type'] === 'project' ? null : $endAt->format(\DateTimeInterface::ATOM),
-                'duration_minutes' => $candidate['entity_type'] === 'event' ? null : $minutes,
-                'conflict_notes' => [],
-                'apply_payload' => $this->buildApplyPayload($candidate, $startAt, $endAt, $minutes),
-            ];
-
-            $proposals[] = $proposal;
+            $proposals[] = $this->makeProposal($candidate, $startAt, $endAt, $minutes);
             $freeWindows = $this->consumeWindow($freeWindows, $windowIndex, $startAt, $endAt);
         }
 
         if ($proposals === []) {
-            return [[
-                'proposal_id' => (string) \Illuminate\Support\Str::uuid(),
-                'status' => 'pending',
-                'entity_type' => 'task',
-                'entity_id' => null,
-                'title' => 'No schedulable items found',
-                'reason_score' => 0,
-                'start_datetime' => $dayStart->format(\DateTimeInterface::ATOM),
-                'end_datetime' => $dayStart->modify('+30 minutes')->format(\DateTimeInterface::ATOM),
-                'duration_minutes' => 30,
-                'conflict_notes' => ['No tasks/events/projects could fit into today without conflicts.'],
-                'apply_payload' => null,
-            ]];
+            return [$this->emptyPlaceholderProposal($dayStart, $dayStart, false)];
         }
 
         return $proposals;
     }
 
-    private function buildDeterministicSummary(array $context): string
+    /**
+     * @param  array{
+     *   mode: string,
+     *   start_date: string,
+     *   end_date: string,
+     *   label: string
+     * }  $horizon
+     * @return array<int, array<string, mixed>>
+     */
+    private function generateProposalsAcrossHorizon(array $snapshot, array $context, array $horizon): array
     {
-        $summary = 'A focused schedule with clear blocks to structure your day';
+        $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
+        $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
+        $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
+        $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
+
+        $start = CarbonImmutable::parse($horizon['start_date'], $timezone)->startOfDay();
+        $end = CarbonImmutable::parse($horizon['end_date'], $timezone)->startOfDay();
+
+        /** @var array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>> $windowsByDay */
+        $windowsByDay = [];
+        $dayCursor = $start->copy();
+        while ($dayCursor->lte($end)) {
+            $day = $dayCursor->toDateString();
+            $dayStart = new \DateTimeImmutable($day.' '.$windowStart, $timezone);
+            $dayEnd = new \DateTimeImmutable($day.' '.$windowEnd, $timezone);
+            $busyRanges = $this->buildBusyRanges($snapshot, $dayStart, $dayEnd, $timezone);
+            $windowsByDay[$day] = $this->buildFreeWindows($busyRanges, $dayStart, $dayEnd);
+            $dayCursor = $dayCursor->addDay();
+        }
+
+        $candidates = $this->buildSchedulingCandidates($snapshot);
+        usort($candidates, fn (array $a, array $b): int => ($b['score'] <=> $a['score']));
+
+        $proposals = [];
+        $scanCursor = $start->copy();
+        foreach ($candidates as $candidate) {
+            $minutes = (int) ($candidate['duration_minutes'] ?? 30);
+            $scanCursor = $start->copy();
+            while ($scanCursor->lte($end)) {
+                $day = $scanCursor->toDateString();
+                $freeWindows = $windowsByDay[$day] ?? [];
+                $fitted = $this->findFirstFittingWindow($freeWindows, $minutes);
+                if ($fitted === null) {
+                    $scanCursor = $scanCursor->addDay();
+
+                    continue;
+                }
+
+                [$windowIndex, $startAt] = $fitted;
+                $endAt = $startAt->modify("+{$minutes} minutes");
+
+                $proposals[] = $this->makeProposal($candidate, $startAt, $endAt, $minutes);
+                $windowsByDay[$day] = $this->consumeWindow($freeWindows, $windowIndex, $startAt, $endAt);
+                break;
+            }
+        }
+
+        if ($proposals === []) {
+            $fallbackStart = new \DateTimeImmutable($start->toDateString().' '.$windowStart, $timezone);
+
+            return [$this->emptyPlaceholderProposal($fallbackStart, $fallbackStart, true)];
+        }
+
+        return $proposals;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function makeProposal(array $candidate, \DateTimeImmutable $startAt, \DateTimeImmutable $endAt, int $minutes): array
+    {
+        return [
+            'proposal_id' => (string) \Illuminate\Support\Str::uuid(),
+            'status' => 'pending',
+            'entity_type' => $candidate['entity_type'],
+            'entity_id' => $candidate['entity_id'],
+            'title' => $candidate['title'],
+            'reason_score' => $candidate['score'],
+            'start_datetime' => $startAt->format(\DateTimeInterface::ATOM),
+            'end_datetime' => $candidate['entity_type'] === 'project' ? null : $endAt->format(\DateTimeInterface::ATOM),
+            'duration_minutes' => $candidate['entity_type'] === 'event' ? null : $minutes,
+            'conflict_notes' => [],
+            'apply_payload' => $this->buildApplyPayload($candidate, $startAt, $endAt, $minutes),
+        ];
+    }
+
+    private function emptyPlaceholderProposal(
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $anchorForFallback,
+        bool $multiDayHorizon,
+    ): array {
+        $note = $multiDayHorizon
+            ? 'No tasks/events/projects could fit within the selected date range without conflicts.'
+            : 'No tasks/events/projects could fit into the selected day without conflicts.';
+
+        return [
+            'proposal_id' => (string) \Illuminate\Support\Str::uuid(),
+            'status' => 'pending',
+            'entity_type' => 'task',
+            'entity_id' => null,
+            'title' => 'No schedulable items found',
+            'reason_score' => 0,
+            'start_datetime' => $anchorForFallback->format(\DateTimeInterface::ATOM),
+            'end_datetime' => $anchorForFallback->modify('+30 minutes')->format(\DateTimeInterface::ATOM),
+            'duration_minutes' => 30,
+            'conflict_notes' => [$note],
+            'apply_payload' => null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $contextualSnapshot
+     */
+    private function buildDeterministicSummary(array $context, array $contextualSnapshot): string
+    {
+        $horizon = $contextualSnapshot['schedule_horizon'] ?? null;
+        $horizonPhrase = '';
+        if (is_array($horizon) && isset($horizon['label'], $horizon['start_date'], $horizon['end_date'])) {
+            if (($horizon['mode'] ?? '') === 'range' && $horizon['start_date'] !== $horizon['end_date']) {
+                $horizonPhrase = ' across '.$horizon['start_date'].' to '.$horizon['end_date'];
+            } elseif (($horizon['label'] ?? '') !== 'default_today') {
+                $horizonPhrase = ' for '.$horizon['label'];
+            }
+        }
+
+        $summary = 'A focused schedule with clear blocks'.$horizonPhrase.' to structure your time';
 
         if (! empty($context['priority_filters'])) {
             $summary .= ' for '.implode(', ', $context['priority_filters']).' priority tasks';

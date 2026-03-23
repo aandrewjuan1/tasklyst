@@ -72,7 +72,7 @@ test('invalid LLM intent label falls back to chat', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Hello there');
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Hello there friend');
 
     expect($decision->flow)->toBe('chat');
     expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_chat');
@@ -115,6 +115,39 @@ test('policy routing resolves multiturn target entities and constraints', functi
     expect($decision->constraints['count_limit'])->toBe(2);
     expect($decision->constraints['time_window_hint'])->toBe('later_afternoon');
     expect($decision->constraints['target_entities'])->toHaveCount(1);
+});
+
+test('schedule flow resolves top N against last_listing', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'scheduling',
+                'confidence' => 0.9,
+                'rationale' => 'Scheduling follow-up.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'browse',
+        [
+            ['entity_type' => 'task', 'entity_id' => 101, 'title' => 'One'],
+            ['entity_type' => 'task', 'entity_id' => 102, 'title' => 'Two'],
+            ['entity_type' => 'task', 'entity_id' => 103, 'title' => 'Three'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule top 2 for later afternoon');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(2);
+    expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(101);
+    expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(102);
 });
 
 test('execution plan holds normalized orchestration fields', function (): void {

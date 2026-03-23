@@ -63,7 +63,8 @@ test('queued prioritize flow stores selected entities for multiturn state', func
 
     $state = $thread->metadata['conversation_state'] ?? [];
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
-    expect($state['selected_entities'] ?? [])->toHaveCount(3);
+    expect($state['last_listing']['items'] ?? [])->toHaveCount(3);
+    expect($state['last_listing']['source_flow'] ?? null)->toBe('prioritize');
 });
 
 test('multiturn schedule can target previous prioritized selection', function (): void {
@@ -214,7 +215,7 @@ test('chat flow persists prism tool calls on the assistant message', function ()
     expect($assistantMessage->tool_calls[0]['name'] ?? null)->toBe('list_tasks');
 });
 
-test('browse flow clears prior selected_entities from conversation state', function (): void {
+test('browse flow replaces last_listing with browse results for multiturn state', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
 
     Prism::fake([
@@ -258,7 +259,7 @@ test('browse flow clears prior selected_entities from conversation state', funct
     app(TaskAssistantService::class)->processQueuedMessage($thread, $prioritizeUser->id, $prioritizeAssistant->id);
 
     $thread->refresh();
-    expect($thread->metadata['conversation_state']['selected_entities'] ?? [])->not->toBeEmpty();
+    expect($thread->metadata['conversation_state']['last_listing']['source_flow'] ?? null)->toBe('prioritize');
 
     $browseUser = $thread->messages()->create([
         'role' => MessageRole::User,
@@ -272,5 +273,6 @@ test('browse flow clears prior selected_entities from conversation state', funct
     app(TaskAssistantService::class)->processQueuedMessage($thread, $browseUser->id, $browseAssistant->id);
 
     $thread->refresh();
-    expect($thread->metadata['conversation_state']['selected_entities'] ?? null)->toBeNull();
+    expect($thread->metadata['conversation_state']['last_listing']['source_flow'] ?? null)->toBe('browse');
+    expect($thread->metadata['conversation_state']['last_listing']['items'] ?? [])->not->toBeEmpty();
 });

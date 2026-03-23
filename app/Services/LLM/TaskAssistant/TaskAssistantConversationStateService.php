@@ -28,15 +28,109 @@ final class TaskAssistantConversationStateService
     }
 
     /**
+     * Persist the ordered listing from browse or prioritize for multiturn follow-ups (e.g. schedule).
+     *
+     * @param  array<int, array<string, mixed>>  $items  Rows with entity_type, entity_id, title (and optional extra keys)
+     * @param  'browse'|'prioritize'  $sourceFlow
+     */
+    public function rememberLastListing(
+        TaskAssistantThread $thread,
+        string $sourceFlow,
+        array $items,
+        ?int $assistantMessageId = null,
+        ?int $limit = null,
+    ): void {
+        $state = $this->get($thread);
+        $state['last_flow'] = $sourceFlow;
+        if ($limit !== null) {
+            $state['last_limit'] = $limit;
+        }
+        unset($state['selected_entities']);
+
+        $normalized = [];
+        $position = 0;
+        foreach ($items as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $type = (string) ($row['entity_type'] ?? '');
+            $id = (int) ($row['entity_id'] ?? 0);
+            $title = (string) ($row['title'] ?? '');
+            if ($type === '' || $id <= 0 || trim($title) === '') {
+                continue;
+            }
+            $normalized[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+                'position' => $position,
+            ];
+            $position++;
+        }
+
+        $state['last_listing'] = [
+            'source_flow' => $sourceFlow,
+            'items' => $normalized,
+            'assistant_message_id' => $assistantMessageId,
+        ];
+        if ($limit !== null) {
+            $state['last_listing']['last_limit'] = $limit;
+        }
+
+        $this->put($thread, $state);
+    }
+
+    /**
+     * @return array{
+     *   source_flow: string,
+     *   items: list<array{entity_type: string, entity_id: int, title: string, position: int}>,
+     *   assistant_message_id?: int|null,
+     *   last_limit?: int
+     * }|null
+     */
+    public function lastListing(TaskAssistantThread $thread): ?array
+    {
+        $state = $this->get($thread);
+        $listing = $state['last_listing'] ?? null;
+        if (! is_array($listing)) {
+            return null;
+        }
+        $items = $listing['items'] ?? [];
+        if (! is_array($items) || $items === []) {
+            return null;
+        }
+
+        $source = (string) ($listing['source_flow'] ?? '');
+        if ($source === '') {
+            return null;
+        }
+
+        $normalizedItems = $this->normalizeLastListingItems($items);
+        if ($normalizedItems === []) {
+            return null;
+        }
+
+        return [
+            'source_flow' => $source,
+            'items' => $normalizedItems,
+            'assistant_message_id' => isset($listing['assistant_message_id']) ? (int) $listing['assistant_message_id'] : null,
+            'last_limit' => isset($listing['last_limit']) ? (int) $listing['last_limit'] : ($state['last_limit'] ?? null),
+        ];
+    }
+
+    public function clearLastListing(TaskAssistantThread $thread): void
+    {
+        $state = $this->get($thread);
+        unset($state['last_listing'], $state['selected_entities'], $state['last_limit']);
+        $this->put($thread, $state);
+    }
+
+    /**
      * @param  array<int, array{entity_type: string, entity_id: int, title: string}>  $items
      */
     public function rememberPrioritizedItems(TaskAssistantThread $thread, array $items, int $limit): void
     {
-        $state = $this->get($thread);
-        $state['last_flow'] = 'prioritize';
-        $state['last_limit'] = $limit;
-        $state['selected_entities'] = $items;
-        $this->put($thread, $state);
+        $this->rememberLastListing($thread, 'prioritize', $items, null, $limit);
     }
 
     /**
@@ -53,18 +147,32 @@ final class TaskAssistantConversationStateService
         $this->put($thread, $state);
     }
 
+    /**
+     * Clears listing selection state (legacy name; prefer {@see clearLastListing}).
+     */
     public function clearSelectedEntities(TaskAssistantThread $thread): void
     {
-        $state = $this->get($thread);
-        unset($state['selected_entities']);
-        $this->put($thread, $state);
+        $this->clearLastListing($thread);
     }
 
     /**
+     * Entities from the latest browse/prioritize listing, for "those / them" references.
+     *
      * @return array<int, array{entity_type: string, entity_id: int, title: string}>
      */
     public function selectedEntities(TaskAssistantThread $thread): array
     {
+        $listing = $this->lastListing($thread);
+        if ($listing !== null) {
+            return array_map(static function (array $item): array {
+                return [
+                    'entity_type' => $item['entity_type'],
+                    'entity_id' => $item['entity_id'],
+                    'title' => $item['title'],
+                ];
+            }, $listing['items']);
+        }
+
         $state = $this->get($thread);
         $selected = $state['selected_entities'] ?? [];
 
@@ -93,5 +201,40 @@ final class TaskAssistantConversationStateService
         }
 
         return $out;
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
+     * @return list<array{entity_type: string, entity_id: int, title: string, position: int}>
+     */
+    private function normalizeLastListingItems(array $items): array
+    {
+        $out = [];
+        $position = 0;
+        foreach ($items as $entity) {
+            if (! is_array($entity)) {
+                continue;
+            }
+            $type = (string) ($entity['entity_type'] ?? '');
+            $id = (int) ($entity['entity_id'] ?? 0);
+            $title = (string) ($entity['title'] ?? '');
+            if ($type === '' || $id <= 0 || trim($title) === '') {
+                continue;
+            }
+            $pos = isset($entity['position']) && is_numeric($entity['position'])
+                ? (int) $entity['position']
+                : $position;
+            $out[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+                'position' => $pos,
+            ];
+            $position++;
+        }
+
+        usort($out, static fn (array $a, array $b): int => $a['position'] <=> $b['position']);
+
+        return array_values($out);
     }
 }

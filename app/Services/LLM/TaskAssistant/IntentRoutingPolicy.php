@@ -19,6 +19,7 @@ final class IntentRoutingPolicy
         private readonly TaskAssistantIntentSignalExtractor $signalExtractor,
         private readonly TaskAssistantIntentResolutionService $resolution,
         private readonly TaskAssistantConversationStateService $conversationState,
+        private readonly TaskAssistantListingReferenceResolver $listingReferenceResolver,
     ) {}
 
     public function decide(TaskAssistantThread $thread, string $content): IntentRoutingDecision
@@ -36,7 +37,7 @@ final class IntentRoutingPolicy
                 flow: 'chat',
                 confidence: 1.0,
                 reasonCodes: ['empty_message'],
-                constraints: $this->buildConstraints($thread, $normalized),
+                constraints: $this->buildConstraints($thread, $normalized, 'chat'),
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -54,7 +55,7 @@ final class IntentRoutingPolicy
                 flow: 'chat',
                 confidence: 1.0,
                 reasonCodes: ['greeting_shortcircuit_chat'],
-                constraints: $this->buildConstraints($thread, $normalized),
+                constraints: $this->buildConstraints($thread, $normalized, 'chat'),
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -70,7 +71,7 @@ final class IntentRoutingPolicy
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
 
-        $constraints = $this->buildConstraints($thread, $normalized);
+        $constraints = $this->buildConstraints($thread, $normalized, $decision->flow);
 
         Log::info('task-assistant.intent.policy', [
             'layer' => 'intent_policy',
@@ -105,15 +106,28 @@ final class IntentRoutingPolicy
     /**
      * @return array<string, mixed>
      */
-    private function buildConstraints(TaskAssistantThread $thread, string $normalized): array
+    private function buildConstraints(TaskAssistantThread $thread, string $normalized, string $resolvedFlow): array
     {
         $selected = $this->conversationState->selectedEntities($thread);
         $useSelected = preg_match('/\b(those|them|those\s+\d+|the\s+above)\b/i', $normalized) === 1;
 
+        $targetEntities = [];
+        if ($resolvedFlow === 'schedule') {
+            $listing = $this->conversationState->lastListing($thread);
+            $resolved = $this->listingReferenceResolver->resolveForSchedule($normalized, $listing, $resolvedFlow);
+            if ($resolved !== []) {
+                $targetEntities = $resolved;
+            } elseif ($useSelected && $selected !== []) {
+                $targetEntities = $selected;
+            }
+        } elseif ($useSelected && $selected !== []) {
+            $targetEntities = $selected;
+        }
+
         return [
             'count_limit' => $this->extractCountLimit($normalized),
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
-            'target_entities' => $useSelected ? $selected : [],
+            'target_entities' => $targetEntities,
         ];
     }
 
