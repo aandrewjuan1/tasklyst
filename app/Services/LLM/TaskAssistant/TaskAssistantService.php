@@ -331,7 +331,9 @@ final class TaskAssistantService
                 return;
             }
 
-            $this->runChatFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+            // `chat` is intentionally not used anymore. If we ever get an unknown
+            // flow value, fall back to general guidance.
+            $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
         } finally {
             app()->forgetInstance('task_assistant.thread_id');
             app()->forgetInstance('task_assistant.message_id');
@@ -832,11 +834,84 @@ final class TaskAssistantService
             'assistant_message_id' => $assistantMessage->id,
         ]);
 
+        if (in_array('intent_off_topic', $plan->reasonCodes, true)) {
+            // Strong guardrail to keep Hermes in the task assistant domain even
+            // when users ask unrelated questions (relationships, politics, product
+            // recommendations, etc.). We still require the general_guidance schema.
+            $userMessage .= "\n\nOFF_TOPIC_GUARDRAIL: This request is off-topic for a task assistant. Acknowledge briefly, refuse to help with the unrelated topic, and redirect toward prioritization vs scheduling. Output must still follow the general_guidance schema (message + exactly one clarifying_question that asks which next action the user wants: prioritize tasks or schedule time blocks).";
+        }
+
         $guidance = $this->generalGuidanceService->generateGeneralGuidance(
             user: $thread->user,
             userMessage: $userMessage,
             forcedClarifyingQuestion: $forcedClarifyingQuestion
         );
+
+        $state = $this->conversationState->get($thread);
+
+        if (in_array('intent_off_topic', $plan->reasonCodes, true)) {
+            // Post-process off-topic responses to enforce a short refusal +
+            // redirect, keeping the rest of the structured flow intact.
+            $variants = [
+                "I can't help with that topic. I'm a task assistant. If you tell me what tasks you have, I can help you prioritize your tasks or schedule time blocks for them.",
+                "I can't help with that directly. I'm a task assistant focused on your tasks—share what you're working on and I'll help you prioritize your tasks or schedule time blocks.",
+            ];
+
+            $idx = ($thread->id % count($variants));
+            $guidance['message'] = $variants[$idx];
+        }
+
+        // Add a deterministic "intro" the first time we respond with
+        // general_guidance in this thread.
+        $shouldIntroduce = ! (bool) ($state['general_guidance_intro_done'] ?? false);
+        if ($shouldIntroduce) {
+            $intro = "Hi, I'm TaskLyst—your task assistant.";
+            $currentMessage = trim((string) ($guidance['message'] ?? ''));
+
+            if ($currentMessage !== '' && ! str_starts_with($currentMessage, $intro)) {
+                $currentMessage = $intro.' '.$currentMessage;
+            }
+
+            // If the model still adds another greeting right after the intro,
+            // remove the second greeting sentence to keep things non-repetitive.
+            $currentMessage = preg_replace(
+                '/^(Hi, I\'m TaskLyst—your task assistant\.)\s+(hi|hello|hey)\b[^.!?]*[.!?]\s*/iu',
+                '$1 ',
+                (string) $currentMessage
+            ) ?: $currentMessage;
+
+            // Keep within general guidance validation bounds.
+            if (mb_strlen($currentMessage) > 500) {
+                $currentMessage = mb_substr($currentMessage, 0, 500);
+            }
+
+            $guidance['message'] = $currentMessage;
+
+            $state['general_guidance_intro_done'] = true;
+            $this->conversationState->put($thread, $state);
+        }
+
+        // Avoid repeating the exact same redirect question if the user
+        // keeps asking different general prompts in the same thread.
+        $currentQuestion = (string) ($guidance['clarifying_question'] ?? '');
+        $lastQuestion = (string) ($state['last_general_guidance_clarifying_question'] ?? '');
+        if ($forcedClarifyingQuestion === null && $currentQuestion !== '' && $currentQuestion === $lastQuestion) {
+            $questionVariants = [
+                'Do you want me to prioritize your tasks or schedule time blocks for them?',
+                'Should we prioritize tasks first, or schedule time blocks to work on them?',
+                'Which next action fits better: prioritizing your tasks or scheduling time blocks?',
+                'Prioritize your tasks or schedule time blocks - what works best?',
+            ];
+
+            $lastVariantIdx = (int) ($state['last_general_guidance_question_variant'] ?? 0);
+            $nextVariantIdx = ($lastVariantIdx + 1) % count($questionVariants);
+            $guidance['clarifying_question'] = $questionVariants[$nextVariantIdx];
+
+            $state['last_general_guidance_question_variant'] = $nextVariantIdx;
+        }
+
+        $state['last_general_guidance_clarifying_question'] = (string) ($guidance['clarifying_question'] ?? '');
+        $this->conversationState->put($thread, $state);
 
         $generationResult = [
             'valid' => true,
@@ -857,7 +932,7 @@ final class TaskAssistantService
             thread: $thread,
             assistantMessage: $assistantMessage,
             generationResult: $generationResult,
-            assistantFallbackContent: 'I can help—what would you like to do first?',
+            assistantFallbackContent: "Hi, I'm TaskLyst—your task assistant. Would you like me to prioritize your tasks or schedule time blocks for them?",
         );
 
         // Store pending guidance for the next user message.
@@ -1099,7 +1174,13 @@ final class TaskAssistantService
     {
         $decision = $this->routingPolicy->decide($thread, $content);
         $constraints = $decision->constraints;
-        $flow = in_array($decision->flow, ['chat', 'prioritize', 'schedule', 'general_guidance'], true) ? $decision->flow : 'chat';
+        $flow = match ($decision->flow) {
+            'chat' => 'general_guidance',
+            'prioritize',
+            'schedule',
+            'general_guidance' => $decision->flow,
+            default => 'general_guidance',
+        };
         $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
         $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;
         $targetEntities = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
@@ -1108,7 +1189,6 @@ final class TaskAssistantService
             'schedule' => 'schedule',
             'prioritize' => 'prioritize',
             'general_guidance' => 'general_guidance',
-            default => 'chat',
         };
 
         return new ExecutionPlan(

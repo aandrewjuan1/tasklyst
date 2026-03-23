@@ -45,6 +45,36 @@ final class TaskAssistantIntentResolutionService
 
         $reasonCodes = ['llm_intent_'.$llmIntent->value];
 
+        if ($llmIntent === TaskAssistantUserIntent::OffTopic) {
+            $minConf = (float) config('task-assistant.intent.off_topic_min_confidence', 0.65);
+            if ($llmConf >= $minConf) {
+                $this->logResolution(
+                    $thread,
+                    $llmIntent->value,
+                    $llmConf,
+                    $signals,
+                    'general_guidance',
+                    array_values(array_unique(array_merge(
+                        $reasonCodes,
+                        ['intent_off_topic']
+                    ))),
+                    false
+                );
+
+                return new IntentRoutingDecision(
+                    flow: 'general_guidance',
+                    confidence: $llmConf,
+                    reasonCodes: array_values(array_unique(array_merge(
+                        $reasonCodes,
+                        ['intent_off_topic']
+                    ))),
+                    constraints: [],
+                    clarificationNeeded: false,
+                    clarificationQuestion: null,
+                );
+            }
+        }
+
         $strongestSignalKey = $this->strongestSignalKey($signals);
         $strongestScore = $signals[$strongestSignalKey] ?? 0.0;
 
@@ -75,10 +105,10 @@ final class TaskAssistantIntentResolutionService
 
         if ($topComposite < $weakMax && $llmConf < 0.45 && $strongestScore < 0.35) {
             $reasonCodes[] = 'validator_fallback_general';
-            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'chat', $reasonCodes, false);
+            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'general_guidance', $reasonCodes, false);
 
             return new IntentRoutingDecision(
-                flow: 'chat',
+                flow: 'general_guidance',
                 confidence: $topComposite,
                 reasonCodes: $reasonCodes,
                 constraints: [],
@@ -89,6 +119,41 @@ final class TaskAssistantIntentResolutionService
 
         $finalFlow = (string) array_key_first($compositeScores);
         $clarificationNeeded = $margin < $clarifyMargin && $topComposite < $clarifyCeiling;
+
+        // Confidence gap hardening:
+        // If the two top candidate composites are close, prefer general guidance
+        // (ask a question) instead of forcing prioritize/schedule or a
+        // clarification flow. This reduces wrong hard routing when Hermes is
+        // uncertain but still outputs a valid label.
+        $ambiguityGapMin = (float) config('task-assistant.intent.merge.ambiguity_gap_min', 0.15);
+        $ambiguitySecondCompositeMin = (float) config('task-assistant.intent.merge.ambiguity_second_composite_min', 0.12);
+        $ambiguityTopCompositeMax = (float) config('task-assistant.intent.merge.ambiguity_top_composite_max', 0.65);
+
+        $confidenceGapAmbiguous = $margin < $ambiguityGapMin
+            && $secondComposite >= $ambiguitySecondCompositeMin
+            && $topComposite <= $ambiguityTopCompositeMax;
+
+        if ($confidenceGapAmbiguous) {
+            $reasonCodes[] = 'confidence_gap_ambiguous_general_guidance';
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'general_guidance',
+                $reasonCodes,
+                false
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: $topComposite,
+                reasonCodes: array_values(array_unique($reasonCodes)),
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
 
         if ($clarificationNeeded) {
             $reasonCodes[] = 'low_margin_intent';

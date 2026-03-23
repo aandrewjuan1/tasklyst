@@ -148,6 +148,7 @@ TXT,
 
     'intent' => [
         'use_llm' => env('TASK_ASSISTANT_INTENT_USE_LLM', true),
+        'off_topic_min_confidence' => (float) env('TASK_ASSISTANT_OFF_TOPIC_MIN_CONFIDENCE', 0.65),
         'merge' => [
             'llm_weight' => (float) env('TASK_ASSISTANT_INTENT_LLM_WEIGHT', 0.5),
             'signal_weight' => (float) env('TASK_ASSISTANT_INTENT_SIGNAL_WEIGHT', 0.5),
@@ -158,6 +159,13 @@ TXT,
             'clarify_composite_ceiling' => (float) env('TASK_ASSISTANT_INTENT_CLARIFY_COMPOSITE_CEILING', 0.55),
             'signal_only_weak_max' => (float) env('TASK_ASSISTANT_INTENT_SIGNAL_WEAK_MAX', 0.35),
             'signal_only_clarify_margin' => (float) env('TASK_ASSISTANT_INTENT_SIGNAL_CLARIFY_MARGIN', 0.15),
+            // When the confidence gap between the top two candidate composites
+            // is small, prefer general guidance to avoid wrong hard routing.
+            'ambiguity_gap_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_GAP_MIN', 0.15),
+            // Require the second-best composite to be meaningfully non-zero.
+            'ambiguity_second_composite_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_SECOND_COMPOSITE_MIN', 0.12),
+            // Keep general-guidance override limited to medium confidence.
+            'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.65),
         ],
     ],
 

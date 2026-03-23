@@ -115,9 +115,18 @@ Classify the user's message for a student task assistant.
 Allowed intent values (exactly one): {$allowed}
 - prioritization: what to do first, top tasks, ordering by importance/urgency, or listing/filtering requests.
 - scheduling: calendar, time blocks, plan my day, when to work on something.
+- off_topic: unrelated to task management, student productivity, planning, scheduling, or overcoming difficulty with tasks.
 
 USER MESSAGE:
 "{$userMessage}"
+
+Rules for confidence discipline:
+- If the user explicitly asks to prioritize or list what to do next, set confidence >= 0.75.
+- If the user explicitly asks for scheduling, calendar, or time blocks, set confidence >= 0.75.
+- If the user is vague / only says "help", "what now", "overwhelmed", or otherwise does not clearly ask for prioritize vs schedule,
+  choose the best guess intent but set confidence <= 0.45 (so the router can safely ask a redirect question).
+- If the user is social/greeting-only or unintelligible gibberish, use off_topic with confidence >= 0.80.
+- Keep confidence <= 0.60 whenever the input is ambiguous between prioritize and scheduling.
 
 Respond with JSON matching the schema. Set confidence between 0 and 1. Keep rationale under one sentence.
 PROMPT;

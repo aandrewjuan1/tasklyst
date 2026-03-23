@@ -224,12 +224,12 @@ final class TaskAssistantSchemas
             properties: [
                 new StringSchema(
                     name: 'message',
-                    description: 'Short empathetic acknowledgement (1-2 sentences). No I/my first-person phrasing rules are allowed; use assistant voice.',
+                    description: 'Short empathetic acknowledgement (1-2 sentences). Assistant voice is preferred (e.g. “I can help…” is allowed). If the user message is gibberish/unclear/unintelligible, say you didn’t understand and ask them to rephrase in ONE short sentence (still within message). For off-topic requests, it may also include a brief refusal like “I can’t help with that—I’m a task assistant.” Message must not include the redirect question or any question marks. Avoid second-order questions in `message` like “Could you…/Would you…/Let me know…”.',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'clarifying_question',
-                    description: 'Exactly one short question. Include short options if helpful, but do not use bullet characters.',
+                    description: 'Exactly one short question that ends with a question mark. This is the only place the redirect question should appear (message must not contain it). Must include both ideas: `prioritize` and `schedule time blocks` (or equivalent wording). Prefer slightly varied wording across turns while preserving meaning. Do not use bullet characters.',
                     nullable: false
                 ),
                 new StringSchema(

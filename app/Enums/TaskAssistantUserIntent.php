@@ -6,6 +6,7 @@ enum TaskAssistantUserIntent: string
 {
     case Prioritization = 'prioritization';
     case Scheduling = 'scheduling';
+    case OffTopic = 'off_topic';
 
     /**
      * @return list<string>

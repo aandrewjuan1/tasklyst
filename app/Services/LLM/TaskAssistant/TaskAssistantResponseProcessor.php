@@ -81,11 +81,14 @@ final class TaskAssistantResponseProcessor
     private function validateGeneralGuidanceData(array $data): array
     {
         $rules = [
-            'message' => ['required', 'string', 'min:1', 'max:300'],
+            // General guidance is intentionally more conversational and can be
+            // slightly longer than other flows. We still keep it bounded to
+            // prevent UI/payload issues.
+            'message' => ['required', 'string', 'min:1', 'max:500'],
             'clarifying_question' => ['required', 'string', 'min:5', 'max:220'],
             'redirect_target' => ['required', 'string', 'in:prioritize,schedule,either'],
             'suggested_replies' => ['nullable', 'array', 'max:3'],
-            'suggested_replies.*' => ['string', 'min:1', 'max:100'],
+            'suggested_replies.*' => ['string', 'min:1', 'max:140'],
         ];
 
         $validator = Validator::make($data, $rules);
