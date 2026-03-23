@@ -2,7 +2,7 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
-use App\Support\LLM\TaskAssistantBrowseDefaults;
+use App\Support\LLM\TaskAssistantListingDefaults;
 use App\Support\LLM\TaskAssistantSchemas;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -55,16 +55,26 @@ final class TaskAssistantHybridNarrativeService
             'Write concise, human-sounding guidance:'."\n".
             '- summary: clear overview of the suggested timing'."\n".
             '- reasoning: why this order and timing fit the requested scheduling window'."\n".
-            '- strategy_points: 2-4 practical rationale points'."\n".
-            '- suggested_next_steps: 2-4 actionable execution steps'."\n".
-            '- assumptions: optional, only if relevant'."\n".
+            '- strategy_points: 2-4 practical rationale points (do not mention exact times/dates)'."\n".
+            '- suggested_next_steps: 2-4 actionable execution steps (do not mention exact times/dates)'."\n".
+            '- assumptions: optional, only if relevant (do not mention exact times/dates)'."\n".
             '- assistant_note: friendly one-liner with encouraging tone'."\n\n".
             'BLOCKS_JSON: '.$blocksJson
         ));
 
-        $summary = $deterministicSummary;
-        $assistantNote = null;
-        $reasoning = null;
+        $parsedBlocks = $this->decodeBlocksJson($blocksJson);
+        $deterministicNarrative = $this->buildDeterministicDailyScheduleNarrative(
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            deterministicSummary: $deterministicSummary
+        );
+
+        // Always anchor summary/reasoning to the actual planned blocks to prevent
+        // the LLM from drifting (e.g. "to 20:00" when the blocks end at 19:30).
+        $summary = $deterministicNarrative['summary'];
+        $assistantNote = $deterministicNarrative['assistant_note'];
+        $reasoning = $deterministicNarrative['reasoning'];
+
         $strategyPoints = [];
         $suggestedNextSteps = [];
         $assumptions = [];
@@ -81,16 +91,8 @@ final class TaskAssistantHybridNarrativeService
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
 
-            if (isset($payload['summary']) && is_string($payload['summary'])) {
-                $summary = $payload['summary'] !== '' ? $payload['summary'] : $deterministicSummary;
-            }
-
-            if (isset($payload['assistant_note']) && is_string($payload['assistant_note'])) {
-                $assistantNote = $payload['assistant_note'] !== '' ? $payload['assistant_note'] : null;
-            }
-            if (isset($payload['reasoning']) && is_string($payload['reasoning'])) {
-                $reasoning = $payload['reasoning'] !== '' ? $payload['reasoning'] : null;
-            }
+            // Summary/reasoning/assistant_note are deterministic to guarantee
+            // consistency with the "listed items" (blocks) and the actual time range.
             if (is_array($payload['strategy_points'] ?? null)) {
                 $strategyPoints = array_values(array_filter(
                     array_map(static fn (mixed $value): string => trim((string) $value), $payload['strategy_points']),
@@ -129,108 +131,183 @@ final class TaskAssistantHybridNarrativeService
     }
 
     /**
-     * Natural-language explanation for a deterministic prioritize result.
-     *
-     * @param  array<string, mixed>  $promptData
-     * @param  list<array<string, mixed>>  $items
-     * @return array{
-     *   summary: string,
-     *   assistant_note: string|null,
-     *   reasoning: string|null,
-     *   strategy_points: list<string>,
-     *   suggested_next_steps: list<string>,
-     *   assumptions: list<string>
-     * }
+     * @return list<array{start_time?:string,end_time?:string,label?:string}>
      */
-    public function refinePrioritize(
-        array $promptData,
-        string $userMessage,
-        array $items,
-        string $deterministicSummary,
-        int $threadId,
-        int $userId,
-    ): array {
-        $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-        $refinementSchema = TaskAssistantSchemas::hybridNarrativeSchema();
-        $itemsJson = json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    private function decodeBlocksJson(string $blocksJson): array
+    {
+        $decoded = json_decode($blocksJson, true);
+        if (! is_array($decoded)) {
+            return [];
+        }
 
-        $messages = collect([
-            new UserMessage($userMessage),
-            new UserMessage(
-                'The following prioritized items were selected by deterministic backend rules. '.
-                'Do NOT change ordering or selection. Only write supportive narrative fields in JSON.'."\n\n".
-                'ITEMS_JSON: '.$itemsJson
-            ),
-        ]);
+        return array_values(array_filter($decoded, static fn (mixed $b): bool => is_array($b)));
+    }
+
+    /**
+     * Compute exact narrative strings from actual planned blocks.
+     *
+     * @param  array<int, array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     * @param  array<string, mixed>  $promptData
+     * @return array{summary: string, assistant_note: ?string, reasoning: string}
+     */
+    private function buildDeterministicDailyScheduleNarrative(
+        array $blocks,
+        array $promptData,
+        string $deterministicSummary,
+    ): array {
+        $firstLabel = '';
+        foreach ($blocks as $b) {
+            $lbl = trim((string) ($b['label'] ?? ''));
+            if ($lbl !== '') {
+                $firstLabel = $lbl;
+                break;
+            }
+        }
+
+        $timeRange = '';
+        $durationMinutes = null;
+
+        $startMin = null;
+        $endMinAdjMax = null;
+        $earliestStartStr = null;
+        $latestEndStr = null;
+
+        $sumMinutes = 0;
+
+        foreach ($blocks as $b) {
+            $startTime = trim((string) ($b['start_time'] ?? ''));
+            $endTime = trim((string) ($b['end_time'] ?? ''));
+
+            if ($startTime === '' || $endTime === '') {
+                continue;
+            }
+
+            $startM = $this->timeToMinutes($startTime);
+            $endM = $this->timeToMinutes($endTime);
+            if ($startM === null || $endM === null) {
+                continue;
+            }
+
+            $endAdj = $endM >= $startM ? $endM : $endM + 1440;
+            $blockMinutes = max(0, $endAdj - $startM);
+            $sumMinutes += $blockMinutes;
+
+            if ($startMin === null || $startM < $startMin) {
+                $startMin = $startM;
+                $earliestStartStr = $startTime;
+            }
+
+            if ($endMinAdjMax === null || $endAdj > $endMinAdjMax) {
+                $endMinAdjMax = $endAdj;
+                $latestEndStr = $endTime;
+            }
+        }
+
+        $timeRange = '';
+        if ($earliestStartStr !== null && $latestEndStr !== null) {
+            $startLabel = $this->formatHhmmLabel($earliestStartStr);
+            $endLabel = $this->formatHhmmLabel($latestEndStr);
+            $timeRange = ($startLabel !== '' && $endLabel !== '')
+                ? $startLabel.'–'.$endLabel
+                : $earliestStartStr.'–'.$latestEndStr;
+        }
+
+        $durationMinutes = $sumMinutes > 0 ? $sumMinutes : null;
+
+        $taskLabel = $firstLabel !== '' ? $firstLabel : 'your selected task';
+
+        $windowPhrase = $this->windowPhraseFromBlocks($earliestStartStr, $latestEndStr);
+
+        $durationPart = $durationMinutes !== null ? ' for '.$durationMinutes.' minutes' : '';
 
         $summary = $deterministicSummary;
-        $assistantNote = null;
-        $reasoning = null;
-        $strategyPoints = [];
-        $suggestedNextSteps = [];
-        $assumptions = [];
-
-        try {
-            $structuredResponse = $this->attemptStructured(
-                $messages,
-                $promptData,
-                $refinementSchema,
-                $maxRetries,
-                'prioritize_narrative'
-            );
-
-            $payload = $structuredResponse->structured ?? [];
-            $payload = is_array($payload) ? $payload : [];
-
-            if (isset($payload['summary']) && is_string($payload['summary'])) {
-                $summary = $payload['summary'] !== '' ? $payload['summary'] : $deterministicSummary;
-            }
-
-            if (isset($payload['assistant_note']) && is_string($payload['assistant_note'])) {
-                $assistantNote = $payload['assistant_note'] !== '' ? $payload['assistant_note'] : null;
-            }
-            if (isset($payload['reasoning']) && is_string($payload['reasoning'])) {
-                $reasoning = $payload['reasoning'] !== '' ? $payload['reasoning'] : null;
-            }
-            if (is_array($payload['strategy_points'] ?? null)) {
-                $strategyPoints = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['strategy_points']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-            if (is_array($payload['suggested_next_steps'] ?? null)) {
-                $suggestedNextSteps = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['suggested_next_steps']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-            if (is_array($payload['assumptions'] ?? null)) {
-                $assumptions = array_values(array_filter(
-                    array_map(static fn (mixed $value): string => trim((string) $value), $payload['assumptions']),
-                    static fn (string $value): bool => $value !== ''
-                ));
-            }
-        } catch (\Throwable $e) {
-            Log::warning('task-assistant.prioritize.narrative_failed', [
-                'layer' => 'llm_narrative',
-                'user_id' => $userId,
-                'thread_id' => $threadId,
-                'error' => $e->getMessage(),
-            ]);
+        if ($timeRange !== '') {
+            $summary = "For best results, set aside{$durationPart} in the {$windowPhrase} ({$timeRange}) for {$taskLabel}.";
         }
+
+        $reasoning = $timeRange !== ''
+            ? "During your {$windowPhrase}, the plan schedules {$taskLabel} in the {$timeRange} block so you can stay focused without bouncing between tasks."
+            : 'This schedule sets aside focused time for your selected task so it fits your requested window.';
+
+        $assistantNote = $timeRange !== ''
+            ? "When you're ready, start with the first planned block and keep distractions low."
+            : null;
 
         return [
             'summary' => $summary,
             'assistant_note' => $assistantNote,
             'reasoning' => $reasoning,
-            'strategy_points' => $strategyPoints,
-            'suggested_next_steps' => $suggestedNextSteps,
-            'assumptions' => $assumptions,
         ];
     }
 
+    private function timeToMinutes(string $time): ?int
+    {
+        // Accept "HH:MM" only. The planner generates block times in this format.
+        if (! preg_match('/^\s*(\d{1,2}):(\d{2})\s*$/', $time, $m)) {
+            return null;
+        }
+
+        $h = (int) ($m[1] ?? 0);
+        $min = (int) ($m[2] ?? 0);
+        if ($h < 0 || $h > 23 || $min < 0 || $min > 59) {
+            return null;
+        }
+
+        return $h * 60 + $min;
+    }
+
+    private function formatHhmmLabel(string $hhmm): string
+    {
+        $hhmm = trim($hhmm);
+        if (! preg_match('/^(\d{1,2}):(\d{2})$/', $hhmm, $m)) {
+            return '';
+        }
+
+        $hour24 = (int) ($m[1] ?? 0);
+        $minute = (int) ($m[2] ?? 0);
+
+        if ($hour24 < 0 || $hour24 > 23 || $minute < 0 || $minute > 59) {
+            return '';
+        }
+
+        $ampm = $hour24 >= 12 ? 'PM' : 'AM';
+        $hour12 = $hour24 % 12;
+        if ($hour12 === 0) {
+            $hour12 = 12;
+        }
+
+        return $hour12.':'.str_pad((string) $minute, 2, '0', STR_PAD_LEFT).' '.$ampm;
+    }
+
+    private function windowPhraseFromBlocks(?string $startTime, ?string $endTime): string
+    {
+        if ($startTime === null || $endTime === null) {
+            return 'requested window';
+        }
+
+        $startM = $this->timeToMinutes($startTime);
+        $endM = $this->timeToMinutes($endTime);
+        if ($startM === null || $endM === null) {
+            return 'requested window';
+        }
+
+        if ($startM >= 18 * 60) {
+            return 'later evening';
+        }
+
+        if ($startM >= 15 * 60) {
+            return 'later afternoon';
+        }
+
+        if ($startM >= 8 * 60 && $endM <= 12 * 60) {
+            return 'morning';
+        }
+
+        return 'requested window';
+    }
+
     /**
-     * Natural-language explanation for a deterministic browse/listing result.
+     * Natural-language explanation for a deterministic prioritize result.
      *
      * @param  array<string, mixed>  $promptData
      * @param  list<array<string, mixed>>  $items
@@ -239,7 +316,7 @@ final class TaskAssistantHybridNarrativeService
      *   suggested_guidance: string
      * }
      */
-    public function refineBrowseListing(
+    public function refinePrioritizeListing(
         array $promptData,
         string $userMessage,
         array $items,
@@ -250,7 +327,7 @@ final class TaskAssistantHybridNarrativeService
         int $userId,
     ): array {
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-        $refinementSchema = TaskAssistantSchemas::browseNarrativeSchema();
+        $refinementSchema = TaskAssistantSchemas::prioritizeNarrativeSchema();
         $itemsJson = json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $listedTaskCount = count($items);
 
@@ -291,7 +368,7 @@ final class TaskAssistantHybridNarrativeService
                 $promptData,
                 $refinementSchema,
                 $maxRetries,
-                'browse_narrative'
+                'prioritize_narrative'
             );
 
             $payload = $structuredResponse->structured ?? [];
@@ -306,7 +383,7 @@ final class TaskAssistantHybridNarrativeService
                     : null;
             }
         } catch (\Throwable $e) {
-            Log::warning('task-assistant.browse.narrative_failed', [
+            Log::warning('task-assistant.prioritize.narrative_failed', [
                 'layer' => 'llm_narrative',
                 'user_id' => $userId,
                 'thread_id' => $threadId,
@@ -315,28 +392,28 @@ final class TaskAssistantHybridNarrativeService
         }
 
         if (! is_string($suggestedGuidance) || $suggestedGuidance === '') {
-            $suggestedGuidance = self::browseNarrativeFallbacks()['suggested_guidance'];
+            $suggestedGuidance = self::prioritizeListingNarrativeFallbacks()['suggested_guidance'];
         }
 
         $reasoningText = is_string($reasoning) && trim($reasoning) !== ''
             ? trim($reasoning)
             : (trim($deterministicSummary) !== ''
                 ? trim($deterministicSummary)
-                : TaskAssistantBrowseDefaults::reasoningWhenEmpty());
+                : TaskAssistantListingDefaults::reasoningWhenEmpty());
 
         return [
-            'reasoning' => TaskAssistantBrowseDefaults::clampBrowseReasoning($reasoningText),
-            'suggested_guidance' => TaskAssistantBrowseDefaults::clampBrowseSuggestedGuidance($suggestedGuidance),
+            'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($reasoningText),
+            'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance($suggestedGuidance),
         ];
     }
 
     /**
      * @return array{suggested_guidance: string}
      */
-    public static function browseNarrativeFallbacks(): array
+    public static function prioritizeListingNarrativeFallbacks(): array
     {
         return [
-            'suggested_guidance' => TaskAssistantBrowseDefaults::defaultSuggestedGuidance(),
+            'suggested_guidance' => TaskAssistantListingDefaults::defaultSuggestedGuidance(),
         ];
     }
 

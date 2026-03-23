@@ -2,11 +2,11 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
-use App\Support\LLM\TaskAssistantBrowseDefaults;
+use App\Support\LLM\TaskAssistantListingDefaults;
 
 /**
  * Single place to turn validated structured assistant payloads into the user-visible message body.
- * Used for prioritize, browse, and daily_schedule flows.
+ * Used for prioritize and daily_schedule flows.
  */
 final class TaskAssistantMessageFormatter
 {
@@ -17,8 +17,8 @@ final class TaskAssistantMessageFormatter
     public function format(string $flow, array $data, array $snapshot = []): string
     {
         $body = match ($flow) {
-            'prioritize' => $this->formatPrioritizeMessage($data),
-            'browse' => $this->formatBrowseMessage($data),
+            'prioritize' => $this->formatPrioritizeListingMessage($data),
+            'general_guidance' => $this->formatGeneralGuidanceMessage($data),
             'daily_schedule' => $this->formatDailyScheduleMessage($data),
             default => $this->formatDefaultMessage($data),
         };
@@ -95,7 +95,7 @@ final class TaskAssistantMessageFormatter
     /**
      * @param  list<string>  $assumptions
      */
-    public function formatAssumptionsPlain(array $assumptions): ?string
+    public function formatAssumptionsPlain(array $assumptions, string $headingPrefix = 'For context'): ?string
     {
         $clean = array_values(array_filter(
             array_map(static fn (mixed $line): string => trim((string) $line), $assumptions),
@@ -107,65 +107,17 @@ final class TaskAssistantMessageFormatter
         }
 
         if (count($clean) === 1) {
-            return 'For context: '.$clean[0];
+            return $headingPrefix.': '.$clean[0];
         }
 
         $bullets = array_map(static fn (string $s): string => '• '.$s, $clean);
 
-        return "For context:\n".implode("\n", $bullets);
+        return $headingPrefix.":\n".implode("\n", $bullets);
     }
 
     /**
-     * @param  array<string, mixed>  $data
-     */
-    private function formatPrioritizeMessage(array $data): string
-    {
-        $summary = trim((string) ($data['summary'] ?? ''));
-        $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
-        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
-        $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
-        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
-        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-
-        $paragraphs = [];
-        if ($summary !== '') {
-            $paragraphs[] = $summary;
-        }
-        if ($reasoning !== '') {
-            $paragraphs[] = 'Why these priorities: '.$reasoning;
-        }
-
-        $lines = $this->buildItemLines($items);
-        if ($lines !== []) {
-            $paragraphs[] = implode("\n", $lines);
-        }
-
-        $strategyPoints = $this->normalizeStringList($strategyPoints);
-        if ($strategyPoints !== []) {
-            $paragraphs[] = 'Focus strategy: '.$this->joinSentences($strategyPoints).'.';
-        }
-
-        $nextSteps = $this->normalizeStringList($nextSteps);
-        if ($nextSteps !== []) {
-            $paragraphs[] = 'Suggested next steps: '.$this->joinSentences($nextSteps).'.';
-        }
-
-        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
-        if ($assumptionsBlock !== null) {
-            $paragraphs[] = $assumptionsBlock;
-        }
-
-        if ($assistantNote !== '') {
-            $paragraphs[] = $assistantNote;
-        }
-
-        return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
-    }
-
-    /**
-     * Browse body: reasoning (short intro), then numbered items, then suggested_guidance paragraph.
-     * Same keys as browse validation in TaskAssistantResponseProcessor.
+     * Prioritize body: reasoning (short intro), then numbered items, then suggested_guidance paragraph.
+     * Same keys as prioritize validation in TaskAssistantResponseProcessor.
      *
      * @param  array{
      *   reasoning?: string,
@@ -174,15 +126,15 @@ final class TaskAssistantMessageFormatter
      *   limit_used?: int
      * }  $data
      */
-    private function formatBrowseMessage(array $data): string
+    private function formatPrioritizeListingMessage(array $data): string
     {
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
         if ($reasoning === '') {
-            $reasoning = TaskAssistantBrowseDefaults::reasoningWhenEmpty();
+            $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
         $guidance = trim((string) ($data['suggested_guidance'] ?? ''));
         if ($guidance === '') {
-            $guidance = TaskAssistantBrowseDefaults::defaultSuggestedGuidance();
+            $guidance = TaskAssistantListingDefaults::defaultSuggestedGuidance();
         }
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
 
@@ -198,6 +150,29 @@ final class TaskAssistantMessageFormatter
         $paragraphs[] = $guidance;
 
         return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function formatGeneralGuidanceMessage(array $data): string
+    {
+        $message = trim((string) ($data['message'] ?? ''));
+        $question = trim((string) ($data['clarifying_question'] ?? ''));
+
+        if ($message === '' && $question === '') {
+            return 'I can help. What would you like to do next?';
+        }
+
+        if ($message === '') {
+            return $question;
+        }
+
+        if ($question === '') {
+            return $message;
+        }
+
+        return trim($message."\n\n".$question);
     }
 
     /**
@@ -224,7 +199,7 @@ final class TaskAssistantMessageFormatter
             $dueOn = trim((string) ($item['due_on'] ?? ''));
             $complexity = trim((string) ($item['complexity_label'] ?? ''));
             if ($complexity === '') {
-                $complexity = TaskAssistantBrowseDefaults::complexityNotSetLabel();
+                $complexity = TaskAssistantListingDefaults::complexityNotSetLabel();
             }
 
             $detailParts = [];
@@ -234,8 +209,8 @@ final class TaskAssistantMessageFormatter
                 $detailParts[] = $duePhrase !== '' ? $duePhrase.' ('.$dueOn.')' : $dueOn;
             } else {
                 $detailParts[] = $duePhrase !== ''
-                    ? $duePhrase.' · '.TaskAssistantBrowseDefaults::noDueDateLabel()
-                    : TaskAssistantBrowseDefaults::noDueDateLabel();
+                    ? $duePhrase.' · '.TaskAssistantListingDefaults::noDueDateLabel()
+                    : TaskAssistantListingDefaults::noDueDateLabel();
             }
 
             $detailParts[] = 'Complexity: '.$complexity;
@@ -265,7 +240,7 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $summary;
         }
         if ($reasoning !== '') {
-            $paragraphs[] = 'Why this schedule works: '.$reasoning;
+            $paragraphs[] = $reasoning;
         }
 
         if (is_array($blocks) && $blocks !== []) {
@@ -277,16 +252,22 @@ final class TaskAssistantMessageFormatter
                 $start = (string) ($block['start_time'] ?? '');
                 $end = (string) ($block['end_time'] ?? '');
                 $label = (string) ($block['label'] ?? $block['title'] ?? 'Focus time');
-                $reason = (string) ($block['reason'] ?? $block['note'] ?? '');
-                $ref = $label;
-                if ($block['task_id'] ?? null) {
-                    $ref .= ' (task '.$block['task_id'].')';
-                } elseif ($block['event_id'] ?? null) {
-                    $ref .= ' (event '.$block['event_id'].')';
+                $reason = trim((string) ($block['reason'] ?? $block['note'] ?? ''));
+
+                // The blocks are deterministic; internal scheduler notes can look
+                // noisy to end users, so we suppress them here.
+                if (stripos($reason, 'planned by strict scheduler') !== false) {
+                    $reason = '';
                 }
 
-                $time = trim($start.'–'.$end, '–');
-                $sentence = ($time !== '' ? $time.': ' : '').$ref;
+                $timeStart = $this->formatHhmmLabel($start);
+                $timeEnd = $this->formatHhmmLabel($end);
+                $time = ($timeStart !== '' && $timeEnd !== '') ? $timeStart.'–'.$timeEnd : '';
+
+                $sentence = $time !== ''
+                    ? 'From '.$time.' you\'ll work on '.$label
+                    : 'Work on '.$label;
+
                 if ($reason !== '') {
                     $sentence .= ' — '.$reason;
                 }
@@ -295,34 +276,58 @@ final class TaskAssistantMessageFormatter
             }
 
             if ($sentences !== []) {
-                $paragraphs[] = 'Planned time blocks: '.$this->joinSentences($sentences);
+                $paragraphs[] = $this->joinSentences($sentences);
             }
         }
 
         $strategyPoints = $this->normalizeStringList($strategyPoints);
         if ($strategyPoints !== []) {
-            $paragraphs[] = 'Scheduling strategy: '.$this->joinSentences($strategyPoints).'.';
+            $paragraphs[] = 'To make this schedule work, '.$this->joinSentences($strategyPoints).'.';
         }
 
         $nextSteps = $this->normalizeStringList($nextSteps);
         if ($nextSteps !== []) {
-            $paragraphs[] = 'Suggested next steps: '.$this->joinSentences($nextSteps).'.';
+            $paragraphs[] = 'Next, '.$this->joinSentences($nextSteps).'.';
         }
 
-        $assumptionsBlock = $this->formatAssumptionsPlain($assumptions);
-        if ($assumptionsBlock !== null) {
-            $paragraphs[] = $assumptionsBlock;
+        if ($assumptions !== []) {
+            $cleanAssumptions = $this->normalizeStringList($assumptions);
+            if ($cleanAssumptions !== []) {
+                $paragraphs[] = 'I assumed that '.$this->joinSentences($cleanAssumptions).'.';
+            }
         }
 
         $proposals = $data['proposals'] ?? [];
         if (is_array($proposals) && $proposals !== []) {
-            $paragraphs[] = 'Use Accept/Decline on each proposed item to apply schedule updates.';
+            $paragraphs[] = 'Accept or decline each proposed item to apply schedule updates.';
         }
         if ($assistantNote !== '') {
             $paragraphs[] = $assistantNote;
         }
 
         return implode("\n\n", $paragraphs);
+    }
+
+    private function formatHhmmLabel(string $hhmm): string
+    {
+        $hhmm = trim($hhmm);
+        if (! preg_match('/^(\d{1,2}):(\d{2})$/', $hhmm, $m)) {
+            return '';
+        }
+
+        $hour24 = (int) ($m[1] ?? 0);
+        $minute = (int) ($m[2] ?? 0);
+        if ($hour24 < 0 || $hour24 > 23 || $minute < 0 || $minute > 59) {
+            return '';
+        }
+
+        $ampm = $hour24 >= 12 ? 'PM' : 'AM';
+        $hour12 = $hour24 % 12;
+        if ($hour12 === 0) {
+            $hour12 = 12;
+        }
+
+        return $hour12.':'.str_pad((string) $minute, 2, '0', STR_PAD_LEFT).' '.$ampm;
     }
 
     /**
@@ -354,33 +359,6 @@ final class TaskAssistantMessageFormatter
             'evening' => 'tasks in the evening window',
             default => 'tasks matching the “'.$token.'” time filter',
         };
-    }
-
-    /**
-     * @param  list<array<string, mixed>>  $items
-     * @return list<string>
-     */
-    private function buildItemLines(array $items): array
-    {
-        $lines = [];
-        foreach ($items as $index => $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $type = (string) ($item['entity_type'] ?? 'task');
-            $title = trim((string) ($item['title'] ?? ''));
-            if ($title === '') {
-                continue;
-            }
-            $reason = trim((string) ($item['reason'] ?? ''));
-            $line = ($index + 1).". [{$type}] {$title}";
-            if ($reason !== '') {
-                $line .= ' - '.$reason;
-            }
-            $lines[] = $line;
-        }
-
-        return $lines;
     }
 
     /**

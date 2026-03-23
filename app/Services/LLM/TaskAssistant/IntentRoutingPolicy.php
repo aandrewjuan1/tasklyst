@@ -37,7 +37,7 @@ final class IntentRoutingPolicy
                 flow: 'chat',
                 confidence: 1.0,
                 reasonCodes: ['empty_message'],
-                constraints: $this->buildConstraints($thread, $normalized, 'chat'),
+                constraints: $this->extractConstraintsForFlow($thread, $normalized, 'chat'),
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -55,7 +55,25 @@ final class IntentRoutingPolicy
                 flow: 'chat',
                 confidence: 1.0,
                 reasonCodes: ['greeting_shortcircuit_chat'],
-                constraints: $this->buildConstraints($thread, $normalized, 'chat'),
+                constraints: $this->extractConstraintsForFlow($thread, $normalized, 'chat'),
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        if ($this->isLikelyGeneralAssistancePrompt($normalized)) {
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'thread_id' => $thread->id,
+                'outcome' => 'general_guidance_heuristic',
+                'flow' => 'general_guidance',
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: 1.0,
+                reasonCodes: ['general_guidance_heuristic'],
+                constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -71,7 +89,7 @@ final class IntentRoutingPolicy
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
 
-        $constraints = $this->buildConstraints($thread, $normalized, $decision->flow);
+        $constraints = $this->extractConstraintsForFlow($thread, $normalized, $decision->flow);
 
         Log::info('task-assistant.intent.policy', [
             'layer' => 'intent_policy',
@@ -104,16 +122,25 @@ final class IntentRoutingPolicy
     }
 
     /**
+     * Build constraints and (when applicable) reference entities for a specific flow.
+     *
+     * This is used both for normal routing (`decide()`) and for forced-flow
+     * behavior (e.g. clarification answers, general-guidance redirects).
+     *
      * @return array<string, mixed>
      */
-    private function buildConstraints(TaskAssistantThread $thread, string $normalized, string $resolvedFlow): array
+    public function extractConstraintsForFlow(TaskAssistantThread $thread, string $content, string $resolvedFlow): array
     {
+        $normalized = mb_strtolower(trim($content));
+
         $selected = $this->conversationState->selectedEntities($thread);
         $useSelected = preg_match('/\b(those|them|those\s+\d+|the\s+above)\b/i', $normalized) === 1;
 
         $targetEntities = [];
         if ($resolvedFlow === 'schedule') {
-            $listing = $this->conversationState->lastListing($thread);
+            // When the most recent flow was `schedule`, resolve those/them against
+            // schedule-selected target_entities (not the prior prioritize listing).
+            $listing = $this->scheduleAwareLastListing($thread);
             $resolved = $this->listingReferenceResolver->resolveForSchedule($normalized, $listing, $resolvedFlow);
             if ($resolved !== []) {
                 $targetEntities = $resolved;
@@ -129,6 +156,59 @@ final class IntentRoutingPolicy
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'target_entities' => $targetEntities,
         ];
+    }
+
+    /**
+     * @return array{
+     *   source_flow: string,
+     *   items: list<array{entity_type: string, entity_id: int, title: string, position: int}>,
+     * }|null
+     */
+    private function scheduleAwareLastListing(TaskAssistantThread $thread): ?array
+    {
+        $state = $this->conversationState->get($thread);
+        $lastFlow = (string) ($state['last_flow'] ?? '');
+
+        if ($lastFlow === 'schedule') {
+            $schedule = $state['last_schedule'] ?? null;
+            $targets = is_array($schedule) && is_array($schedule['target_entities'] ?? null)
+                ? $schedule['target_entities']
+                : [];
+
+            if ($targets !== []) {
+                $items = [];
+                $position = 0;
+                foreach ($targets as $entity) {
+                    if (! is_array($entity)) {
+                        continue;
+                    }
+
+                    $type = (string) ($entity['entity_type'] ?? '');
+                    $id = (int) ($entity['entity_id'] ?? 0);
+                    $title = (string) ($entity['title'] ?? '');
+                    if ($type === '' || $id <= 0 || trim($title) === '') {
+                        continue;
+                    }
+
+                    $items[] = [
+                        'entity_type' => $type,
+                        'entity_id' => $id,
+                        'title' => $title,
+                        'position' => $position,
+                    ];
+                    $position++;
+                }
+
+                if ($items !== []) {
+                    return [
+                        'source_flow' => 'schedule',
+                        'items' => $items,
+                    ];
+                }
+            }
+        }
+
+        return $this->conversationState->lastListing($thread);
     }
 
     private function extractCountLimit(string $normalized): int
@@ -160,7 +240,7 @@ final class IntentRoutingPolicy
     }
 
     /**
-     * Very short social openers with no task intent — route to chat so the listing LLM is not invoked.
+     * Very short social openers with no task intent — route to chat so prioritize intent inference is not invoked.
      */
     private function isLikelyPureGreeting(string $normalized): bool
     {
@@ -172,5 +252,45 @@ final class IntentRoutingPolicy
             '/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|gm|hiya)(\s+there)?[!?.]*\s*$/u',
             $normalized
         );
+    }
+
+    private function isLikelyGeneralAssistancePrompt(string $normalized): bool
+    {
+        // Heuristic for vague, help-seeking prompts. The goal is to reduce "wrong flow" guesses
+        // (prioritize vs schedule) when the user does not express a clear intent.
+        $helpPatterns = [
+            '/\bhelp\b/i',
+            '/\bassistance\b/i',
+            '/\bcan you help\b/i',
+            '/\bi need help\b/i',
+            "/\bi['’]m stuck\b/i",
+            "/\bi['’]m overwhelmed\b/i",
+            '/\boverwhelmed\b/i',
+            '/\boverwhelemed\b/i',
+            '/\btoo much\b/i',
+            '/\bwhere (do i|should i) start\b/i',
+            '/\bwhat now\b/i',
+            '/\bwhat should i do\b/i',
+            '/\bnext step\b/i',
+        ];
+
+        foreach ($helpPatterns as $pattern) {
+            if (preg_match($pattern, $normalized) === 1) {
+                // If the message is help-seeking but still clearly asks for what to do
+                // first (prioritization), do not short-circuit into general_guidance.
+                $signals = $this->signalExtractor->extract($normalized);
+                $prio = (float) ($signals['prioritization'] ?? 0.0);
+                $sched = (float) ($signals['scheduling'] ?? 0.0);
+                $strongIntentThreshold = 0.6;
+
+                if ($prio >= $strongIntentThreshold || $sched >= $strongIntentThreshold) {
+                    return false;
+                }
+
+                return true;
+            }
+        }
+
+        return false;
     }
 }

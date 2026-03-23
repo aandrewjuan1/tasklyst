@@ -15,7 +15,7 @@ test('low composite margin triggers clarification flow', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'intent' => 'listing',
+                'intent' => 'prioritization',
                 'confidence' => 0.45,
                 'rationale' => 'Ambiguous.',
             ])

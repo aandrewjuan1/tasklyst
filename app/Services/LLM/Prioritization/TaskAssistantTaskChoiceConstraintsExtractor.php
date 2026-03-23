@@ -13,7 +13,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
      *   time_constraint: string|null,
      *   recurring_requested: bool,
      *   comparison_focus: string|null,
-     *   browse_domain: 'school'|'chores'|null
+     *   domain_focus: 'school'|'chores'|null
      * }
      */
     public function extract(string $userMessageContent): array
@@ -39,16 +39,16 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
         $explicitChoresIntent = preg_match('/\bchores\b/i', $userMessageContent) === 1
             || preg_match('/\b(housework|cleaning)\b/i', $userMessageContent) === 1;
 
-        $browseDomainChores = $explicitChoresIntent
+        $domainFocusChores = $explicitChoresIntent
             || preg_match('/\b(chores?|household|laundry|dishes|vacuum)\b/i', $userMessageContent) === 1;
 
-        $browseDomainSchool = ! $browseDomainChores && $this->detectSchoolBrowseDomain($userMessageContent);
+        $domainFocusSchool = ! $domainFocusChores && $this->detectSchoolDomain($userMessageContent);
 
-        $browseDomain = null;
-        if ($browseDomainChores) {
-            $browseDomain = 'chores';
-        } elseif ($browseDomainSchool) {
-            $browseDomain = 'school';
+        $domainFocus = null;
+        if ($domainFocusChores) {
+            $domainFocus = 'chores';
+        } elseif ($domainFocusSchool) {
+            $domainFocus = 'school';
         }
 
         $subjectAllowList = [
@@ -87,7 +87,7 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
 
         $taskKeywords = [];
         foreach ($subjectAllowList as $keyword) {
-            if ($keyword === 'school' && $browseDomain === 'school') {
+            if ($keyword === 'school' && $domainFocus === 'school') {
                 continue;
             }
             if (preg_match('/\b'.preg_quote($keyword, '/').'\b/i', $content) === 1) {
@@ -109,14 +109,14 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'time_constraint' => $timeConstraint,
             'recurring_requested' => $recurringRequested,
             'comparison_focus' => null,
-            'browse_domain' => $browseDomain,
+            'domain_focus' => $domainFocus,
         ];
     }
 
     /**
-     * School-related browse intent: coursework and classes, not the substring "school" in arbitrary titles.
+     * School-related domain intent: coursework and classes, not the substring "school" in arbitrary titles.
      */
-    private function detectSchoolBrowseDomain(string $message): bool
+    private function detectSchoolDomain(string $message): bool
     {
         if (preg_match('/school\s*related|school[-\s]related/i', $message) === 1) {
             return true;

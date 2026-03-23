@@ -2,15 +2,15 @@
 
 namespace Tests\Unit;
 
-use App\Services\LLM\Browse\TaskAssistantBrowseListingService;
-use App\Support\LLM\TaskAssistantBrowseDefaults;
+use App\Services\LLM\Browse\TaskAssistantListingSelectionService;
+use App\Support\LLM\TaskAssistantListingDefaults;
 use Tests\TestCase;
 
-class TaskAssistantBrowseListingServiceTest extends TestCase
+class TaskAssistantListingSelectionServiceTest extends TestCase
 {
     public function test_ambiguous_list_request_limits_to_top_bucket(): void
     {
-        $service = app(TaskAssistantBrowseListingService::class);
+        $service = app(TaskAssistantListingSelectionService::class);
 
         $snapshot = [
             'timezone' => 'UTC',
@@ -58,12 +58,12 @@ class TaskAssistantBrowseListingServiceTest extends TestCase
         $this->assertNotEmpty($result['items'][0]['due_bucket'] ?? null);
         $this->assertNotEmpty($result['items'][0]['due_phrase'] ?? null);
         $this->assertNotEmpty($result['items'][0]['due_on'] ?? null);
-        $this->assertSame(TaskAssistantBrowseDefaults::complexityNotSetLabel(), $result['items'][0]['complexity_label'] ?? null);
+        $this->assertSame(TaskAssistantListingDefaults::complexityNotSetLabel(), $result['items'][0]['complexity_label'] ?? null);
     }
 
     public function test_school_keyword_request_is_not_ambiguous(): void
     {
-        $service = app(TaskAssistantBrowseListingService::class);
+        $service = app(TaskAssistantListingSelectionService::class);
 
         $snapshot = [
             'timezone' => 'UTC',
@@ -98,7 +98,7 @@ class TaskAssistantBrowseListingServiceTest extends TestCase
     {
         $this->travelTo('2026-03-22 15:30:00');
 
-        $service = app(TaskAssistantBrowseListingService::class);
+        $service = app(TaskAssistantListingSelectionService::class);
 
         $snapshot = [
             'timezone' => 'UTC',
@@ -133,7 +133,7 @@ class TaskAssistantBrowseListingServiceTest extends TestCase
     {
         $this->travelTo('2026-03-22 12:00:00');
 
-        $service = app(TaskAssistantBrowseListingService::class);
+        $service = app(TaskAssistantListingSelectionService::class);
 
         $snapshot = [
             'timezone' => 'UTC',

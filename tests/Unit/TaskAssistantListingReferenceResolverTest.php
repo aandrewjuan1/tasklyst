@@ -86,7 +86,7 @@ test('those N returns first N items', function (): void {
 function sampleLastListing(): array
 {
     return [
-        'source_flow' => 'browse',
+        'source_flow' => 'prioritize',
         'items' => [
             ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'A', 'position' => 0],
             ['entity_type' => 'task', 'entity_id' => 20, 'title' => 'B', 'position' => 1],

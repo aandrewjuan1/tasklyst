@@ -18,11 +18,11 @@ test('empty message routes to chat with empty_message reason', function (): void
     expect($decision->reasonCodes)->toContain('empty_message');
 });
 
-test('LLM intent listing maps to browse flow', function (): void {
+test('LLM intent prioritization maps to prioritize flow', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'intent' => 'listing',
+                'intent' => 'prioritization',
                 'confidence' => 0.92,
                 'rationale' => 'User wants to see tasks.',
             ])
@@ -34,8 +34,8 @@ test('LLM intent listing maps to browse flow', function (): void {
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'List my tasks with high priority');
 
-    expect($decision->flow)->toBe('browse');
-    expect($decision->reasonCodes)->toContain('llm_intent_listing');
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('llm_intent_prioritization');
 });
 
 test('LLM intent scheduling maps to schedule flow', function (): void {
@@ -90,6 +90,20 @@ test('signal-only mode with strong prioritize cues routes to prioritize', functi
     expect($decision->reasonCodes)->toContain('signal_only');
 });
 
+test('overwhelmed what should i do first routes to prioritize (not general_guidance)', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'I feel overwhelmed right, what should I do first?'
+    );
+
+    expect($decision->flow)->toBe('prioritize');
+});
+
 test('policy routing resolves multiturn target entities and constraints', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -133,7 +147,7 @@ test('schedule flow resolves top N against last_listing', function (): void {
 
     app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
         $thread,
-        'browse',
+        'prioritize',
         [
             ['entity_type' => 'task', 'entity_id' => 101, 'title' => 'One'],
             ['entity_type' => 'task', 'entity_id' => 102, 'title' => 'Two'],
@@ -167,4 +181,42 @@ test('execution plan holds normalized orchestration fields', function (): void {
     expect($plan->flow)->toBe('schedule');
     expect($plan->countLimit)->toBe(2);
     expect($plan->generationProfile)->toBe('schedule');
+});
+
+test('after schedule, those/them resolve against last_schedule target_entities', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $stateService = app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class);
+
+    $stateService->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 100, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 101, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 102, 'title' => 'C'],
+        ],
+        null,
+    );
+
+    $stateService->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 200, 'title' => 'X'],
+            ['entity_type' => 'task', 'entity_id' => 201, 'title' => 'Y'],
+        ],
+        'later_afternoon'
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those 2 tasks in the afternoon');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['count_limit'])->toBe(2);
+    expect($decision->constraints['time_window_hint'])->toBe('later_afternoon');
+    expect($decision->constraints['target_entities'])->toHaveCount(2);
+    expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(200);
+    expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(201);
 });

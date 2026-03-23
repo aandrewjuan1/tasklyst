@@ -405,7 +405,7 @@ it('prefers near events over medium tasks due today', function (): void {
     expect($top['id'])->toBe(10);
 });
 
-it('school browse domain keeps academic tasks and drops errands like school bag titles', function (): void {
+it('school domain keeps academic tasks and drops errands like school bag titles', function (): void {
     $service = app(TaskPrioritizationService::class);
 
     $timezone = 'UTC';
@@ -439,7 +439,7 @@ it('school browse domain keeps academic tasks and drops errands like school bag 
     ];
 
     $ranked = $service->prioritizeTasks($tasks, $now, [
-        'browse_domain' => 'school',
+        'domain_focus' => 'school',
         'time_constraint' => 'this_week',
     ]);
 

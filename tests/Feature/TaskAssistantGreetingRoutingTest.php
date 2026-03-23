@@ -11,7 +11,7 @@ use Prism\Prism\Testing\TextResponseFake;
 use Prism\Prism\ValueObjects\Meta;
 use Prism\Prism\ValueObjects\Usage;
 
-test('pure greeting short-circuits to chat without intent LLM browse', function (): void {
+test('pure greeting short-circuits to chat without prioritize intent inference', function (): void {
     Prism::fake([
         TextResponseFake::make()
             ->withText('Hello! How can I help with your tasks today?')

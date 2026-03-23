@@ -11,7 +11,7 @@ use Prism\Prism\Schema\ObjectSchema;
 use Prism\Prism\Schema\StringSchema;
 
 /**
- * Structured LLM step for high-level route intent (listing vs prioritization vs scheduling).
+ * Structured LLM step for high-level route intent (prioritization vs scheduling).
  */
 final class TaskAssistantIntentInferenceService
 {
@@ -113,8 +113,7 @@ final class TaskAssistantIntentInferenceService
 Classify the user's message for a student task assistant.
 
 Allowed intent values (exactly one): {$allowed}
-- listing: list, show, search, filter, or find tasks (read/browse).
-- prioritization: what to do first, top tasks, ordering by importance/urgency.
+- prioritization: what to do first, top tasks, ordering by importance/urgency, or listing/filtering requests.
 - scheduling: calendar, time blocks, plan my day, when to work on something.
 
 USER MESSAGE:

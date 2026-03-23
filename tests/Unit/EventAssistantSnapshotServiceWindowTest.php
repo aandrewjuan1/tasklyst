@@ -12,6 +12,7 @@ it('includes overlapping events up to the default future window', function (): v
     $user = User::factory()->create();
 
     $now = CarbonImmutable::create(2026, 3, 20, 12, 0, 0, 'Asia/Manila');
+    CarbonImmutable::setTestNow($now);
 
     // Event overlapping within ~2 days -> should be included
     Event::factory()->create([
@@ -39,4 +40,6 @@ it('includes overlapping events up to the default future window', function (): v
 
     expect($eventTitles)->toContain('In window event');
     expect($eventTitles)->not->toContain('Out of window event');
+
+    CarbonImmutable::setTestNow();
 });

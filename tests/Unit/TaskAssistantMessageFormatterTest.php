@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\LLM\TaskAssistant\TaskAssistantMessageFormatter;
-use App\Support\LLM\TaskAssistantBrowseDefaults;
+use App\Support\LLM\TaskAssistantListingDefaults;
 use Tests\TestCase;
 
 class TaskAssistantMessageFormatterTest extends TestCase
@@ -32,10 +32,10 @@ class TaskAssistantMessageFormatterTest extends TestCase
         );
     }
 
-    public function test_browse_orders_reasoning_then_items_then_guidance_paragraph(): void
+    public function test_prioritize_orders_reasoning_then_items_then_guidance_paragraph(): void
     {
         $guidance = 'I suggest opening one task first so you can manage your time without feeling overwhelmed.';
-        $out = $this->formatter->format('browse', [
+        $out = $this->formatter->format('prioritize', [
             'reasoning' => 'You asked to see tasks.',
             'suggested_guidance' => $guidance,
             'limit_used' => 1,
@@ -71,7 +71,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
 
     public function test_browse_item_lines_always_show_priority_date_and_complexity_defaults(): void
     {
-        $out = $this->formatter->format('browse', [
+        $out = $this->formatter->format('prioritize', [
             'reasoning' => 'Why.',
             'suggested_guidance' => 'I recommend starting with one small task to avoid feeling overwhelmed.',
             'limit_used' => 1,
@@ -89,45 +89,43 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Medium priority', $out);
-        $this->assertStringContainsString(TaskAssistantBrowseDefaults::noDueDateLabel(), $out);
-        $this->assertStringContainsString('Complexity: '.TaskAssistantBrowseDefaults::complexityNotSetLabel(), $out);
+        $this->assertStringContainsString(TaskAssistantListingDefaults::noDueDateLabel(), $out);
+        $this->assertStringContainsString('Complexity: '.TaskAssistantListingDefaults::complexityNotSetLabel(), $out);
         $this->assertStringContainsString('I recommend starting', $out);
     }
 
     public function test_browse_uses_default_reasoning_when_payload_omits_it(): void
     {
-        $out = $this->formatter->format('browse', [
-            'suggested_guidance' => TaskAssistantBrowseDefaults::defaultSuggestedGuidance(),
+        $out = $this->formatter->format('prioritize', [
+            'suggested_guidance' => TaskAssistantListingDefaults::defaultSuggestedGuidance(),
             'limit_used' => 0,
             'items' => [],
         ]);
 
-        $this->assertStringContainsString(TaskAssistantBrowseDefaults::reasoningWhenEmpty(), $out);
+        $this->assertStringContainsString(TaskAssistantListingDefaults::reasoningWhenEmpty(), $out);
     }
 
-    public function test_prioritize_uses_why_these_priorities(): void
+    public function test_prioritize_does_not_use_prioritize_specific_sections(): void
     {
         $out = $this->formatter->format('prioritize', [
-            'summary' => 'Top picks.',
             'reasoning' => 'Deadlines matter.',
-            'assistant_note' => null,
-            'strategy_points' => [],
-            'suggested_next_steps' => [],
-            'assumptions' => ['Assumption one.'],
+            'suggested_guidance' => 'I recommend picking one task to start with so you can focus.',
             'limit_used' => 1,
             'items' => [
                 [
                     'entity_type' => 'task',
                     'entity_id' => 1,
                     'title' => 'A',
-                    'reason' => 'High',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
                 ],
             ],
         ]);
 
-        $this->assertStringContainsString('Why these priorities:', $out);
-        $this->assertStringContainsString('For context:', $out);
-        $this->assertStringNotContainsString('Notes:', $out);
+        $this->assertStringContainsString('Deadlines matter.', $out);
+        $this->assertStringNotContainsString('Why these priorities:', $out);
     }
 
     public function test_format_assumptions_plain_uses_bullets_for_multiple_lines(): void
@@ -136,5 +134,34 @@ class TaskAssistantMessageFormatterTest extends TestCase
             '•',
             (string) $this->formatter->formatAssumptionsPlain(['First line.', 'Second line.'])
         );
+    }
+
+    public function test_daily_schedule_message_is_time_consistent_and_free_of_nominal_headings(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'summary' => 'A focused schedule.',
+            'reasoning' => 'During your requested window, you stay focused.',
+            'assistant_note' => 'When you’re ready.',
+            'blocks' => [[
+                'start_time' => '18:00',
+                'end_time' => '19:30',
+                'label' => 'Practice coding interview problems',
+                'task_id' => 29,
+                'reason' => 'Planned by strict scheduler.',
+            ]],
+            'strategy_points' => ['Set a timer and reduce distractions.'],
+            'suggested_next_steps' => ['Open your resources and start the first problem.'],
+            'assumptions' => [],
+            'proposals' => [],
+        ]);
+
+        $this->assertStringNotContainsString('Why this schedule', $out);
+        $this->assertStringNotContainsString('(task', $out);
+        $this->assertStringContainsString("From 6:00 PM–7:30 PM you'll work on Practice coding interview problems", $out);
+        $this->assertStringNotContainsString('Scheduling strategy:', $out);
+        $this->assertStringNotContainsString('Suggested next steps:', $out);
+        $this->assertStringContainsString('To make this schedule work', $out);
+        $this->assertStringContainsString('Next,', $out);
+        $this->assertStringNotContainsString('Next steps:', $out);
     }
 }

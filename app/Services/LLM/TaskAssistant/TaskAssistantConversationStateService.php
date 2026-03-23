@@ -28,10 +28,9 @@ final class TaskAssistantConversationStateService
     }
 
     /**
-     * Persist the ordered listing from browse or prioritize for multiturn follow-ups (e.g. schedule).
+     * Persist the ordered listing from prioritize for multiturn follow-ups (e.g. schedule).
      *
      * @param  array<int, array<string, mixed>>  $items  Rows with entity_type, entity_id, title (and optional extra keys)
-     * @param  'browse'|'prioritize'  $sourceFlow
      */
     public function rememberLastListing(
         TaskAssistantThread $thread,
@@ -148,6 +147,100 @@ final class TaskAssistantConversationStateService
     }
 
     /**
+     * Store pending general-guidance state for a follow-up reply.
+     */
+    public function rememberPendingGeneralGuidance(
+        TaskAssistantThread $thread,
+        string $initialUserMessage,
+        string $clarifyingQuestion,
+        array $reasonCodes = [],
+    ): void {
+        $state = $this->get($thread);
+        $state['pending_general_guidance'] = [
+            'initial_user_message' => $initialUserMessage,
+            'clarifying_question' => $clarifyingQuestion,
+            'reason_codes' => $reasonCodes,
+        ];
+        $this->put($thread, $state);
+    }
+
+    /**
+     * @return array{
+     *   initial_user_message: string,
+     *   clarifying_question: string,
+     *   reason_codes: array<int, string>
+     }|null
+     */
+    public function pendingGeneralGuidance(TaskAssistantThread $thread): ?array
+    {
+        $state = $this->get($thread);
+        $pending = $state['pending_general_guidance'] ?? null;
+
+        if (! is_array($pending)) {
+            return null;
+        }
+
+        $initialUserMessage = (string) ($pending['initial_user_message'] ?? '');
+        $clarifyingQuestion = (string) ($pending['clarifying_question'] ?? '');
+        if ($initialUserMessage === '' || $clarifyingQuestion === '') {
+            return null;
+        }
+
+        $reasonCodes = is_array($pending['reason_codes'] ?? null)
+            ? array_values(array_map(static fn (mixed $code): string => (string) $code, $pending['reason_codes']))
+            : [];
+
+        return [
+            'initial_user_message' => $initialUserMessage,
+            'clarifying_question' => $clarifyingQuestion,
+            'reason_codes' => $reasonCodes,
+        ];
+    }
+
+    public function clearPendingGeneralGuidance(TaskAssistantThread $thread): void
+    {
+        $state = $this->get($thread);
+        unset($state['pending_general_guidance']);
+        $this->put($thread, $state);
+    }
+
+    /**
+     * Store pending clarification state for a follow-up reply.
+     *
+     * @return array{target_flow: string, reason_codes: array<int, string>}|null
+     */
+    public function pendingClarification(TaskAssistantThread $thread): ?array
+    {
+        $state = $this->get($thread);
+        $pending = $state['pending_clarification'] ?? null;
+
+        if (! is_array($pending)) {
+            return null;
+        }
+
+        $targetFlow = (string) ($pending['target_flow'] ?? '');
+        if ($targetFlow === '') {
+            return null;
+        }
+
+        $reasonCodes = is_array($pending['reason_codes'] ?? null)
+            ? array_values(array_map(static fn (mixed $code): string => (string) $code, $pending['reason_codes']))
+            : [];
+
+        return [
+            'target_flow' => $targetFlow,
+            'reason_codes' => $reasonCodes,
+        ];
+    }
+
+    public function clearPendingClarification(TaskAssistantThread $thread): void
+    {
+        $state = $this->get($thread);
+        unset($state['pending_clarification']);
+        $this->put($thread, $state);
+    }
+
+    /**
      * Clears listing selection state (legacy name; prefer {@see clearLastListing}).
      */
     public function clearSelectedEntities(TaskAssistantThread $thread): void
@@ -156,24 +249,33 @@ final class TaskAssistantConversationStateService
     }
 
     /**
-     * Entities from the latest browse/prioritize listing, for "those / them" references.
+     * Entities from the latest prioritize listing, for "those / them" references.
      *
      * @return array<int, array{entity_type: string, entity_id: int, title: string}>
      */
     public function selectedEntities(TaskAssistantThread $thread): array
     {
-        $listing = $this->lastListing($thread);
-        if ($listing !== null) {
-            return array_map(static function (array $item): array {
-                return [
-                    'entity_type' => $item['entity_type'],
-                    'entity_id' => $item['entity_id'],
-                    'title' => $item['title'],
-                ];
-            }, $listing['items']);
+        $state = $this->get($thread);
+
+        // After a `schedule` flow, "those/them" should resolve against the
+        // schedule-selected targets (not the prior prioritize listing).
+        $lastFlow = (string) ($state['last_flow'] ?? '');
+        if ($lastFlow === 'schedule') {
+            $schedule = $state['last_schedule'] ?? null;
+            $targets = is_array($schedule) && is_array($schedule['target_entities'] ?? null)
+                ? $schedule['target_entities']
+                : [];
+
+            if ($targets !== []) {
+                return $this->normalizeReferenceEntities($targets);
+            }
         }
 
-        $state = $this->get($thread);
+        $listing = $this->lastListing($thread);
+        if ($listing !== null) {
+            return $this->normalizeReferenceEntities($listing['items']);
+        }
+
         $selected = $state['selected_entities'] ?? [];
 
         if (! is_array($selected)) {
@@ -185,6 +287,37 @@ final class TaskAssistantConversationStateService
             if (! is_array($entity)) {
                 continue;
             }
+            $type = (string) ($entity['entity_type'] ?? '');
+            $id = (int) ($entity['entity_id'] ?? 0);
+            $title = (string) ($entity['title'] ?? '');
+
+            if ($type === '' || $id <= 0 || trim($title) === '') {
+                continue;
+            }
+
+            $out[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array<int, array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function normalizeReferenceEntities(array $items): array
+    {
+        $out = [];
+
+        foreach ($items as $entity) {
+            if (! is_array($entity)) {
+                continue;
+            }
+
             $type = (string) ($entity['entity_type'] ?? '');
             $id = (int) ($entity['entity_id'] ?? 0);
             $title = (string) ($entity['title'] ?? '');
