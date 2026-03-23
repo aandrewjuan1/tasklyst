@@ -65,6 +65,18 @@ return [
         'submissions_per_minute' => (int) env('TASK_ASSISTANT_SUBMISSIONS_PER_MINUTE', 15),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Schedule horizon (deterministic placement window)
+    |--------------------------------------------------------------------------
+    |
+    | max_horizon_days caps multi-day search ranges. Week boundaries use ISO Monday.
+    |
+    */
+    'schedule' => [
+        'max_horizon_days' => (int) env('TASK_ASSISTANT_SCHEDULE_MAX_HORIZON_DAYS', 14),
+    ],
+
     'tools' => [
         'routes' => [
             'chat' => ['list_tasks'],

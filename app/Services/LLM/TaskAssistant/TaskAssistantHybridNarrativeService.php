@@ -41,14 +41,20 @@ final class TaskAssistantHybridNarrativeService
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
         $refinementSchema = TaskAssistantSchemas::hybridNarrativeSchema();
 
+        $horizonHint = '';
+        $h = $promptData['schedule_horizon'] ?? null;
+        if (is_array($h) && isset($h['start_date'], $h['end_date'], $h['label'])) {
+            $horizonHint = ' The placement window is '.$h['label'].' ('.$h['start_date'].' to '.$h['end_date'].'). ';
+        }
+
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
             'Here are the proposed schedule blocks (task_id/event_id values are internal and must not be mentioned). '.
-            'Refine narrative fields to sound natural, supportive, and practical. Return JSON only.'."\n\n".
+            'Refine narrative fields to sound natural, supportive, and practical. Return JSON only.'.$horizonHint."\n\n".
             'Write concise, human-sounding guidance:'."\n".
-            '- summary: clear day overview'."\n".
-            '- reasoning: why this order and timing make sense today'."\n".
+            '- summary: clear overview of the suggested timing'."\n".
+            '- reasoning: why this order and timing fit the requested scheduling window'."\n".
             '- strategy_points: 2-4 practical rationale points'."\n".
             '- suggested_next_steps: 2-4 actionable execution steps'."\n".
             '- assumptions: optional, only if relevant'."\n".

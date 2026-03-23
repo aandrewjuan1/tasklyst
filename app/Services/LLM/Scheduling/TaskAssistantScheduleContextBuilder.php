@@ -3,17 +3,21 @@
 namespace App\Services\LLM\Scheduling;
 
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Deterministic scheduling context extracted from the user message (no LLM).
  * Delegates shared signals to {@see TaskAssistantTaskChoiceConstraintsExtractor} so schedule matches prioritize/browse.
+ * {@see TaskAssistantScheduleHorizonResolver} sets which calendar day(s) to search; task-level time filters
+ * (e.g. due today) remain on {@see TaskAssistantTaskChoiceConstraintsExtractor} output.
  * Output shape matches {@see TaskAssistantStructuredFlowGenerator::applyContextToSnapshot} expectations.
  */
 final class TaskAssistantScheduleContextBuilder
 {
     public function __construct(
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
+        private readonly TaskAssistantScheduleHorizonResolver $horizonResolver,
     ) {}
 
     /**
@@ -24,13 +28,24 @@ final class TaskAssistantScheduleContextBuilder
      *   task_keywords: list<string>,
      *   time_constraint: string,
      *   comparison_focus: string|null,
-     *   recurring_requested: bool
+     *   recurring_requested: bool,
+     *   schedule_horizon: array{
+     *     mode: 'single_day'|'range',
+     *     start_date: string,
+     *     end_date: string,
+     *     label: string
+     *   }
      * }
      */
     public function build(string $userMessage, array $snapshot): array
     {
         $extracted = $this->constraintsExtractor->extract($userMessage);
         $normalized = $this->buildScheduleContext($userMessage, $extracted);
+
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $todayStr = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
+        $now = CarbonImmutable::parse($todayStr.' 12:00:00', $timezone);
+        $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
 
         Log::info('task-assistant.schedule_context_deterministic', [
             'layer' => 'structured_generation',

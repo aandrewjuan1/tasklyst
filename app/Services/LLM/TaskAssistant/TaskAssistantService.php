@@ -201,7 +201,13 @@ final class TaskAssistantService
                 'entity_id' => (int) ($entity['entity_id'] ?? 0),
                 'title' => (string) ($entity['title'] ?? ''),
             ], $selected);
-            $this->conversationState->rememberPrioritizedItems($thread, $selectedForState, count($selectedForState));
+            $this->conversationState->rememberLastListing(
+                $thread,
+                'prioritize',
+                $selectedForState,
+                $assistantMessage->id,
+                count($selectedForState)
+            );
         }
 
         $this->streamFlowEnvelope(
@@ -340,7 +346,16 @@ final class TaskAssistantService
             execution: $execution
         );
 
-        $this->conversationState->clearSelectedEntities($thread);
+        if ($items === []) {
+            $this->conversationState->clearLastListing($thread);
+        } else {
+            $this->conversationState->rememberLastListing(
+                $thread,
+                'browse',
+                $items,
+                $assistantMessage->id,
+            );
+        }
     }
 
     private function runChatFlow(
