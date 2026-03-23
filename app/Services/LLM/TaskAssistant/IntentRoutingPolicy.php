@@ -30,14 +30,14 @@ final class IntentRoutingPolicy
                 'layer' => 'intent_policy',
                 'thread_id' => $thread->id,
                 'outcome' => 'empty_message',
-                'flow' => 'chat',
+                'flow' => 'general_guidance',
             ]);
 
             return new IntentRoutingDecision(
-                flow: 'chat',
+                flow: 'general_guidance',
                 confidence: 1.0,
                 reasonCodes: ['empty_message'],
-                constraints: $this->extractConstraintsForFlow($thread, $normalized, 'chat'),
+                constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -47,15 +47,15 @@ final class IntentRoutingPolicy
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
                 'thread_id' => $thread->id,
-                'outcome' => 'greeting_shortcircuit_chat',
-                'flow' => 'chat',
+                'outcome' => 'greeting_shortcircuit_general_guidance',
+                'flow' => 'general_guidance',
             ]);
 
             return new IntentRoutingDecision(
-                flow: 'chat',
+                flow: 'general_guidance',
                 confidence: 1.0,
                 reasonCodes: ['greeting_shortcircuit_chat'],
-                constraints: $this->extractConstraintsForFlow($thread, $normalized, 'chat'),
+                constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -79,6 +79,17 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyTimeQuery($normalized)) {
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: 1.0,
+                reasonCodes: ['time_query_heuristic'],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         $signals = $this->signalExtractor->extract($normalized);
 
         $inference = null;
@@ -89,7 +100,8 @@ final class IntentRoutingPolicy
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
 
-        $constraints = $this->extractConstraintsForFlow($thread, $normalized, $decision->flow);
+        $resolvedFlow = $decision->flow === 'chat' ? 'general_guidance' : $decision->flow;
+        $constraints = $this->extractConstraintsForFlow($thread, $normalized, $resolvedFlow);
 
         Log::info('task-assistant.intent.policy', [
             'layer' => 'intent_policy',
@@ -97,7 +109,7 @@ final class IntentRoutingPolicy
             'outcome' => 'resolved',
             'use_llm' => $useLlm,
             'signals' => $signals,
-            'resolved_flow' => $decision->flow,
+            'resolved_flow' => $resolvedFlow,
             'confidence' => $decision->confidence,
             'reason_codes' => $decision->reasonCodes,
             'clarification_needed' => $decision->clarificationNeeded,
@@ -112,7 +124,7 @@ final class IntentRoutingPolicy
         ]);
 
         return new IntentRoutingDecision(
-            flow: $decision->flow,
+            flow: $resolvedFlow,
             confidence: $decision->confidence,
             reasonCodes: $decision->reasonCodes,
             constraints: $constraints,
@@ -249,7 +261,8 @@ final class IntentRoutingPolicy
         }
 
         return (bool) preg_match(
-            '/^(hi|hello|hey|good morning|good afternoon|good evening|howdy|gm|hiya)(\s+there)?[!?.]*\s*$/u',
+            // Also accept informal openers like "hii yo" and "yo".
+            '/^(hi|hii|hello|hey|yo|good morning|good afternoon|good evening|howdy|gm|hiya)(\s+(there|yo))?([!?.]|\s)*$/u',
             $normalized
         );
     }
@@ -281,7 +294,10 @@ final class IntentRoutingPolicy
                 $signals = $this->signalExtractor->extract($normalized);
                 $prio = (float) ($signals['prioritization'] ?? 0.0);
                 $sched = (float) ($signals['scheduling'] ?? 0.0);
-                $strongIntentThreshold = 0.6;
+                // Safe default: when the user is vague/help-seeking, we keep them
+                // in general guidance unless the prioritization/scheduling
+                // signals are clearly strong.
+                $strongIntentThreshold = 0.7;
 
                 if ($prio >= $strongIntentThreshold || $sched >= $strongIntentThreshold) {
                     return false;
@@ -292,5 +308,15 @@ final class IntentRoutingPolicy
         }
 
         return false;
+    }
+
+    private function isLikelyTimeQuery(string $normalized): bool
+    {
+        // Narrow matching to avoid false positives from task/schedule phrases that
+        // often contain "today/tomorrow".
+        return (bool) preg_match(
+            '/\b(current\s+time|time\s+now|time\s+right\s+now|what\s+time\s+is\s+it|what\s*\'?s\s+the\s+time|date\s+today|today\s*\'?s\s+date|what\s+date\s+is\s+it|what\s*\'?s\s+the\s+date)\b/u',
+            $normalized
+        );
     }
 }

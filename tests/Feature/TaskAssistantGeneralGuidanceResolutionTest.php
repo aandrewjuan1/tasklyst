@@ -68,6 +68,65 @@ test('general guidance resolves to prioritize', function (): void {
     expect($stateService->pendingGeneralGuidance($thread))->toBeNull();
 });
 
+test('general guidance resolves to prioritize even for “prioritizing” answer', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'message' => 'I hear you. Let us pick a clear next step.',
+                'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
+                'redirect_target' => 'either',
+                'suggested_replies' => [
+                    'Prioritize my tasks.',
+                    'Plan time blocks for my tasks.',
+                ],
+            ])
+            ->withUsage(new Usage(1, 2)),
+        // target selection returns a variant label that must normalize to `prioritize`.
+        StructuredResponseFake::make()
+            ->withStructured([
+                'target' => 'prioritizing',
+                'confidence' => 0.9,
+                'rationale' => 'User chose prioritizing.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage1 = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'help',
+    ]);
+    $assistantMessage1 = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage1->id, $assistantMessage1->id);
+    $assistantMessage1->refresh();
+    expect($assistantMessage1->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+
+    $userMessage2 = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'lets do prioritizing',
+    ]);
+    $assistantMessage2 = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage2->id, $assistantMessage2->id);
+    $assistantMessage2->refresh();
+
+    expect($assistantMessage2->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+
+    $stateService = app(TaskAssistantConversationStateService::class);
+    expect($stateService->pendingGeneralGuidance($thread))->toBeNull();
+});
+
 test('general guidance resolves to schedule', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

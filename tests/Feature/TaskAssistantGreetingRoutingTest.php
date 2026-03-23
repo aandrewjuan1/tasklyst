@@ -5,19 +5,23 @@ use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\TaskAssistant\IntentRoutingPolicy;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
-use Prism\Prism\Enums\FinishReason;
 use Prism\Prism\Facades\Prism;
-use Prism\Prism\Testing\TextResponseFake;
+use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Meta;
 use Prism\Prism\ValueObjects\Usage;
 
-test('pure greeting short-circuits to chat without prioritize intent inference', function (): void {
+test('pure greeting short-circuits to general guidance', function (): void {
     Prism::fake([
-        TextResponseFake::make()
-            ->withText('Hello! How can I help with your tasks today?')
-            ->withFinishReason(FinishReason::Stop)
-            ->withToolCalls([])
-            ->withToolResults([])
+        StructuredResponseFake::make()
+            ->withStructured([
+                'message' => 'Hi! I can help you get organized with your tasks.',
+                'clarifying_question' => 'Do you want me to prioritize your tasks, or schedule time blocks for them? Just let me know.',
+                'redirect_target' => 'either',
+                'suggested_replies' => [
+                    'Prioritize my tasks.',
+                    'Plan time blocks for my tasks.',
+                ],
+            ])
             ->withUsage(new Usage(1, 2))
             ->withMeta(new Meta('fake', 'fake')),
     ]);
@@ -38,15 +42,15 @@ test('pure greeting short-circuits to chat without prioritize intent inference',
 
     $assistantMessage->refresh();
 
-    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('chat');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
 });
 
-test('intent policy returns chat for hello via greeting short-circuit', function (): void {
+test('intent policy returns general_guidance for hello via greeting short-circuit', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'hello');
 
-    expect($decision->flow)->toBe('chat');
+    expect($decision->flow)->toBe('general_guidance');
     expect($decision->reasonCodes)->toContain('greeting_shortcircuit_chat');
 });

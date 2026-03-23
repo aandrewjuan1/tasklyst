@@ -8,13 +8,13 @@ use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
 
-test('empty message routes to chat with empty_message reason', function (): void {
+test('empty message routes to general guidance with empty_message reason', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, '   ');
 
-    expect($decision->flow)->toBe('chat');
+    expect($decision->flow)->toBe('general_guidance');
     expect($decision->reasonCodes)->toContain('empty_message');
 });
 
@@ -58,7 +58,7 @@ test('LLM intent scheduling maps to schedule flow', function (): void {
     expect($decision->reasonCodes)->toContain('llm_intent_scheduling');
 });
 
-test('invalid LLM intent label falls back to chat', function (): void {
+test('invalid LLM intent label falls back to general guidance', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
@@ -74,7 +74,7 @@ test('invalid LLM intent label falls back to chat', function (): void {
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Hello there friend');
 
-    expect($decision->flow)->toBe('chat');
+    expect($decision->flow)->toBe('general_guidance');
     expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_chat');
 });
 
@@ -102,6 +102,41 @@ test('overwhelmed what should i do first routes to prioritize (not general_guida
     );
 
     expect($decision->flow)->toBe('prioritize');
+});
+
+test('time query routes to general guidance (not schedule)', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'what is the current time right now?');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain('time_query_heuristic');
+});
+
+test('confidence gap between prioritize and schedule prefers general guidance', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'prioritization',
+                'confidence' => 0.20,
+                'rationale' => 'Ambiguous between prioritize and schedule.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    config()->set('task-assistant.intent.merge.ambiguity_gap_min', 0.30);
+    config()->set('task-assistant.intent.merge.ambiguity_second_composite_min', 0.10);
+    config()->set('task-assistant.intent.merge.ambiguity_top_composite_max', 0.95);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    // Intentionally includes both prioritize-ish and schedule-ish signals.
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'tasks due today those tasks');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain('confidence_gap_ambiguous_general_guidance');
 });
 
 test('policy routing resolves multiturn target entities and constraints', function (): void {

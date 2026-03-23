@@ -34,15 +34,28 @@ Note: The snapshot above is intentionally truncated for reliability. Use availab
 @endif
 
 @isset($toolManifest)
+@if(!empty($toolManifest))
 AVAILABLE TOOLS:
 @foreach ($toolManifest as $tool)
 - {{ $tool['name'] }}: {{ $tool['description'] }}
 @endforeach
 @endif
+@endisset
 
 @isset($route_context)
 ROUTE CONTEXT:
 {{ $route_context }}
+@endif
+
+@if(!isset($snapshot))
+GENERAL GUIDANCE RULES (no tools/snapshots):
+- Generate a short empathetic `message` (1-2 sentences).
+- If the user message is gibberish, in a language you can't understand, or unclear: acknowledge you didn't understand and ask them to rephrase in ONE short sentence (still within `message`).
+- IMPORTANT: Put the redirect question ONLY in `clarifying_question`. Do not include the redirect question (or any additional question marks) inside `message`.
+- Keep `message` declarative: avoid “Could you…”, “Would you…”, “Let me know…”, and other second-order questions; use statements like “I can help…” and “I’m not able to…”.
+- Do NOT output tool/function signatures, <EXECUTION> blocks, raw JSON, or any internal/schema text.
+- Ensure `clarifying_question` is exactly one question mark-terminated question that leads toward `prioritize` or `schedule`.
+- If the user request is off-topic, acknowledge briefly, refuse that topic, and then use the single redirect question in `clarifying_question`.
 @endif
 
 CORE RULES:

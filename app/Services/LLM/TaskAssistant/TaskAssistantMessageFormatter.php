@@ -160,6 +160,19 @@ final class TaskAssistantMessageFormatter
         $message = trim((string) ($data['message'] ?? ''));
         $question = trim((string) ($data['clarifying_question'] ?? ''));
 
+        if ($message !== '' && $question !== '' && str_contains($message, $question)) {
+            $message = trim(str_replace($question, '', $message));
+        }
+
+        if ($message !== '' && $question !== '' && mb_stripos($message, 'would you like') !== false && str_contains($message, '?')) {
+            // If the model leaked a redirect question into `message`, strip the
+            // tail starting at the last question mark.
+            $pos = mb_strrpos($message, '?');
+            if ($pos !== false) {
+                $message = trim(mb_substr($message, 0, $pos));
+            }
+        }
+
         if ($message === '' && $question === '') {
             return 'I can help. What would you like to do next?';
         }
