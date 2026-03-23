@@ -183,12 +183,12 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Narrative fields for browse/listing: tasks are fixed by the backend; the model only polishes wording.
+     * Narrative fields for prioritize output: tasks are fixed by the backend; the model only polishes wording.
      */
-    public static function browseNarrativeSchema(): ObjectSchema
+    public static function prioritizeNarrativeSchema(): ObjectSchema
     {
         return new ObjectSchema(
-            name: 'browse_listing_narrative',
+            name: 'prioritize_narrative',
             description: 'Assistant voice: read-only task list. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
             properties: [
                 new StringSchema(
@@ -210,7 +210,82 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Shared narrative schema for hybrid flows (schedule refinement and prioritize explanation).
+     * General guidance for vague/help-seeking/overwhelmed prompts.
+     *
+     * The LLM should generate an empathetic message and exactly one question to
+     * narrow the next action. The actual routing decision happens in a second
+     * structured step.
+     */
+    public static function generalGuidanceSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'general_guidance',
+            description: 'General help for vague or overwhelmed requests. Do not mention snapshot, JSON, backend, database, or other internal terms. Output only the guidance fields.',
+            properties: [
+                new StringSchema(
+                    name: 'message',
+                    description: 'Short empathetic acknowledgement (1-2 sentences). No I/my first-person phrasing rules are allowed; use assistant voice.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'clarifying_question',
+                    description: 'Exactly one short question. Include short options if helpful, but do not use bullet characters.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'redirect_target',
+                    description: 'Where this guidance should lead: either prioritize, schedule, or either/unknown.',
+                    nullable: false
+                ),
+                new ArraySchema(
+                    name: 'suggested_replies',
+                    description: '2-3 short suggested user replies that would answer the question.',
+                    items: new StringSchema(name: 'reply', description: 'One suggested reply.'),
+                    nullable: true
+                ),
+            ],
+            requiredFields: [
+                'message',
+                'clarifying_question',
+                'redirect_target',
+            ]
+        );
+    }
+
+    /**
+     * Target selection after the user answers the guidance question.
+     */
+    public static function generalGuidanceTargetSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'general_guidance_target',
+            description: 'Choose whether the user answer indicates prioritize or schedule. If unclear, return either/unknown with low confidence.',
+            properties: [
+                new StringSchema(
+                    name: 'target',
+                    description: 'One of: prioritize, schedule, or either.',
+                    nullable: false
+                ),
+                new NumberSchema(
+                    name: 'confidence',
+                    description: 'Confidence between 0 and 1.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'rationale',
+                    description: 'Short reason (optional).',
+                    nullable: true
+                ),
+            ],
+            requiredFields: [
+                'target',
+                'confidence',
+            ]
+        );
+    }
+
+    /**
+     * Schedule-only narrative.
      */
     public static function hybridNarrativeSchema(): ObjectSchema
     {

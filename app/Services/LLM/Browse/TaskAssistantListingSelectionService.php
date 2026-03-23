@@ -5,14 +5,14 @@ namespace App\Services\LLM\Browse;
 use App\Enums\TaskComplexity;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
-use App\Support\LLM\TaskAssistantBrowseDefaults;
+use App\Support\LLM\TaskAssistantListingDefaults;
 use Carbon\CarbonImmutable;
 
 /**
  * Deterministic listing: applies the same constraint + ranking pipeline as prioritization,
  * scoped to tasks only, with an optional "ambiguous list" shortcut (top N by rank).
  */
-final class TaskAssistantBrowseListingService
+final class TaskAssistantListingSelectionService
 {
     public function __construct(
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
@@ -21,6 +21,7 @@ final class TaskAssistantBrowseListingService
 
     /**
      * @param  array<string, mixed>  $snapshot
+     * @param  int|null  $countLimit  Optional "top N" cap (e.g. from intent routing).
      * @return array{
      *   items: list<array<string, mixed>>,
      *   deterministic_summary: string,
@@ -28,13 +29,13 @@ final class TaskAssistantBrowseListingService
      *   ambiguous: bool
      * }
      */
-    public function build(string $userMessage, array $snapshot): array
+    public function build(string $userMessage, array $snapshot, ?int $countLimit = null): array
     {
         $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
         $now = CarbonImmutable::now($timezone);
 
         $context = $this->constraintsExtractor->extract($userMessage);
-        $ambiguous = $this->isAmbiguousBrowseListRequest($userMessage, $context);
+        $ambiguous = $this->isAmbiguousListingRequest($userMessage, $context);
 
         if ($ambiguous) {
             $context = [
@@ -43,7 +44,7 @@ final class TaskAssistantBrowseListingService
                 'time_constraint' => null,
                 'recurring_requested' => false,
                 'comparison_focus' => null,
-                'browse_domain' => null,
+                'domain_focus' => null,
             ];
         }
 
@@ -53,9 +54,13 @@ final class TaskAssistantBrowseListingService
             static fn (array $row): bool => ($row['type'] ?? '') === 'task'
         ));
 
-        $ambiguousLimit = max(1, min(10, (int) config('task-assistant.browse.ambiguous_top_limit', 5)));
-        $maxItems = max(1, min(50, (int) config('task-assistant.browse.max_items', 50)));
+        $ambiguousLimit = max(1, min(10, (int) config('task-assistant.listing.ambiguous_top_limit', 5)));
+        $maxItems = max(1, min(50, (int) config('task-assistant.listing.max_items', 50)));
         $take = $ambiguous ? $ambiguousLimit : $maxItems;
+
+        if (is_int($countLimit) && $countLimit > 0) {
+            $take = min($take, $countLimit);
+        }
 
         $tasksOnly = array_slice($tasksOnly, 0, $take);
 
@@ -65,7 +70,7 @@ final class TaskAssistantBrowseListingService
             $dueBucket = $this->classifyDueBucket($rawTask, $now, $timezone);
             $priority = strtolower(trim((string) ($rawTask['priority'] ?? 'medium')));
             $complexityRaw = $rawTask['complexity'] ?? null;
-            $complexityLabel = TaskAssistantBrowseDefaults::complexityNotSetLabel();
+            $complexityLabel = TaskAssistantListingDefaults::complexityNotSetLabel();
             if (is_string($complexityRaw) && $complexityRaw !== '') {
                 $complexityEnum = TaskComplexity::tryFrom($complexityRaw);
                 if ($complexityEnum !== null) {
@@ -181,9 +186,9 @@ final class TaskAssistantBrowseListingService
     /**
      * @param  array<string, mixed>  $context
      */
-    private function isAmbiguousBrowseListRequest(string $message, array $context): bool
+    private function isAmbiguousListingRequest(string $message, array $context): bool
     {
-        if (($context['browse_domain'] ?? null) !== null) {
+        if (($context['domain_focus'] ?? null) !== null) {
             return false;
         }
 
@@ -210,7 +215,7 @@ final class TaskAssistantBrowseListingService
             return 'no strong filters; showing top-ranked tasks for now';
         }
 
-        if (($context['browse_domain'] ?? null) === 'school') {
+        if (($context['domain_focus'] ?? null) === 'school') {
             $parts = [];
             if (($context['time_constraint'] ?? null) !== null) {
                 $parts[] = 'time: '.(string) $context['time_constraint'];
@@ -226,7 +231,7 @@ final class TaskAssistantBrowseListingService
             return $domainLine.'; '.implode('; ', $parts);
         }
 
-        if (($context['browse_domain'] ?? null) === 'chores') {
+        if (($context['domain_focus'] ?? null) === 'chores') {
             $parts = [];
             if (($context['time_constraint'] ?? null) !== null) {
                 $parts[] = 'time: '.(string) $context['time_constraint'];

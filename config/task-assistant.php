@@ -39,7 +39,17 @@ return [
             'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 600),
             'top_p' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P', 0.88),
         ],
-        'browse_narrative' => [
+        'general_guidance' => [
+            'temperature' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TEMPERATURE', 0.35),
+            'max_tokens' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_MAX_TOKENS', 500),
+            'top_p' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TOP_P', 0.9),
+        ],
+        'general_guidance_target' => [
+            'temperature' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TARGET_TEMPERATURE', 0.12),
+            'max_tokens' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TARGET_MAX_TOKENS', 200),
+            'top_p' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TARGET_TOP_P', 0.85),
+        ],
+        'listing_narrative' => [
             'temperature' => env('TASK_ASSISTANT_BROWSE_NARRATIVE_TEMPERATURE', 0.25),
             'max_tokens' => env('TASK_ASSISTANT_BROWSE_NARRATIVE_MAX_TOKENS', 700),
             'top_p' => env('TASK_ASSISTANT_BROWSE_NARRATIVE_TOP_P', 0.88),
@@ -54,7 +64,7 @@ return [
             'max_tokens' => env('TASK_ASSISTANT_INTENT_MAX_TOKENS', 200),
             'top_p' => env('TASK_ASSISTANT_INTENT_TOP_P', 0.85),
         ],
-        'browse' => [
+        'listing' => [
             'temperature' => env('TASK_ASSISTANT_BROWSE_TEMPERATURE'),
             'max_tokens' => env('TASK_ASSISTANT_BROWSE_MAX_TOKENS'),
             'top_p' => env('TASK_ASSISTANT_BROWSE_TOP_P'),
@@ -80,7 +90,7 @@ return [
     'tools' => [
         'routes' => [
             'chat' => ['list_tasks'],
-            'browse' => [],
+            'listing' => [],
             'schedule' => ['list_tasks'],
             'prioritize' => [],
         ],
@@ -95,14 +105,14 @@ return [
     | false, heuristic signals only are used; ambiguous or weak signals fall
     | back to the chat flow.
     |
-    | browse_route_context: extra system prompt line when the resolved flow is browse.
+    | listing_route_context: extra system prompt line when the resolved listing flow runs.
     |
     */
-    'browse' => [
+    'listing' => [
         'snapshot_task_limit' => (int) env('TASK_ASSISTANT_BROWSE_SNAPSHOT_TASK_LIMIT', 200),
         'ambiguous_top_limit' => (int) env('TASK_ASSISTANT_BROWSE_AMBIGUOUS_TOP', 5),
         'max_items' => (int) env('TASK_ASSISTANT_BROWSE_MAX_ITEMS', 50),
-        /** Must match Prism browse narrative output clamp and {@see TaskAssistantResponseProcessor::validateBrowseData}. */
+        /** Must match Prism prioritize listing narrative output clamp and response validation. */
         'max_reasoning_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_REASONING_CHARS', 800),
         /** Single-paragraph recommendations field (suggested_guidance). */
         'max_suggested_guidance_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_SUGGESTED_GUIDANCE_CHARS', 1200),
@@ -126,8 +136,8 @@ return [
         ],
     ],
 
-    'browse_route_context' => <<<'TXT'
-Browse mode (read-only listing): Task order and membership are fixed. Speak as the assistant: "you/your" or neutral. Never say snapshot, snapshot data, JSON, backend, or database in student-visible text.
+    'listing_route_context' => <<<'TXT'
+Listing mode (read-only listing): Task order and membership are fixed. Speak as the assistant: "you/your" or neutral. Never say snapshot, snapshot data, JSON, backend, or database in student-visible text.
 
 Reasoning: briefly why this list matches their request—only use titles and dates from the task list.
 

@@ -4,7 +4,6 @@ namespace App\Enums;
 
 enum TaskAssistantUserIntent: string
 {
-    case Listing = 'listing';
     case Prioritization = 'prioritization';
     case Scheduling = 'scheduling';
 

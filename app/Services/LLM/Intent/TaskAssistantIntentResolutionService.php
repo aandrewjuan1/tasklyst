@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 final class TaskAssistantIntentResolutionService
 {
     /**
-     * @param  array{listing: float, prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float}  $signals
      */
     public function resolve(
         TaskAssistantThread $thread,
@@ -109,7 +109,7 @@ final class TaskAssistantIntentResolutionService
     }
 
     /**
-     * @param  array{listing: float, prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float}  $signals
      */
     private function resolveSignalOnly(
         TaskAssistantThread $thread,
@@ -119,9 +119,8 @@ final class TaskAssistantIntentResolutionService
         $clarifyMargin = (float) config('task-assistant.intent.merge.signal_only_clarify_margin', 0.15);
 
         $flowScores = [
-            'browse' => $signals['listing'],
-            'prioritize' => $signals['prioritization'],
-            'schedule' => $signals['scheduling'],
+            'prioritize' => (float) ($signals['prioritization'] ?? 0.0),
+            'schedule' => (float) ($signals['scheduling'] ?? 0.0),
         ];
         arsort($flowScores);
         $topFlow = (string) array_key_first($flowScores);
@@ -159,7 +158,7 @@ final class TaskAssistantIntentResolutionService
     }
 
     /**
-     * @param  array{listing: float, prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float}  $signals
      * @return array<string, float>
      */
     private function compositeScores(array $signals, TaskAssistantUserIntent $effectiveIntent, float $llmConf): array
@@ -167,19 +166,20 @@ final class TaskAssistantIntentResolutionService
         $wLlm = (float) config('task-assistant.intent.merge.llm_weight', 0.5);
         $wSig = (float) config('task-assistant.intent.merge.signal_weight', 0.5);
 
-        $llmBrowse = $effectiveIntent === TaskAssistantUserIntent::Listing ? $llmConf : 0.0;
-        $llmPrior = $effectiveIntent === TaskAssistantUserIntent::Prioritization ? $llmConf : 0.0;
+        $llmPrioritize = $effectiveIntent === TaskAssistantUserIntent::Prioritization ? $llmConf : 0.0;
+
         $llmSched = $effectiveIntent === TaskAssistantUserIntent::Scheduling ? $llmConf : 0.0;
 
+        $signalPrioritize = (float) ($signals['prioritization'] ?? 0.0);
+
         return [
-            'browse' => $wLlm * $llmBrowse + $wSig * ($signals['listing'] ?? 0.0),
-            'prioritize' => $wLlm * $llmPrior + $wSig * ($signals['prioritization'] ?? 0.0),
+            'prioritize' => $wLlm * $llmPrioritize + $wSig * $signalPrioritize,
             'schedule' => $wLlm * $llmSched + $wSig * ($signals['scheduling'] ?? 0.0),
         ];
     }
 
     /**
-     * @param  array{listing: float, prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float}  $signals
      */
     private function strongestSignalKey(array $signals): string
     {
@@ -192,7 +192,6 @@ final class TaskAssistantIntentResolutionService
     private function signalKeyToIntent(string $key): ?TaskAssistantUserIntent
     {
         return match ($key) {
-            'listing' => TaskAssistantUserIntent::Listing,
             'prioritization' => TaskAssistantUserIntent::Prioritization,
             'scheduling' => TaskAssistantUserIntent::Scheduling,
             default => null,
@@ -204,13 +203,12 @@ final class TaskAssistantIntentResolutionService
         return match ($flow) {
             'schedule' => 'Do you want me to build a schedule for selected tasks, or create a fresh plan for your whole day?',
             'prioritize' => 'Should I prioritize your top tasks now, or help schedule them on your calendar?',
-            'browse' => 'Do you want to browse or filter your tasks, see top priorities, or build a schedule?',
             default => 'Do you want to list or filter tasks, prioritize what to do next, or schedule time for them?',
         };
     }
 
     /**
-     * @param  array{listing: float, prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float}  $signals
      * @param  array<int, string>  $reasonCodes
      */
     private function logResolution(

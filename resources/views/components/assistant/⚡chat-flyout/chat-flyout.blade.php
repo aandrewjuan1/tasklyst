@@ -103,11 +103,42 @@
                                                 $endAt = (string) ($proposal['end_datetime'] ?? '');
                                                 $title = (string) ($proposal['title'] ?? 'Scheduled item');
                                                 $isPending = $status === 'pending';
+
+                                                $start = null;
+                                                $end = null;
+                                                if ($startAt !== '') {
+                                                    try {
+                                                        $start = \Carbon\CarbonImmutable::parse($startAt);
+                                                    } catch (\Throwable) {
+                                                        $start = null;
+                                                    }
+                                                }
+                                                if ($endAt !== '') {
+                                                    try {
+                                                        $end = \Carbon\CarbonImmutable::parse($endAt);
+                                                    } catch (\Throwable) {
+                                                        $end = null;
+                                                    }
+                                                }
+
+                                                $timeLabel = '';
+                                                if ($start instanceof \Carbon\CarbonImmutable && $end instanceof \Carbon\CarbonImmutable) {
+                                                    $sameDay = $start->isSameDay($end);
+                                                    if ($sameDay) {
+                                                        $timeLabel = $start->format('M j, Y').' · '.$start->format('g:i A').'–'.$end->format('g:i A');
+                                                    } else {
+                                                        $timeLabel = $start->format('M j, Y').' · '.$start->format('g:i A').'–'.$end->format('M j, Y').' · '.$end->format('g:i A');
+                                                    }
+                                                } elseif ($start instanceof \Carbon\CarbonImmutable) {
+                                                    $timeLabel = $start->format('M j, Y').' · '.$start->format('g:i A');
+                                                } else {
+                                                    $timeLabel = $startAt;
+                                                }
                                             @endphp
                                             <div class="rounded-md border border-zinc-300 p-2 dark:border-zinc-600">
                                                 <flux:text class="text-sm font-medium">{{ $title }}</flux:text>
                                                 <flux:text class="text-xs text-zinc-500 dark:text-zinc-400">
-                                                    {{ $startAt }}@if($endAt !== '') - {{ $endAt }} @endif
+                                                    {{ $timeLabel }}
                                                 </flux:text>
                                                 <flux:text class="text-xs">{{ __('Status: :status', ['status' => $status]) }}</flux:text>
                                                 <div class="mt-2 flex gap-2">

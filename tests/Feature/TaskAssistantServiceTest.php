@@ -27,12 +27,8 @@ test('queued prioritize flow stores selected entities for multiturn state', func
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Your top tasks by urgency and deadline.',
-                'assistant_note' => 'Start with the first item when ready.',
-                'reasoning' => 'These items score highest on the planner.',
-                'strategy_points' => ['Tackle high-impact work first.'],
-                'suggested_next_steps' => ['Open the first task and set a timer.'],
-                'assumptions' => [],
+                'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'suggested_guidance' => 'I suggest starting with one task from this list so you do not feel overwhelmed. If you tell me your focus, I can narrow the list further or help you plan what to do next.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -91,12 +87,8 @@ test('multiturn schedule can target previous prioritized selection', function ()
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Your top tasks by urgency and deadline.',
-                'assistant_note' => null,
-                'reasoning' => null,
-                'strategy_points' => [],
-                'suggested_next_steps' => [],
-                'assumptions' => [],
+                'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'suggested_guidance' => 'I suggest starting with the first task that feels most doable today. If you want, tell me whether you prefer school work or chores and I will refine the list.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -182,7 +174,7 @@ test('chat flow persists prism tool calls on the assistant message', function ()
     config(['task-assistant.intent.use_llm' => false]);
 
     $toolCall = new ToolCall('call-1', 'list_tasks', []);
-    $toolResult = new ToolResult('call-1', 'list_tasks', [], '{"ok":true,"tasks":[]}');
+    $toolResult = new ToolResult('call-1', 'list_tasks', [], ['ok' => true, 'tasks' => []]);
 
     Prism::fake([
         TextResponseFake::make()
@@ -215,18 +207,14 @@ test('chat flow persists prism tool calls on the assistant message', function ()
     expect($assistantMessage->tool_calls[0]['name'] ?? null)->toBe('list_tasks');
 });
 
-test('browse flow replaces last_listing with browse results for multiturn state', function (): void {
+test('prioritize flow replaces last_listing with prioritize results for multiturn state', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
 
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Top tasks.',
-                'assistant_note' => null,
-                'reasoning' => null,
-                'strategy_points' => [],
-                'suggested_next_steps' => [],
-                'assumptions' => [],
+                'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'suggested_guidance' => 'I suggest starting with one task from the list so you do not get overwhelmed. If you want, I can narrow the list with a tighter filter or help you plan what to do next.',
             ])
             ->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()
@@ -273,6 +261,6 @@ test('browse flow replaces last_listing with browse results for multiturn state'
     app(TaskAssistantService::class)->processQueuedMessage($thread, $browseUser->id, $browseAssistant->id);
 
     $thread->refresh();
-    expect($thread->metadata['conversation_state']['last_listing']['source_flow'] ?? null)->toBe('browse');
+    expect($thread->metadata['conversation_state']['last_listing']['source_flow'] ?? null)->toBe('prioritize');
     expect($thread->metadata['conversation_state']['last_listing']['items'] ?? [])->not->toBeEmpty();
 });

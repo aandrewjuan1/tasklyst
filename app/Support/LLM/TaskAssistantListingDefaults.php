@@ -3,19 +3,19 @@
 namespace App\Support\LLM;
 
 /**
- * User-visible defaults for browse/listing when data or the LLM omits optional fields.
+ * User-visible defaults for listing when data or the LLM omits optional fields.
  */
-final class TaskAssistantBrowseDefaults
+final class TaskAssistantListingDefaults
 {
     public static function maxReasoningChars(): int
     {
-        $max = (int) config('task-assistant.browse.max_reasoning_chars', 800);
+        $max = (int) config('task-assistant.listing.max_reasoning_chars', 800);
 
         return max(1, $max);
     }
 
     /**
-     * Keeps browse {@see \App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor::validateBrowseData} within max length.
+     * Keeps listing payload reasoning within max length.
      */
     public static function clampBrowseReasoning(string $text): string
     {
@@ -29,7 +29,7 @@ final class TaskAssistantBrowseDefaults
 
     public static function maxSuggestedGuidanceChars(): int
     {
-        $max = (int) config('task-assistant.browse.max_suggested_guidance_chars', 1200);
+        $max = (int) config('task-assistant.listing.max_suggested_guidance_chars', 1200);
 
         return max(80, $max);
     }

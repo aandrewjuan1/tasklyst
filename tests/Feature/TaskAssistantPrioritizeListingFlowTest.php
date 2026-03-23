@@ -11,11 +11,11 @@ use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
 
-test('browse flow returns structured listing with hybrid narrative', function (): void {
+test('prioritize flow returns structured prioritized tasks with hybrid narrative', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'intent' => 'listing',
+                'intent' => 'prioritization',
                 'confidence' => 0.95,
                 'rationale' => 'User wants to see tasks.',
             ])
@@ -51,6 +51,6 @@ test('browse flow returns structured listing with hybrid narrative', function ()
 
     $assistantMessage->refresh();
 
-    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('browse');
-    expect($assistantMessage->metadata['browse']['items'] ?? null)->toBeArray();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($assistantMessage->metadata['prioritize']['items'] ?? null)->toBeArray();
 });

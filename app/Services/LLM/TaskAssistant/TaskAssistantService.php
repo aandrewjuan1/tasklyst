@@ -3,14 +3,16 @@
 namespace App\Services\LLM\TaskAssistant;
 
 use App\Enums\MessageRole;
+use App\Enums\TaskComplexity;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
-use App\Services\LLM\Browse\TaskAssistantBrowseListingService;
+use App\Services\LLM\Browse\TaskAssistantListingSelectionService;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
-use App\Support\LLM\TaskAssistantBrowseDefaults;
+use App\Support\LLM\TaskAssistantListingDefaults;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
@@ -41,9 +43,10 @@ final class TaskAssistantService
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
         private readonly TaskAssistantConversationStateService $conversationState,
+        private readonly TaskAssistantGeneralGuidanceService $generalGuidanceService,
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
-        private readonly TaskAssistantBrowseListingService $browseListingService,
+        private readonly TaskAssistantListingSelectionService $listingSelectionService,
         private readonly TaskAssistantToolEventPersister $toolEventPersister,
     ) {}
 
@@ -86,11 +89,232 @@ final class TaskAssistantService
             ]);
 
             $content = (string) ($userMessage->content ?? '');
+
+            // If we previously asked a clarification question, resolve the implied
+            // branch and forced constraints from the user's answer.
+            $pendingClarification = $this->conversationState->pendingClarification($thread);
+            if ($pendingClarification !== null) {
+                $pendingTargetFlow = (string) ($pendingClarification['target_flow'] ?? '');
+                $reasonCodes = is_array($pendingClarification['reason_codes'] ?? null)
+                    ? $pendingClarification['reason_codes']
+                    : [];
+
+                $answer = mb_strtolower(trim($content));
+
+                $scheduleIntent = preg_match(
+                    '/\b(schedule|calendar|time\s*block|time\s*slot|time\s*blocking|plan\s*my\s*day|daily\s*plan|when\s*should\s*i\s*work)\b/i',
+                    $answer
+                ) === 1;
+
+                $freshPlanIntent = preg_match(
+                    '/\b(whole\s*day|entire\s*day|all\s*day|fresh\s*plan|new\s*plan|schedule\s*everything|plan\s*the\s*day)\b/i',
+                    $answer
+                ) === 1;
+
+                $selectedTasksIntent = preg_match(
+                    '/\b(those|them|these|selected|top\s*tasks|those\s*\d+|them\s*\d+)\b/i',
+                    $answer
+                ) === 1;
+
+                $forcedFlow = null;
+                $constraints = null;
+                $targetEntitiesOverride = null;
+
+                if ($pendingTargetFlow === 'prioritize') {
+                    if ($scheduleIntent) {
+                        $forcedFlow = 'schedule';
+                        $constraints = $this->routingPolicy->extractConstraintsForFlow(
+                            $thread,
+                            $content,
+                            $forcedFlow
+                        );
+
+                        // The question context implies "schedule them" refers to the
+                        // existing prioritize selection.
+                        $existingTargets = is_array($constraints['target_entities'] ?? null)
+                            ? $constraints['target_entities']
+                            : [];
+                        $selectedEntities = $this->conversationState->selectedEntities($thread);
+                        $targetEntitiesOverride = $existingTargets === [] && $selectedEntities !== []
+                            ? $selectedEntities
+                            : null;
+                    } else {
+                        $forcedFlow = 'prioritize';
+                        $constraints = $this->routingPolicy->extractConstraintsForFlow(
+                            $thread,
+                            $content,
+                            $forcedFlow
+                        );
+                    }
+                } elseif ($pendingTargetFlow === 'schedule') {
+                    $forcedFlow = 'schedule';
+                    $constraints = $this->routingPolicy->extractConstraintsForFlow(
+                        $thread,
+                        $content,
+                        $forcedFlow
+                    );
+
+                    if ($freshPlanIntent) {
+                        // "Fresh plan / whole day" means "don't schedule only the selected ones".
+                        $targetEntitiesOverride = [];
+                    } elseif ($selectedTasksIntent) {
+                        // "Selected tasks" means keep/derive targets from the previous selection.
+                        $existingTargets = is_array($constraints['target_entities'] ?? null)
+                            ? $constraints['target_entities']
+                            : [];
+                        $selectedEntities = $this->conversationState->selectedEntities($thread);
+                        $targetEntitiesOverride = $existingTargets === [] && $selectedEntities !== []
+                            ? $selectedEntities
+                            : null;
+                    } else {
+                        // Ambiguous answer: fall back to normal routing, but clear pending state
+                        // so we do not loop on every message.
+                        $this->conversationState->clearPendingClarification($thread);
+                        $pendingClarification = null;
+                    }
+                }
+
+                if ($pendingClarification !== null && $forcedFlow !== null && is_array($constraints)) {
+                    if (is_array($targetEntitiesOverride)) {
+                        $constraints['target_entities'] = $targetEntitiesOverride;
+                    }
+
+                    $minConfidence = 0.75;
+                    $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
+                    $timeWindowHint = is_string($constraints['time_window_hint'] ?? null)
+                        ? $constraints['time_window_hint']
+                        : null;
+                    $targetEntities = is_array($constraints['target_entities'] ?? null)
+                        ? $constraints['target_entities']
+                        : [];
+
+                    $finalConfidence = max($minConfidence, 0.85);
+                    $reasonCodes = array_values(array_unique(array_merge(
+                        $reasonCodes,
+                        ['clarification_enforced_'.$forcedFlow]
+                    )));
+
+                    $forcedPlan = new ExecutionPlan(
+                        flow: $forcedFlow,
+                        confidence: $finalConfidence,
+                        clarificationNeeded: false,
+                        clarificationQuestion: null,
+                        reasonCodes: $reasonCodes,
+                        constraints: $constraints,
+                        targetEntities: $targetEntities,
+                        timeWindowHint: $timeWindowHint,
+                        countLimit: $countLimit,
+                        generationProfile: $forcedFlow === 'schedule' ? 'schedule' : 'prioritize',
+                    );
+
+                    $this->conversationState->clearPendingClarification($thread);
+
+                    if ($forcedFlow === 'prioritize') {
+                        $this->runPrioritizeFlow($thread, $assistantMessage, $content, $forcedPlan);
+
+                        return;
+                    }
+
+                    $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $forcedPlan);
+
+                    return;
+                }
+            }
+
+            // If we previously asked a guidance question, resolve prioritize vs
+            // schedule from the user's answer, instead of re-running normal routing.
+            $pending = $this->conversationState->pendingGeneralGuidance($thread);
+            if ($pending !== null) {
+                $targetResolution = $this->generalGuidanceService->resolveTargetFromAnswer(
+                    $thread->user,
+                    $pending['clarifying_question'],
+                    $content
+                );
+
+                $minConfidence = 0.55;
+                $target = (string) ($targetResolution['target'] ?? 'either');
+                $confidence = (float) ($targetResolution['confidence'] ?? 0.0);
+
+                $decisionForTarget = $target !== 'either' && $confidence >= $minConfidence;
+                if (! $decisionForTarget) {
+                    $this->runGeneralGuidanceFlow(
+                        thread: $thread,
+                        assistantMessage: $assistantMessage,
+                        userMessage: $pending['initial_user_message'],
+                        plan: new ExecutionPlan(
+                            flow: 'general_guidance',
+                            confidence: $confidence,
+                            clarificationNeeded: false,
+                            clarificationQuestion: null,
+                            reasonCodes: $pending['reason_codes'],
+                            constraints: [],
+                            targetEntities: [],
+                            timeWindowHint: null,
+                            countLimit: 3,
+                            generationProfile: 'general_guidance',
+                        ),
+                        forcedClarifyingQuestion: $pending['clarifying_question'],
+                    );
+
+                    return;
+                }
+
+                $forcedFlow = $target === 'schedule' ? 'schedule' : 'prioritize';
+
+                // Extract constraints for the forced flow. We do not want a second
+                // "full routing decision" that could disagree with the guidance target.
+                $constraints = $this->routingPolicy->extractConstraintsForFlow(
+                    $thread,
+                    $content,
+                    $forcedFlow
+                );
+                $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
+                $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;
+                $targetEntities = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
+
+                $finalConfidence = $confidence;
+                $reasonCodes = array_values(array_unique(array_merge(
+                    $pending['reason_codes'],
+                    ['general_guidance_target_'.$forcedFlow],
+                )));
+
+                $forcedPlan = new ExecutionPlan(
+                    flow: $forcedFlow,
+                    confidence: $finalConfidence,
+                    clarificationNeeded: false,
+                    clarificationQuestion: null,
+                    reasonCodes: $reasonCodes,
+                    constraints: $constraints,
+                    targetEntities: $targetEntities,
+                    timeWindowHint: $timeWindowHint,
+                    countLimit: $countLimit,
+                    generationProfile: $forcedFlow === 'schedule' ? 'schedule' : 'prioritize',
+                );
+
+                $this->conversationState->clearPendingGeneralGuidance($thread);
+
+                if ($forcedFlow === 'prioritize') {
+                    $this->runPrioritizeFlow($thread, $assistantMessage, $content, $forcedPlan);
+
+                    return;
+                }
+
+                $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $forcedPlan);
+
+                return;
+            }
+
             $plan = $this->buildExecutionPlan($thread, $content);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
 
             if ($plan->clarificationNeeded) {
                 $this->runClarificationFlow($thread, $assistantMessage, $plan);
+
+                return;
+            }
+
+            if ($plan->flow === 'general_guidance') {
+                $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
 
                 return;
             }
@@ -103,12 +327,6 @@ final class TaskAssistantService
 
             if ($plan->flow === 'schedule') {
                 $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $plan);
-
-                return;
-            }
-
-            if ($plan->flow === 'browse') {
-                $this->runBrowseFlow($thread, $userMessage, $assistantMessage, $content, $plan);
 
                 return;
             }
@@ -130,58 +348,137 @@ final class TaskAssistantService
             'count_limit' => $plan->countLimit,
         ]);
 
-        $snapshot = $this->snapshotService->buildForUser($thread->user, 100);
         $context = $this->constraintsExtractor->extract($content);
-        $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
-        $limit = $plan->countLimit;
-        $items = array_slice($ranked, 0, $limit);
+        $prioritizeTaskListMode = $this->shouldUsePrioritizeTaskListMode($plan, $content);
 
-        $selected = [];
-        foreach ($items as $item) {
-            if (! is_array($item)) {
-                continue;
+        $items = [];
+        $prioritizeData = [];
+
+        if ($prioritizeTaskListMode) {
+            $taskLimit = max(1, (int) config('task-assistant.listing.snapshot_task_limit', 200));
+            $snapshot = $this->snapshotService->buildForUser($thread->user, $taskLimit);
+            $selection = $this->listingSelectionService->build($content, $snapshot, $plan->countLimit);
+            $items = $selection['items'];
+
+            $promptData = $this->promptData->forUser($thread->user);
+            $promptData['snapshot'] = $snapshot;
+            $promptData['route_context'] = (string) config('task-assistant.listing_route_context', '');
+
+            if ($items === []) {
+                $fallbacks = TaskAssistantHybridNarrativeService::prioritizeListingNarrativeFallbacks();
+                $emptyReasoning = trim((string) $selection['deterministic_summary']);
+                $prioritizeData = [
+                    'items' => [],
+                    'limit_used' => 0,
+                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning(
+                        $emptyReasoning !== ''
+                            ? $emptyReasoning
+                            : TaskAssistantListingDefaults::reasoningWhenEmpty()
+                    ),
+                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance(
+                        $fallbacks['suggested_guidance']
+                    ),
+                ];
+            } else {
+                $narrative = $this->hybridNarrative->refinePrioritizeListing(
+                    $promptData,
+                    $content,
+                    $items,
+                    $selection['deterministic_summary'],
+                    $selection['filter_context_for_prompt'],
+                    $selection['ambiguous'],
+                    $thread->id,
+                    $thread->user_id,
+                );
+
+                $prioritizeData = [
+                    'items' => $items,
+                    'limit_used' => count($items),
+                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $narrative['reasoning']),
+                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance((string) $narrative['suggested_guidance']),
+                ];
             }
-            $type = (string) ($item['type'] ?? 'task');
-            $id = (int) ($item['id'] ?? 0);
-            $title = (string) ($item['title'] ?? 'Untitled');
-            if ($id <= 0) {
-                continue;
+        } else {
+            $snapshot = $this->snapshotService->buildForUser($thread->user, 100);
+            $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+            $now = CarbonImmutable::now($timezone);
+
+            $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
+            $itemsRaw = array_slice($ranked, 0, $plan->countLimit);
+
+            foreach ($itemsRaw as $candidate) {
+                if (! is_array($candidate)) {
+                    continue;
+                }
+
+                $type = (string) ($candidate['type'] ?? 'task');
+                $id = (int) ($candidate['id'] ?? 0);
+                $title = (string) ($candidate['title'] ?? 'Untitled');
+                if ($id <= 0 || trim($title) === '') {
+                    continue;
+                }
+
+                $raw = is_array($candidate['raw'] ?? null) ? $candidate['raw'] : [];
+
+                if ($type === 'task') {
+                    $items[] = $this->buildPrioritizeListingTaskRowFromRawTask($raw, $id, $title, $now, $timezone);
+
+                    continue;
+                }
+
+                $items[] = [
+                    'entity_type' => $type,
+                    'entity_id' => $id,
+                    'title' => $title,
+                ];
             }
-            $reason = trim((string) ($item['reasoning'] ?? 'High relevance based on deadline and priority.'));
-            $selected[] = [
-                'entity_type' => $type,
-                'entity_id' => $id,
-                'title' => $title,
-                'reason' => $reason,
-            ];
+
+            $promptData = $this->promptData->forUser($thread->user);
+            $promptData['snapshot'] = $snapshot;
+            $promptData['route_context'] = (string) config('task-assistant.listing_route_context', '');
+
+            $ambiguous = false;
+            $deterministicSummary = $this->buildPrioritizeListingDeterministicSummary(count($items), $ambiguous);
+            $filterContextForPrompt = $this->buildPrioritizeListingFilterContextForPrompt($ambiguous, $context);
+
+            if ($items === []) {
+                $fallbacks = TaskAssistantHybridNarrativeService::prioritizeListingNarrativeFallbacks();
+                $emptyReasoning = trim((string) $deterministicSummary);
+                $prioritizeData = [
+                    'items' => [],
+                    'limit_used' => 0,
+                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning(
+                        $emptyReasoning !== ''
+                            ? $emptyReasoning
+                            : TaskAssistantListingDefaults::reasoningWhenEmpty()
+                    ),
+                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance(
+                        $fallbacks['suggested_guidance']
+                    ),
+                ];
+            } else {
+                $narrative = $this->hybridNarrative->refinePrioritizeListing(
+                    $promptData,
+                    $content,
+                    $items,
+                    $deterministicSummary,
+                    $filterContextForPrompt,
+                    $ambiguous,
+                    $thread->id,
+                    $thread->user_id,
+                );
+
+                $prioritizeData = [
+                    'items' => $items,
+                    'limit_used' => count($items),
+                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $narrative['reasoning']),
+                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance((string) $narrative['suggested_guidance']),
+                ];
+            }
         }
 
-        $promptData = $this->promptData->forUser($thread->user);
-        $promptData['snapshot'] = $snapshot;
-
-        $deterministicSummary = 'Here are your top '.max(1, $limit).' priorities:';
-
-        $narrative = $this->hybridNarrative->refinePrioritize(
-            $promptData,
-            $content,
-            $selected,
-            $deterministicSummary,
-            $thread->id,
-            $thread->user_id,
-        );
-
-        $prioritizeData = [
-            'summary' => $narrative['summary'],
-            'items' => $selected,
-            'limit_used' => count($selected),
-            'reasoning' => $narrative['reasoning'],
-            'assistant_note' => $narrative['assistant_note'],
-            'strategy_points' => $narrative['strategy_points'],
-            'suggested_next_steps' => $narrative['suggested_next_steps'],
-            'assumptions' => $narrative['assumptions'],
-        ];
         $generationResult = [
-            'valid' => $selected !== [],
+            'valid' => true,
             'data' => $prioritizeData,
             'errors' => [],
         ];
@@ -192,21 +489,18 @@ final class TaskAssistantService
             thread: $thread,
             assistantMessage: $assistantMessage,
             generationResult: $generationResult,
-            assistantFallbackContent: 'I could not prioritize your items yet. Please ask me to list your top tasks again.'
+            assistantFallbackContent: 'I could not build a task list yet. Try again with a bit more detail.'
         );
 
-        if ($selected !== []) {
-            $selectedForState = array_map(static fn (array $entity): array => [
-                'entity_type' => (string) ($entity['entity_type'] ?? ''),
-                'entity_id' => (int) ($entity['entity_id'] ?? 0),
-                'title' => (string) ($entity['title'] ?? ''),
-            ], $selected);
+        if ($items === []) {
+            $this->conversationState->clearLastListing($thread);
+        } else {
             $this->conversationState->rememberLastListing(
                 $thread,
                 'prioritize',
-                $selectedForState,
+                $items,
                 $assistantMessage->id,
-                count($selectedForState)
+                count($items)
             );
         }
 
@@ -216,6 +510,163 @@ final class TaskAssistantService
             flow: 'prioritize',
             execution: $execution
         );
+    }
+
+    private function shouldUsePrioritizeTaskListMode(ExecutionPlan $plan, string $content): bool
+    {
+        if (preg_match('/\b(prioritize|focus)\b/i', $content) === 1) {
+            return false;
+        }
+
+        $msg = mb_strtolower(trim($content));
+
+        return (bool) preg_match('/\b(list|show|display|give me|what)\s+(all\s+)?(my\s+)?tasks?\b/i', $msg);
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function buildPrioritizeListingFilterContextForPrompt(bool $ambiguous, array $context): string
+    {
+        if ($ambiguous) {
+            return 'no strong filters; showing top-ranked tasks for now';
+        }
+
+        if (($context['domain_focus'] ?? null) === 'school') {
+            $parts = [];
+            if (($context['time_constraint'] ?? null) !== null) {
+                $parts[] = 'time: '.(string) $context['time_constraint'];
+            }
+            if (! empty($context['task_keywords'] ?? [])) {
+                $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
+            }
+            $domainLine = 'domain: school (subjects, teachers, and academic tags — not generic errands)';
+            if ($parts === []) {
+                return $domainLine;
+            }
+
+            return $domainLine.'; '.implode('; ', $parts);
+        }
+
+        if (($context['domain_focus'] ?? null) === 'chores') {
+            $parts = [];
+            if (($context['time_constraint'] ?? null) !== null) {
+                $parts[] = 'time: '.(string) $context['time_constraint'];
+            }
+            if (! empty($context['task_keywords'] ?? [])) {
+                $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
+            }
+            $domainLine = 'domain: chores / household (prefers recurring when available)';
+            if ($parts === []) {
+                return $domainLine;
+            }
+
+            return $domainLine.'; '.implode('; ', $parts);
+        }
+
+        $parts = [];
+        if (! empty($context['recurring_requested'])) {
+            $parts[] = 'recurring tasks only';
+        }
+        if (($context['time_constraint'] ?? null) !== null) {
+            $parts[] = 'time: '.(string) $context['time_constraint'];
+        }
+        if (! empty($context['priority_filters'] ?? [])) {
+            $parts[] = 'priority: '.implode(',', $context['priority_filters']);
+        }
+        if (! empty($context['task_keywords'] ?? [])) {
+            $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
+        }
+
+        return $parts === []
+            ? 'all matching tasks in your list (ranked by urgency)'
+            : implode('; ', $parts);
+    }
+
+    private function buildPrioritizeListingDeterministicSummary(int $count, bool $ambiguous): string
+    {
+        if ($count === 0) {
+            return 'No tasks matched your request.';
+        }
+
+        if ($ambiguous) {
+            return 'Here are '.$count.' tasks from your list, ordered by urgency and due dates:';
+        }
+
+        return 'Found '.$count.' task(s).';
+    }
+
+    /**
+     * @param  array<string, mixed>  $rawTask
+     * @return array<string, mixed>
+     */
+    private function buildPrioritizeListingTaskRowFromRawTask(array $rawTask, int $id, string $title, CarbonImmutable $now, string $timezone): array
+    {
+        $dueBucket = 'no_deadline';
+        $dueOn = '—';
+        $duePhrase = 'no due date';
+
+        $deadline = null;
+        if (isset($rawTask['ends_at']) && $rawTask['ends_at'] !== null && trim((string) $rawTask['ends_at']) !== '') {
+            try {
+                $deadline = CarbonImmutable::parse((string) $rawTask['ends_at'], $timezone);
+            } catch (\Throwable) {
+                $deadline = null;
+            }
+        }
+
+        if ($deadline !== null) {
+            $startOfToday = $now->startOfDay();
+            if ($deadline->lt($startOfToday)) {
+                $dueBucket = 'overdue';
+            } elseif ($deadline->isSameDay($now)) {
+                $dueBucket = 'due_today';
+            } else {
+                $tomorrow = $now->addDay();
+                if ($deadline->isSameDay($tomorrow)) {
+                    $dueBucket = 'due_tomorrow';
+                } elseif ($deadline->lte($now->addDays(7))) {
+                    $dueBucket = 'due_this_week';
+                } else {
+                    $dueBucket = 'due_later';
+                }
+            }
+
+            $dueOn = $deadline
+                ->locale((string) config('app.locale', 'en'))
+                ->translatedFormat('M j, Y');
+
+            $duePhrase = match ($dueBucket) {
+                'overdue' => 'overdue',
+                'due_today' => 'due today',
+                'due_tomorrow' => 'due tomorrow',
+                'due_this_week' => 'due this week',
+                'due_later' => 'due later',
+                default => 'scheduled',
+            };
+        }
+
+        $priority = strtolower(trim((string) ($rawTask['priority'] ?? 'medium')));
+
+        $complexityRaw = $rawTask['complexity'] ?? null;
+        $complexityLabel = TaskAssistantListingDefaults::complexityNotSetLabel();
+        if (is_string($complexityRaw) && $complexityRaw !== '') {
+            $complexityEnum = TaskComplexity::tryFrom($complexityRaw);
+            if ($complexityEnum !== null) {
+                $complexityLabel = $complexityEnum->label();
+            }
+        }
+
+        return [
+            'entity_type' => 'task',
+            'entity_id' => $id,
+            'title' => $title,
+            'priority' => $priority,
+            'due_bucket' => $dueBucket,
+            'due_phrase' => $duePhrase,
+            'due_on' => $dueOn,
+            'complexity_label' => $complexityLabel,
+        ];
     }
 
     private function runScheduleFlow(
@@ -264,98 +715,6 @@ final class TaskAssistantService
             flow: 'schedule',
             execution: $execution
         );
-    }
-
-    private function runBrowseFlow(
-        TaskAssistantThread $thread,
-        TaskAssistantMessage $userMessage,
-        TaskAssistantMessage $assistantMessage,
-        string $content,
-        ExecutionPlan $plan,
-    ): void {
-        Log::info('task-assistant.flow', [
-            'layer' => 'flow',
-            'flow' => 'browse',
-            'thread_id' => $thread->id,
-            'assistant_message_id' => $assistantMessage->id,
-        ]);
-
-        $taskLimit = max(1, (int) config('task-assistant.browse.snapshot_task_limit', 200));
-        $snapshot = $this->snapshotService->buildForUser($thread->user, $taskLimit);
-        $selection = $this->browseListingService->build($content, $snapshot);
-        $items = $selection['items'];
-
-        $promptData = $this->promptData->forUser($thread->user);
-        $promptData['snapshot'] = $snapshot;
-        $promptData['route_context'] = (string) config('task-assistant.browse_route_context', '');
-
-        if ($items === []) {
-            $fallbacks = TaskAssistantHybridNarrativeService::browseNarrativeFallbacks();
-            $emptyReasoning = trim((string) $selection['deterministic_summary']);
-            $browseData = [
-                'items' => [],
-                'limit_used' => 0,
-                'reasoning' => TaskAssistantBrowseDefaults::clampBrowseReasoning(
-                    $emptyReasoning !== ''
-                        ? $emptyReasoning
-                        : TaskAssistantBrowseDefaults::reasoningWhenEmpty()
-                ),
-                'suggested_guidance' => TaskAssistantBrowseDefaults::clampBrowseSuggestedGuidance(
-                    $fallbacks['suggested_guidance']
-                ),
-            ];
-        } else {
-            $narrative = $this->hybridNarrative->refineBrowseListing(
-                $promptData,
-                $content,
-                $items,
-                $selection['deterministic_summary'],
-                $selection['filter_context_for_prompt'],
-                $selection['ambiguous'],
-                $thread->id,
-                $thread->user_id,
-            );
-
-            $browseData = [
-                'items' => $items,
-                'limit_used' => count($items),
-                'reasoning' => TaskAssistantBrowseDefaults::clampBrowseReasoning((string) $narrative['reasoning']),
-                'suggested_guidance' => TaskAssistantBrowseDefaults::clampBrowseSuggestedGuidance((string) $narrative['suggested_guidance']),
-            ];
-        }
-
-        $generationResult = [
-            'valid' => true,
-            'data' => $browseData,
-            'errors' => [],
-        ];
-
-        $execution = $this->flowExecutionEngine->executeStructuredFlow(
-            flow: 'browse',
-            metadataKey: 'browse',
-            thread: $thread,
-            assistantMessage: $assistantMessage,
-            generationResult: $generationResult,
-            assistantFallbackContent: 'I could not build a task list yet. Try again with a bit more detail.',
-        );
-
-        $this->streamFlowEnvelope(
-            thread: $thread,
-            assistantMessage: $assistantMessage,
-            flow: 'browse',
-            execution: $execution
-        );
-
-        if ($items === []) {
-            $this->conversationState->clearLastListing($thread);
-        } else {
-            $this->conversationState->rememberLastListing(
-                $thread,
-                'browse',
-                $items,
-                $assistantMessage->id,
-            );
-        }
     }
 
     private function runChatFlow(
@@ -457,6 +816,67 @@ final class TaskAssistantService
             assistantMessageId: $assistantMessage->id,
             ok: false,
         ));
+    }
+
+    private function runGeneralGuidanceFlow(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $assistantMessage,
+        string $userMessage,
+        ExecutionPlan $plan,
+        ?string $forcedClarifyingQuestion = null
+    ): void {
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'general_guidance',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+        ]);
+
+        $guidance = $this->generalGuidanceService->generateGeneralGuidance(
+            user: $thread->user,
+            userMessage: $userMessage,
+            forcedClarifyingQuestion: $forcedClarifyingQuestion
+        );
+
+        $generationResult = [
+            'valid' => true,
+            'data' => [
+                'message' => (string) ($guidance['message'] ?? ''),
+                'clarifying_question' => (string) ($guidance['clarifying_question'] ?? ''),
+                'redirect_target' => (string) ($guidance['redirect_target'] ?? 'either'),
+                'suggested_replies' => is_array($guidance['suggested_replies'] ?? null)
+                    ? $guidance['suggested_replies']
+                    : null,
+            ],
+            'errors' => [],
+        ];
+
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
+            flow: 'general_guidance',
+            metadataKey: 'general_guidance',
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            generationResult: $generationResult,
+            assistantFallbackContent: 'I can help—what would you like to do first?',
+        );
+
+        // Store pending guidance for the next user message.
+        $clarifyingQuestion = (string) ($guidance['clarifying_question'] ?? '');
+        if ($clarifyingQuestion !== '') {
+            $this->conversationState->rememberPendingGeneralGuidance(
+                $thread,
+                $userMessage,
+                $clarifyingQuestion,
+                $plan->reasonCodes
+            );
+        }
+
+        $this->streamFlowEnvelope(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            flow: 'general_guidance',
+            execution: $execution
+        );
     }
 
     /**
@@ -679,7 +1099,7 @@ final class TaskAssistantService
     {
         $decision = $this->routingPolicy->decide($thread, $content);
         $constraints = $decision->constraints;
-        $flow = in_array($decision->flow, ['chat', 'browse', 'prioritize', 'schedule'], true) ? $decision->flow : 'chat';
+        $flow = in_array($decision->flow, ['chat', 'prioritize', 'schedule', 'general_guidance'], true) ? $decision->flow : 'chat';
         $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
         $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;
         $targetEntities = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
@@ -687,7 +1107,7 @@ final class TaskAssistantService
         $generationProfile = match ($flow) {
             'schedule' => 'schedule',
             'prioritize' => 'prioritize',
-            'browse' => 'browse',
+            'general_guidance' => 'general_guidance',
             default => 'chat',
         };
 

@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Deterministic scheduling context extracted from the user message (no LLM).
- * Delegates shared signals to {@see TaskAssistantTaskChoiceConstraintsExtractor} so schedule matches prioritize/browse.
+ * Delegates shared signals to {@see TaskAssistantTaskChoiceConstraintsExtractor} so scheduling matches prioritize ranking context.
  * {@see TaskAssistantScheduleHorizonResolver} sets which calendar day(s) to search; task-level time filters
  * (e.g. due today) remain on {@see TaskAssistantTaskChoiceConstraintsExtractor} output.
  * Output shape matches {@see TaskAssistantStructuredFlowGenerator::applyContextToSnapshot} expectations.

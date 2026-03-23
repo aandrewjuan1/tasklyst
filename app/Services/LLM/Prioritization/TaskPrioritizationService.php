@@ -529,15 +529,15 @@ final class TaskPrioritizationService
             }
         }
 
-        $browseDomain = $context['browse_domain'] ?? null;
+        $domainFocus = $context['domain_focus'] ?? null;
 
-        if ($browseDomain === 'school') {
+        if ($domainFocus === 'school') {
             $filtered = $filtered->filter(function (array $task): bool {
                 return $this->taskMatchesSchoolAcademicContext($task);
             });
         }
 
-        if ($browseDomain === 'chores') {
+        if ($domainFocus === 'chores') {
             $filtered = $filtered->filter(function (array $task): bool {
                 return $this->taskMatchesChoreDomain($task);
             });
@@ -648,7 +648,7 @@ final class TaskPrioritizationService
     }
 
     /**
-     * Filter tasks by the same time rules used for prioritization/browse.
+     * Filter tasks by the same time rules used for prioritization.
      *
      * @param  array<int, array<string, mixed>>  $tasks
      * @return array<int, array<string, mixed>>
@@ -815,7 +815,7 @@ final class TaskPrioritizationService
     }
 
     /**
-     * School browse domain: subjects, teachers, or academic tags — not generic "school" in titles.
+     * School domain: subjects, teachers, or academic tags — not generic "school" in titles.
      */
     private function taskMatchesSchoolAcademicContext(array $task): bool
     {
@@ -834,7 +834,7 @@ final class TaskPrioritizationService
         }
 
         $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
-        $academicTags = config('task-assistant.browse.school_academic_tag_keywords', []);
+        $academicTags = config('task-assistant.listing.school_academic_tag_keywords', []);
         foreach ($tags as $tag) {
             $t = strtolower((string) $tag);
             foreach ($academicTags as $ac) {
@@ -854,7 +854,7 @@ final class TaskPrioritizationService
     private function taskTitleMatchesSchoolExclusionPatterns(array $task): bool
     {
         $title = (string) ($task['title'] ?? '');
-        $patterns = config('task-assistant.browse.school_exclusion_title_patterns', []);
+        $patterns = config('task-assistant.listing.school_exclusion_title_patterns', []);
         if (! is_array($patterns)) {
             return false;
         }
@@ -868,7 +868,7 @@ final class TaskPrioritizationService
     }
 
     /**
-     * Chores browse domain: household/errand-style work; recurring instances preferred when present.
+     * Chores domain: household/errand-style work; recurring instances preferred when present.
      */
     private function taskMatchesChoreDomain(array $task): bool
     {
@@ -894,7 +894,7 @@ final class TaskPrioritizationService
 
     private function taskHasChoreIndicatorTag(array $task): bool
     {
-        $choreTags = config('task-assistant.browse.chore_indicator_tags', []);
+        $choreTags = config('task-assistant.listing.chore_indicator_tags', []);
         $tags = is_array($task['tags'] ?? null) ? $task['tags'] : [];
         foreach ($tags as $tag) {
             $t = strtolower((string) $tag);

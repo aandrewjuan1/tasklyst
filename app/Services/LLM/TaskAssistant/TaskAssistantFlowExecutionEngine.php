@@ -120,7 +120,7 @@ final class TaskAssistantFlowExecutionEngine
     {
         $summary = ['flow' => $flow];
 
-        if ($flow === 'prioritize' || $flow === 'browse') {
+        if ($flow === 'prioritize') {
             $items = $payload['items'] ?? [];
             $summary['items_count'] = is_array($items) ? count($items) : 0;
             $summary['limit_used'] = $payload['limit_used'] ?? null;
