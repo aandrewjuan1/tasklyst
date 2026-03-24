@@ -403,3 +403,33 @@ test('chat flyout stops previous active assistant run when sending a new prompt'
     $previousAssistant->refresh();
     expect(data_get($previousAssistant->metadata, 'stream.status'))->toBe('stopped');
 });
+
+test('chat flyout new chat stops active processing run before switching thread', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $component = Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'Active run message')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true);
+
+    $oldThreadId = (int) data_get($component->get('thread'), 'id', 0);
+    $oldThread = TaskAssistantThread::query()->findOrFail($oldThreadId);
+    $activeAssistant = $oldThread->messages()
+        ->where('role', \App\Enums\MessageRole::Assistant)
+        ->latest('id')
+        ->first();
+    expect($activeAssistant)->not->toBeNull();
+
+    $component
+        ->call('startNewChat')
+        ->assertSet('isStreaming', false);
+
+    $oldThread->refresh();
+    $activeAssistant?->refresh();
+
+    expect(data_get($activeAssistant?->metadata, 'stream.status'))->toBe('stopped');
+    expect(data_get($oldThread->metadata, 'stream.processing'))->toBeNull();
+});

@@ -54,6 +54,8 @@ new class extends Component
             return;
         }
 
+        $this->stopActiveStreamingRun();
+
         $existingEmptyThread = $user->taskAssistantThreads()
             ->whereDoesntHave('messages')
             ->latest('id')
@@ -746,6 +748,27 @@ new class extends Component
                     'metadata' => $metadata,
                 ]);
         }
+    }
+
+    private function stopActiveStreamingRun(): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        $assistantMessageId = $this->streamingMessageId
+            ?? (int) data_get($this->thread->metadata, 'stream.processing.assistant_message_id', 0);
+
+        if ($assistantMessageId <= 0) {
+            return;
+        }
+
+        $this->markMessageAsStopped($assistantMessageId);
+        $this->clearThreadProcessingState();
+        $this->isStreaming = false;
+        $this->showWorking = false;
+        $this->streamingContent = '';
+        $this->streamingMessageId = null;
     }
 
 };
