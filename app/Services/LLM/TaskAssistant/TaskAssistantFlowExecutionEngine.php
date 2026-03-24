@@ -40,6 +40,26 @@ final class TaskAssistantFlowExecutionEngine
         array $generationResult,
         string $assistantFallbackContent
     ): array {
+        if ($this->isStopped($assistantMessage)) {
+            Log::info('task-assistant.flow_execution', [
+                'layer' => 'flow_execution',
+                'flow' => $flow,
+                'metadata_key' => $metadataKey,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'skipped_due_to_stopped' => true,
+            ]);
+
+            return [
+                'final_valid' => false,
+                'assistant_content' => '',
+                'structured_data' => [],
+                'merged_errors' => ['cancelled'],
+                'processed_valid' => false,
+                'processed_errors' => ['cancelled'],
+            ];
+        }
+
         $snapshot = $this->snapshotService->buildForUser($thread->user);
 
         $toolCalls = $generationResult['tool_calls'] ?? [];
@@ -78,6 +98,26 @@ final class TaskAssistantFlowExecutionEngine
             ? (string) ($processedResponse['formatted_content'] ?? '')
             : $assistantFallbackContent;
 
+        if ($this->isStopped($assistantMessage)) {
+            Log::info('task-assistant.flow_execution', [
+                'layer' => 'flow_execution',
+                'flow' => $flow,
+                'metadata_key' => $metadataKey,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'skipped_write_due_to_stopped' => true,
+            ]);
+
+            return [
+                'final_valid' => false,
+                'assistant_content' => '',
+                'structured_data' => [],
+                'merged_errors' => ['cancelled'],
+                'processed_valid' => false,
+                'processed_errors' => ['cancelled'],
+            ];
+        }
+
         $assistantMessage->update([
             'content' => $assistantContent,
             'metadata' => array_merge($assistantMessage->metadata ?? [], [
@@ -110,6 +150,20 @@ final class TaskAssistantFlowExecutionEngine
             'processed_valid' => $processedValid,
             'processed_errors' => $processedResponse['errors'] ?? [],
         ];
+    }
+
+    private function isStopped(TaskAssistantMessage $assistantMessage): bool
+    {
+        $fresh = TaskAssistantMessage::query()
+            ->whereKey($assistantMessage->id)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if (! $fresh) {
+            return false;
+        }
+
+        return data_get($fresh->metadata, 'stream.status') === 'stopped';
     }
 
     /**

@@ -37,8 +37,23 @@ test('chat flyout component dispatches job on submit', function () {
         ->assertSet('isStreaming', true);
 
     Bus::assertDispatched(BroadcastTaskAssistantStreamJob::class, function (BroadcastTaskAssistantStreamJob $job) use ($user) {
-        return $job->userId === $user->id;
+        return $job->userId === $user->id
+            && $job->queue === config('task-assistant.queue', 'task-assistant');
     });
+});
+
+test('chat flyout shows loading spinner text while streaming and no reconnect hint', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'Please help me plan my day')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true)
+        ->assertSee('Thinking...')
+        ->assertDontSee('Reconnecting to assistant...');
 });
 
 test('chat flyout rate limits rapid submissions per user', function () {
@@ -190,4 +205,201 @@ test('chat flyout can accept a task schedule proposal item and apply updates', f
     expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.0.status'))->toBe('accepted');
     expect($task->duration)->toBe(90);
     expect($task->start_datetime?->toIso8601String())->toContain($startAt->format('Y-m-d\TH'));
+});
+
+test('chat flyout restores streaming state from persisted thread metadata after reload', function () {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'stream' => [
+                'processing' => [
+                    'active' => true,
+                    'assistant_message_id' => 0,
+                    'started_at' => now()->toIso8601String(),
+                ],
+            ],
+        ],
+    ]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'What should I do first?',
+    ]);
+    $assistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [],
+    ]);
+
+    $metadata = $thread->metadata ?? [];
+    data_set($metadata, 'stream.processing.assistant_message_id', $assistant->id);
+    $thread->update(['metadata' => $metadata]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', true)
+        ->assertSet('streamingMessageId', $assistant->id)
+        ->assertSee('Thinking...');
+});
+
+test('chat flyout can request stop and marks assistant message as stopped', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $component = Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'Help me plan this afternoon')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true)
+        ->assertSee('Stop generation')
+        ->call('requestStopStreaming')
+        ->assertSet('isStreaming', false)
+        ->assertDontSee('Stop generation');
+
+    $threadId = (int) data_get($component->get('thread'), 'id', 0);
+    expect($threadId)->toBeGreaterThan(0);
+
+    $thread = TaskAssistantThread::query()->findOrFail($threadId);
+    $assistantMessage = $thread->messages()
+        ->where('role', \App\Enums\MessageRole::Assistant)
+        ->latest('id')
+        ->first();
+
+    expect($assistantMessage)->not->toBeNull();
+    expect(data_get($assistantMessage?->metadata, 'stream.status'))->toBe('stopped');
+    expect((string) ($assistantMessage?->content ?? ''))->toBe('');
+    expect(data_get($thread->metadata, 'stream.processing'))->toBeNull();
+});
+
+test('chat flyout shows stopped label for stopped assistant message', function () {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'Please help me plan',
+    ]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [
+            'stream' => [
+                'status' => 'stopped',
+                'stopped_at' => now()->toIso8601String(),
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSee('Stopped');
+});
+
+test('chat flyout does not append late deltas after stop request', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'Draft my plan')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true)
+        ->call('requestStopStreaming')
+        ->assertSet('isStreaming', false)
+        ->dispatch('echo-private:task-assistant.user.'.$user->id.',.json_delta', [
+            'assistant_message_id' => 999999,
+            'delta' => 'late text',
+        ])
+        ->assertSet('streamingContent', '')
+        ->assertDontSee('late text');
+});
+
+test('chat flyout ignores stream end for a different assistant message id', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'First')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', true)
+        ->dispatch('echo-private:task-assistant.user.'.$user->id.',.stream_end', [
+            'assistant_message_id' => 999999,
+        ])
+        ->assertSet('isStreaming', true);
+});
+
+test('chat flyout does not rehydrate loading state for stopped message on reload', function () {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'stream' => [
+                'processing' => [
+                    'active' => true,
+                    'assistant_message_id' => 0,
+                    'started_at' => now()->toIso8601String(),
+                ],
+            ],
+        ],
+    ]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $assistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [
+            'stream' => [
+                'status' => 'stopped',
+                'stopped_at' => now()->toIso8601String(),
+            ],
+        ],
+    ]);
+
+    $metadata = $thread->metadata ?? [];
+    data_set($metadata, 'stream.processing.assistant_message_id', $assistant->id);
+    $thread->update(['metadata' => $metadata]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false);
+
+    $thread->refresh();
+    expect(data_get($thread->metadata, 'stream.processing'))->toBeNull();
+});
+
+test('chat flyout stops previous active assistant run when sending a new prompt', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $previousAssistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->set('newMessage', 'Start new prompt')
+        ->call('submitMessage');
+
+    $previousAssistant->refresh();
+    expect(data_get($previousAssistant->metadata, 'stream.status'))->toBe('stopped');
 });

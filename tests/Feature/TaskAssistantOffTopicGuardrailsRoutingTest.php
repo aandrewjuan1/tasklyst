@@ -21,8 +21,7 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'off_topic',
-                'acknowledgement' => 'Thanks for sharing your question.',
-                'message' => "I can't help with that topic. I'm a task assistant.",
+                'response' => "Thanks for sharing your question. I can't help with that topic. I'm a task assistant.",
                 'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next.',
                 'redirect_target' => 'either',
                 'suggested_replies' => [

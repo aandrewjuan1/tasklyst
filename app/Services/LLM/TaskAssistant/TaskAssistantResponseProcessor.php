@@ -25,6 +25,10 @@ final class TaskAssistantResponseProcessor
         array $data,
         array $snapshot = [],
     ): array {
+        if ($flow === 'general_guidance') {
+            $data = $this->normalizeGeneralGuidanceDataShape($data);
+        }
+
         $validation = $this->validateFlowData($flow, $data, $snapshot);
         $formattedContent = $this->messageFormatter->format($flow, $data, $snapshot);
 
@@ -74,7 +78,7 @@ final class TaskAssistantResponseProcessor
     }
 
     /**
-     * General guidance payload: empathetic message + one clarifying question.
+     * General guidance payload: unified response + next-step guidance + optional clarifier.
      *
      * @param  array<string, mixed>  $data
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
@@ -85,8 +89,7 @@ final class TaskAssistantResponseProcessor
 
         $rules = [
             'guidance_mode' => ['required', 'string', 'in:friendly_general,gibberish_unclear,off_topic'],
-            'acknowledgement' => ['required', 'string', 'min:1', 'max:260'],
-            'message' => ['required', 'string', 'min:1', 'max:500'],
+            'response' => ['required', 'string', 'min:1', 'max:760'],
             'next_step_guidance' => ['required', 'string', 'min:20', 'max:360'],
             'clarifying_question' => ['nullable', 'string', 'min:5', 'max:220'],
             'redirect_target' => ['nullable', 'string', 'in:prioritize,schedule,either'],
@@ -98,7 +101,7 @@ final class TaskAssistantResponseProcessor
         $validator->after(function (ValidationValidator $validator) use ($mode, $data): void {
             $clarifyingQuestion = trim((string) ($data['clarifying_question'] ?? ''));
             $redirectTarget = trim((string) ($data['redirect_target'] ?? ''));
-            $message = (string) ($data['message'] ?? '');
+            $response = (string) ($data['response'] ?? '');
 
             if ($mode === 'friendly_general' && $clarifyingQuestion !== '') {
                 $validator->errors()->add('clarifying_question', 'clarifying_question must be empty for friendly_general mode.');
@@ -115,8 +118,8 @@ final class TaskAssistantResponseProcessor
             if ($mode !== 'off_topic' && $redirectTarget !== '') {
                 $validator->errors()->add('redirect_target', 'redirect_target is only allowed for off_topic mode.');
             }
-            if (str_contains($message, '?')) {
-                $validator->errors()->add('message', 'message must be declarative and must not include question marks.');
+            if (str_contains($response, '?')) {
+                $validator->errors()->add('response', 'response must be declarative and must not include question marks.');
             }
         });
 
@@ -135,6 +138,32 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * Backward compatibility: convert legacy acknowledgement+message payloads
+     * into the new single response field for validation and rendering.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeGeneralGuidanceDataShape(array $data): array
+    {
+        $response = trim((string) ($data['response'] ?? ''));
+        if ($response !== '') {
+            return $data;
+        }
+
+        $acknowledgement = trim((string) ($data['acknowledgement'] ?? ''));
+        $message = trim((string) ($data['message'] ?? ''));
+        $merged = trim($acknowledgement.' '.$message);
+        if ($merged === '') {
+            return $data;
+        }
+
+        $data['response'] = $merged;
+
+        return $data;
     }
 
     /**

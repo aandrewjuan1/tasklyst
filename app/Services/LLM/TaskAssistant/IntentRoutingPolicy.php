@@ -61,6 +61,24 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyGibberish($normalized)) {
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'thread_id' => $thread->id,
+                'outcome' => 'gibberish_shortcircuit_general_guidance',
+                'flow' => 'general_guidance',
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: 1.0,
+                reasonCodes: ['gibberish_shortcircuit_general_guidance'],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyGeneralAssistancePrompt($normalized)) {
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -318,5 +336,29 @@ final class IntentRoutingPolicy
             '/\b(current\s+time|time\s+now|time\s+right\s+now|what\s+time\s+is\s+it|what\s*\'?s\s+the\s+time|date\s+today|today\s*\'?s\s+date|what\s+date\s+is\s+it|what\s*\'?s\s+the\s+date)\b/u',
             $normalized
         );
+    }
+
+    private function isLikelyGibberish(string $normalized): bool
+    {
+        if ($normalized === '' || str_contains($normalized, ' ')) {
+            return false;
+        }
+
+        if (mb_strlen($normalized) < 9) {
+            return false;
+        }
+
+        if (preg_match('/^[a-z0-9]+$/u', $normalized) !== 1) {
+            return false;
+        }
+
+        $commonBigrams = ['th', 'he', 'in', 'er', 'an', 're', 'on', 'at', 'en', 'nd', 'ti', 'es', 'or', 'te', 'of'];
+        foreach ($commonBigrams as $bigram) {
+            if (mb_stripos($normalized, $bigram) !== false) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

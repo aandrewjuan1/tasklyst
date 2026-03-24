@@ -12,7 +12,10 @@ class TaskAssistantStreamEnd implements ShouldBroadcastNow
     use Dispatchable;
     use SerializesModels;
 
-    public function __construct(public int $userId) {}
+    public function __construct(
+        public int $userId,
+        public int $assistantMessageId,
+    ) {}
 
     public function broadcastOn(): PrivateChannel
     {
@@ -25,10 +28,12 @@ class TaskAssistantStreamEnd implements ShouldBroadcastNow
     }
 
     /**
-     * @return array<string, never>
+     * @return array{assistant_message_id: int}
      */
     public function broadcastWith(): array
     {
-        return [];
+        return [
+            'assistant_message_id' => $this->assistantMessageId,
+        ];
     }
 }

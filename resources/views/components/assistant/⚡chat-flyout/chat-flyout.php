@@ -44,6 +44,7 @@ new class extends Component
         $this->chatMessages = new Collection;
         $this->ensureThread();
         $this->loadMessages();
+        $this->syncStreamingStateFromPersistence();
     }
 
     public function startNewChat(): void
@@ -110,19 +111,55 @@ new class extends Component
     #[On('echo-private:task-assistant.user.{userId},.json_delta')]
     public function appendStreamingDelta(array $payload): void
     {
+        if (! $this->isStreaming || ! $this->streamingMessageId) {
+            return;
+        }
+
+        $assistantMessageId = (int) ($payload['assistant_message_id'] ?? 0);
+        if ($assistantMessageId <= 0 || $assistantMessageId !== $this->streamingMessageId) {
+            return;
+        }
+
         $delta = $payload['delta'] ?? '';
+        Log::debug('task-assistant.ui', [
+            'layer' => 'ui',
+            'stage' => 'echo_json_delta_received',
+            'user_id' => $this->userId,
+            'thread_id' => $this->thread?->id,
+            'streaming_message_id' => $this->streamingMessageId,
+            'is_streaming' => $this->isStreaming,
+            'delta_length' => is_string($delta) ? mb_strlen($delta) : 0,
+            'existing_streaming_content_length' => mb_strlen($this->streamingContent),
+        ]);
         if ($delta !== '') {
             $this->streamingContent .= $delta;
+            Log::debug('task-assistant.ui', [
+                'layer' => 'ui',
+                'stage' => 'echo_json_delta_appended',
+                'user_id' => $this->userId,
+                'thread_id' => $this->thread?->id,
+                'streaming_message_id' => $this->streamingMessageId,
+                'updated_streaming_content_length' => mb_strlen($this->streamingContent),
+            ]);
         }
     }
 
     #[On('echo-private:task-assistant.user.{userId},.stream_end')]
-    public function onStreamEnd(): void
+    public function onStreamEnd(array $payload): void
     {
+        $assistantMessageId = (int) ($payload['assistant_message_id'] ?? 0);
+        if ($assistantMessageId <= 0 || $assistantMessageId !== $this->streamingMessageId) {
+            return;
+        }
+
         Log::debug('task-assistant.ui', [
             'layer' => 'ui',
             'stage' => 'echo_stream_end',
             'user_id' => $this->userId,
+            'thread_id' => $this->thread?->id,
+            'streaming_message_id' => $this->streamingMessageId,
+            'streaming_content_length' => mb_strlen($this->streamingContent),
+            'is_streaming' => $this->isStreaming,
         ]);
 
         $this->refreshMessages();
@@ -177,6 +214,7 @@ new class extends Component
         session(['task_assistant.current_thread_id' => $this->thread->id]);
 
         $this->newMessage = '';
+        $this->cancelPreviousActiveAssistantRuns();
 
         // Always async: create messages then dispatch one job, which decides the flow and streams output.
         $userMessage = $this->thread->messages()->create([
@@ -193,6 +231,15 @@ new class extends Component
         $this->streamingMessageId = $assistantMessage->id;
         $this->streamingContent = '';
         $this->showWorking = false;
+        $this->markThreadProcessing($assistantMessage->id);
+        Log::debug('task-assistant.ui', [
+            'layer' => 'ui',
+            'stage' => 'streaming_state_initialized',
+            'user_id' => Auth::id(),
+            'thread_id' => $this->thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'is_streaming' => $this->isStreaming,
+        ]);
 
         Log::info('task-assistant.job.dispatch', [
             'layer' => 'ui',
@@ -207,7 +254,37 @@ new class extends Component
             $userMessage->id,
             $assistantMessage->id,
             (int) Auth::id(),
-        );
+        )->onQueue((string) config('task-assistant.queue', 'task-assistant'));
+    }
+
+    public function requestStopStreaming(): void
+    {
+        if (! $this->thread || ! $this->isStreaming || ! $this->streamingMessageId) {
+            return;
+        }
+
+        $assistantMessageId = $this->streamingMessageId;
+        $metadata = is_array($this->thread->metadata ?? null) ? $this->thread->metadata : [];
+        $processing = is_array(data_get($metadata, 'stream.processing'))
+            ? data_get($metadata, 'stream.processing')
+            : [];
+
+        data_set($processing, 'active', true);
+        data_set($processing, 'assistant_message_id', $assistantMessageId);
+        data_set($processing, 'cancel_requested', true);
+        data_set($processing, 'cancel_requested_at', now()->toIso8601String());
+        data_set($metadata, 'stream.processing', $processing);
+
+        $this->thread->update(['metadata' => $metadata]);
+        $this->thread->refresh();
+
+        $this->markMessageAsStopped($assistantMessageId);
+        $this->clearThreadProcessingState();
+        $this->isStreaming = false;
+        $this->showWorking = false;
+        $this->streamingContent = '';
+        $this->streamingMessageId = null;
+        $this->loadMessages();
     }
 
     private function ensureThread(): void
@@ -275,13 +352,38 @@ new class extends Component
             : collect();
     }
 
-    public function refreshMessages(): void
+    public function refreshMessages(bool $preserveStreamingState = false): void
     {
+        Log::debug('task-assistant.ui', [
+            'layer' => 'ui',
+            'stage' => 'refresh_messages_start',
+            'user_id' => $this->userId,
+            'thread_id' => $this->thread?->id,
+            'streaming_message_id' => $this->streamingMessageId,
+            'streaming_content_length' => mb_strlen($this->streamingContent),
+            'preserve_streaming_state' => $preserveStreamingState,
+        ]);
         $this->loadMessages();
-        $this->isStreaming = false;
-        $this->showWorking = false;
-        $this->streamingContent = '';
-        $this->streamingMessageId = null;
+
+        if (! $preserveStreamingState) {
+            $this->isStreaming = false;
+            $this->showWorking = false;
+            $this->streamingContent = '';
+            $this->streamingMessageId = null;
+            $this->clearThreadProcessingState();
+        } else {
+            $this->syncStreamingStateFromPersistence();
+        }
+
+        Log::debug('task-assistant.ui', [
+            'layer' => 'ui',
+            'stage' => 'refresh_messages_done',
+            'user_id' => $this->userId,
+            'thread_id' => $this->thread?->id,
+            'chat_messages_count' => $this->chatMessages->count(),
+            'is_streaming' => $this->isStreaming,
+            'streaming_message_id' => $this->streamingMessageId,
+        ]);
     }
 
     public function acceptScheduleProposalItem(int $assistantMessageId, string $proposalId): void
@@ -290,6 +392,8 @@ new class extends Component
             return;
         }
 
+        /** @var TaskAssistantMessage|null $message */
+        /** @var TaskAssistantMessage|null $message */
         $message = $this->thread->messages()
             ->where('id', $assistantMessageId)
             ->where('role', MessageRole::Assistant)
@@ -502,7 +606,146 @@ new class extends Component
         $items[$index]['status'] = $status;
         data_set($metadata, $path, $items);
 
-        $message->update(['metadata' => $metadata]);
+        TaskAssistantMessage::query()
+            ->whereKey($message->id)
+            ->update(['metadata' => $metadata]);
+    }
+
+    private function markThreadProcessing(int $assistantMessageId): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        $metadata = is_array($this->thread->metadata ?? null) ? $this->thread->metadata : [];
+        data_set($metadata, 'stream.processing', [
+            'active' => true,
+            'assistant_message_id' => $assistantMessageId,
+            'started_at' => now()->toIso8601String(),
+        ]);
+
+        $this->thread->update(['metadata' => $metadata]);
+        $this->thread->refresh();
+    }
+
+    private function clearThreadProcessingState(): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        $metadata = is_array($this->thread->metadata ?? null) ? $this->thread->metadata : [];
+        data_set($metadata, 'stream.processing', null);
+        data_set($metadata, 'stream.last_completed_at', now()->toIso8601String());
+
+        $this->thread->update(['metadata' => $metadata]);
+        $this->thread->refresh();
+    }
+
+    private function syncStreamingStateFromPersistence(): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        $processingState = data_get($this->thread->metadata, 'stream.processing');
+        $processingActive = (bool) data_get($processingState, 'active', false);
+        $processingMessageId = (int) data_get($processingState, 'assistant_message_id', 0);
+        $cancelRequested = (bool) data_get($processingState, 'cancel_requested', false);
+
+        if (! $processingActive || $processingMessageId <= 0 || $cancelRequested) {
+            return;
+        }
+
+        /** @var TaskAssistantMessage|null $message */
+        $message = $this->chatMessages->first(function ($item) use ($processingMessageId): bool {
+            return $item instanceof TaskAssistantMessage && $item->id === $processingMessageId;
+        });
+
+        if (! $message || $message->role !== MessageRole::Assistant) {
+            $this->clearThreadProcessingState();
+
+            return;
+        }
+
+        if (data_get($message->metadata, 'stream.status') === 'stopped') {
+            $this->clearThreadProcessingState();
+
+            return;
+        }
+
+        $hasFinalContent = trim((string) ($message->content ?? '')) !== '';
+        $isMarkedStreamed = (bool) data_get($message->metadata, 'streamed', false);
+        if ($hasFinalContent || $isMarkedStreamed) {
+            $this->clearThreadProcessingState();
+
+            return;
+        }
+
+        $this->isStreaming = true;
+        $this->streamingMessageId = $processingMessageId;
+        $this->streamingContent = '';
+        $this->showWorking = false;
+    }
+
+    private function markMessageAsStopped(int $assistantMessageId): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        $message = $this->thread->messages()
+            ->where('id', $assistantMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $message) {
+            return;
+        }
+
+        $metadata = is_array($message->metadata ?? null) ? $message->metadata : [];
+        data_set($metadata, 'stream.status', 'stopped');
+        data_set($metadata, 'stream.stopped_at', now()->toIso8601String());
+
+        TaskAssistantMessage::query()
+            ->whereKey($message->id)
+            ->update([
+                'content' => '',
+                'metadata' => $metadata,
+            ]);
+    }
+
+    private function cancelPreviousActiveAssistantRuns(): void
+    {
+        if (! $this->thread) {
+            return;
+        }
+
+        $messages = $this->thread->messages()
+            ->where('role', MessageRole::Assistant)
+            ->orderByDesc('id')
+            ->limit(25)
+            ->get();
+
+        foreach ($messages as $message) {
+            $metadata = is_array($message->metadata ?? null) ? $message->metadata : [];
+            $isStopped = data_get($metadata, 'stream.status') === 'stopped';
+            $isStreamed = (bool) data_get($metadata, 'streamed', false);
+            $hasContent = trim((string) ($message->content ?? '')) !== '';
+
+            if ($isStopped || $isStreamed || $hasContent) {
+                continue;
+            }
+
+            data_set($metadata, 'stream.status', 'stopped');
+            data_set($metadata, 'stream.stopped_at', now()->toIso8601String());
+            TaskAssistantMessage::query()
+                ->whereKey($message->id)
+                ->update([
+                    'content' => '',
+                    'metadata' => $metadata,
+                ]);
+        }
     }
 
 };

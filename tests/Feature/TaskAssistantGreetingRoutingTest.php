@@ -15,8 +15,7 @@ test('pure greeting short-circuits to general guidance', function (): void {
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'friendly_general',
-                'acknowledgement' => 'Thanks for saying hello.',
-                'message' => 'Hi! I can help you get organized with your tasks.',
+                'response' => 'Thanks for saying hello. Hi! I can help you get organized with your tasks.',
                 'next_step_guidance' => 'If you want, I can prioritize tasks in your list or plan time blocks.',
                 'suggested_replies' => [
                     'Prioritize my tasks.',

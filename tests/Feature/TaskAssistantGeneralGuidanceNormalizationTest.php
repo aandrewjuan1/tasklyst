@@ -22,8 +22,7 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'friendly_general',
-                'acknowledgement' => 'Thanks for reaching out.',
-                'message' => $longMessagePrefix,
+                'response' => 'Thanks for reaching out. '.$longMessagePrefix,
                 'next_step_guidance' => 'Use snapshot JSON from backend and start with task 42 "Finish Chemistry Report".',
                 'suggested_replies' => [
                     'Short reply.',
@@ -55,7 +54,8 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
 
     expect(str_contains((string) $assistantMessage->content, introPrefix()))->toBeTrue();
     expect((string) data_get($assistantMessage->metadata, 'general_guidance.clarifying_question', ''))->toBe('');
-    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('If you want, I can');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('prioritize');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('schedule');
     expect((string) $assistantMessage->content)->not->toContain('snapshot');
     expect((string) $assistantMessage->content)->not->toContain('JSON');
     expect((string) $assistantMessage->content)->not->toContain('backend');
@@ -68,8 +68,7 @@ test('general_guidance intro is only added once per thread', function (): void {
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'friendly_general',
-                'acknowledgement' => 'Thanks for reaching out.',
-                'message' => 'First guidance.',
+                'response' => 'Thanks for reaching out. First guidance.',
                 'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks.',
                 'suggested_replies' => null,
             ])
@@ -77,8 +76,7 @@ test('general_guidance intro is only added once per thread', function (): void {
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'friendly_general',
-                'acknowledgement' => 'Thanks for reaching out again.',
-                'message' => 'Second guidance.',
+                'response' => 'Thanks for reaching out again. Second guidance.',
                 'next_step_guidance' => 'I can continue by prioritizing tasks or planning time blocks.',
                 'suggested_replies' => null,
             ])

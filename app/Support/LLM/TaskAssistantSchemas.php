@@ -226,18 +226,13 @@ final class TaskAssistantSchemas
                     nullable: false
                 ),
                 new StringSchema(
-                    name: 'acknowledgement',
-                    description: 'A brief acknowledgement (1-2 sentences) that reflects the user request in supportive language. This section should not repeat role boundary or next-step options.',
-                    nullable: false
-                ),
-                new StringSchema(
-                    name: 'message',
-                    description: 'Short declarative role/response statement (1-2 sentences). For off-topic requests, include a brief role boundary. Do not include question marks, clarifying questions, or repeated acknowledgement wording.',
+                    name: 'response',
+                    description: 'Primary response body (2-4 short sentences) that combines acknowledgement and role message in one section. Must acknowledge the user request content in supportive language, keep task-assistant role framing, and stay declarative (no clarifying question here). Mode requirements: friendly_general -> acknowledge + task-assistant framing; off_topic -> acknowledge + explicit out-of-scope boundary + role framing; gibberish_unclear -> acknowledge unclear input + ask for rephrase in declarative style without question marks.',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'next_step_guidance',
-                    description: 'One short actionable paragraph with what the user can ask next (prioritize tasks, schedule time blocks, or both). In friendly_general mode keep this high-level and do not refer to specific task titles or IDs.',
+                    description: 'Final section. One short actionable paragraph that always mentions both options (prioritize tasks and schedule time blocks), then asks which the user wants first. In friendly_general mode keep this high-level and do not refer to specific task titles or IDs.',
                     nullable: false
                 ),
                 new StringSchema(
@@ -259,8 +254,7 @@ final class TaskAssistantSchemas
             ],
             requiredFields: [
                 'guidance_mode',
-                'acknowledgement',
-                'message',
+                'response',
                 'next_step_guidance',
             ]
         );

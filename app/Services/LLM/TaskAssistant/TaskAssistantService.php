@@ -28,8 +28,6 @@ final class TaskAssistantService
 {
     private const MESSAGE_LIMIT = 50;
 
-    private const STREAM_CHUNK_SIZE = 200;
-
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
         private readonly TaskAssistantSnapshotService $snapshotService,
@@ -47,6 +45,19 @@ final class TaskAssistantService
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
     {
+        if ($this->isCancellationRequested($thread, $assistantMessageId)) {
+            Log::info('task-assistant.orchestration', [
+                'layer' => 'orchestration',
+                'stage' => 'cancelled_before_processing',
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessageId,
+            ]);
+
+            $this->markCancelled($thread, $assistantMessageId);
+
+            return;
+        }
+
         $userMessage = TaskAssistantMessage::query()
             ->where('thread_id', $thread->id)
             ->where('id', $userMessageId)
@@ -66,6 +77,19 @@ final class TaskAssistantService
                 'has_user_message' => (bool) $userMessage,
                 'has_assistant_message' => (bool) $assistantMessage,
             ]);
+
+            return;
+        }
+
+        if ($this->isCancellationRequested($thread, $assistantMessageId)) {
+            Log::info('task-assistant.orchestration', [
+                'layer' => 'orchestration',
+                'stage' => 'cancelled_after_message_load',
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessageId,
+            ]);
+
+            $this->markCancelled($thread, $assistantMessageId);
 
             return;
         }
@@ -784,25 +808,12 @@ final class TaskAssistantService
 
         $state = $this->conversationState->get($thread);
 
-        if (in_array('intent_off_topic', $plan->reasonCodes, true)) {
-            // Post-process off-topic responses to enforce a short refusal +
-            // redirect, keeping the rest of the structured flow intact.
-            $variants = [
-                "I can't help with that topic. I'm a task assistant. If you tell me what tasks you have, I can help you prioritize your tasks or schedule time blocks for them.",
-                "I can't help with that directly. I'm a task assistant focused on your tasks—share what you're working on and I'll help you prioritize your tasks or schedule time blocks.",
-            ];
-
-            $idx = ($thread->id % count($variants));
-            $guidance['guidance_mode'] = 'off_topic';
-            $guidance['message'] = $variants[$idx];
-        }
-
         // Add a deterministic "intro" the first time we respond with
         // general_guidance in this thread.
         $shouldIntroduce = ! (bool) ($state['general_guidance_intro_done'] ?? false);
         if ($shouldIntroduce) {
             $intro = "Hi, I'm TaskLyst—your task assistant.";
-            $currentMessage = trim((string) ($guidance['acknowledgement'] ?? ''));
+            $currentMessage = trim((string) ($guidance['response'] ?? ''));
 
             if ($currentMessage !== '' && ! str_starts_with($currentMessage, $intro)) {
                 $currentMessage = $intro.' '.$currentMessage;
@@ -821,7 +832,7 @@ final class TaskAssistantService
                 $currentMessage = mb_substr($currentMessage, 0, 500);
             }
 
-            $guidance['acknowledgement'] = $currentMessage;
+            $guidance['response'] = $currentMessage;
 
             $state['general_guidance_intro_done'] = true;
             $this->conversationState->put($thread, $state);
@@ -838,10 +849,10 @@ final class TaskAssistantService
             && $currentQuestion === $lastQuestion
         ) {
             $questionVariants = [
-                'Do you want me to prioritize your tasks or schedule time blocks for them?',
-                'Should we prioritize tasks first, or schedule time blocks to work on them?',
-                'Which next action fits better: prioritizing your tasks or scheduling time blocks?',
-                'Prioritize your tasks or schedule time blocks - what works best?',
+                'I did not catch that clearly yet. Can you rephrase your request in one short sentence?',
+                'Could you say that again in one short, clear sentence so I can help?',
+                'I want to help, but I did not understand that message. Can you rephrase it clearly?',
+                'Can you rewrite your request in one simple sentence so I can guide you better?',
             ];
 
             $lastVariantIdx = (int) ($state['last_general_guidance_question_variant'] ?? 0);
@@ -858,8 +869,7 @@ final class TaskAssistantService
             'valid' => true,
             'data' => [
                 'guidance_mode' => (string) ($guidance['guidance_mode'] ?? 'friendly_general'),
-                'acknowledgement' => (string) ($guidance['acknowledgement'] ?? ''),
-                'message' => (string) ($guidance['message'] ?? ''),
+                'response' => (string) ($guidance['response'] ?? ''),
                 'next_step_guidance' => (string) ($guidance['next_step_guidance'] ?? ''),
                 'clarifying_question' => $guidance['clarifying_question'] ?? null,
                 'redirect_target' => $guidance['redirect_target'] ?? null,
@@ -1013,8 +1023,7 @@ final class TaskAssistantService
         $this->streamingBroadcaster->streamFinalAssistantJson(
             userId: $userId,
             assistantMessage: $assistantMessage,
-            envelope: $envelope,
-            chunkSize: self::STREAM_CHUNK_SIZE
+            envelope: $envelope
         );
     }
 
@@ -1027,17 +1036,37 @@ final class TaskAssistantService
         string $flow,
         array $execution
     ): void {
+        $structuredData = is_array($execution['structured_data'] ?? null) ? $execution['structured_data'] : [];
+        Log::debug('task-assistant.stream_flow', [
+            'layer' => 'orchestration',
+            'stage' => 'before_stream_envelope',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'flow' => $flow,
+            'assistant_content_length' => mb_strlen((string) ($assistantMessage->content ?? '')),
+            'structured_data_keys' => array_keys($structuredData),
+            'final_valid' => (bool) ($execution['final_valid'] ?? false),
+        ]);
+
         $this->streamFinalAssistantJson(
             $thread->user_id,
             $assistantMessage,
             $this->buildJsonEnvelope(
                 flow: $flow,
-                data: is_array($execution['structured_data'] ?? null) ? $execution['structured_data'] : [],
+                data: $structuredData,
                 threadId: $thread->id,
                 assistantMessageId: $assistantMessage->id,
                 ok: (bool) ($execution['final_valid'] ?? false),
             )
         );
+
+        Log::debug('task-assistant.stream_flow', [
+            'layer' => 'orchestration',
+            'stage' => 'after_stream_envelope',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'flow' => $flow,
+        ]);
     }
 
     /**
@@ -1093,5 +1122,44 @@ final class TaskAssistantService
             'generation_profile' => $plan->generationProfile,
             'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
         ]);
+    }
+
+    private function isCancellationRequested(TaskAssistantThread $thread, int $assistantMessageId): bool
+    {
+        $assistantMessage = TaskAssistantMessage::query()
+            ->where('thread_id', $thread->id)
+            ->where('id', $assistantMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $assistantMessage) {
+            return false;
+        }
+
+        return data_get($assistantMessage->metadata, 'stream.status') === 'stopped';
+    }
+
+    private function markCancelled(TaskAssistantThread $thread, int $assistantMessageId): void
+    {
+        $assistantMessage = TaskAssistantMessage::query()
+            ->where('thread_id', $thread->id)
+            ->where('id', $assistantMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if ($assistantMessage) {
+            $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+            data_set($metadata, 'stream.status', 'stopped');
+            data_set($metadata, 'stream.stopped_at', now()->toIso8601String());
+            $assistantMessage->update([
+                'content' => '',
+                'metadata' => $metadata,
+            ]);
+        }
+
+        $threadMetadata = is_array($thread->metadata ?? null) ? $thread->metadata : [];
+        data_set($threadMetadata, 'stream.processing', null);
+        data_set($threadMetadata, 'stream.last_completed_at', now()->toIso8601String());
+        $thread->update(['metadata' => $threadMetadata]);
     }
 }
