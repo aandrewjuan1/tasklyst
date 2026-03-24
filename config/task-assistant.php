@@ -19,11 +19,6 @@ return [
         'temperature' => (float) env('TASK_ASSISTANT_TEMPERATURE', 0.3),
         'max_tokens' => (int) env('TASK_ASSISTANT_MAX_TOKENS', 1200),
         'top_p' => (float) env('TASK_ASSISTANT_TOP_P', 0.9),
-        'chat' => [
-            'temperature' => env('TASK_ASSISTANT_CHAT_TEMPERATURE'),
-            'max_tokens' => env('TASK_ASSISTANT_CHAT_MAX_TOKENS'),
-            'top_p' => env('TASK_ASSISTANT_CHAT_TOP_P'),
-        ],
         'schedule' => [
             'temperature' => env('TASK_ASSISTANT_SCHEDULE_TEMPERATURE'),
             'max_tokens' => env('TASK_ASSISTANT_SCHEDULE_MAX_TOKENS'),
@@ -89,7 +84,6 @@ return [
 
     'tools' => [
         'routes' => [
-            'chat' => ['list_tasks'],
             'listing' => [],
             'schedule' => ['list_tasks'],
             'prioritize' => [],

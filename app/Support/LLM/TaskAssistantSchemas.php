@@ -212,43 +212,81 @@ final class TaskAssistantSchemas
     /**
      * General guidance for vague/help-seeking/overwhelmed prompts.
      *
-     * The LLM should generate an empathetic message and exactly one question to
-     * narrow the next action. The actual routing decision happens in a second
-     * structured step.
+     * The LLM should generate mode-aware, non-overlapping user-facing fields.
      */
     public static function generalGuidanceSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'general_guidance',
-            description: 'General help for vague or overwhelmed requests. Do not mention snapshot, JSON, backend, database, or other internal terms. Output only the guidance fields.',
+            description: 'General help for greetings/help prompts, gibberish clarification, and off-topic boundaries. Do not mention snapshot, JSON, backend, database, or other internal terms. Output only the guidance fields.',
             properties: [
                 new StringSchema(
+                    name: 'guidance_mode',
+                    description: 'One of: friendly_general, gibberish_unclear, off_topic.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'acknowledgement',
+                    description: 'A brief acknowledgement (1-2 sentences) that reflects the user request in supportive language. This section should not repeat role boundary or next-step options.',
+                    nullable: false
+                ),
+                new StringSchema(
                     name: 'message',
-                    description: 'Short empathetic acknowledgement (1-2 sentences). Assistant voice is preferred (e.g. “I can help…” is allowed). If the user message is gibberish/unclear/unintelligible, say you didn’t understand and ask them to rephrase in ONE short sentence (still within message). For off-topic requests, it may also include a brief refusal like “I can’t help with that—I’m a task assistant.” Message must not include the redirect question or any question marks. Avoid second-order questions in `message` like “Could you…/Would you…/Let me know…”.',
+                    description: 'Short declarative role/response statement (1-2 sentences). For off-topic requests, include a brief role boundary. Do not include question marks, clarifying questions, or repeated acknowledgement wording.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'next_step_guidance',
+                    description: 'One short actionable paragraph with what the user can ask next (prioritize tasks, schedule time blocks, or both). In friendly_general mode keep this high-level and do not refer to specific task titles or IDs.',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'clarifying_question',
-                    description: 'Exactly one short question that ends with a question mark. This is the only place the redirect question should appear (message must not contain it). Must include both ideas: `prioritize` and `schedule time blocks` (or equivalent wording). Prefer slightly varied wording across turns while preserving meaning. Do not use bullet characters.',
-                    nullable: false
+                    description: 'Required only when guidance_mode is gibberish_unclear: one short rephrase question ending with a single question mark.',
+                    nullable: true
                 ),
                 new StringSchema(
                     name: 'redirect_target',
-                    description: 'Where this guidance should lead: either prioritize, schedule, or either/unknown.',
-                    nullable: false
+                    description: 'Required only when guidance_mode is off_topic. Allowed values: prioritize, schedule, or either.',
+                    nullable: true
                 ),
                 new ArraySchema(
                     name: 'suggested_replies',
-                    description: '2-3 short suggested user replies that would answer the question.',
+                    description: 'Optional 2-3 short suggested user replies aligned to the mode and next-step guidance.',
                     items: new StringSchema(name: 'reply', description: 'One suggested reply.'),
                     nullable: true
                 ),
             ],
             requiredFields: [
+                'guidance_mode',
+                'acknowledgement',
                 'message',
-                'clarifying_question',
-                'redirect_target',
+                'next_step_guidance',
             ]
+        );
+    }
+
+    public static function generalGuidanceModeSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'general_guidance_mode',
+            description: 'Classify the guidance mode for assistant response behavior.',
+            properties: [
+                new StringSchema(
+                    name: 'guidance_mode',
+                    description: 'One of: friendly_general, gibberish_unclear, off_topic.'
+                ),
+                new NumberSchema(
+                    name: 'confidence',
+                    description: 'Confidence between 0 and 1.'
+                ),
+                new StringSchema(
+                    name: 'rationale',
+                    description: 'Short reason for the mode selection.',
+                    nullable: true
+                ),
+            ],
+            requiredFields: ['guidance_mode', 'confidence']
         );
     }
 

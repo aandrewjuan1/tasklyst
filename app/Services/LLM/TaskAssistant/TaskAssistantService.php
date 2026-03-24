@@ -6,7 +6,6 @@ use App\Enums\MessageRole;
 use App\Enums\TaskComplexity;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
-use App\Models\User;
 use App\Services\LLM\Browse\TaskAssistantListingSelectionService;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
@@ -15,9 +14,6 @@ use App\Support\LLM\TaskAssistantListingDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
-use Prism\Prism\Enums\Provider;
-use Prism\Prism\Facades\Prism;
-use Prism\Prism\Tool;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
 use Prism\Prism\ValueObjects\Messages\ToolResultMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
@@ -47,7 +43,6 @@ final class TaskAssistantService
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
         private readonly TaskAssistantListingSelectionService $listingSelectionService,
-        private readonly TaskAssistantToolEventPersister $toolEventPersister,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -331,9 +326,7 @@ final class TaskAssistantService
                 return;
             }
 
-            // `chat` is intentionally not used anymore. If we ever get an unknown
-            // flow value, fall back to general guidance.
-            $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
+            throw new \UnexpectedValueException('Unsupported task assistant flow: '.$plan->flow);
         } finally {
             app()->forgetInstance('task_assistant.thread_id');
             app()->forgetInstance('task_assistant.message_id');
@@ -719,65 +712,6 @@ final class TaskAssistantService
         );
     }
 
-    private function runChatFlow(
-        TaskAssistantThread $thread,
-        TaskAssistantMessage $userMessage,
-        TaskAssistantMessage $assistantMessage,
-        string $content,
-        ExecutionPlan $plan,
-    ): void {
-        $historyMessages = $this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id));
-        $historyMessages[] = new UserMessage($content);
-        $promptData = $this->promptData->forUser($thread->user);
-        $promptData['snapshot'] = $this->snapshotService->buildForUser($thread->user);
-        $promptData['toolManifest'] = $this->buildToolManifestFromTools($this->resolveToolsForRoute($thread->user, $plan->flow));
-
-        $textResponse = Prism::text()
-            ->using($this->resolveProvider(), $this->resolveModel())
-            ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
-            ->withMessages($historyMessages)
-            ->withTools($this->resolveToolsForRoute($thread->user, $plan->flow))
-            ->withMaxSteps(3)
-            ->withClientOptions($this->resolveClientOptionsForRoute($plan->generationProfile))
-            ->asText();
-
-        Log::info('task-assistant.llm.chat', [
-            'layer' => 'llm_chat',
-            'thread_id' => $thread->id,
-            'assistant_message_id' => $assistantMessage->id,
-            'user_message_id' => $userMessage->id,
-            'generation_profile' => $plan->generationProfile,
-            'provider' => (string) config('task-assistant.provider', 'ollama'),
-            'model' => $this->resolveModel(),
-            'text_length' => mb_strlen((string) ($textResponse->text ?? '')),
-            'tool_calls_count' => count($textResponse->toolCalls ?? []),
-            'tool_results_count' => count($textResponse->toolResults ?? []),
-            'finish_reason' => isset($textResponse->finishReason)
-                ? ($textResponse->finishReason instanceof \UnitEnum
-                    ? $textResponse->finishReason->name
-                    : (string) $textResponse->finishReason)
-                : null,
-        ]);
-
-        $this->toolEventPersister->persistToolCallsAndResults(
-            $assistantMessage,
-            $textResponse->toolCalls,
-            $textResponse->toolResults,
-        );
-
-        $assistantMessage->update([
-            'content' => (string) ($textResponse->text ?? 'How can I help with prioritizing or scheduling your tasks?'),
-        ]);
-
-        $this->streamFinalAssistantJson($thread->user_id, $assistantMessage, $this->buildJsonEnvelope(
-            flow: 'chat',
-            data: ['message' => (string) $assistantMessage->content],
-            threadId: $thread->id,
-            assistantMessageId: $assistantMessage->id,
-            ok: true,
-        ));
-    }
-
     private function runClarificationFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void
     {
         Log::info('task-assistant.flow', [
@@ -838,13 +772,14 @@ final class TaskAssistantService
             // Strong guardrail to keep Hermes in the task assistant domain even
             // when users ask unrelated questions (relationships, politics, product
             // recommendations, etc.). We still require the general_guidance schema.
-            $userMessage .= "\n\nOFF_TOPIC_GUARDRAIL: This request is off-topic for a task assistant. Acknowledge briefly, refuse to help with the unrelated topic, and redirect toward prioritization vs scheduling. Output must still follow the general_guidance schema (message + exactly one clarifying_question that asks which next action the user wants: prioritize tasks or schedule time blocks).";
+            $userMessage .= "\n\nOFF_TOPIC_GUARDRAIL: This request is off-topic for a task assistant. Acknowledge briefly, refuse to help with the unrelated topic, and suggest task-focused next steps (prioritize tasks or schedule time blocks) while following the current general_guidance schema.";
         }
 
         $guidance = $this->generalGuidanceService->generateGeneralGuidance(
             user: $thread->user,
             userMessage: $userMessage,
-            forcedClarifyingQuestion: $forcedClarifyingQuestion
+            forcedClarifyingQuestion: $forcedClarifyingQuestion,
+            forcedMode: in_array('intent_off_topic', $plan->reasonCodes, true) ? 'off_topic' : null,
         );
 
         $state = $this->conversationState->get($thread);
@@ -858,6 +793,7 @@ final class TaskAssistantService
             ];
 
             $idx = ($thread->id % count($variants));
+            $guidance['guidance_mode'] = 'off_topic';
             $guidance['message'] = $variants[$idx];
         }
 
@@ -866,7 +802,7 @@ final class TaskAssistantService
         $shouldIntroduce = ! (bool) ($state['general_guidance_intro_done'] ?? false);
         if ($shouldIntroduce) {
             $intro = "Hi, I'm TaskLyst—your task assistant.";
-            $currentMessage = trim((string) ($guidance['message'] ?? ''));
+            $currentMessage = trim((string) ($guidance['acknowledgement'] ?? ''));
 
             if ($currentMessage !== '' && ! str_starts_with($currentMessage, $intro)) {
                 $currentMessage = $intro.' '.$currentMessage;
@@ -885,7 +821,7 @@ final class TaskAssistantService
                 $currentMessage = mb_substr($currentMessage, 0, 500);
             }
 
-            $guidance['message'] = $currentMessage;
+            $guidance['acknowledgement'] = $currentMessage;
 
             $state['general_guidance_intro_done'] = true;
             $this->conversationState->put($thread, $state);
@@ -895,7 +831,12 @@ final class TaskAssistantService
         // keeps asking different general prompts in the same thread.
         $currentQuestion = (string) ($guidance['clarifying_question'] ?? '');
         $lastQuestion = (string) ($state['last_general_guidance_clarifying_question'] ?? '');
-        if ($forcedClarifyingQuestion === null && $currentQuestion !== '' && $currentQuestion === $lastQuestion) {
+        if (
+            ($guidance['guidance_mode'] ?? 'friendly_general') === 'gibberish_unclear'
+            && $forcedClarifyingQuestion === null
+            && $currentQuestion !== ''
+            && $currentQuestion === $lastQuestion
+        ) {
             $questionVariants = [
                 'Do you want me to prioritize your tasks or schedule time blocks for them?',
                 'Should we prioritize tasks first, or schedule time blocks to work on them?',
@@ -916,9 +857,12 @@ final class TaskAssistantService
         $generationResult = [
             'valid' => true,
             'data' => [
+                'guidance_mode' => (string) ($guidance['guidance_mode'] ?? 'friendly_general'),
+                'acknowledgement' => (string) ($guidance['acknowledgement'] ?? ''),
                 'message' => (string) ($guidance['message'] ?? ''),
-                'clarifying_question' => (string) ($guidance['clarifying_question'] ?? ''),
-                'redirect_target' => (string) ($guidance['redirect_target'] ?? 'either'),
+                'next_step_guidance' => (string) ($guidance['next_step_guidance'] ?? ''),
+                'clarifying_question' => $guidance['clarifying_question'] ?? null,
+                'redirect_target' => $guidance['redirect_target'] ?? null,
                 'suggested_replies' => is_array($guidance['suggested_replies'] ?? null)
                     ? $guidance['suggested_replies']
                     : null,
@@ -937,13 +881,25 @@ final class TaskAssistantService
 
         // Store pending guidance for the next user message.
         $clarifyingQuestion = (string) ($guidance['clarifying_question'] ?? '');
-        if ($clarifyingQuestion !== '') {
+        $guidanceMode = (string) ($guidance['guidance_mode'] ?? 'friendly_general');
+
+        Log::info('task-assistant.general_guidance.telemetry', [
+            'layer' => 'flow',
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'guidance_mode' => $guidanceMode,
+            'had_question' => $clarifyingQuestion !== '',
+            'had_redirect_target' => trim((string) ($guidance['redirect_target'] ?? '')) !== '',
+        ]);
+        if ($clarifyingQuestion !== '' && in_array($guidanceMode, ['gibberish_unclear', 'off_topic'], true)) {
             $this->conversationState->rememberPendingGeneralGuidance(
                 $thread,
                 $userMessage,
                 $clarifyingQuestion,
                 $plan->reasonCodes
             );
+        } else {
+            $this->conversationState->clearPendingGeneralGuidance($thread);
         }
 
         $this->streamFlowEnvelope(
@@ -1038,89 +994,6 @@ final class TaskAssistantService
         return $raw;
     }
 
-    /**
-     * @return Tool[]
-     */
-    private function resolveToolsForRoute(User $user, string $route): array
-    {
-        $tools = [];
-        $config = config('prism-tools', []);
-        $routeTools = config('task-assistant.tools.routes.'.$route, []);
-        if (! is_array($routeTools)) {
-            $routeTools = [];
-        }
-
-        foreach ($routeTools as $key) {
-            $class = $config[$key] ?? null;
-            if (! is_string($class) || ! class_exists($class)) {
-                continue;
-            }
-            $tools[] = app()->make($class, ['user' => $user]);
-        }
-
-        return $tools;
-    }
-
-    /**
-     * @param  Tool[]  $tools
-     * @return list<array{name: string, description: string}>
-     */
-    private function buildToolManifestFromTools(array $tools): array
-    {
-        $out = [];
-        foreach ($tools as $tool) {
-            $out[] = [
-                'name' => $tool->name(),
-                'description' => $tool->description(),
-            ];
-        }
-
-        return $out;
-    }
-
-    private function resolveProvider(): Provider
-    {
-        $provider = strtolower((string) config('task-assistant.provider', 'ollama'));
-
-        return match ($provider) {
-            'ollama' => Provider::Ollama,
-            default => $this->fallbackProvider($provider),
-        };
-    }
-
-    private function fallbackProvider(string $provider): Provider
-    {
-        Log::warning('task-assistant.provider.fallback', [
-            'layer' => 'llm_chat',
-            'requested_provider' => $provider,
-            'fallback_provider' => 'ollama',
-        ]);
-
-        return Provider::Ollama;
-    }
-
-    private function resolveModel(): string
-    {
-        return (string) config('task-assistant.model', 'hermes3:3b');
-    }
-
-    /**
-     * @return array<string, int|float|null>
-     */
-    private function resolveClientOptionsForRoute(string $route): array
-    {
-        $temperature = config('task-assistant.generation.'.$route.'.temperature');
-        $maxTokens = config('task-assistant.generation.'.$route.'.max_tokens');
-        $topP = config('task-assistant.generation.'.$route.'.top_p');
-
-        return [
-            'timeout' => (int) config('prism.request_timeout', 120),
-            'temperature' => is_numeric($temperature) ? (float) $temperature : (float) config('task-assistant.generation.temperature', 0.3),
-            'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
-            'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
-        ];
-    }
-
     private function buildJsonEnvelope(string $flow, array $data, int $threadId, int $assistantMessageId, bool $ok = true): array
     {
         return [
@@ -1175,11 +1048,10 @@ final class TaskAssistantService
         $decision = $this->routingPolicy->decide($thread, $content);
         $constraints = $decision->constraints;
         $flow = match ($decision->flow) {
-            'chat' => 'general_guidance',
             'prioritize',
             'schedule',
             'general_guidance' => $decision->flow,
-            default => 'general_guidance',
+            default => throw new \UnexpectedValueException('Unsupported routing flow: '.$decision->flow),
         };
         $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
         $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;

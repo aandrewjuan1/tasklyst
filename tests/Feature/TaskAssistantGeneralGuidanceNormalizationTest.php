@@ -16,16 +16,15 @@ function introPrefix(): string
 test('general_guidance clamps content and avoids duplicating clarifying_question', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 
-    $clarifyingQuestion = 'Would you like me to prioritize your tasks or schedule time blocks for them?';
-    $longMessagePrefix = str_repeat('A', 520);
-    $messageFromHermes = $longMessagePrefix.' '.$clarifyingQuestion;
+    $longMessagePrefix = str_repeat('A', 480);
 
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'message' => $messageFromHermes,
-                'clarifying_question' => $clarifyingQuestion,
-                'redirect_target' => 'either',
+                'guidance_mode' => 'friendly_general',
+                'acknowledgement' => 'Thanks for reaching out.',
+                'message' => $longMessagePrefix,
+                'next_step_guidance' => 'Use snapshot JSON from backend and start with task 42 "Finish Chemistry Report".',
                 'suggested_replies' => [
                     'Short reply.',
                     str_repeat('B', 250),
@@ -54,8 +53,12 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
     expect($assistantMessage->metadata['processed'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['validation_errors'] ?? [])->toBeEmpty();
 
-    expect(str_starts_with((string) $assistantMessage->content, introPrefix()))->toBeTrue();
-    expect(substr_count((string) $assistantMessage->content, $clarifyingQuestion))->toBe(1);
+    expect(str_contains((string) $assistantMessage->content, introPrefix()))->toBeTrue();
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.clarifying_question', ''))->toBe('');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('If you want, I can');
+    expect((string) $assistantMessage->content)->not->toContain('snapshot');
+    expect((string) $assistantMessage->content)->not->toContain('JSON');
+    expect((string) $assistantMessage->content)->not->toContain('backend');
 });
 
 test('general_guidance intro is only added once per thread', function (): void {
@@ -64,17 +67,19 @@ test('general_guidance intro is only added once per thread', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
+                'guidance_mode' => 'friendly_general',
+                'acknowledgement' => 'Thanks for reaching out.',
                 'message' => 'First guidance.',
-                'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
+                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks.',
                 'suggested_replies' => null,
             ])
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
+                'guidance_mode' => 'friendly_general',
+                'acknowledgement' => 'Thanks for reaching out again.',
                 'message' => 'Second guidance.',
-                'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
+                'next_step_guidance' => 'I can continue by prioritizing tasks or planning time blocks.',
                 'suggested_replies' => null,
             ])
             ->withUsage(new Usage(1, 2)),
@@ -105,6 +110,6 @@ test('general_guidance intro is only added once per thread', function (): void {
     app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage2->id, $assistantMessage2->id);
     $assistantMessage2->refresh();
 
-    expect(str_starts_with((string) $assistantMessage1->content, introPrefix()))->toBeTrue();
-    expect(str_starts_with((string) $assistantMessage2->content, introPrefix()))->toBeFalse();
+    expect(str_contains((string) $assistantMessage1->content, introPrefix()))->toBeTrue();
+    expect(str_contains((string) $assistantMessage2->content, introPrefix()))->toBeFalse();
 });

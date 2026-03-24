@@ -157,7 +157,9 @@ final class TaskAssistantMessageFormatter
      */
     private function formatGeneralGuidanceMessage(array $data): string
     {
+        $acknowledgement = trim((string) ($data['acknowledgement'] ?? ''));
         $message = trim((string) ($data['message'] ?? ''));
+        $nextStepGuidance = trim((string) ($data['next_step_guidance'] ?? ''));
         $question = trim((string) ($data['clarifying_question'] ?? ''));
 
         if ($message !== '' && $question !== '' && str_contains($message, $question)) {
@@ -173,19 +175,30 @@ final class TaskAssistantMessageFormatter
             }
         }
 
-        if ($message === '' && $question === '') {
+        if ($acknowledgement === '' && $message === '' && $nextStepGuidance === '' && $question === '') {
             return 'I can help. What would you like to do next?';
         }
 
-        if ($message === '') {
-            return $question;
+        // Build in strict display order and drop near-duplicate sections.
+        $segments = array_values(array_filter([
+            $acknowledgement,
+            $message,
+            $nextStepGuidance,
+            $question,
+        ], static fn (string $segment): bool => $segment !== ''));
+
+        $unique = [];
+        $seen = [];
+        foreach ($segments as $segment) {
+            $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $segment) ?? $segment));
+            if ($normalized === '' || isset($seen[$normalized])) {
+                continue;
+            }
+            $seen[$normalized] = true;
+            $unique[] = $segment;
         }
 
-        if ($question === '') {
-            return $message;
-        }
-
-        return trim($message."\n\n".$question);
+        return trim(implode("\n\n", $unique));
     }
 
     /**
