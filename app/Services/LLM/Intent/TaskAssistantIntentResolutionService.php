@@ -8,7 +8,7 @@ use App\Services\LLM\TaskAssistant\IntentRoutingDecision;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Merges LLM intent inference with heuristic signals; may fall back to chat or clarification.
+ * Merges LLM intent inference with heuristic signals; may fall back to general guidance or clarification.
  */
 final class TaskAssistantIntentResolutionService
 {
@@ -28,12 +28,12 @@ final class TaskAssistantIntentResolutionService
         }
 
         if ($inference === null || $inference->failed || $inference->intent === null) {
-            $this->logResolution($thread, null, null, $signals, 'chat', ['intent_llm_failed_fallback_chat'], false);
+            $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_failed_fallback_general_guidance'], false);
 
             return new IntentRoutingDecision(
-                flow: 'chat',
+                flow: 'general_guidance',
                 confidence: 0.0,
-                reasonCodes: ['intent_llm_failed_fallback_chat'],
+                reasonCodes: ['intent_llm_failed_fallback_general_guidance'],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -195,12 +195,12 @@ final class TaskAssistantIntentResolutionService
         $margin = $top - $second;
 
         if ($top < $weakThreshold) {
-            $this->logResolution($thread, null, null, $signals, 'chat', ['intent_llm_disabled_signal_weak_chat'], false);
+            $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_disabled_signal_weak_general_guidance'], false);
 
             return new IntentRoutingDecision(
-                flow: 'chat',
+                flow: 'general_guidance',
                 confidence: $top,
-                reasonCodes: ['intent_llm_disabled_signal_weak_chat'],
+                reasonCodes: ['intent_llm_disabled_signal_weak_general_guidance'],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,

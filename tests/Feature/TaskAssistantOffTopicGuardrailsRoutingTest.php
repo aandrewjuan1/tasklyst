@@ -20,8 +20,10 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
         // Second structured call: general guidance generation.
         StructuredResponseFake::make()
             ->withStructured([
+                'guidance_mode' => 'off_topic',
+                'acknowledgement' => 'Thanks for sharing your question.',
                 'message' => "I can't help with that topic. I'm a task assistant.",
-                'clarifying_question' => 'If you want, I can prioritize your tasks or schedule time blocks—which would you like?',
+                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next.',
                 'redirect_target' => 'either',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
@@ -47,12 +49,11 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
 
     $assistantMessage->refresh();
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('off_topic');
     expect($assistantMessage->content)->toContain("I'm a task assistant");
     expect($assistantMessage->content)->toContain('prioritize your tasks');
     expect($assistantMessage->content)->toContain('schedule time blocks');
 
     $thread->refresh();
-    $reasonCodes = data_get($thread->metadata, 'conversation_state.pending_general_guidance.reason_codes', []);
-    expect(is_array($reasonCodes))->toBeTrue();
-    expect($reasonCodes)->toContain('intent_off_topic');
+    expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();
 });

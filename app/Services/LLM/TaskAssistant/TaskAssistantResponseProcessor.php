@@ -5,6 +5,7 @@ namespace App\Services\LLM\TaskAssistant;
 use App\Support\LLM\TaskAssistantListingDefaults;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Validator as ValidationValidator;
 
 final class TaskAssistantResponseProcessor
 {
@@ -80,23 +81,52 @@ final class TaskAssistantResponseProcessor
      */
     private function validateGeneralGuidanceData(array $data): array
     {
+        $mode = (string) ($data['guidance_mode'] ?? '');
+
         $rules = [
-            // General guidance is intentionally more conversational and can be
-            // slightly longer than other flows. We still keep it bounded to
-            // prevent UI/payload issues.
+            'guidance_mode' => ['required', 'string', 'in:friendly_general,gibberish_unclear,off_topic'],
+            'acknowledgement' => ['required', 'string', 'min:1', 'max:260'],
             'message' => ['required', 'string', 'min:1', 'max:500'],
-            'clarifying_question' => ['required', 'string', 'min:5', 'max:220'],
-            'redirect_target' => ['required', 'string', 'in:prioritize,schedule,either'],
+            'next_step_guidance' => ['required', 'string', 'min:20', 'max:360'],
+            'clarifying_question' => ['nullable', 'string', 'min:5', 'max:220'],
+            'redirect_target' => ['nullable', 'string', 'in:prioritize,schedule,either'],
             'suggested_replies' => ['nullable', 'array', 'max:3'],
             'suggested_replies.*' => ['string', 'min:1', 'max:140'],
         ];
 
         $validator = Validator::make($data, $rules);
-        if ($validator->fails()) {
+        $validator->after(function (ValidationValidator $validator) use ($mode, $data): void {
+            $clarifyingQuestion = trim((string) ($data['clarifying_question'] ?? ''));
+            $redirectTarget = trim((string) ($data['redirect_target'] ?? ''));
+            $message = (string) ($data['message'] ?? '');
+
+            if ($mode === 'friendly_general' && $clarifyingQuestion !== '') {
+                $validator->errors()->add('clarifying_question', 'clarifying_question must be empty for friendly_general mode.');
+            }
+            if ($mode === 'gibberish_unclear' && $clarifyingQuestion === '') {
+                $validator->errors()->add('clarifying_question', 'clarifying_question is required for gibberish_unclear mode.');
+            }
+            if ($mode !== 'gibberish_unclear' && $clarifyingQuestion !== '') {
+                $validator->errors()->add('clarifying_question', 'clarifying_question is only allowed for gibberish_unclear mode.');
+            }
+            if ($mode === 'off_topic' && $redirectTarget === '') {
+                $validator->errors()->add('redirect_target', 'redirect_target is required for off_topic mode.');
+            }
+            if ($mode !== 'off_topic' && $redirectTarget !== '') {
+                $validator->errors()->add('redirect_target', 'redirect_target is only allowed for off_topic mode.');
+            }
+            if (str_contains($message, '?')) {
+                $validator->errors()->add('message', 'message must be declarative and must not include question marks.');
+            }
+        });
+
+        $errors = $validator->errors()->all();
+
+        if ($errors !== []) {
             return [
                 'valid' => false,
                 'data' => [],
-                'errors' => $validator->errors()->all(),
+                'errors' => $errors,
             ];
         }
 

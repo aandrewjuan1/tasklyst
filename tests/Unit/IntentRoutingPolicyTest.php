@@ -75,7 +75,7 @@ test('invalid LLM intent label falls back to general guidance', function (): voi
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Hello there friend');
 
     expect($decision->flow)->toBe('general_guidance');
-    expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_chat');
+    expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_general_guidance');
 });
 
 test('signal-only mode with strong prioritize cues routes to prioritize', function (): void {

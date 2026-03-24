@@ -12,7 +12,7 @@ final class TaskAssistantToolEventPersister
     /**
      * Persist a Prism tool call into the assistant message (`task_assistant_messages.tool_calls`).
      *
-     * Used by {@see TaskAssistantService} (chat) and {@see TaskAssistantFlowExecutionEngine} (structured flows).
+     * Used by {@see TaskAssistantFlowExecutionEngine} for structured flows.
      *
      * @param  array<string, true>  $seenToolCallIds
      */

@@ -14,9 +14,10 @@ test('pure greeting short-circuits to general guidance', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
+                'guidance_mode' => 'friendly_general',
+                'acknowledgement' => 'Thanks for saying hello.',
                 'message' => 'Hi! I can help you get organized with your tasks.',
-                'clarifying_question' => 'Do you want me to prioritize your tasks, or schedule time blocks for them? Just let me know.',
-                'redirect_target' => 'either',
+                'next_step_guidance' => 'If you want, I can prioritize tasks in your list or plan time blocks.',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
                     'Plan time blocks for my tasks.',
@@ -43,6 +44,7 @@ test('pure greeting short-circuits to general guidance', function (): void {
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('friendly_general');
 });
 
 test('intent policy returns general_guidance for hello via greeting short-circuit', function (): void {
@@ -52,5 +54,5 @@ test('intent policy returns general_guidance for hello via greeting short-circui
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'hello');
 
     expect($decision->flow)->toBe('general_guidance');
-    expect($decision->reasonCodes)->toContain('greeting_shortcircuit_chat');
+    expect($decision->reasonCodes)->toContain('greeting_shortcircuit_general_guidance');
 });

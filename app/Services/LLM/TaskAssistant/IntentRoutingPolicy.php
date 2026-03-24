@@ -54,7 +54,7 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['greeting_shortcircuit_chat'],
+                reasonCodes: ['greeting_shortcircuit_general_guidance'],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -100,7 +100,7 @@ final class IntentRoutingPolicy
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
 
-        $resolvedFlow = $decision->flow === 'chat' ? 'general_guidance' : $decision->flow;
+        $resolvedFlow = $decision->flow;
         $constraints = $this->extractConstraintsForFlow($thread, $normalized, $resolvedFlow);
 
         Log::info('task-assistant.intent.policy', [
@@ -252,7 +252,7 @@ final class IntentRoutingPolicy
     }
 
     /**
-     * Very short social openers with no task intent — route to chat so prioritize intent inference is not invoked.
+     * Very short social openers with no task intent — route to general guidance.
      */
     private function isLikelyPureGreeting(string $normalized): bool
     {

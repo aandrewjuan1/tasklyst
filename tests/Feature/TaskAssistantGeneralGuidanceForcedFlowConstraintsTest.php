@@ -38,19 +38,7 @@ test('pending general guidance forced schedule uses forced-flow constraints (not
     $stateService->rememberPrioritizedItems($thread, $prioritizedItems, 3);
 
     Prism::fake([
-        // 1) general guidance generation (first user message "help")
-        StructuredResponseFake::make()
-            ->withStructured([
-                'message' => 'I hear you. Let us pick a clear next step.',
-                'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
-                'suggested_replies' => [
-                    'Prioritize my tasks.',
-                    'Plan time blocks for my tasks.',
-                ],
-            ])
-            ->withUsage(new Usage(1, 2)),
-        // 2) resolveTargetFromAnswer chooses schedule
+        // 1) resolveTargetFromAnswer chooses schedule
         StructuredResponseFake::make()
             ->withStructured([
                 'target' => 'schedule',
@@ -58,25 +46,18 @@ test('pending general guidance forced schedule uses forced-flow constraints (not
                 'rationale' => 'User answered in a scheduling direction.',
             ])
             ->withUsage(new Usage(1, 2)),
-        // 3) schedule narrative refinement
+        // 2) schedule narrative refinement
         StructuredResponseFake::make()
             ->withStructured([])
             ->withUsage(new Usage(5, 10)),
     ]);
 
-    $userMessage1 = $thread->messages()->create([
-        'role' => MessageRole::User,
-        'content' => 'help',
-    ]);
-    $assistantMessage1 = $thread->messages()->create([
-        'role' => MessageRole::Assistant,
-        'content' => '',
-    ]);
-
-    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage1->id, $assistantMessage1->id);
-
-    $assistantMessage1->refresh();
-    expect($assistantMessage1->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    $stateService->rememberPendingGeneralGuidance(
+        $thread,
+        'hahawdakiodwak',
+        'Do you want me to show your top tasks, or help plan time blocks for them?',
+        ['general_guidance_heuristic']
+    );
 
     $userMessage2 = $thread->messages()->create([
         'role' => MessageRole::User,

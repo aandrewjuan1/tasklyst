@@ -15,9 +15,11 @@ test('general guidance resolves to prioritize', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'message' => 'I hear you. Let us pick a clear next step.',
+                'guidance_mode' => 'gibberish_unclear',
+                'acknowledgement' => 'I did not fully understand your last message.',
+                'message' => 'I can still help once you rephrase it.',
+                'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
                     'Plan time blocks for my tasks.',
@@ -38,7 +40,7 @@ test('general guidance resolves to prioritize', function (): void {
 
     $userMessage1 = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'help',
+        'content' => 'hahawdakiodwak',
     ]);
     $assistantMessage1 = $thread->messages()->create([
         'role' => MessageRole::Assistant,
@@ -74,9 +76,11 @@ test('general guidance resolves to prioritize even for “prioritizing” answer
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'message' => 'I hear you. Let us pick a clear next step.',
+                'guidance_mode' => 'gibberish_unclear',
+                'acknowledgement' => 'I did not fully understand your last message.',
+                'message' => 'I can still help once you rephrase it.',
+                'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
                     'Plan time blocks for my tasks.',
@@ -98,7 +102,7 @@ test('general guidance resolves to prioritize even for “prioritizing” answer
 
     $userMessage1 = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'help',
+        'content' => 'hahawdakiodwak',
     ]);
     $assistantMessage1 = $thread->messages()->create([
         'role' => MessageRole::Assistant,
@@ -133,9 +137,11 @@ test('general guidance resolves to schedule', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'message' => 'I hear you. We can make a simple plan.',
+                'guidance_mode' => 'gibberish_unclear',
+                'acknowledgement' => 'I did not fully understand your last message.',
+                'message' => 'I can still help once you rephrase it.',
+                'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
                     'Plan time blocks for my tasks.',
@@ -160,7 +166,7 @@ test('general guidance resolves to schedule', function (): void {
 
     $userMessage1 = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'help',
+        'content' => 'hahawdakiodwak',
     ]);
     $assistantMessage1 = $thread->messages()->create([
         'role' => MessageRole::Assistant,
@@ -196,9 +202,11 @@ test('low-confidence target selection re-asks general guidance', function (): vo
         // initial guidance generation
         StructuredResponseFake::make()
             ->withStructured([
-                'message' => 'I hear you. Let us narrow it down.',
+                'guidance_mode' => 'gibberish_unclear',
+                'acknowledgement' => 'I did not fully understand your last message.',
+                'message' => 'I can still help once you rephrase it.',
+                'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
                     'Plan time blocks for my tasks.',
@@ -216,9 +224,11 @@ test('low-confidence target selection re-asks general guidance', function (): vo
         // re-ask generation (should keep same question; we provide it in payload)
         StructuredResponseFake::make()
             ->withStructured([
-                'message' => 'Thanks—let us pick one next step.',
+                'guidance_mode' => 'gibberish_unclear',
+                'acknowledgement' => 'Thanks for the follow-up.',
+                'message' => 'I still need one clearer sentence.',
+                'next_step_guidance' => 'Once you clarify, I can prioritize tasks or schedule time blocks for you.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
-                'redirect_target' => 'either',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
                     'Plan time blocks for my tasks.',
@@ -232,7 +242,7 @@ test('low-confidence target selection re-asks general guidance', function (): vo
 
     $userMessage1 = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'help',
+        'content' => 'hahawdakiodwak',
     ]);
     $assistantMessage1 = $thread->messages()->create([
         'role' => MessageRole::Assistant,
