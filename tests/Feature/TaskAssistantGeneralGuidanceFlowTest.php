@@ -15,8 +15,7 @@ test('vague help prompt routes to friendly general guidance without pending foll
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'friendly_general',
-                'acknowledgement' => 'Thanks for reaching out.',
-                'message' => 'I hear you. We can make this manageable.',
+                'response' => 'Thanks for reaching out. I hear you. We can make this manageable.',
                 'next_step_guidance' => 'Start with task 77 "Biology worksheet", then task 91 "Lab summary".',
                 'suggested_replies' => [
                     'Show my top tasks.',
@@ -45,6 +44,8 @@ test('vague help prompt routes to friendly general guidance without pending foll
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('friendly_general');
-    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('If you want, I can');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('prioritize');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('schedule');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('first');
     expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();
 });

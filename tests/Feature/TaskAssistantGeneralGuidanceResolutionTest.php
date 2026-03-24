@@ -16,8 +16,7 @@ test('general guidance resolves to prioritize', function (): void {
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'gibberish_unclear',
-                'acknowledgement' => 'I did not fully understand your last message.',
-                'message' => 'I can still help once you rephrase it.',
+                'response' => 'I did not fully understand your last message. I can still help once you rephrase it.',
                 'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
                 'suggested_replies' => [
@@ -77,8 +76,7 @@ test('general guidance resolves to prioritize even for “prioritizing” answer
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'gibberish_unclear',
-                'acknowledgement' => 'I did not fully understand your last message.',
-                'message' => 'I can still help once you rephrase it.',
+                'response' => 'I did not fully understand your last message. I can still help once you rephrase it.',
                 'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
                 'suggested_replies' => [
@@ -138,8 +136,7 @@ test('general guidance resolves to schedule', function (): void {
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'gibberish_unclear',
-                'acknowledgement' => 'I did not fully understand your last message.',
-                'message' => 'I can still help once you rephrase it.',
+                'response' => 'I did not fully understand your last message. I can still help once you rephrase it.',
                 'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
                 'suggested_replies' => [
@@ -203,8 +200,7 @@ test('low-confidence target selection re-asks general guidance', function (): vo
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'gibberish_unclear',
-                'acknowledgement' => 'I did not fully understand your last message.',
-                'message' => 'I can still help once you rephrase it.',
+                'response' => 'I did not fully understand your last message. I can still help once you rephrase it.',
                 'next_step_guidance' => 'Please rephrase your request, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
                 'suggested_replies' => [
@@ -225,8 +221,7 @@ test('low-confidence target selection re-asks general guidance', function (): vo
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'gibberish_unclear',
-                'acknowledgement' => 'Thanks for the follow-up.',
-                'message' => 'I still need one clearer sentence.',
+                'response' => 'Thanks for the follow-up. I still need one clearer sentence.',
                 'next_step_guidance' => 'Once you clarify, I can prioritize tasks or schedule time blocks for you.',
                 'clarifying_question' => 'Do you want me to show your top tasks, or help plan time blocks for them?',
                 'suggested_replies' => [

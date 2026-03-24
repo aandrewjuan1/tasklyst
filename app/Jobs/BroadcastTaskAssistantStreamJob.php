@@ -63,6 +63,20 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
             return;
         }
 
+        if ($this->isCancellationRequested()) {
+            Log::info('task-assistant.job.cancelled_before_start', [
+                'layer' => 'queue_job',
+                'thread_id' => $this->threadId,
+                'assistant_message_id' => $this->assistantMessageId,
+                'user_id' => $this->userId,
+            ]);
+
+            $this->markAsCancelled($thread);
+            broadcast(new \App\Events\TaskAssistantStreamEnd($this->userId, $this->assistantMessageId));
+
+            return;
+        }
+
         Log::info('task-assistant.job.broadcastStream.call', [
             'layer' => 'queue_job',
             'thread_id' => $this->threadId,
@@ -129,5 +143,44 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
                 ],
             ],
         );
+    }
+
+    private function isCancellationRequested(): bool
+    {
+        $assistantMessage = TaskAssistantMessage::query()
+            ->where('thread_id', $this->threadId)
+            ->where('id', $this->assistantMessageId)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if (! $assistantMessage) {
+            return false;
+        }
+
+        return data_get($assistantMessage->metadata, 'stream.status') === 'stopped';
+    }
+
+    private function markAsCancelled(TaskAssistantThread $thread): void
+    {
+        $assistantMessage = TaskAssistantMessage::query()
+            ->where('thread_id', $thread->id)
+            ->where('id', $this->assistantMessageId)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if ($assistantMessage) {
+            $messageMetadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+            data_set($messageMetadata, 'stream.status', 'stopped');
+            data_set($messageMetadata, 'stream.stopped_at', now()->toIso8601String());
+            $assistantMessage->update([
+                'content' => '',
+                'metadata' => $messageMetadata,
+            ]);
+        }
+
+        $metadata = is_array($thread->metadata ?? null) ? $thread->metadata : [];
+        data_set($metadata, 'stream.processing', null);
+        data_set($metadata, 'stream.last_completed_at', now()->toIso8601String());
+        $thread->update(['metadata' => $metadata]);
     }
 }

@@ -14,6 +14,7 @@ class TaskAssistantJsonDelta implements ShouldBroadcastNow
 
     public function __construct(
         public int $userId,
+        public int $assistantMessageId,
         public string $delta
     ) {}
 
@@ -28,11 +29,12 @@ class TaskAssistantJsonDelta implements ShouldBroadcastNow
     }
 
     /**
-     * @return array{delta: string}
+     * @return array{assistant_message_id: int, delta: string}
      */
     public function broadcastWith(): array
     {
         return [
+            'assistant_message_id' => $this->assistantMessageId,
             'delta' => $this->delta,
         ];
     }

@@ -70,6 +70,25 @@ return [
         'submissions_per_minute' => (int) env('TASK_ASSISTANT_SUBMISSIONS_PER_MINUTE', 15),
     ],
 
+    'queue' => env('TASK_ASSISTANT_QUEUE', 'task-assistant'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | UI Stream Rendering
+    |--------------------------------------------------------------------------
+    |
+    | Controls post-generation chunk streaming behavior. This does not stream
+    | LLM tokens directly; it renders final assistant text in paced deltas so
+    | chat feels live without adding large delays.
+    |
+    */
+    'streaming' => [
+        'chunk_size' => (int) env('TASK_ASSISTANT_STREAM_CHUNK_SIZE', 40),
+        'enable_typing_effect' => (bool) env('TASK_ASSISTANT_ENABLE_TYPING_EFFECT', true),
+        'inter_chunk_delay_ms' => (int) env('TASK_ASSISTANT_INTER_CHUNK_DELAY_MS', 24),
+        'max_typing_effect_ms' => (int) env('TASK_ASSISTANT_MAX_TYPING_EFFECT_MS', 900),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Schedule horizon (deterministic placement window)

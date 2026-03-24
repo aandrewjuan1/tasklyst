@@ -13,8 +13,7 @@ test('time query is answered deterministically and redirects to prioritize/sched
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'friendly_general',
-                'acknowledgement' => 'Thanks for your time question.',
-                'message' => 'Right now, it is 3:45 PM for you.',
+                'response' => 'Thanks for your time question. Right now, it is 3:45 PM for you.',
                 'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next.',
                 'suggested_replies' => [
                     'Prioritize my tasks.',
@@ -55,8 +54,7 @@ test('off-topic guidance keeps a normalized redirect target', function (): void 
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'off_topic',
-                'acknowledgement' => 'Thanks for sharing your request.',
-                'message' => 'I hear you.',
+                'response' => 'Thanks for sharing your request. I hear you.',
                 'next_step_guidance' => 'I can help with your tasks by prioritizing them or planning time blocks.',
                 'redirect_target' => 'tasks',
                 'suggested_replies' => [
@@ -95,8 +93,7 @@ test('gibberish prompt uses gibberish_unclear mode with clarifying question', fu
         StructuredResponseFake::make()
             ->withStructured([
                 'guidance_mode' => 'gibberish_unclear',
-                'acknowledgement' => 'I did not fully understand that message.',
-                'message' => 'I can still help once you rephrase it clearly.',
+                'response' => 'I did not fully understand that message. I can still help once you rephrase it clearly.',
                 'next_step_guidance' => 'Please send one short sentence, then I can prioritize tasks or plan time blocks.',
                 'clarifying_question' => 'Can you rephrase what you want help with in one short sentence?',
                 'suggested_replies' => [

@@ -1,50 +1,55 @@
 <div
     class="grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto]"
     x-data="{
-        reconnectHint: false,
-        lastDeltaAt: null,
+        loadingPhrases: [
+            @js(__('Thinking...')),
+            @js(__('Calculating...')),
+            @js(__('Reviewing context...')),
+            @js(__('Drafting response...')),
+        ],
+        loadingPhraseIndex: 0,
+        loadingTimer: null,
+        currentLoadingPhrase() {
+            return this.loadingPhrases[this.loadingPhraseIndex] ?? this.loadingPhrases[0];
+        },
+        startLoadingPhraseRotation() {
+            if (this.loadingTimer) {
+                clearInterval(this.loadingTimer);
+            }
+
+            this.loadingPhraseIndex = 0;
+            this.loadingTimer = setInterval(() => {
+                this.loadingPhraseIndex = (this.loadingPhraseIndex + 1) % this.loadingPhrases.length;
+            }, 1500);
+        },
+        stopLoadingPhraseRotation() {
+            if (this.loadingTimer) {
+                clearInterval(this.loadingTimer);
+                this.loadingTimer = null;
+            }
+
+            this.loadingPhraseIndex = 0;
+        },
         scrollToBottom() {
             $refs.messagesEnd?.scrollIntoView({ behavior: 'smooth' });
-        },
-        checkStale() {
-            if (! this.$wire.isStreaming) {
-                this.reconnectHint = false;
-                return;
-            }
-
-            const now = Date.now();
-            const last = this.lastDeltaAt ?? now;
-            const elapsed = now - last;
-
-            // Show hint if streaming but no new deltas for > 10 seconds
-            if (elapsed > 10000) {
-                this.reconnectHint = true;
-
-                // Force-refresh messages from the server in case
-                // the stream_end event was missed but the answer
-                // is already saved in the database.
-                this.$wire.refreshMessages();
-            }
-
-            setTimeout(() => this.checkStale(), 3000);
         },
         init() {
             this.$nextTick(() => this.scrollToBottom());
             this.$watch('$wire.streamingContent', () => {
                 this.scrollToBottom();
-                this.lastDeltaAt = Date.now();
-                this.reconnectHint = false;
             });
             this.$watch(() => ($wire.chatMessages?.length ?? 0), () => this.scrollToBottom());
             this.$watch('$wire.isStreaming', (value) => {
                 if (value) {
-                    this.lastDeltaAt = Date.now();
-                    this.reconnectHint = false;
-                    this.checkStale();
+                    this.startLoadingPhraseRotation();
                 } else {
-                    this.reconnectHint = false;
+                    this.stopLoadingPhraseRotation();
                 }
             });
+
+            if (this.$wire.isStreaming) {
+                this.startLoadingPhraseRotation();
+            }
         },
     }"
 >
@@ -86,11 +91,17 @@
                     >
                         <div class="max-w-[85%] min-w-0 rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-700">
                             @php
+                                $isStopped = data_get($message->metadata, 'stream.status') === 'stopped';
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
-                                $display = $message->content ?: __('…');
+                                $display = $isStopped ? '' : ($message->content ?: __('…'));
                                 $proposals = data_get($message->metadata, 'daily_schedule.proposals', data_get($message->metadata, 'structured.data.proposals', []));
                             @endphp
-                            <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
+                            @if ($isStopped)
+                                <flux:text class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">{{ __('Stopped') }}</flux:text>
+                            @endif
+                            @if ($display !== '')
+                                <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
+                            @endif
 
                             @if (is_array($proposals) && count($proposals) > 0)
                                 <div class="mt-3 flex flex-col gap-2">
@@ -175,17 +186,26 @@
                     class="flex justify-start"
                 >
                     <div class="max-w-[85%] min-w-0 overflow-visible rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-700">
-                        @if ($showWorking)
-                            <flux:text class="text-sm text-zinc-500 dark:text-zinc-400">{{ __('Working…') }}</flux:text>
-                        @endif
-                        <flux:text
-                            x-show="reconnectHint"
-                            x-transition
-                            class="mt-1 block text-xs text-amber-600 dark:text-amber-400"
+                        <div
+                            x-show="$wire.isStreaming && ($wire.streamingContent?.length ?? 0) === 0"
+                            x-transition.opacity.duration.200ms
+                            class="mb-1 flex items-center gap-2 text-zinc-500 dark:text-zinc-400"
                         >
-                            {{ __('Reconnecting to assistant…') }}
-                        </flux:text>
-                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $streamingContent }}<span class="animate-pulse">|</span></flux:text>
+                            <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
+                            <flux:text class="text-sm" x-text="currentLoadingPhrase()">{{ __('Thinking...') }}</flux:text>
+                            <flux:button
+                                size="xs"
+                                variant="ghost"
+                                wire:click="requestStopStreaming"
+                                wire:loading.attr="disabled"
+                                wire:target="requestStopStreaming"
+                                class="ml-1"
+                                aria-label="{{ __('Stop generation') }}"
+                            >
+                                <flux:icon name="stop" class="size-3.5" />
+                            </flux:button>
+                        </div>
+                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $streamingContent }}</flux:text>
                     </div>
                 </div>
             @endif
@@ -207,7 +227,7 @@
                 class="block h-10 w-full min-w-0 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-base text-zinc-700 shadow-xs placeholder-zinc-400 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:opacity-70 dark:border-zinc-600 dark:bg-white/10 dark:text-zinc-300 dark:placeholder-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600 sm:text-sm"
                 wire:loading.attr="disabled"
                 wire:target="submitMessage"
-                @if($isStreaming) disabled @endif
+                @disabled($isStreaming)
             />
             @error('newMessage')
                 <flux:text class="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">{{ $message }}</flux:text>
@@ -219,7 +239,7 @@
             wire:loading.attr="disabled"
             wire:target="submitMessage"
             aria-label="{{ __('Send') }}"
-            {{ $isStreaming ? 'disabled' : '' }}
+            @disabled($isStreaming)
         >
             <flux:icon name="paper-airplane" class="size-4" />
         </button>
