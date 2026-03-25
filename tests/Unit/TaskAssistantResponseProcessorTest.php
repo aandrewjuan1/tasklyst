@@ -3,7 +3,6 @@
 namespace Tests\Unit;
 
 use App\Services\LLM\TaskAssistant\TaskAssistantResponseProcessor;
-use App\Support\LLM\TaskAssistantListingDefaults;
 use Tests\TestCase;
 
 class TaskAssistantResponseProcessorTest extends TestCase
@@ -25,15 +24,21 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 ],
             ],
             'limit_used' => 1,
-            'reasoning' => 'Matches filters.',
-            'suggested_guidance' => 'I recommend picking one task to open first so you can focus without getting overwhelmed.',
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Start with what is due soon so you can make real progress.',
+            'suggested_next_actions' => [
+                'Start with A task and complete one small step.',
+            ],
         ], []);
 
         $this->assertTrue($result['valid']);
         $this->assertSame([], $result['errors']);
     }
 
-    public function test_browse_validation_fails_when_suggested_guidance_is_too_short(): void
+    public function test_prioritize_validation_fails_when_framing_is_too_short(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
 
@@ -49,14 +54,20 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 ],
             ],
             'limit_used' => 1,
-            'reasoning' => 'Because these rows matched.',
-            'suggested_guidance' => 'Too short.',
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Ok',
+            'suggested_next_actions' => [
+                'Start with A task and complete one small step.',
+            ],
         ], []);
 
         $this->assertFalse($result['valid']);
     }
 
-    public function test_browse_validation_fails_when_reasoning_is_empty(): void
+    public function test_prioritize_validation_fails_when_suggested_next_actions_contains_too_short_entry(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
 
@@ -72,42 +83,22 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 ],
             ],
             'limit_used' => 1,
-            'reasoning' => '',
-            'suggested_guidance' => 'I suggest opening one task first to keep things manageable this week.',
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Start with what is due soon so you can make real progress.',
+            'suggested_next_actions' => [
+                'Go',
+            ],
         ], []);
 
         $this->assertFalse($result['valid']);
     }
 
-    public function test_browse_validation_passes_for_well_formed_payload(): void
+    public function test_prioritize_validation_fails_when_action_exceeds_max_length(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
-
-        $result = $processor->processResponse('prioritize', [
-            'items' => [
-                [
-                    'entity_type' => 'task',
-                    'entity_id' => 1,
-                    'title' => 'A task',
-                    'priority' => 'high',
-                    'due_phrase' => 'due today',
-                    'due_on' => 'Mar 22, 2026',
-                    'complexity_label' => 'Simple',
-                ],
-            ],
-            'limit_used' => 1,
-            'reasoning' => 'Matches filters.',
-            'suggested_guidance' => 'I recommend picking one task to open first so you can focus without getting overwhelmed.',
-        ], []);
-
-        $this->assertTrue($result['valid']);
-        $this->assertSame([], $result['errors']);
-    }
-
-    public function test_browse_validation_fails_when_reasoning_exceeds_max_length(): void
-    {
-        $processor = app(TaskAssistantResponseProcessor::class);
-        $max = TaskAssistantListingDefaults::maxReasoningChars();
 
         $result = $processor->processResponse('prioritize', [
             'items' => [
@@ -121,8 +112,14 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 ],
             ],
             'limit_used' => 1,
-            'reasoning' => str_repeat('a', $max + 1),
-            'suggested_guidance' => 'I suggest tackling the highest-priority item first to help you manage your time this week.',
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Start with what is due soon so you can make real progress.',
+            'suggested_next_actions' => [
+                str_repeat('x', 181),
+            ],
         ], []);
 
         $this->assertFalse($result['valid']);

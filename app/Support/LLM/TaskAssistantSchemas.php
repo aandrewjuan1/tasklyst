@@ -10,13 +10,15 @@ use Prism\Prism\Schema\StringSchema;
 final class TaskAssistantSchemas
 {
     /**
-     * Daily schedule schema with simple blocks.
+     * Full schedule plan schema (proposals, blocks, narrative fields).
+     *
+     * Covers single-day and multi-day placement horizons; naming is not limited to “today”.
      */
-    public static function dailyScheduleSchema(): ObjectSchema
+    public static function schedulePlanSchema(): ObjectSchema
     {
         return new ObjectSchema(
-            name: 'daily_schedule',
-            description: 'Ordered list of time blocks for the day with optional references.',
+            name: 'schedule_plan',
+            description: 'Ordered list of time blocks and proposals across the planning horizon.',
             properties: [
                 new ArraySchema(
                     name: 'proposals',
@@ -144,7 +146,7 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'summary',
-                    description: 'Optional overview of the proposed day.',
+                    description: 'Optional overview of the proposed schedule window.',
                     nullable: true
                 ),
                 new StringSchema(
@@ -189,22 +191,44 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'prioritize_narrative',
-            description: 'Assistant voice: read-only task list. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
+            description: 'Assistant voice: read-only list order fixed by the server. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
             properties: [
                 new StringSchema(
-                    name: 'reasoning',
-                    description: 'Required: 1-3 short sentences. Task assistant to the student (you/your or neutral). No student first-person (no I/my). Why this list matches their request; use only task titles, dates, and fields from the list. If you mention how many tasks there are, the number MUST exactly match the provided LISTED_TASK_COUNT—never miscount. Never say "snapshot" or "data".',
+                    name: 'acknowledgment',
+                    description: 'Optional but recommended when user expresses intent/emotion conversationally (e.g. overwhelmed, excited, frustrated). When present, it should be 1 short sentence acknowledging their request in student-friendly language. When absent, it may be null.',
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'framing',
+                    description: 'Required: short framing sentence/mini-paragraph (<= 2 sentences). Explains how the list and focus approach will help the user succeed, without sounding technical. Do not invent due dates or reorder items.',
                     nullable: false
                 ),
                 new StringSchema(
-                    name: 'suggested_guidance',
-                    description: 'Required: one short paragraph (2-5 sentences). Start with "I suggest" or "I recommend". Warm, practical advice (e.g. avoiding overwhelm, managing time). No bullet characters. No mention of snapshot/JSON/backend. No invented durations. When you mention priority, each task must match its priority field in the list—do not call a task high-priority if it is medium or low; you may highlight only the high-priority rows or speak about the mix without mislabeling.',
+                    name: 'insight',
+                    description: 'Optional: one short sentence about something non-obvious (why this order matters for the user today). Use only information visible on the provided rows.',
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'suggested_next_actions',
+                    description: 'Required: array of 1-4 short action strings. Each string must start with a verb and be concrete (what to do next). No bullets inside the string. No question marks. Tie actions to the provided list titles/order where helpful.',
+                    items: new StringSchema(name: 'suggested_next_action', description: 'One actionable next step.'),
                     nullable: false
+                ),
+                new ArraySchema(
+                    name: 'tradeoffs',
+                    description: 'Optional: array of 0-3 short strings, each describing a tradeoff or choice made (why one item is prioritized over another). Use only when choices are non-obvious.',
+                    items: new StringSchema(name: 'tradeoff', description: 'Tradeoff description.'),
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'reasoning',
+                    description: 'Optional: short (1-3 sentences) explanation of why this approach matches the user request. Use only task/event/project titles and fields. Do not include internal terms. If you include counts, it must match LISTED_TASK_COUNT.',
+                    nullable: true
                 ),
             ],
             requiredFields: [
-                'reasoning',
-                'suggested_guidance',
+                'framing',
+                'suggested_next_actions',
             ]
         );
     }
@@ -317,22 +341,14 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Schedule-only narrative.
+     * Narrative refinement schema for scheduling: blocks and proposals are fixed in PHP;
+     * the model may add strategy points, next steps, and assumptions (summary lines are anchored in code).
      */
-    public static function hybridNarrativeSchema(): ObjectSchema
-    {
-        return self::dailyScheduleRefinementSchema();
-    }
-
-    /**
-     * Refinement schema: used when blocks are generated deterministically
-     * and the LLM only needs to write the narrative summary.
-     */
-    public static function dailyScheduleRefinementSchema(): ObjectSchema
+    public static function scheduleNarrativeRefinementSchema(): ObjectSchema
     {
         return new ObjectSchema(
-            name: 'daily_schedule_refinement',
-            description: 'Refine the narrative summary for a previously proposed daily schedule.',
+            name: 'schedule_narrative_refinement',
+            description: 'Refine narrative fields for a previously proposed schedule (single- or multi-day).',
             properties: [
                 new StringSchema(
                     name: 'summary',
@@ -346,7 +362,7 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Why this schedule structure is appropriate for the user today.',
+                    description: 'Why this schedule structure fits the user for the requested window.',
                     nullable: true
                 ),
                 new ArraySchema(

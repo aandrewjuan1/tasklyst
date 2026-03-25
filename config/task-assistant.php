@@ -31,7 +31,7 @@ return [
         ],
         'prioritize_narrative' => [
             'temperature' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TEMPERATURE', 0.25),
-            'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 600),
+            'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 900),
             'top_p' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P', 0.88),
         ],
         'general_guidance' => [
@@ -129,6 +129,8 @@ return [
         'max_reasoning_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_REASONING_CHARS', 800),
         /** Single-paragraph recommendations field (suggested_guidance). */
         'max_suggested_guidance_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_SUGGESTED_GUIDANCE_CHARS', 1200),
+        /** Per-row LLM placement line merged into items[].placement_blurb; must match validator max. */
+        'max_item_placement_blurb_chars' => (int) env('TASK_ASSISTANT_MAX_ITEM_PLACEMENT_BLURB_CHARS', 200),
         /*
         | School vs chores browse domains use subjects, teachers, and tags — not a raw
         | substring match on the word "school" in titles (avoids false positives like

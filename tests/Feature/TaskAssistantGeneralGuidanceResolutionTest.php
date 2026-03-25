@@ -152,7 +152,7 @@ test('general guidance resolves to schedule', function (): void {
                 'rationale' => 'User asked for time blocks.',
             ])
             ->withUsage(new Usage(1, 2)),
-        // schedule narrative refinement (daily_schedule_refinement schema)
+        // schedule narrative refinement (schedule_narrative_refinement schema)
         StructuredResponseFake::make()
             ->withStructured([])
             ->withUsage(new Usage(1, 2)),

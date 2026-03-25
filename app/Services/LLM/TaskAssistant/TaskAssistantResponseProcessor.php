@@ -175,12 +175,19 @@ final class TaskAssistantResponseProcessor
     private function validatePrioritizeListingData(array $data): array
     {
         $maxReasoning = TaskAssistantListingDefaults::maxReasoningChars();
-        $maxGuidance = TaskAssistantListingDefaults::maxSuggestedGuidanceChars();
+        $maxFraming = min(400, TaskAssistantListingDefaults::maxSuggestedGuidanceChars());
+        $maxFocusTitle = 200;
+        $maxAction = 180;
         $rules = [
-            'reasoning' => ['required', 'string', 'min:1', 'max:'.$maxReasoning],
-            'suggested_guidance' => ['required', 'string', 'min:20', 'max:'.$maxGuidance],
             'limit_used' => ['required', 'integer', 'min:0', 'max:50'],
             'items' => ['required', 'array', 'max:50'],
+            'focus' => ['required', 'array'],
+            'focus.main_task' => ['required', 'string', 'min:1', 'max:'.$maxFocusTitle],
+            'focus.secondary_tasks' => ['present', 'array', 'max:49'],
+            'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
+            'framing' => ['required', 'string', 'min:5', 'max:'.$maxFraming],
+            'suggested_next_actions' => ['required', 'array', 'min:1', 'max:4'],
+            'suggested_next_actions.*' => ['string', 'min:3', 'max:'.$maxAction],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
@@ -189,6 +196,11 @@ final class TaskAssistantResponseProcessor
             'items.*.due_phrase' => ['nullable', 'string', 'max:64'],
             'items.*.due_on' => ['nullable', 'string', 'max:64'],
             'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
+            'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
+            'insight' => ['nullable', 'string', 'max:'.$maxReasoning],
+            'reasoning' => ['nullable', 'string', 'max:'.$maxReasoning],
+            'tradeoffs' => ['nullable', 'array', 'max:3'],
+            'tradeoffs.*' => ['string', 'max:300'],
         ];
 
         $validator = Validator::make($data, $rules);
