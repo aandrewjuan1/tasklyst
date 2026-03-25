@@ -404,6 +404,42 @@ test('chat flyout stops previous active assistant run when sending a new prompt'
     expect(data_get($previousAssistant->metadata, 'stream.status'))->toBe('stopped');
 });
 
+test('chat flyout renders prioritize next option chips and submits schedule intent', function (): void {
+    Bus::fake();
+
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'What should I do next?',
+    ]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [
+            'prioritize' => [
+                'next_options_chip_texts' => [
+                    'Schedule these for later',
+                    'Schedule these tasks for a specific time',
+                ],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSee('Schedule these for later')
+        ->call('submitSuggestedMessage', 'Schedule these for later')
+        ->assertSet('isStreaming', true);
+
+    Bus::assertDispatched(BroadcastTaskAssistantStreamJob::class);
+});
+
 test('chat flyout new chat stops active processing run before switching thread', function () {
     Bus::fake();
     $user = User::factory()->create();

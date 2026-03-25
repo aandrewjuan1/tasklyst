@@ -137,8 +137,9 @@ final class TaskAssistantMessageFormatter
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $insight = trim((string) ($data['insight'] ?? ''));
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $tradeoffs = is_array($data['tradeoffs'] ?? null) ? $data['tradeoffs'] : [];
         $suggestedNextActions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
+        $nextActionsIntro = trim((string) ($data['next_actions_intro'] ?? ''));
+        $nextOptions = trim((string) ($data['next_options'] ?? ''));
 
         $paragraphs = [];
 
@@ -157,32 +158,33 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = 'Insight: '.$insight;
         }
 
-        if ($reasoning !== '') {
-            $paragraphs[] = $reasoning;
+        if ($reasoning === '') {
+            $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
+        $paragraphs[] = $reasoning;
 
-        if ($tradeoffs !== []) {
-            $clean = array_values(array_filter(
-                array_map(static fn (mixed $v): string => trim((string) $v), $tradeoffs),
-                static fn (string $v): bool => $v !== ''
-            ));
-            if ($clean !== []) {
-                $paragraphs[] = 'Tradeoffs: '.implode(' | ', $clean);
-            }
+        if ($nextActionsIntro === '') {
+            $nextActionsIntro = __('I recommend you take these next steps.');
         }
 
         $actions = array_values(array_filter(
             array_map(static fn (mixed $v): string => trim((string) $v), $suggestedNextActions),
             static fn (string $v): bool => $v !== ''
         ));
+        $actions = array_slice($actions, 0, 2);
 
         $actionLines = [];
         foreach ($actions as $i => $a) {
             $actionLines[] = ($i + 1).'. '.$a;
         }
         if ($actionLines !== []) {
-            $paragraphs[] = 'Next actions:'."\n".implode("\n", $actionLines);
+            $paragraphs[] = $nextActionsIntro."\n".implode("\n", $actionLines);
         }
+
+        if ($nextOptions === '') {
+            $nextOptions = __('If you want, I can schedule these steps for later.');
+        }
+        $paragraphs[] = $nextOptions;
 
         return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
     }

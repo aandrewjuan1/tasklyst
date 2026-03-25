@@ -332,6 +332,10 @@ final class TaskAssistantHybridNarrativeService
         $itemsJson = json_encode($items, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $listedTaskCount = count($items);
 
+        $uxInclude = $this->detectPrioritizeUxIncludes($userMessage, $items);
+        $includeAcknowledgment = $uxInclude['acknowledgment'];
+        $includeInsight = $uxInclude['insight'];
+
         $listLabel = $ambiguous
             ? 'The user asked for a general list; the backend returned a short ranked slice (see FILTER_CONTEXT).'
             : 'The user asked with filters; the backend applied FILTER_CONTEXT and ranking.';
@@ -343,14 +347,19 @@ final class TaskAssistantHybridNarrativeService
                 'Do NOT change ordering or membership. Only fill narrative JSON fields in the schema.'."\n\n".
                 $listLabel."\n\n".
                 'You are the task assistant speaking to the student. '.
-                'In acknowledgment, framing, insight, reasoning, tradeoffs, and suggested_next_actions: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
+                'In acknowledgment, framing, insight, reasoning, suggested_next_actions, next_actions_intro, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'framing is REQUIRED: write 1-2 sentences explaining how this list/focus helps, without sounding technical or inventing dates. '.
-                'acknowledgment is OPTIONAL: include only when the user input sounds conversational/emotional; use 1 short sentence. '.
-                'insight is OPTIONAL: 0-1 short sentence about something non-obvious grounded in visible row info. '.
-                'reasoning is OPTIONAL: 0-3 sentences about why this selected set matches the request (do not invent). If you mention counts, LISTED_TASK_COUNT MUST match exactly. '.
-                'tradeoffs is OPTIONAL: 0-3 short strings only when choices are non-obvious. '.
-                'suggested_next_actions is REQUIRED: array of 1-4 action strings. Each starts with a verb, has no question marks, and has no bullet characters inside the string. Tie actions to the provided row titles/order when helpful. '.
-                'DUE-TIME SAFETY: Do not paraphrase relative timing. If you mention "today", "tomorrow", "overdue", or "this week", it MUST match the exact relative wording present in at least one items[].due_phrase. Never mention relative timing that is not present in items due_phrase values. '.
+                'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. '.
+                'insight is OPTIONAL: include only when UX_INCLUDE_INSIGHT is true; otherwise set it to null. '.
+                'reasoning is REQUIRED: short (1-2 sentences) explanation of why this ordering matches the request. '.
+                'suggested_next_actions is REQUIRED: array of 1-2 action strings. Each must be distinct, start with a verb, has no question marks, and has no bullet characters inside the string. Tie actions to the provided row titles/order when helpful. '.
+                'next_actions_intro is REQUIRED: a lead-in sentence that starts with "I recommend …" and then points to the numbered steps. '.
+                'next_options is REQUIRED: 1-2 sentences offering a follow-up option (e.g., scheduling these steps later). '.
+                'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
+                'UX_INCLUDE_ACK: '.($includeAcknowledgment ? 'true' : 'false').
+                '; UX_INCLUDE_INSIGHT: '.($includeInsight ? 'true' : 'false').
+                "\n".
+                'DUE-TIME SAFETY: Do not paraphrase due-time. If you mention "due today", "due tomorrow", "overdue", or "due this week", it MUST match the exact wording present in at least one items[].due_phrase. Never mention due-time phrasing that is not present in items due_phrase values. '.
                 'Do not invent items, deadlines, durations, or priorities. '.
                 'Each task row may have a priority field: only describe priority if it matches that row—never mislabel. '."\n\n".
                 'FILTER_CONTEXT: '.$filterContextForPrompt."\n\n".
@@ -362,8 +371,10 @@ final class TaskAssistantHybridNarrativeService
         $framing = null;
         $insight = null;
         $reasoning = null;
-        $tradeoffs = null;
         $suggestedNextActions = [];
+        $nextActionsIntro = null;
+        $nextOptions = null;
+        $nextOptionsChipTexts = [];
         $cleanItems = $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
 
         try {
@@ -402,18 +413,28 @@ final class TaskAssistantHybridNarrativeService
                     : null;
             }
 
-            if (isset($payload['tradeoffs']) && is_array($payload['tradeoffs'])) {
-                $tradeoffs = array_values(array_filter(
-                    array_map(static fn (mixed $v): string => trim((string) $v), $payload['tradeoffs']),
-                    static fn (string $v): bool => $v !== ''
-                ));
-
-                $tradeoffs = $tradeoffs !== [] ? $tradeoffs : null;
-            }
-
             if (isset($payload['suggested_next_actions']) && is_array($payload['suggested_next_actions'])) {
                 $suggestedNextActions = array_values(array_filter(
                     array_map(static fn (mixed $v): string => trim((string) $v), $payload['suggested_next_actions']),
+                    static fn (string $v): bool => $v !== '' && ! str_contains($v, '?')
+                ));
+            }
+
+            if (isset($payload['next_actions_intro']) && is_string($payload['next_actions_intro'])) {
+                $nextActionsIntro = trim($payload['next_actions_intro']) !== ''
+                    ? trim($payload['next_actions_intro'])
+                    : null;
+            }
+
+            if (isset($payload['next_options']) && is_string($payload['next_options'])) {
+                $nextOptions = trim($payload['next_options']) !== ''
+                    ? trim($payload['next_options'])
+                    : null;
+            }
+
+            if (isset($payload['next_options_chip_texts']) && is_array($payload['next_options_chip_texts'])) {
+                $nextOptionsChipTexts = array_values(array_filter(
+                    array_map(static fn (mixed $v): string => trim((string) $v), $payload['next_options_chip_texts']),
                     static fn (string $v): bool => $v !== '' && ! str_contains($v, '?')
                 ));
             }
@@ -446,6 +467,35 @@ final class TaskAssistantHybridNarrativeService
                 : ['Tell me what you want to focus on so I can refine the list.'];
         }
 
+        if ($nextActionsIntro === null || trim($nextActionsIntro) === '') {
+            $nextActionsIntro = __('I recommend you take these next steps.');
+        }
+
+        // If the model outputs a lead-in without the required prefix, fix it deterministically.
+        if (mb_stripos($nextActionsIntro, 'I recommend') !== 0) {
+            $nextActionsIntro = __('I recommend you take these next steps.');
+        }
+
+        if ($nextOptions === null || trim($nextOptions) === '') {
+            $nextOptions = __('If you want, I can schedule these steps for later.');
+        }
+
+        if ($nextOptionsChipTexts === []) {
+            $nextOptionsChipTexts = [
+                'Schedule these for later',
+                'Schedule these tasks for a specific time',
+            ];
+        }
+
+        // Post-process enforcement: optional UX narrative fields should only be present
+        // when the deterministic UX include flags allow it.
+        if (! $includeAcknowledgment) {
+            $acknowledgment = null;
+        }
+        if (! $includeInsight) {
+            $insight = null;
+        }
+
         // Safety net against LLM due-date drift (e.g. "tomorrow" vs items[].due_phrase="due today").
         $allowedDuePhrases = $this->extractTaskDuePhrases($cleanItems);
         $framingConflict = $this->hasConflictingDueTiming((string) $framing, $allowedDuePhrases);
@@ -462,7 +512,56 @@ final class TaskAssistantHybridNarrativeService
         }
 
         if ($hasActionConflict) {
-            $suggestedNextActions = $this->regenerateSuggestedNextActionsFromItems($cleanItems, maxCount: 4);
+            $suggestedNextActions = $this->regenerateSuggestedNextActionsFromItems($cleanItems, maxCount: 2);
+        }
+
+        // Enforce contract quality: at most 2 actions overall.
+        $suggestedNextActions = array_values(array_slice($suggestedNextActions, 0, 2));
+
+        // Safety net for due-time drift in next options and chip texts.
+        $nextOptionsConflict = $this->hasConflictingDueTiming((string) $nextOptions, $allowedDuePhrases);
+        if ($nextOptionsConflict) {
+            $nextOptions = __('If you want, I can schedule these steps for later.');
+            $nextOptionsChipTexts = ['Schedule these for later', 'Schedule these tasks for a specific time'];
+        }
+
+        $chipConflict = false;
+        foreach ($nextOptionsChipTexts as $chipText) {
+            if ($this->hasConflictingDueTiming((string) $chipText, $allowedDuePhrases)) {
+                $chipConflict = true;
+                break;
+            }
+        }
+
+        if ($chipConflict) {
+            $nextOptionsChipTexts = ['Schedule these for later', 'Schedule these tasks for a specific time'];
+        }
+
+        $nextOptionsChipTexts = array_values(array_slice($nextOptionsChipTexts, 0, 2));
+
+        // Enforce required reasoning field (schema expects non-null).
+        if ($reasoning === null || trim($reasoning) === '') {
+            $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
+        }
+
+        // Force acknowledgment non-null when the user intent heuristic triggers it.
+        if ($includeAcknowledgment && ($acknowledgment === null || trim($acknowledgment) === '')) {
+            $framingText = trim((string) $framing);
+            if (preg_match('/^(.+?[.!?])\s*(.*)$/us', $framingText, $matches) === 1) {
+                $ackFromFraming = trim((string) ($matches[1] ?? ''));
+                $remaining = trim((string) ($matches[2] ?? ''));
+
+                if ($ackFromFraming !== '') {
+                    $acknowledgment = $ackFromFraming;
+                    if ($remaining !== '') {
+                        $framing = $remaining;
+                    }
+                }
+            }
+
+            if ($acknowledgment === null || trim($acknowledgment) === '') {
+                $acknowledgment = __('I hear you. Let\'s start with your top priority.');
+            }
         }
 
         $focus = [
@@ -493,9 +592,11 @@ final class TaskAssistantHybridNarrativeService
             'acknowledgment' => $acknowledgment,
             'framing' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $framing),
             'insight' => $insight !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($insight) : null,
-            'reasoning' => $reasoning !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($reasoning) : null,
-            'tradeoffs' => $tradeoffs,
+            'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $reasoning),
             'suggested_next_actions' => $suggestedNextActions,
+            'next_actions_intro' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $nextActionsIntro),
+            'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $nextOptions),
+            'next_options_chip_texts' => $nextOptionsChipTexts,
         ];
     }
 
@@ -537,56 +638,21 @@ final class TaskAssistantHybridNarrativeService
         $lower = mb_strtolower($text);
         $allowedLower = array_map(static fn (string $p): string => mb_strtolower($p), $allowedDuePhrases);
 
-        $mentionsTomorrow = mb_stripos($lower, 'tomorrow') !== false;
-        $mentionsToday = mb_stripos($lower, 'today') !== false;
-        $mentionsOverdue = mb_stripos($lower, 'overdue') !== false;
-        $mentionsThisWeek = mb_stripos($lower, 'this week') !== false;
+        // Only trigger on due-phrase tokens (not standalone "tomorrow"/"today"),
+        // so task titles like "tomorrow's ..." do not cause false positives.
+        $duePhraseTokens = [
+            'due tomorrow',
+            'due today',
+            'due this week',
+            'overdue',
+        ];
 
-        if ($mentionsTomorrow) {
-            $matches = false;
-            foreach ($allowedLower as $p) {
-                if (mb_stripos($p, 'tomorrow') !== false) {
-                    $matches = true;
-                    break;
-                }
+        foreach ($duePhraseTokens as $token) {
+            if (mb_stripos($lower, $token) === false) {
+                continue;
             }
 
-            if (! $matches) {
-                return true;
-            }
-        }
-
-        if ($mentionsToday) {
-            $matches = false;
-            foreach ($allowedLower as $p) {
-                if (mb_stripos($p, 'today') !== false) {
-                    $matches = true;
-                    break;
-                }
-            }
-
-            if (! $matches) {
-                return true;
-            }
-        }
-
-        if ($mentionsOverdue) {
-            $matches = in_array('overdue', $allowedLower, true);
-            if (! $matches) {
-                return true;
-            }
-        }
-
-        if ($mentionsThisWeek) {
-            $matches = false;
-            foreach ($allowedLower as $p) {
-                if (mb_stripos($p, 'this week') !== false) {
-                    $matches = true;
-                    break;
-                }
-            }
-
-            if (! $matches) {
+            if (! in_array($token, $allowedLower, true)) {
                 return true;
             }
         }
@@ -598,7 +664,7 @@ final class TaskAssistantHybridNarrativeService
      * @param  list<array<string, mixed>>  $items
      * @return list<string>
      */
-    private function regenerateSuggestedNextActionsFromItems(array $items, int $maxCount = 4): array
+    private function regenerateSuggestedNextActionsFromItems(array $items, int $maxCount = 2): array
     {
         $out = [];
 
@@ -615,16 +681,107 @@ final class TaskAssistantHybridNarrativeService
                 continue;
             }
 
-            $isFirst = $out === [];
-            $prefix = $isFirst ? 'Start with completing' : 'Then continue with';
-            $out[] = $prefix.' '.$title.'.';
+            if ($out === []) {
+                $out[] = 'Start with '.$title.'.';
+            } else {
+                $out[] = 'Next, '.$title.'.';
+            }
         }
 
         if ($out === []) {
             return ['Tell me what you want to focus on so I can refine the list.'];
         }
 
-        return array_slice($out, 0, 4);
+        return array_slice($out, 0, $maxCount);
+    }
+
+    /**
+     * Heuristically decide which optional UX fields should be included.
+     *
+     * This keeps “simple prompts” from producing noisy optional fields while
+     * still allowing richer output when the situation is likely non-obvious.
+     *
+     * @param  array<string, mixed>  $userMessage
+     * @param  list<array<string, mixed>>  $items
+     * @return array{acknowledgment: bool, insight: bool}
+     */
+    private function detectPrioritizeUxIncludes(string $userMessage, array $items): array
+    {
+        $content = mb_strtolower($userMessage);
+
+        $includeAcknowledgment = (bool) preg_match(
+            '/\b(overwhelmed|anxious|worried|stressed|panicked|frustrated|stuck|nervous|excited|i\s+feel|i\'m)\b/u',
+            $content
+        );
+
+        $topItems = array_values(array_slice($items, 0, 3));
+
+        $nonTaskInTop = false;
+        $topTasks = [];
+        foreach ($topItems as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $entityType = strtolower(trim((string) ($item['entity_type'] ?? 'task')));
+            if ($entityType !== 'task') {
+                $nonTaskInTop = true;
+
+                continue;
+            }
+            $topTasks[] = $item;
+        }
+
+        $top1 = $topTasks[0] ?? [];
+        $top2 = $topTasks[1] ?? [];
+
+        $due1 = (string) ($top1['due_bucket'] ?? '');
+        $due2 = (string) ($top2['due_bucket'] ?? '');
+        if ($due1 === '' && is_string($top1['due_phrase'] ?? null)) {
+            $due1 = $this->mapDuePhraseToBucket((string) ($top1['due_phrase'] ?? ''));
+        }
+        if ($due2 === '' && is_string($top2['due_phrase'] ?? null)) {
+            $due2 = $this->mapDuePhraseToBucket((string) ($top2['due_phrase'] ?? ''));
+        }
+
+        $prio1 = (string) ($top1['priority'] ?? '');
+        $prio2 = (string) ($top2['priority'] ?? '');
+
+        $dueDiff = $due1 !== '' && $due2 !== '' && $due1 !== $due2;
+        $prioDiff = $prio1 !== '' && $prio2 !== '' && $prio1 !== $prio2;
+
+        $includeInsight = $nonTaskInTop || $dueDiff || $prioDiff;
+
+        return [
+            'acknowledgment' => $includeAcknowledgment,
+            'insight' => $includeInsight,
+        ];
+    }
+
+    private function mapDuePhraseToBucket(string $duePhrase): string
+    {
+        $p = mb_strtolower(trim($duePhrase));
+
+        if ($p === '') {
+            return '';
+        }
+
+        if (str_contains($p, 'overdue')) {
+            return 'overdue';
+        }
+
+        if (str_contains($p, 'due today')) {
+            return 'due_today';
+        }
+
+        if (str_contains($p, 'tomorrow')) {
+            return 'due_tomorrow';
+        }
+
+        if (str_contains($p, 'this week')) {
+            return 'due_this_week';
+        }
+
+        return '';
     }
 
     /**

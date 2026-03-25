@@ -36,6 +36,9 @@ class TaskAssistantMessageFormatterTest extends TestCase
     {
         $ack = 'Got it.';
         $framing = 'Not everything deserves your attention—this focuses on what actually moves your goal.';
+        $reasoning = 'This ordering matches what you asked for.';
+        $nextActionsIntro = 'I recommend you take these next steps.';
+        $nextOptions = 'If you want, I can schedule these steps for later.';
         $nextAction = 'Start with A and complete one small step.';
         $out = $this->formatter->format('prioritize', [
             'acknowledgment' => $ack,
@@ -52,21 +55,29 @@ class TaskAssistantMessageFormatterTest extends TestCase
                     'complexity_label' => 'Simple',
                 ],
             ],
+            'reasoning' => $reasoning,
             'suggested_next_actions' => [$nextAction],
+            'next_actions_intro' => $nextActionsIntro,
+            'next_options' => $nextOptions,
         ]);
 
         $this->assertStringContainsString($ack, $out);
         $this->assertStringContainsString($framing, $out);
         $posItems = strpos($out, '1. A —');
-        $posNext = strpos($out, 'Next actions:');
+        $posNext = strpos($out, $nextActionsIntro);
         $posFraming = strpos($out, $framing);
         $this->assertNotFalse($posItems);
         $this->assertNotFalse($posNext);
         $this->assertNotFalse($posFraming);
 
+        $posIntroAndFirstAction = strpos($out, $nextActionsIntro."\n".'1. '.$nextAction);
+        $this->assertNotFalse($posIntroAndFirstAction);
+        $this->assertLessThan($posIntroAndFirstAction, $posItems);
+        $this->assertLessThan($posItems, $posFraming);
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
         $this->assertStringContainsString('Complexity: Simple', $out);
         $this->assertStringContainsString($nextAction, $out);
+        $this->assertStringContainsString($nextOptions, $out);
     }
 
     public function test_browse_item_lines_always_show_priority_date_and_complexity_defaults(): void
@@ -91,7 +102,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Medium priority', $out);
         $this->assertStringContainsString(TaskAssistantListingDefaults::noDueDateLabel(), $out);
         $this->assertStringContainsString('Complexity: '.TaskAssistantListingDefaults::complexityNotSetLabel(), $out);
-        $this->assertStringContainsString('Next actions:', $out);
+        $this->assertStringContainsString('I recommend you take these next steps.', $out);
     }
 
     public function test_browse_uses_default_framing_when_payload_omits_it(): void

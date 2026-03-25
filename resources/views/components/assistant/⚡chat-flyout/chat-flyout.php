@@ -259,6 +259,21 @@ new class extends Component
         )->onQueue((string) config('task-assistant.queue', 'task-assistant'));
     }
 
+    public function submitSuggestedMessage(string $text): void
+    {
+        if ($this->isStreaming) {
+            return;
+        }
+
+        $text = trim($text);
+        if ($text === '') {
+            return;
+        }
+
+        $this->newMessage = $text;
+        $this->submitMessage();
+    }
+
     public function requestStopStreaming(): void
     {
         if (! $this->thread || ! $this->isStreaming || ! $this->streamingMessageId) {

@@ -176,6 +176,7 @@ final class TaskAssistantResponseProcessor
     {
         $maxReasoning = TaskAssistantListingDefaults::maxReasoningChars();
         $maxFraming = min(400, TaskAssistantListingDefaults::maxSuggestedGuidanceChars());
+        $maxNextField = min(260, $maxReasoning);
         $maxFocusTitle = 200;
         $maxAction = 180;
         $rules = [
@@ -186,8 +187,12 @@ final class TaskAssistantResponseProcessor
             'focus.secondary_tasks' => ['present', 'array', 'max:49'],
             'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
             'framing' => ['required', 'string', 'min:5', 'max:'.$maxFraming],
-            'suggested_next_actions' => ['required', 'array', 'min:1', 'max:4'],
+            'suggested_next_actions' => ['required', 'array', 'min:1', 'max:2'],
             'suggested_next_actions.*' => ['string', 'min:3', 'max:'.$maxAction],
+            'next_actions_intro' => ['required', 'string', 'min:10', 'max:'.$maxNextField],
+            'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextField],
+            'next_options_chip_texts' => ['required', 'array', 'min:1', 'max:2'],
+            'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
@@ -198,9 +203,7 @@ final class TaskAssistantResponseProcessor
             'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
             'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
             'insight' => ['nullable', 'string', 'max:'.$maxReasoning],
-            'reasoning' => ['nullable', 'string', 'max:'.$maxReasoning],
-            'tradeoffs' => ['nullable', 'array', 'max:3'],
-            'tradeoffs.*' => ['string', 'max:300'],
+            'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
         ];
 
         $validator = Validator::make($data, $rules);

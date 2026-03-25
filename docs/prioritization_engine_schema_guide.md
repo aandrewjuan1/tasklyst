@@ -57,7 +57,7 @@ flowchart TB
 |--------|----------------|
 | **Orchestration** | Chooses `flow === 'prioritize'`, builds `ExecutionPlan` (limits, hints, targets, `generationProfile`). |
 | **PHP engine** | Builds snapshot, applies constraints, ranks and selects rows (`items`), sets `limit_used`. |
-| **Prism** | Fills **student-facing narrative UX only** (`acknowledgment`, `framing`, `insight`, `suggested_next_actions`, plus optional `reasoning` / `tradeoffs`) from a schema; instructions forbid reorder/replace rows. |
+| **Prism** | Fills **student-facing narrative UX only** (`acknowledgment`, `framing`, `insight`, `suggested_next_actions`, plus `reasoning`) from a schema; instructions forbid reorder/replace rows. |
 | **Persist / format** | Validates full payload, writes assistant `content` + `metadata.prioritize`, clamps lengths. |
 
 ---
@@ -164,9 +164,11 @@ This is the contract for **UI + narrative prompts** (`ITEMS_JSON`), not the raw 
 - `acknowledgment` (nullable string) — optional 1-sentence acknowledgment.
 - `framing` (string) — required; short student-friendly framing.
 - `insight` (nullable string) — optional non-obvious insight.
-- `suggested_next_actions` (string[]) — required array of 1-4 short action strings.
-- `reasoning` (nullable string) — optional short explanation (1-3 sentences).
-- `tradeoffs` (nullable string[]) — optional 0-3 tradeoff strings.
+- `suggested_next_actions` (string[]) — required array of 1-2 short action strings.
+- `next_actions_intro` (string) — required lead-in sentence for the next actions section (must start with "I recommend …").
+- `next_options` (string) — required 1-2 sentences offering a follow-up option (e.g., scheduling later).
+- `next_options_chip_texts` (string[]) — required 1-2 short chip strings (no question marks).
+- `reasoning` (string) — required short explanation (1-2 sentences).
 
 **Call site:** `TaskAssistantHybridNarrativeService::refinePrioritizeListing`  
 - Builds messages with `FILTER_CONTEXT` and ordered `ITEMS_JSON`.  
@@ -197,8 +199,12 @@ After `TaskAssistantFlowExecutionEngine::executeStructuredFlow` with `metadataKe
   - `focus.main_task` = first item title
   - `focus.secondary_tasks` = titles of remaining items
 - `framing` — required narrative (LLM + clamps / deterministic fallback).  
-- `acknowledgment`, `insight`, `reasoning`, `tradeoffs` — optional narrative fields.  
+- `acknowledgment` (nullable), `insight` (nullable) — optional narrative fields.  
+- `reasoning` (string) — required narrative field.  
 - `suggested_next_actions` (always present) — array of short action strings.
+- `next_actions_intro` (string) — required.
+- `next_options` (string) — required.
+- `next_options_chip_texts` (string[]) — required (used for UI chips).
 
 `TaskAssistantConversationStateService::rememberLastListing` stores the listing for follow-ups (e.g. schedule “those”).
 
@@ -207,7 +213,7 @@ After `TaskAssistantFlowExecutionEngine::executeStructuredFlow` with `metadataKe
 ## 9. Validation and formatter
 
 - **Validation:** `TaskAssistantResponseProcessor::validatePrioritizeListingData` — Laravel `Validator` rules; must stay in sync with any new keys.  
-- **User-visible body:** `TaskAssistantMessageFormatter::formatPrioritizeListingMessage` — renders in this order: optional `acknowledgment`, required `framing`, formatted `items`, optional `insight` / `reasoning` / `tradeoffs`, then `suggested_next_actions` in a final “Next actions” section.
+- **User-visible body:** `TaskAssistantMessageFormatter::formatPrioritizeListingMessage` — renders in this order: optional `acknowledgment`, required `framing`, formatted `items`, optional `insight`, required `reasoning`, required `next_actions_intro` + numbered `suggested_next_actions`, then required `next_options` as the final paragraph.
 
 ---
 

@@ -385,6 +385,7 @@ final class TaskAssistantService
 
             if ($items === []) {
                 $emptyReasoning = trim((string) $selection['deterministic_summary']);
+                $fallbackReasoning = $emptyReasoning !== '' ? $emptyReasoning : TaskAssistantListingDefaults::reasoningWhenEmpty();
                 $prioritizeData = [
                     'items' => [],
                     'limit_used' => 0,
@@ -399,8 +400,13 @@ final class TaskAssistantService
                             : 'No matching items found. Here are next steps to refine your list.',
                     ),
                     'insight' => null,
-                    'reasoning' => null,
-                    'tradeoffs' => null,
+                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($fallbackReasoning),
+                    'next_actions_intro' => TaskAssistantListingDefaults::clampBrowseReasoning('I recommend you take these next steps.'),
+                    'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning('If you want, I can schedule these steps for later.'),
+                    'next_options_chip_texts' => [
+                        'Schedule these for later',
+                        'Schedule these tasks for a specific time',
+                    ],
                     'suggested_next_actions' => [
                         'Tell me what you want to focus on so I can build a short prioritized list.',
                         'Share a timeframe (today, this week, or a date range) for more accurate ranking.',
@@ -425,8 +431,15 @@ final class TaskAssistantService
                     'acknowledgment' => $narrative['acknowledgment'] ?? null,
                     'framing' => (string) ($narrative['framing'] ?? ''),
                     'insight' => $narrative['insight'] ?? null,
-                    'reasoning' => $narrative['reasoning'] ?? null,
-                    'tradeoffs' => $narrative['tradeoffs'] ?? null,
+                    'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantListingDefaults::reasoningWhenEmpty()),
+                    'next_actions_intro' => (string) ($narrative['next_actions_intro'] ?? 'I recommend you take these next steps.'),
+                    'next_options' => (string) ($narrative['next_options'] ?? 'If you want, I can schedule these steps for later.'),
+                    'next_options_chip_texts' => is_array($narrative['next_options_chip_texts'] ?? null)
+                        ? $narrative['next_options_chip_texts']
+                        : [
+                            'Schedule these for later',
+                            'Schedule these tasks for a specific time',
+                        ],
                     'suggested_next_actions' => $narrative['suggested_next_actions'] ?? [],
                 ];
             }
@@ -475,6 +488,7 @@ final class TaskAssistantService
 
             if ($items === []) {
                 $emptyReasoning = trim((string) $deterministicSummary);
+                $fallbackReasoning = $emptyReasoning !== '' ? $emptyReasoning : TaskAssistantListingDefaults::reasoningWhenEmpty();
                 $prioritizeData = [
                     'items' => [],
                     'limit_used' => 0,
@@ -489,8 +503,13 @@ final class TaskAssistantService
                             : 'No matching items found. Here are next steps to refine your list.',
                     ),
                     'insight' => null,
-                    'reasoning' => null,
-                    'tradeoffs' => null,
+                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($fallbackReasoning),
+                    'next_actions_intro' => TaskAssistantListingDefaults::clampBrowseReasoning('I recommend you take these next steps.'),
+                    'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning('If you want, I can schedule these steps for later.'),
+                    'next_options_chip_texts' => [
+                        'Schedule these for later',
+                        'Schedule these tasks for a specific time',
+                    ],
                     'suggested_next_actions' => [
                         'Tell me what you want to focus on so I can build a short prioritized list.',
                         'Share a timeframe (today, this week, or a date range) for more accurate ranking.',
@@ -515,8 +534,15 @@ final class TaskAssistantService
                     'acknowledgment' => $narrative['acknowledgment'] ?? null,
                     'framing' => (string) ($narrative['framing'] ?? ''),
                     'insight' => $narrative['insight'] ?? null,
-                    'reasoning' => $narrative['reasoning'] ?? null,
-                    'tradeoffs' => $narrative['tradeoffs'] ?? null,
+                    'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantListingDefaults::reasoningWhenEmpty()),
+                    'next_actions_intro' => (string) ($narrative['next_actions_intro'] ?? 'I recommend you take these next steps.'),
+                    'next_options' => (string) ($narrative['next_options'] ?? 'If you want, I can schedule these steps for later.'),
+                    'next_options_chip_texts' => is_array($narrative['next_options_chip_texts'] ?? null)
+                        ? $narrative['next_options_chip_texts']
+                        : [
+                            'Schedule these for later',
+                            'Schedule these tasks for a specific time',
+                        ],
                     'suggested_next_actions' => $narrative['suggested_next_actions'] ?? [],
                 ];
             }
