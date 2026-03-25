@@ -44,6 +44,23 @@ final class TaskAssistantListingDefaults
         return mb_substr($text, 0, $max - 1).'…';
     }
 
+    public static function maxItemPlacementBlurbChars(): int
+    {
+        $max = (int) config('task-assistant.listing.max_item_placement_blurb_chars', 200);
+
+        return max(40, $max);
+    }
+
+    public static function clampItemPlacementBlurb(string $text): string
+    {
+        $max = self::maxItemPlacementBlurbChars();
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+
+        return mb_substr($text, 0, $max - 1).'…';
+    }
+
     public static function defaultSuggestedGuidance(): string
     {
         return __('I suggest picking one task from the list to start with so you don\'t get overwhelmed. If you tell me your focus, I can help you narrow this list or plan what to tackle first.');

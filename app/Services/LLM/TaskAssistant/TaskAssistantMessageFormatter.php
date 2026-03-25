@@ -128,26 +128,61 @@ final class TaskAssistantMessageFormatter
      */
     private function formatPrioritizeListingMessage(array $data): string
     {
-        $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        if ($reasoning === '') {
-            $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
+        $acknowledgment = trim((string) ($data['acknowledgment'] ?? ''));
+        $framing = trim((string) ($data['framing'] ?? ''));
+        if ($framing === '') {
+            $framing = TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
-        $guidance = trim((string) ($data['suggested_guidance'] ?? ''));
-        if ($guidance === '') {
-            $guidance = TaskAssistantListingDefaults::defaultSuggestedGuidance();
-        }
+
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        $insight = trim((string) ($data['insight'] ?? ''));
+        $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        $tradeoffs = is_array($data['tradeoffs'] ?? null) ? $data['tradeoffs'] : [];
+        $suggestedNextActions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
 
         $paragraphs = [];
 
-        $paragraphs[] = $reasoning;
+        if ($acknowledgment !== '') {
+            $paragraphs[] = $acknowledgment;
+        }
+
+        $paragraphs[] = $framing;
 
         $lines = $this->formatBrowseItemLines($items);
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);
         }
 
-        $paragraphs[] = $guidance;
+        if ($insight !== '') {
+            $paragraphs[] = 'Insight: '.$insight;
+        }
+
+        if ($reasoning !== '') {
+            $paragraphs[] = $reasoning;
+        }
+
+        if ($tradeoffs !== []) {
+            $clean = array_values(array_filter(
+                array_map(static fn (mixed $v): string => trim((string) $v), $tradeoffs),
+                static fn (string $v): bool => $v !== ''
+            ));
+            if ($clean !== []) {
+                $paragraphs[] = 'Tradeoffs: '.implode(' | ', $clean);
+            }
+        }
+
+        $actions = array_values(array_filter(
+            array_map(static fn (mixed $v): string => trim((string) $v), $suggestedNextActions),
+            static fn (string $v): bool => $v !== ''
+        ));
+
+        $actionLines = [];
+        foreach ($actions as $i => $a) {
+            $actionLines[] = ($i + 1).'. '.$a;
+        }
+        if ($actionLines !== []) {
+            $paragraphs[] = 'Next actions:'."\n".implode("\n", $actionLines);
+        }
 
         return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
     }
@@ -212,6 +247,15 @@ final class TaskAssistantMessageFormatter
             }
             $title = trim((string) ($item['title'] ?? ''));
             if ($title === '') {
+                continue;
+            }
+
+            $entityType = strtolower(trim((string) ($item['entity_type'] ?? 'task')));
+
+            if ($entityType === 'event' || $entityType === 'project') {
+                $kind = $entityType === 'event' ? __('Event') : __('Project');
+                $lines[] = ($index + 1).'. '.$title.' — '.$kind;
+
                 continue;
             }
 

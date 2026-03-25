@@ -24,7 +24,7 @@ test('clarification answer enforces prioritize->schedule', function (): void {
                 'rationale' => 'Ambiguous.',
             ])
             ->withUsage(new Usage(1, 2)),
-        // schedule narrative refinement (daily_schedule_refinement)
+        // schedule narrative refinement (schedule_narrative_refinement)
         StructuredResponseFake::make()
             ->withStructured([])
             ->withUsage(new Usage(5, 10)),

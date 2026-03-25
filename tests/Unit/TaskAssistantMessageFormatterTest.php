@@ -32,12 +32,14 @@ class TaskAssistantMessageFormatterTest extends TestCase
         );
     }
 
-    public function test_prioritize_orders_reasoning_then_items_then_guidance_paragraph(): void
+    public function test_prioritize_orders_framing_then_items_then_next_actions(): void
     {
-        $guidance = 'I suggest opening one task first so you can manage your time without feeling overwhelmed.';
+        $ack = 'Got it.';
+        $framing = 'Not everything deserves your attention—this focuses on what actually moves your goal.';
+        $nextAction = 'Start with A and complete one small step.';
         $out = $this->formatter->format('prioritize', [
-            'reasoning' => 'You asked to see tasks.',
-            'suggested_guidance' => $guidance,
+            'acknowledgment' => $ack,
+            'framing' => $framing,
             'limit_used' => 1,
             'items' => [
                 [
@@ -50,30 +52,27 @@ class TaskAssistantMessageFormatterTest extends TestCase
                     'complexity_label' => 'Simple',
                 ],
             ],
+            'suggested_next_actions' => [$nextAction],
         ]);
 
-        $this->assertStringNotContainsString('Why this list:', $out);
-        $this->assertStringNotContainsString('Why these priorities:', $out);
-        $this->assertStringNotContainsString('Looking at:', $out);
-        $this->assertStringNotContainsString('[task]', $out);
-        $posReasoning = strpos($out, 'You asked to see tasks.');
+        $this->assertStringContainsString($ack, $out);
+        $this->assertStringContainsString($framing, $out);
         $posItems = strpos($out, '1. A —');
-        $posGuidance = strpos($out, $guidance);
-        $this->assertNotFalse($posReasoning);
+        $posNext = strpos($out, 'Next actions:');
+        $posFraming = strpos($out, $framing);
         $this->assertNotFalse($posItems);
-        $this->assertNotFalse($posGuidance);
-        $this->assertLessThan($posItems, $posReasoning);
-        $this->assertLessThan($posGuidance, $posItems);
-        $this->assertStringNotContainsString('• ', $out);
+        $this->assertNotFalse($posNext);
+        $this->assertNotFalse($posFraming);
+
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
         $this->assertStringContainsString('Complexity: Simple', $out);
+        $this->assertStringContainsString($nextAction, $out);
     }
 
     public function test_browse_item_lines_always_show_priority_date_and_complexity_defaults(): void
     {
         $out = $this->formatter->format('prioritize', [
-            'reasoning' => 'Why.',
-            'suggested_guidance' => 'I recommend starting with one small task to avoid feeling overwhelmed.',
+            'framing' => 'Why.',
             'limit_used' => 1,
             'items' => [
                 [
@@ -86,18 +85,19 @@ class TaskAssistantMessageFormatterTest extends TestCase
                     'complexity_label' => '',
                 ],
             ],
+            'suggested_next_actions' => ['Start with Untimed and complete one small step.'],
         ]);
 
         $this->assertStringContainsString('Medium priority', $out);
         $this->assertStringContainsString(TaskAssistantListingDefaults::noDueDateLabel(), $out);
         $this->assertStringContainsString('Complexity: '.TaskAssistantListingDefaults::complexityNotSetLabel(), $out);
-        $this->assertStringContainsString('I recommend starting', $out);
+        $this->assertStringContainsString('Next actions:', $out);
     }
 
-    public function test_browse_uses_default_reasoning_when_payload_omits_it(): void
+    public function test_browse_uses_default_framing_when_payload_omits_it(): void
     {
         $out = $this->formatter->format('prioritize', [
-            'suggested_guidance' => TaskAssistantListingDefaults::defaultSuggestedGuidance(),
+            'suggested_next_actions' => ['Start with one item and complete one small step.'],
             'limit_used' => 0,
             'items' => [],
         ]);
@@ -105,11 +105,58 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString(TaskAssistantListingDefaults::reasoningWhenEmpty(), $out);
     }
 
+    public function test_prioritize_ignores_placement_blurb_fields(): void
+    {
+        $blurb = 'Ranked here for urgency and your current filter.';
+        $nextAction = 'Start with Alpha and complete one small step.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Your ranked slice.',
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Alpha',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
+                    'placement_blurb' => $blurb,
+                ],
+            ],
+            'suggested_next_actions' => [$nextAction],
+        ]);
+
+        $this->assertStringContainsString('1. Alpha —', $out);
+        $this->assertStringNotContainsString($blurb, $out);
+    }
+
+    public function test_prioritize_event_row_shows_kind(): void
+    {
+        $blurb = 'Upcoming commitment in your calendar window.';
+        $nextAction = 'Start with Team sync and complete one small step.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Mix of work.',
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'event',
+                    'entity_id' => 9,
+                    'title' => 'Team sync',
+                    'placement_blurb' => $blurb,
+                ],
+            ],
+            'suggested_next_actions' => [$nextAction],
+        ]);
+
+        $this->assertStringContainsString('1. Team sync —', $out);
+        $this->assertStringNotContainsString($blurb, $out);
+    }
+
     public function test_prioritize_does_not_use_prioritize_specific_sections(): void
     {
         $out = $this->formatter->format('prioritize', [
-            'reasoning' => 'Deadlines matter.',
-            'suggested_guidance' => 'I recommend picking one task to start with so you can focus.',
+            'framing' => 'Deadlines matter.',
             'limit_used' => 1,
             'items' => [
                 [
@@ -122,6 +169,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
                     'complexity_label' => 'Simple',
                 ],
             ],
+            'suggested_next_actions' => ['Start with A and complete one small step.'],
         ]);
 
         $this->assertStringContainsString('Deadlines matter.', $out);

@@ -22,8 +22,13 @@ test('prioritize flow returns structured prioritized tasks with hybrid narrative
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
+                'framing' => 'Start with the most urgent item first, then work down the list.',
+                'acknowledgment' => null,
+                'suggested_next_actions' => [
+                    'Open the first item and do one small step for 10 minutes.',
+                    'Then pick the next item and continue for a short focused session.',
+                ],
                 'reasoning' => 'These tasks matched your filters.',
-                'suggested_guidance' => 'I suggest picking one task to start with so you don\'t get overwhelmed. If you want, we can narrow the list or plan what to tackle first.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);

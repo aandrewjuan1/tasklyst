@@ -12,8 +12,6 @@ use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\Testing\TextResponseFake;
 use Prism\Prism\ValueObjects\Meta;
-use Prism\Prism\ValueObjects\ToolCall;
-use Prism\Prism\ValueObjects\ToolResult;
 use Prism\Prism\ValueObjects\Usage;
 
 test('queued prioritize flow stores selected entities for multiturn state', function (): void {
@@ -27,8 +25,13 @@ test('queued prioritize flow stores selected entities for multiturn state', func
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
+                'framing' => 'Start with the most urgent item first, then move down the list.',
+                'acknowledgment' => null,
+                'suggested_next_actions' => [
+                    'Open the first item and do one small step.',
+                    'Then continue with the next item for a short session.',
+                ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
-                'suggested_guidance' => 'I suggest starting with one task from this list so you do not feel overwhelmed. If you tell me your focus, I can narrow the list further or help you plan what to do next.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -87,8 +90,13 @@ test('multiturn schedule can target previous prioritized selection', function ()
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
+                'framing' => 'Start with the item that feels most doable today, then proceed down the ranked list.',
+                'acknowledgment' => null,
+                'suggested_next_actions' => [
+                    'Open the first item and do one small step.',
+                    'Then pick the next item and keep going for 15–30 minutes.',
+                ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
-                'suggested_guidance' => 'I suggest starting with the first task that feels most doable today. If you want, tell me whether you prefer school work or chores and I will refine the list.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -170,20 +178,17 @@ test('processQueuedMessage clears task assistant container bindings after run', 
     expect(app()->bound('task_assistant.message_id'))->toBeFalse();
 });
 
-test('chat flow persists prism tool calls on the assistant message', function (): void {
+test('greeting is routed to general_guidance and persists structured metadata', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
 
-    $toolCall = new ToolCall('call-1', 'list_tasks', []);
-    $toolResult = new ToolResult('call-1', 'list_tasks', [], ['ok' => true, 'tasks' => []]);
-
     Prism::fake([
-        TextResponseFake::make()
-            ->withText('Here are your tasks.')
-            ->withFinishReason(FinishReason::Stop)
-            ->withToolCalls([$toolCall])
-            ->withToolResults([$toolResult])
-            ->withUsage(new Usage(1, 2))
-            ->withMeta(new Meta('fake', 'fake')),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'guidance_mode' => 'friendly_general',
+                'response' => 'Hello. I can help you organize tasks and time.',
+                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next. Which would you like to start with?',
+            ])
+            ->withUsage(new Usage(1, 2)),
     ]);
 
     $user = User::factory()->create();
@@ -202,9 +207,8 @@ test('chat flow persists prism tool calls on the assistant message', function ()
 
     $assistantMessage->refresh();
 
-    expect($assistantMessage->tool_calls)->toBeArray();
-    expect($assistantMessage->tool_calls)->not->toBeEmpty();
-    expect($assistantMessage->tool_calls[0]['name'] ?? null)->toBe('list_tasks');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(trim((string) $assistantMessage->content))->not->toBe('');
 });
 
 test('prioritize flow replaces last_listing with prioritize results for multiturn state', function (): void {
@@ -213,14 +217,24 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
+                'framing' => 'Start with the most urgent item first, then work down the list to keep your momentum.',
+                'acknowledgment' => null,
+                'suggested_next_actions' => [
+                    'Open the first item and complete one small step.',
+                    'Then continue with the next item for a short focused session.',
+                ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
-                'suggested_guidance' => 'I suggest starting with one task from the list so you do not get overwhelmed. If you want, I can narrow the list with a tighter filter or help you plan what to do next.',
             ])
             ->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()
             ->withStructured([
+                'framing' => 'Pick the first item to open so you can focus, then move to the next one if you still have time.',
+                'acknowledgment' => null,
+                'suggested_next_actions' => [
+                    'Open the first item and do one small step.',
+                    'Then move to the next item.',
+                ],
                 'reasoning' => 'Ranked by urgency.',
-                'suggested_guidance' => 'I recommend picking one task to open first so you can focus without feeling overwhelmed. Tell me if you want a tighter filter or help prioritizing.',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);

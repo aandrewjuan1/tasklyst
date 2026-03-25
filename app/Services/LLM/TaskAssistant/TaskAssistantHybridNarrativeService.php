@@ -39,7 +39,7 @@ final class TaskAssistantHybridNarrativeService
         int $userId,
     ): array {
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
-        $refinementSchema = TaskAssistantSchemas::hybridNarrativeSchema();
+        $refinementSchema = TaskAssistantSchemas::scheduleNarrativeRefinementSchema();
 
         $horizonHint = '';
         $h = $promptData['schedule_horizon'] ?? null;
@@ -313,7 +313,8 @@ final class TaskAssistantHybridNarrativeService
      * @param  list<array<string, mixed>>  $items
      * @return array{
      *   reasoning: string,
-     *   suggested_guidance: string
+     *   suggested_guidance: string,
+     *   items: list<array<string, mixed>>
      * }
      */
     public function refinePrioritizeListing(
@@ -338,29 +339,32 @@ final class TaskAssistantHybridNarrativeService
         $messages = collect([
             new UserMessage($userMessage),
             new UserMessage(
-                'The following tasks were selected by backend filtering and ranking. '.
+                'The following rows were selected by backend filtering and ranking (tasks, events, or projects). '.
                 'Do NOT change ordering or membership. Only fill narrative JSON fields in the schema.'."\n\n".
                 $listLabel."\n\n".
                 'You are the task assistant speaking to the student. '.
-                'In reasoning and suggested_guidance: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
-                'Write ONLY a short reasoning field (1-3 sentences): second person ("you") or neutral ("Here are…"). '.
-                'Do NOT write as the student: never use "I", "my", or "I need to" in reasoning. Do NOT use meta phrases like "The user requested". '.
-                'LISTED_TASK_COUNT: '.$listedTaskCount.' (if reasoning mentions how many tasks, this number MUST match exactly). '."\n".
-                'Explain briefly why these rows match what they asked, using only task titles and dates from the list below. '.
-                'Do not repeat the full task list in reasoning. '.
-                'Do not claim all tasks are due on one day unless the items support that. '.
-                'Do not invent tasks, deadlines, durations, or priorities. '.
-                'Each task has a priority field: only describe a task as high/medium/low priority if it matches that field—never call the whole set "high-priority" if any item is medium or low. '.
-                'For suggested_guidance: ONE paragraph (2-5 sentences), no bullets. Start with "I suggest" or "I recommend". '.
-                'Include supportive coaching (e.g. managing time, not getting overwhelmed) where natural. '.
-                'Concrete, gentle advice referencing their tasks by title when helpful.'."\n\n".
+                'In acknowledgment, framing, insight, reasoning, tradeoffs, and suggested_next_actions: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
+                'framing is REQUIRED: write 1-2 sentences explaining how this list/focus helps, without sounding technical or inventing dates. '.
+                'acknowledgment is OPTIONAL: include only when the user input sounds conversational/emotional; use 1 short sentence. '.
+                'insight is OPTIONAL: 0-1 short sentence about something non-obvious grounded in visible row info. '.
+                'reasoning is OPTIONAL: 0-3 sentences about why this selected set matches the request (do not invent). If you mention counts, LISTED_TASK_COUNT MUST match exactly. '.
+                'tradeoffs is OPTIONAL: 0-3 short strings only when choices are non-obvious. '.
+                'suggested_next_actions is REQUIRED: array of 1-4 action strings. Each starts with a verb, has no question marks, and has no bullet characters inside the string. Tie actions to the provided row titles/order when helpful. '.
+                'DUE-TIME SAFETY: Do not paraphrase relative timing. If you mention "today", "tomorrow", "overdue", or "this week", it MUST match the exact relative wording present in at least one items[].due_phrase. Never mention relative timing that is not present in items due_phrase values. '.
+                'Do not invent items, deadlines, durations, or priorities. '.
+                'Each task row may have a priority field: only describe priority if it matches that row—never mislabel. '."\n\n".
                 'FILTER_CONTEXT: '.$filterContextForPrompt."\n\n".
                 'ITEMS_JSON: '.$itemsJson
             ),
         ]);
 
+        $acknowledgment = null;
+        $framing = null;
+        $insight = null;
         $reasoning = null;
-        $suggestedGuidance = null;
+        $tradeoffs = null;
+        $suggestedNextActions = [];
+        $cleanItems = $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
 
         try {
             $structuredResponse = $this->attemptStructured(
@@ -374,13 +378,44 @@ final class TaskAssistantHybridNarrativeService
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
 
-            if (isset($payload['reasoning']) && is_string($payload['reasoning'])) {
-                $reasoning = $payload['reasoning'] !== '' ? $payload['reasoning'] : null;
-            }
-            if (isset($payload['suggested_guidance']) && is_string($payload['suggested_guidance'])) {
-                $suggestedGuidance = trim($payload['suggested_guidance']) !== ''
-                    ? trim($payload['suggested_guidance'])
+            if (isset($payload['acknowledgment']) && is_string($payload['acknowledgment'])) {
+                $acknowledgment = trim($payload['acknowledgment']) !== ''
+                    ? trim($payload['acknowledgment'])
                     : null;
+            }
+
+            if (isset($payload['framing']) && is_string($payload['framing'])) {
+                $framing = trim($payload['framing']) !== ''
+                    ? trim($payload['framing'])
+                    : null;
+            }
+
+            if (isset($payload['insight']) && is_string($payload['insight'])) {
+                $insight = trim($payload['insight']) !== ''
+                    ? trim($payload['insight'])
+                    : null;
+            }
+
+            if (isset($payload['reasoning']) && is_string($payload['reasoning'])) {
+                $reasoning = trim($payload['reasoning']) !== ''
+                    ? trim($payload['reasoning'])
+                    : null;
+            }
+
+            if (isset($payload['tradeoffs']) && is_array($payload['tradeoffs'])) {
+                $tradeoffs = array_values(array_filter(
+                    array_map(static fn (mixed $v): string => trim((string) $v), $payload['tradeoffs']),
+                    static fn (string $v): bool => $v !== ''
+                ));
+
+                $tradeoffs = $tradeoffs !== [] ? $tradeoffs : null;
+            }
+
+            if (isset($payload['suggested_next_actions']) && is_array($payload['suggested_next_actions'])) {
+                $suggestedNextActions = array_values(array_filter(
+                    array_map(static fn (mixed $v): string => trim((string) $v), $payload['suggested_next_actions']),
+                    static fn (string $v): bool => $v !== '' && ! str_contains($v, '?')
+                ));
             }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.prioritize.narrative_failed', [
@@ -391,20 +426,282 @@ final class TaskAssistantHybridNarrativeService
             ]);
         }
 
-        if (! is_string($suggestedGuidance) || $suggestedGuidance === '') {
-            $suggestedGuidance = self::prioritizeListingNarrativeFallbacks()['suggested_guidance'];
+        if (! is_string($framing) || trim($framing) === '') {
+            $framing = trim($deterministicSummary) !== ''
+                ? trim($deterministicSummary)
+                : 'Here is a focused list you can act on right away.';
         }
 
-        $reasoningText = is_string($reasoning) && trim($reasoning) !== ''
-            ? trim($reasoning)
-            : (trim($deterministicSummary) !== ''
-                ? trim($deterministicSummary)
-                : TaskAssistantListingDefaults::reasoningWhenEmpty());
+        if ($suggestedNextActions === []) {
+            $topTitle = '';
+            if ($cleanItems !== [] && is_array($cleanItems[0] ?? null)) {
+                $topTitle = trim((string) (($cleanItems[0] ?? [])['title'] ?? ''));
+            }
+
+            $suggestedNextActions = $topTitle !== ''
+                ? [
+                    'Start with '.$topTitle.' and complete one small step.',
+                    'Then move to the next item and work for a short focused session.',
+                ]
+                : ['Tell me what you want to focus on so I can refine the list.'];
+        }
+
+        // Safety net against LLM due-date drift (e.g. "tomorrow" vs items[].due_phrase="due today").
+        $allowedDuePhrases = $this->extractTaskDuePhrases($cleanItems);
+        $framingConflict = $this->hasConflictingDueTiming((string) $framing, $allowedDuePhrases);
+        if ($framingConflict) {
+            $framing = 'Here is a focused list you can act on right away.';
+        }
+
+        $hasActionConflict = false;
+        foreach ($suggestedNextActions as $action) {
+            if ($this->hasConflictingDueTiming((string) $action, $allowedDuePhrases)) {
+                $hasActionConflict = true;
+                break;
+            }
+        }
+
+        if ($hasActionConflict) {
+            $suggestedNextActions = $this->regenerateSuggestedNextActionsFromItems($cleanItems, maxCount: 4);
+        }
+
+        $focus = [
+            'main_task' => 'No matching items found',
+            'secondary_tasks' => [],
+        ];
+        if ($cleanItems !== [] && is_array($cleanItems[0] ?? null)) {
+            $main = trim((string) (($cleanItems[0] ?? [])['title'] ?? ''));
+            if ($main !== '') {
+                $focus['main_task'] = $main;
+            }
+
+            for ($i = 1; $i < count($cleanItems); $i++) {
+                $row = $cleanItems[$i] ?? null;
+                if (! is_array($row)) {
+                    continue;
+                }
+                $t = trim((string) ($row['title'] ?? ''));
+                if ($t !== '') {
+                    $focus['secondary_tasks'][] = $t;
+                }
+            }
+        }
 
         return [
-            'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($reasoningText),
-            'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance($suggestedGuidance),
+            'items' => $cleanItems,
+            'focus' => $focus,
+            'acknowledgment' => $acknowledgment,
+            'framing' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $framing),
+            'insight' => $insight !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($insight) : null,
+            'reasoning' => $reasoning !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($reasoning) : null,
+            'tradeoffs' => $tradeoffs,
+            'suggested_next_actions' => $suggestedNextActions,
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<string>
+     */
+    private function extractTaskDuePhrases(array $items): array
+    {
+        $out = [];
+
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            if (strtolower(trim((string) ($item['entity_type'] ?? 'task'))) !== 'task') {
+                continue;
+            }
+
+            $duePhrase = trim((string) ($item['due_phrase'] ?? ''));
+            if ($duePhrase === '') {
+                continue;
+            }
+
+            $out[] = $duePhrase;
+        }
+
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Detect relative timing words that contradict the allowed due_phrase set.
+     *
+     * @param  list<string>  $allowedDuePhrases
+     */
+    private function hasConflictingDueTiming(string $text, array $allowedDuePhrases): bool
+    {
+        $lower = mb_strtolower($text);
+        $allowedLower = array_map(static fn (string $p): string => mb_strtolower($p), $allowedDuePhrases);
+
+        $mentionsTomorrow = mb_stripos($lower, 'tomorrow') !== false;
+        $mentionsToday = mb_stripos($lower, 'today') !== false;
+        $mentionsOverdue = mb_stripos($lower, 'overdue') !== false;
+        $mentionsThisWeek = mb_stripos($lower, 'this week') !== false;
+
+        if ($mentionsTomorrow) {
+            $matches = false;
+            foreach ($allowedLower as $p) {
+                if (mb_stripos($p, 'tomorrow') !== false) {
+                    $matches = true;
+                    break;
+                }
+            }
+
+            if (! $matches) {
+                return true;
+            }
+        }
+
+        if ($mentionsToday) {
+            $matches = false;
+            foreach ($allowedLower as $p) {
+                if (mb_stripos($p, 'today') !== false) {
+                    $matches = true;
+                    break;
+                }
+            }
+
+            if (! $matches) {
+                return true;
+            }
+        }
+
+        if ($mentionsOverdue) {
+            $matches = in_array('overdue', $allowedLower, true);
+            if (! $matches) {
+                return true;
+            }
+        }
+
+        if ($mentionsThisWeek) {
+            $matches = false;
+            foreach ($allowedLower as $p) {
+                if (mb_stripos($p, 'this week') !== false) {
+                    $matches = true;
+                    break;
+                }
+            }
+
+            if (! $matches) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<string>
+     */
+    private function regenerateSuggestedNextActionsFromItems(array $items, int $maxCount = 4): array
+    {
+        $out = [];
+
+        foreach (array_values($items) as $i => $item) {
+            if ($i >= $maxCount) {
+                break;
+            }
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+
+            $isFirst = $out === [];
+            $prefix = $isFirst ? 'Start with completing' : 'Then continue with';
+            $out[] = $prefix.' '.$title.'.';
+        }
+
+        if ($out === []) {
+            return ['Tell me what you want to focus on so I can refine the list.'];
+        }
+
+        return array_slice($out, 0, 4);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function copyPrioritizeItemsWithoutPlacementBlurbs(array $items): array
+    {
+        $out = [];
+        foreach ($items as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $copy = $row;
+            unset($copy['placement_blurb']);
+            $out[] = $copy;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function mergePlacementNotesOntoItems(
+        array $items,
+        mixed $rawNotes,
+        int $threadId,
+        int $userId,
+    ): array {
+        if (! is_array($rawNotes)) {
+            Log::warning('task-assistant.prioritize.notes_mismatch', [
+                'layer' => 'llm_narrative',
+                'reason' => 'item_placement_notes_not_array',
+                'user_id' => $userId,
+                'thread_id' => $threadId,
+                'items_count' => count($items),
+            ]);
+
+            return $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
+        }
+
+        $notes = [];
+        foreach ($rawNotes as $note) {
+            $notes[] = is_string($note) ? trim($note) : '';
+        }
+
+        if (count($notes) !== count($items)) {
+            Log::warning('task-assistant.prioritize.notes_mismatch', [
+                'layer' => 'llm_narrative',
+                'reason' => 'length_mismatch',
+                'user_id' => $userId,
+                'thread_id' => $threadId,
+                'items_count' => count($items),
+                'notes_count' => count($notes),
+            ]);
+
+            return $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
+        }
+
+        $out = [];
+        for ($i = 0; $i < count($items); $i++) {
+            $row = $items[$i] ?? null;
+            if (! is_array($row)) {
+                continue;
+            }
+            $copy = [...$row];
+            unset($copy['placement_blurb']);
+            $line = $notes[$i] ?? '';
+            if ($line !== '') {
+                $copy['placement_blurb'] = TaskAssistantListingDefaults::clampItemPlacementBlurb($line);
+            }
+            $out[] = $copy;
+        }
+
+        return $out;
     }
 
     /**

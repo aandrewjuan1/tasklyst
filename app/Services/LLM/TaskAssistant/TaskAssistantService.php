@@ -384,19 +384,27 @@ final class TaskAssistantService
             $promptData['route_context'] = (string) config('task-assistant.listing_route_context', '');
 
             if ($items === []) {
-                $fallbacks = TaskAssistantHybridNarrativeService::prioritizeListingNarrativeFallbacks();
                 $emptyReasoning = trim((string) $selection['deterministic_summary']);
                 $prioritizeData = [
                     'items' => [],
                     'limit_used' => 0,
-                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning(
+                    'focus' => [
+                        'main_task' => 'No matching items found',
+                        'secondary_tasks' => [],
+                    ],
+                    'acknowledgment' => null,
+                    'framing' => TaskAssistantListingDefaults::clampBrowseReasoning(
                         $emptyReasoning !== ''
                             ? $emptyReasoning
-                            : TaskAssistantListingDefaults::reasoningWhenEmpty()
+                            : 'No matching items found. Here are next steps to refine your list.',
                     ),
-                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance(
-                        $fallbacks['suggested_guidance']
-                    ),
+                    'insight' => null,
+                    'reasoning' => null,
+                    'tradeoffs' => null,
+                    'suggested_next_actions' => [
+                        'Tell me what you want to focus on so I can build a short prioritized list.',
+                        'Share a timeframe (today, this week, or a date range) for more accurate ranking.',
+                    ],
                 ];
             } else {
                 $narrative = $this->hybridNarrative->refinePrioritizeListing(
@@ -411,10 +419,15 @@ final class TaskAssistantService
                 );
 
                 $prioritizeData = [
-                    'items' => $items,
-                    'limit_used' => count($items),
-                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $narrative['reasoning']),
-                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance((string) $narrative['suggested_guidance']),
+                    'items' => $narrative['items'],
+                    'limit_used' => count($narrative['items']),
+                    'focus' => $narrative['focus'],
+                    'acknowledgment' => $narrative['acknowledgment'] ?? null,
+                    'framing' => (string) ($narrative['framing'] ?? ''),
+                    'insight' => $narrative['insight'] ?? null,
+                    'reasoning' => $narrative['reasoning'] ?? null,
+                    'tradeoffs' => $narrative['tradeoffs'] ?? null,
+                    'suggested_next_actions' => $narrative['suggested_next_actions'] ?? [],
                 ];
             }
         } else {
@@ -461,19 +474,27 @@ final class TaskAssistantService
             $filterContextForPrompt = $this->buildPrioritizeListingFilterContextForPrompt($ambiguous, $context);
 
             if ($items === []) {
-                $fallbacks = TaskAssistantHybridNarrativeService::prioritizeListingNarrativeFallbacks();
                 $emptyReasoning = trim((string) $deterministicSummary);
                 $prioritizeData = [
                     'items' => [],
                     'limit_used' => 0,
-                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning(
+                    'focus' => [
+                        'main_task' => 'No matching items found',
+                        'secondary_tasks' => [],
+                    ],
+                    'acknowledgment' => null,
+                    'framing' => TaskAssistantListingDefaults::clampBrowseReasoning(
                         $emptyReasoning !== ''
                             ? $emptyReasoning
-                            : TaskAssistantListingDefaults::reasoningWhenEmpty()
+                            : 'No matching items found. Here are next steps to refine your list.',
                     ),
-                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance(
-                        $fallbacks['suggested_guidance']
-                    ),
+                    'insight' => null,
+                    'reasoning' => null,
+                    'tradeoffs' => null,
+                    'suggested_next_actions' => [
+                        'Tell me what you want to focus on so I can build a short prioritized list.',
+                        'Share a timeframe (today, this week, or a date range) for more accurate ranking.',
+                    ],
                 ];
             } else {
                 $narrative = $this->hybridNarrative->refinePrioritizeListing(
@@ -488,10 +509,15 @@ final class TaskAssistantService
                 );
 
                 $prioritizeData = [
-                    'items' => $items,
-                    'limit_used' => count($items),
-                    'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $narrative['reasoning']),
-                    'suggested_guidance' => TaskAssistantListingDefaults::clampBrowseSuggestedGuidance((string) $narrative['suggested_guidance']),
+                    'items' => $narrative['items'],
+                    'limit_used' => count($narrative['items']),
+                    'focus' => $narrative['focus'],
+                    'acknowledgment' => $narrative['acknowledgment'] ?? null,
+                    'framing' => (string) ($narrative['framing'] ?? ''),
+                    'insight' => $narrative['insight'] ?? null,
+                    'reasoning' => $narrative['reasoning'] ?? null,
+                    'tradeoffs' => $narrative['tradeoffs'] ?? null,
+                    'suggested_next_actions' => $narrative['suggested_next_actions'] ?? [],
                 ];
             }
         }
@@ -511,15 +537,17 @@ final class TaskAssistantService
             assistantFallbackContent: 'I could not build a task list yet. Try again with a bit more detail.'
         );
 
-        if ($items === []) {
+        $finalListingItems = is_array($prioritizeData['items'] ?? null) ? $prioritizeData['items'] : [];
+
+        if ($finalListingItems === []) {
             $this->conversationState->clearLastListing($thread);
         } else {
             $this->conversationState->rememberLastListing(
                 $thread,
                 'prioritize',
-                $items,
+                $finalListingItems,
                 $assistantMessage->id,
-                count($items)
+                count($finalListingItems)
             );
         }
 
