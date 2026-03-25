@@ -210,25 +210,39 @@ final class TaskAssistantSchemas
                 ),
                 new ArraySchema(
                     name: 'suggested_next_actions',
-                    description: 'Required: array of 1-4 short action strings. Each string must start with a verb and be concrete (what to do next). No bullets inside the string. No question marks. Tie actions to the provided list titles/order where helpful.',
+                    description: 'Required: array of 1-2 short action strings. Each string must start with a verb and be concrete (what to do next). No bullets inside the string. No question marks. Tie actions to the provided list titles/order where helpful.',
                     items: new StringSchema(name: 'suggested_next_action', description: 'One actionable next step.'),
                     nullable: false
                 ),
+                new StringSchema(
+                    name: 'next_actions_intro',
+                    description: 'Required: lead-in sentence for the next actions section. Must start with "I recommend …" and then briefly guide the student to follow the numbered steps.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'next_options',
+                    description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling these steps for later). Keep it student-friendly and not robotic.',
+                    nullable: false
+                ),
                 new ArraySchema(
-                    name: 'tradeoffs',
-                    description: 'Optional: array of 0-3 short strings, each describing a tradeoff or choice made (why one item is prioritized over another). Use only when choices are non-obvious.',
-                    items: new StringSchema(name: 'tradeoff', description: 'Tradeoff description.'),
-                    nullable: true
+                    name: 'next_options_chip_texts',
+                    description: 'Required: array of 1-2 short chip strings that a student can click to trigger the follow-up (e.g., scheduling). No question marks. No bullets.',
+                    items: new StringSchema(name: 'next_option_chip_text', description: 'One chip text.'),
+                    nullable: false
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Optional: short (1-3 sentences) explanation of why this approach matches the user request. Use only task/event/project titles and fields. Do not include internal terms. If you include counts, it must match LISTED_TASK_COUNT.',
-                    nullable: true
+                    description: 'Required: short (1-2 sentences) explanation of why this approach matches the user request. Use only task/event/project titles and fields. Do not include internal terms. If you include counts, it must match LISTED_TASK_COUNT.',
+                    nullable: false
                 ),
             ],
             requiredFields: [
                 'framing',
                 'suggested_next_actions',
+                'next_actions_intro',
+                'next_options',
+                'next_options_chip_texts',
+                'reasoning',
             ]
         );
     }

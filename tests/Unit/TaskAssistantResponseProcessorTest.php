@@ -29,6 +29,12 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'secondary_tasks' => [],
             ],
             'framing' => 'Start with what is due soon so you can make real progress.',
+            'reasoning' => 'This ordering matches what you asked for.',
+            'next_actions_intro' => 'I recommend you take these next steps.',
+            'next_options' => 'If you want, I can schedule these steps for later.',
+            'next_options_chip_texts' => [
+                'Schedule these for later',
+            ],
             'suggested_next_actions' => [
                 'Start with A task and complete one small step.',
             ],
@@ -59,6 +65,12 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'secondary_tasks' => [],
             ],
             'framing' => 'Ok',
+            'reasoning' => 'This ordering matches what you asked for.',
+            'next_actions_intro' => 'I recommend you take these next steps.',
+            'next_options' => 'If you want, I can schedule these steps for later.',
+            'next_options_chip_texts' => [
+                'Schedule these for later',
+            ],
             'suggested_next_actions' => [
                 'Start with A task and complete one small step.',
             ],
@@ -88,6 +100,12 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'secondary_tasks' => [],
             ],
             'framing' => 'Start with what is due soon so you can make real progress.',
+            'reasoning' => 'This ordering matches what you asked for.',
+            'next_actions_intro' => 'I recommend you take these next steps.',
+            'next_options' => 'If you want, I can schedule these steps for later.',
+            'next_options_chip_texts' => [
+                'Schedule these for later',
+            ],
             'suggested_next_actions' => [
                 'Go',
             ],
@@ -117,6 +135,12 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'secondary_tasks' => [],
             ],
             'framing' => 'Start with what is due soon so you can make real progress.',
+            'reasoning' => 'This ordering matches what you asked for.',
+            'next_actions_intro' => 'I recommend you take these next steps.',
+            'next_options' => 'If you want, I can schedule these steps for later.',
+            'next_options_chip_texts' => [
+                'Schedule these for later',
+            ],
             'suggested_next_actions' => [
                 str_repeat('x', 181),
             ],

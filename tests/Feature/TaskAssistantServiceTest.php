@@ -32,6 +32,9 @@ test('queued prioritize flow stores selected entities for multiturn state', func
                     'Then continue with the next item for a short session.',
                 ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'next_actions_intro' => 'I recommend you take these next steps.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -97,6 +100,9 @@ test('multiturn schedule can target previous prioritized selection', function ()
                     'Then pick the next item and keep going for 15–30 minutes.',
                 ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'next_actions_intro' => 'I recommend you take these next steps.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -224,6 +230,9 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
                     'Then continue with the next item for a short focused session.',
                 ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'next_actions_intro' => 'I recommend you take these next steps.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
             ])
             ->withUsage(new Usage(5, 10)),
         StructuredResponseFake::make()
@@ -235,6 +244,9 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
                     'Then move to the next item.',
                 ],
                 'reasoning' => 'Ranked by urgency.',
+                'next_actions_intro' => 'I recommend you take these next steps.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
