@@ -134,11 +134,48 @@ final class TaskAssistantMessageFormatter
             $framing = TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
 
+        // Deduplicate when the narrative model/stress heuristics accidentally
+        // produce overlapping acknowledgment + framing paragraphs.
+        if ($acknowledgment !== '' && $framing !== '') {
+            $ackNorm = $this->normalizeForDedupe($acknowledgment);
+            $framingNorm = $this->normalizeForDedupe($framing);
+
+            // Exact (after whitespace/case normalization) -> keep acknowledgment.
+            if ($ackNorm !== '' && $ackNorm === $framingNorm) {
+                $framing = '';
+            } elseif (
+                $ackNorm !== ''
+                && $framingNorm !== ''
+                && str_starts_with($framingNorm, $ackNorm)
+                && mb_strlen($framingNorm) > (mb_strlen($ackNorm) + 8)
+            ) {
+                // Framing starts with acknowledgment -> keep framing.
+                $acknowledgment = '';
+            } elseif (
+                $ackNorm !== ''
+                && $framingNorm !== ''
+                && str_starts_with($ackNorm, $framingNorm)
+                && mb_strlen($ackNorm) > (mb_strlen($framingNorm) + 8)
+            ) {
+                // Acknowledgment starts with framing -> keep acknowledgment.
+                $framing = '';
+            } else {
+                // Fallback: if they're extremely similar by token overlap,
+                // avoid repeating both.
+                $jaccard = $this->tokenJaccardSimilarity($ackNorm, $framingNorm);
+                if ($jaccard >= 0.92) {
+                    if (mb_strlen($framingNorm) >= mb_strlen($ackNorm)) {
+                        $acknowledgment = '';
+                    } else {
+                        $framing = '';
+                    }
+                }
+            }
+        }
+
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $insight = trim((string) ($data['insight'] ?? ''));
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $suggestedNextActions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
-        $nextActionsIntro = trim((string) ($data['next_actions_intro'] ?? ''));
         $nextOptions = trim((string) ($data['next_options'] ?? ''));
 
         $paragraphs = [];
@@ -162,24 +199,6 @@ final class TaskAssistantMessageFormatter
             $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
         $paragraphs[] = $reasoning;
-
-        if ($nextActionsIntro === '') {
-            $nextActionsIntro = __('I recommend you take these next steps.');
-        }
-
-        $actions = array_values(array_filter(
-            array_map(static fn (mixed $v): string => trim((string) $v), $suggestedNextActions),
-            static fn (string $v): bool => $v !== ''
-        ));
-        $actions = array_slice($actions, 0, 2);
-
-        $actionLines = [];
-        foreach ($actions as $i => $a) {
-            $actionLines[] = ($i + 1).'. '.$a;
-        }
-        if ($actionLines !== []) {
-            $paragraphs[] = $nextActionsIntro."\n".implode("\n", $actionLines);
-        }
 
         if ($nextOptions === '') {
             $nextOptions = __('If you want, I can schedule these steps for later.');
@@ -463,5 +482,39 @@ final class TaskAssistantMessageFormatter
         $last = array_pop($sentences);
 
         return implode(', ', $sentences).', and '.$last;
+    }
+
+    private function normalizeForDedupe(string $text): string
+    {
+        $t = trim($text);
+        $t = preg_replace('/\s+/u', ' ', $t) ?? $t;
+
+        return mb_strtolower($t);
+    }
+
+    private function tokenJaccardSimilarity(string $aNorm, string $bNorm): float
+    {
+        if ($aNorm === '' || $bNorm === '') {
+            return 0.0;
+        }
+
+        $aTokens = preg_split('/[^\pL\pN]+/u', $aNorm, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $bTokens = preg_split('/[^\pL\pN]+/u', $bNorm, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        if ($aTokens === [] || $bTokens === []) {
+            return 0.0;
+        }
+
+        $aSet = array_values(array_unique($aTokens));
+        $bSet = array_values(array_unique($bTokens));
+
+        $intersection = count(array_intersect($aSet, $bSet));
+        $union = count(array_unique(array_merge($aSet, $bSet)));
+
+        if ($union === 0) {
+            return 0.0;
+        }
+
+        return $intersection / $union;
     }
 }

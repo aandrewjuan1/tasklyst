@@ -103,30 +103,6 @@
                                 <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
                             @endif
 
-                            @php
-                                $nextOptionChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', []);
-                            @endphp
-                            @if (is_array($nextOptionChips) && count($nextOptionChips) > 0)
-                                <div class="mt-3 flex flex-wrap gap-2">
-                                    @foreach ($nextOptionChips as $chipText)
-                                        @php
-                                            $chipTextTrimmed = trim((string) $chipText);
-                                        @endphp
-                                        @if ($chipTextTrimmed !== '')
-                                            <flux:button
-                                                size="xs"
-                                                variant="ghost"
-                                                class="whitespace-normal"
-                                                wire:click="submitSuggestedMessage(@js($chipTextTrimmed))"
-                                                wire:loading.attr="disabled"
-                                            >
-                                                {{ $chipTextTrimmed }}
-                                            </flux:button>
-                                        @endif
-                                    @endforeach
-                                </div>
-                            @endif
-
                             @if (is_array($proposals) && count($proposals) > 0)
                                 <div class="mt-3 flex flex-col gap-2">
                                     @foreach ($proposals as $proposal)

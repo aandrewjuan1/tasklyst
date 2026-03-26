@@ -16,6 +16,177 @@ use Prism\Prism\ValueObjects\Messages\UserMessage;
 final class TaskAssistantHybridNarrativeService
 {
     /**
+     * Prevent over-claiming assistant visibility in narrative fields.
+     */
+    private function containsVisibilityOverclaim(string $text): bool
+    {
+        $t = mb_strtolower($text);
+
+        return (bool) preg_match(
+            '/\b(i\s+(have\s+)?(reviewed|looked|seen|checked)|i\'?ve\s+(reviewed|looked)|i\s+see\s+you\s+have|i\s+see\s+that\s+you\s+have|taken\s+a\s+look|your\s+(current\s+)?to-?do\s+list)\b/u',
+            $t
+        );
+    }
+
+    private function sanitizeFraming(string $framing): string
+    {
+        $framing = trim($framing);
+        if ($framing === '' || $this->containsVisibilityOverclaim($framing)) {
+            return 'Here is a focused starting point to help you get momentum.';
+        }
+
+        return $framing;
+    }
+
+    /**
+     * Detect the common redundancy pattern where both acknowledgment and framing
+     * say essentially the same "I understand you're overwhelmed" sentence.
+     */
+    private function containsOverwhelmedEmotion(string $text): bool
+    {
+        $t = mb_strtolower($text);
+
+        return (bool) preg_match(
+            '/\b(overwhelmed|anxious|stressed|worried|panicked|frustrated|stuck|nervous|swamped)\b/u',
+            $t
+        );
+    }
+
+    private function startsWithIUnderstand(string $text): bool
+    {
+        return (bool) preg_match('/^\s*i\s+understand\b/iu', $text);
+    }
+
+    /**
+     * If acknowledgment and framing overlap heavily, rewrite framing into a
+     * more actionable sentence (while staying student-safe and grounded).
+     */
+    private function dedupeAcknowledgmentAndFraming(?string $acknowledgment, string $framing, array $items): string
+    {
+        if ($acknowledgment === null) {
+            return $framing;
+        }
+
+        $ack = trim($acknowledgment);
+        if ($ack === '') {
+            return $framing;
+        }
+
+        if (! $this->startsWithIUnderstand($ack) || ! $this->startsWithIUnderstand($framing)) {
+            return $framing;
+        }
+
+        if (! $this->containsOverwhelmedEmotion($ack) || ! $this->containsOverwhelmedEmotion($framing)) {
+            return $framing;
+        }
+
+        $hasOverdue = false;
+        $hasHighPriority = false;
+
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $duePhrase = mb_strtolower(trim((string) ($item['due_phrase'] ?? '')));
+            if ($duePhrase !== '' && mb_stripos($duePhrase, 'overdue') !== false) {
+                $hasOverdue = true;
+            }
+
+            $priority = mb_strtolower(trim((string) ($item['priority'] ?? '')));
+            if ($priority === 'high') {
+                $hasHighPriority = true;
+            }
+        }
+
+        if ($hasOverdue || $hasHighPriority) {
+            return 'Start with what\'s most overdue or high priority, so you feel caught up sooner.';
+        }
+
+        return 'Start with your top priority, so you feel caught up sooner.';
+    }
+
+    /**
+     * Detect “bundling” language even when titles are not mentioned.
+     */
+    private function actionImpliesMultipleTasks(string $action): bool
+    {
+        $t = mb_strtolower($action);
+
+        return (bool) preg_match(
+            '/\b(both|the\s+first\s+two|first\s+two|first\s*2|two\s+tasks|two\s+of\s+them|the\s+first\s+couple|first\s+couple|first\s+few)\b/u',
+            $t
+        );
+    }
+
+    private function sanitizeNextOptions(string $nextOptions, int $itemsCount): string
+    {
+        $text = trim($nextOptions);
+        if ($text === '') {
+            return $itemsCount === 1
+                ? 'If you want, I can schedule this for later.'
+                : 'If you want, I can schedule these steps for later.';
+        }
+
+        // Strip bracketed artifacts (e.g. "[...]" from some model outputs).
+        if (preg_match('/^\[(.+)\]$/us', $text, $m) === 1) {
+            $text = trim((string) ($m[1] ?? $text));
+        }
+
+        // Avoid awkward “schedule this time” phrasing.
+        $text = preg_replace('/\bschedule\s+this\s+time\b/iu', 'schedule this task', $text) ?? $text;
+
+        // Avoid rescheduling tasks that were just completed.
+        if (preg_match('/\bonce\b.*\b(completed|done)\b.*\breschedul(e|ing)\b/iu', $text) === 1) {
+            return $itemsCount === 1
+                ? 'If you want, I can schedule this for later when you have more energy.'
+                : 'If you want, I can help you schedule the remaining tasks for later.';
+        }
+
+        return $text;
+    }
+
+    private function normalizeForSimilarity(string $text): string
+    {
+        $t = trim($text);
+        $t = preg_replace('/\s+/u', ' ', $t) ?? $t;
+
+        return mb_strtolower($t);
+    }
+
+    private function isEmpatheticAcknowledgment(string $text): bool
+    {
+        $t = $this->normalizeForSimilarity($text);
+        if ($t === '') {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/\b(i\s+understand|i\s+hear\s+you|i\s+get\s+it|that\s+sounds|it\'?s\s+okay|you\'?re\s+not\s+alone|i\'?m\s+sorry)\b/u',
+            $t
+        );
+    }
+
+    private function buildDefaultEmpatheticAcknowledgment(string $userMessage): string
+    {
+        $t = mb_strtolower($userMessage);
+
+        if (preg_match('/\b(stress(ed)?|stressed\s+out)\b/u', $t) === 1) {
+            return 'I hear you—being stressed makes it hard to start. Let’s pick one small thing first.';
+        }
+
+        if (preg_match('/\b(overwhelmed|swamped)\b/u', $t) === 1) {
+            return 'I get it—this feels overwhelming. Let’s pick one small thing first.';
+        }
+
+        if (preg_match('/\b(anxious|panic(ked)?|panicked)\b/u', $t) === 1) {
+            return 'I hear you—this feels heavy. Let’s start with one small step.';
+        }
+
+        return 'I hear you—this is a lot. Let’s start with one small step.';
+    }
+
+    /**
      * Narrative refinement for daily schedule (deterministic proposals already fixed).
      *
      * @param  Collection<int, \Prism\Prism\ValueObjects\Messages\UserMessage|\Prism\Prism\ValueObjects\Messages\AssistantMessage>  $historyMessages
@@ -348,14 +519,13 @@ final class TaskAssistantHybridNarrativeService
                 $listLabel."\n\n".
                 'You are the task assistant speaking to the student. '.
                 'Use a calm, reassuring, empathetic tone. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
-                'In acknowledgment, framing, insight, reasoning, suggested_next_actions, next_actions_intro, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
+                'Do not claim extra visibility into the student\'s full life or full list. Avoid phrases like "I reviewed your tasks", "I looked at your list", "I see you have", or "I\'ve taken a look at your to-do list". '.
+                'In acknowledgment, framing, insight, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'framing is REQUIRED: write 1-2 sentences explaining how this list/focus helps, without sounding technical or inventing dates. '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 'insight is OPTIONAL: include only when UX_INCLUDE_INSIGHT is true; otherwise set it to null. '.
-                'reasoning is REQUIRED: short (1-2 sentences) explanation of why this ordering matches the request. '.
-                'suggested_next_actions is REQUIRED: array of 1-2 action strings. Each must be distinct, start with a verb, has no question marks, and has no bullet characters inside the string. Tie actions to the provided row titles/order when helpful. '.
-                'next_actions_intro is REQUIRED: a lead-in sentence that starts with "I recommend …" and then points to the numbered steps. '.
-                'next_options is REQUIRED: 1-2 sentences offering a follow-up option (e.g., scheduling these steps later). '.
+                'reasoning is REQUIRED: short (1-2 sentences) explanation written directly to the student (use first-person "I" or second-person "You"). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". '.
+                'next_options is REQUIRED: 1-2 sentences offering a follow-up option (e.g., scheduling these steps later). Do not suggest rescheduling tasks that were already completed; if you mention rescheduling, it should be about the remaining tasks. '.
                 'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
                 'UX_INCLUDE_ACK: '.($includeAcknowledgment ? 'true' : 'false').
                 '; UX_INCLUDE_INSIGHT: '.($includeInsight ? 'true' : 'false').
@@ -372,8 +542,6 @@ final class TaskAssistantHybridNarrativeService
         $framing = null;
         $insight = null;
         $reasoning = null;
-        $suggestedNextActions = [];
-        $nextActionsIntro = null;
         $nextOptions = null;
         $nextOptionsChipTexts = [];
         $cleanItems = $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
@@ -414,19 +582,6 @@ final class TaskAssistantHybridNarrativeService
                     : null;
             }
 
-            if (isset($payload['suggested_next_actions']) && is_array($payload['suggested_next_actions'])) {
-                $suggestedNextActions = array_values(array_filter(
-                    array_map(static fn (mixed $v): string => trim((string) $v), $payload['suggested_next_actions']),
-                    static fn (string $v): bool => $v !== '' && mb_strlen($v) >= 3 && ! str_contains($v, '?')
-                ));
-            }
-
-            if (isset($payload['next_actions_intro']) && is_string($payload['next_actions_intro'])) {
-                $nextActionsIntro = trim($payload['next_actions_intro']) !== ''
-                    ? trim($payload['next_actions_intro'])
-                    : null;
-            }
-
             if (isset($payload['next_options']) && is_string($payload['next_options'])) {
                 $nextOptions = trim($payload['next_options']) !== ''
                     ? trim($payload['next_options'])
@@ -453,33 +608,7 @@ final class TaskAssistantHybridNarrativeService
                 ? trim($deterministicSummary)
                 : 'Here is a focused list you can act on right away.';
         }
-
-        if ($suggestedNextActions === []) {
-            $topTitle = '';
-            if ($cleanItems !== [] && is_array($cleanItems[0] ?? null)) {
-                $topTitle = trim((string) (($cleanItems[0] ?? [])['title'] ?? ''));
-            }
-
-            $suggestedNextActions = $topTitle !== ''
-                ? [
-                    'Start with '.$topTitle.' and complete one small step.',
-                    'Then move to the next item and work for a short focused session.',
-                ]
-                : ['Tell me what you want to focus on so I can refine the list.'];
-        }
-
-        if ($nextActionsIntro === null || trim($nextActionsIntro) === '') {
-            $nextActionsIntro = __('I recommend you take these next steps.');
-        }
-
-        // If the model outputs a lead-in without the required prefix, fix it deterministically.
-        if (mb_stripos($nextActionsIntro, 'I recommend') !== 0) {
-            $nextActionsIntro = __('I recommend you take these next steps.');
-        }
-
-        if (mb_strlen((string) $nextActionsIntro) < 10) {
-            $nextActionsIntro = __('I recommend you take these next steps.');
-        }
+        $framing = $this->sanitizeFraming((string) $framing);
 
         if ($nextOptions === null || trim($nextOptions) === '') {
             $nextOptions = __('If you want, I can schedule these steps for later.');
@@ -488,6 +617,7 @@ final class TaskAssistantHybridNarrativeService
         if (mb_strlen((string) $nextOptions) < 5) {
             $nextOptions = __('If you want, I can schedule these steps for later.');
         }
+        $nextOptions = $this->sanitizeNextOptions((string) $nextOptions, is_array($cleanItems) ? count($cleanItems) : 0);
 
         if ($nextOptionsChipTexts === []) {
             $nextOptionsChipTexts = [
@@ -505,27 +635,25 @@ final class TaskAssistantHybridNarrativeService
             $insight = null;
         }
 
+        // Remove redundancy between acknowledgment and framing for stress prompts.
+        $framing = $this->dedupeAcknowledgmentAndFraming($acknowledgment, (string) $framing, $cleanItems);
+
         // Safety net against LLM due-date drift (e.g. "tomorrow" vs items[].due_phrase="due today").
         $allowedDuePhrases = $this->extractTaskDuePhrases($cleanItems);
         $framingConflict = $this->hasConflictingDueTiming((string) $framing, $allowedDuePhrases);
         if ($framingConflict) {
             $framing = 'Here is a focused list you can act on right away.';
         }
-
-        $hasActionConflict = false;
-        foreach ($suggestedNextActions as $action) {
-            if ($this->hasConflictingDueTiming((string) $action, $allowedDuePhrases)) {
-                $hasActionConflict = true;
-                break;
-            }
+        // Common quality issue: “due soon” when items are explicitly “overdue”.
+        $allowedLower = array_map(static fn (string $p): string => mb_strtolower($p), $allowedDuePhrases);
+        if (
+            in_array('overdue', $allowedLower, true)
+            && ! in_array('due today', $allowedLower, true)
+            && ! in_array('due tomorrow', $allowedLower, true)
+            && mb_stripos((string) $framing, 'due soon') !== false
+        ) {
+            $framing = 'Start with the overdue items so you can feel caught up and less stressed.';
         }
-
-        if ($hasActionConflict) {
-            $suggestedNextActions = $this->regenerateSuggestedNextActionsFromItems($cleanItems, maxCount: 2);
-        }
-
-        // Enforce contract quality: at most 2 actions overall.
-        $suggestedNextActions = array_values(array_slice($suggestedNextActions, 0, 2));
 
         // Safety net for due-time drift in next options and chip texts.
         $nextOptionsConflict = $this->hasConflictingDueTiming((string) $nextOptions, $allowedDuePhrases);
@@ -551,6 +679,27 @@ final class TaskAssistantHybridNarrativeService
         // Enforce required reasoning field (schema expects non-null).
         if ($reasoning === null || trim($reasoning) === '') {
             $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
+        }
+
+        // Enforce student-directed POV (avoid third-person phrasing).
+        $reasoning = TaskAssistantListingDefaults::normalizePrioritizeReasoningVoice((string) $reasoning, $cleanItems);
+
+        // If UX includes acknowledgment, ensure it's actually empathetic and not just generic framing.
+        if ($includeAcknowledgment) {
+            $ackNorm = $acknowledgment !== null ? $this->normalizeForSimilarity((string) $acknowledgment) : '';
+            $framingNorm = $this->normalizeForSimilarity((string) $framing);
+
+            $ackLooksGeneric = $ackNorm !== ''
+                && (str_contains($ackNorm, 'focused starting point') || str_contains($ackNorm, 'get momentum'));
+            $ackDuplicatesFraming = $ackNorm !== '' && $framingNorm !== '' && $ackNorm === $framingNorm;
+
+            if ($acknowledgment === null || trim((string) $acknowledgment) === '' || $ackDuplicatesFraming || $ackLooksGeneric) {
+                $acknowledgment = $this->buildDefaultEmpatheticAcknowledgment($userMessage);
+            }
+
+            if (! $this->isEmpatheticAcknowledgment((string) $acknowledgment)) {
+                $acknowledgment = $this->buildDefaultEmpatheticAcknowledgment($userMessage);
+            }
         }
 
         // Force acknowledgment non-null when the user intent heuristic triggers it.
@@ -604,11 +753,6 @@ final class TaskAssistantHybridNarrativeService
             'framing' => TaskAssistantListingDefaults::clampFraming((string) $framing),
             'insight' => $insight !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($insight) : null,
             'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $reasoning),
-            'suggested_next_actions' => array_values(array_map(
-                static fn (mixed $a): string => TaskAssistantListingDefaults::clampSuggestedNextAction((string) $a),
-                $suggestedNextActions
-            )),
-            'next_actions_intro' => TaskAssistantListingDefaults::clampNextField((string) $nextActionsIntro),
             'next_options' => TaskAssistantListingDefaults::clampNextField((string) $nextOptions),
             'next_options_chip_texts' => array_values(array_map(
                 static fn (mixed $t): string => TaskAssistantListingDefaults::clampNextOptionChipText((string) $t),
@@ -660,6 +804,7 @@ final class TaskAssistantHybridNarrativeService
         $duePhraseTokens = [
             'due tomorrow',
             'due today',
+            'due yesterday',
             'due this week',
             'overdue',
         ];

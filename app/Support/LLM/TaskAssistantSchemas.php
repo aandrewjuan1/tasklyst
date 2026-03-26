@@ -200,7 +200,7 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'framing',
-                    description: 'Required: short framing sentence/mini-paragraph (<= 2 sentences). Explains how the list and focus approach will help the user succeed, without sounding technical. Do not invent due dates or reorder items.',
+                    description: 'Required: short framing sentence/mini-paragraph (<= 2 sentences). Explains how the list and focus approach will help the user succeed, without sounding technical. Do not invent due dates or reorder items. Avoid claiming you reviewed/checked their full list (no “I reviewed your tasks”, “I took a look at your to-do list”).',
                     nullable: false
                 ),
                 new StringSchema(
@@ -208,20 +208,9 @@ final class TaskAssistantSchemas
                     description: 'Optional: one short sentence about something non-obvious (why this order matters for the user today). Use only information visible on the provided rows.',
                     nullable: true
                 ),
-                new ArraySchema(
-                    name: 'suggested_next_actions',
-                    description: 'Required: array of 1-2 short action strings. Each string must start with a verb and be concrete (what to do next). No bullets inside the string. No question marks. Tie actions to the provided list titles/order where helpful.',
-                    items: new StringSchema(name: 'suggested_next_action', description: 'One actionable next step.'),
-                    nullable: false
-                ),
-                new StringSchema(
-                    name: 'next_actions_intro',
-                    description: 'Required: lead-in sentence for the next actions section. Must start with "I recommend …" and then briefly guide the student to follow the numbered steps.',
-                    nullable: false
-                ),
                 new StringSchema(
                     name: 'next_options',
-                    description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling these steps for later). Keep it student-friendly and not robotic.',
+                    description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling these steps for later). Keep it student-friendly and not robotic. If you mention rescheduling, it must be about remaining tasks, not tasks already completed.',
                     nullable: false
                 ),
                 new ArraySchema(
@@ -232,14 +221,12 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Required: short (1-2 sentences) explanation of why this approach matches the user request. Use only task/event/project titles and fields. Do not include internal terms. If you include counts, it must match LISTED_TASK_COUNT.',
+                    description: 'Required: short (1-2 sentences) explanation written directly to the student (use first-person "I" or second-person "You"). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". Use only task/event/project titles and fields. Do not include internal terms. If you include counts, it must match LISTED_TASK_COUNT.',
                     nullable: false
                 ),
             ],
             requiredFields: [
                 'framing',
-                'suggested_next_actions',
-                'next_actions_intro',
                 'next_options',
                 'next_options_chip_texts',
                 'reasoning',

@@ -401,15 +401,10 @@ final class TaskAssistantService
                     ),
                     'insight' => null,
                     'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($fallbackReasoning),
-                    'next_actions_intro' => TaskAssistantListingDefaults::clampBrowseReasoning('I recommend you take these next steps.'),
                     'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning('If you want, I can schedule these steps for later.'),
                     'next_options_chip_texts' => [
                         'Schedule these for later',
                         'Schedule these tasks for a specific time',
-                    ],
-                    'suggested_next_actions' => [
-                        'Tell me what you want to focus on so I can build a short prioritized list.',
-                        'Share a timeframe (today, this week, or a date range) for more accurate ranking.',
                     ],
                 ];
             } else {
@@ -424,6 +419,8 @@ final class TaskAssistantService
                     $thread->user_id,
                 );
 
+                $next = $this->buildDeterministicPrioritizeNextOptions($narrative['items'] ?? []);
+
                 $prioritizeData = [
                     'items' => $narrative['items'],
                     'limit_used' => count($narrative['items']),
@@ -432,15 +429,9 @@ final class TaskAssistantService
                     'framing' => (string) ($narrative['framing'] ?? ''),
                     'insight' => $narrative['insight'] ?? null,
                     'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantListingDefaults::reasoningWhenEmpty()),
-                    'next_actions_intro' => (string) ($narrative['next_actions_intro'] ?? 'I recommend you take these next steps.'),
-                    'next_options' => (string) ($narrative['next_options'] ?? 'If you want, I can schedule these steps for later.'),
-                    'next_options_chip_texts' => is_array($narrative['next_options_chip_texts'] ?? null)
-                        ? $narrative['next_options_chip_texts']
-                        : [
-                            'Schedule these for later',
-                            'Schedule these tasks for a specific time',
-                        ],
-                    'suggested_next_actions' => $narrative['suggested_next_actions'] ?? [],
+                    // Standardized follow-ups: deterministic and safe.
+                    'next_options' => $next['next_options'],
+                    'next_options_chip_texts' => $next['next_options_chip_texts'],
                 ];
             }
         } else {
@@ -504,15 +495,10 @@ final class TaskAssistantService
                     ),
                     'insight' => null,
                     'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($fallbackReasoning),
-                    'next_actions_intro' => TaskAssistantListingDefaults::clampBrowseReasoning('I recommend you take these next steps.'),
                     'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning('If you want, I can schedule these steps for later.'),
                     'next_options_chip_texts' => [
                         'Schedule these for later',
                         'Schedule these tasks for a specific time',
-                    ],
-                    'suggested_next_actions' => [
-                        'Tell me what you want to focus on so I can build a short prioritized list.',
-                        'Share a timeframe (today, this week, or a date range) for more accurate ranking.',
                     ],
                 ];
             } else {
@@ -527,6 +513,8 @@ final class TaskAssistantService
                     $thread->user_id,
                 );
 
+                $next = $this->buildDeterministicPrioritizeNextOptions($narrative['items'] ?? []);
+
                 $prioritizeData = [
                     'items' => $narrative['items'],
                     'limit_used' => count($narrative['items']),
@@ -535,15 +523,9 @@ final class TaskAssistantService
                     'framing' => (string) ($narrative['framing'] ?? ''),
                     'insight' => $narrative['insight'] ?? null,
                     'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantListingDefaults::reasoningWhenEmpty()),
-                    'next_actions_intro' => (string) ($narrative['next_actions_intro'] ?? 'I recommend you take these next steps.'),
-                    'next_options' => (string) ($narrative['next_options'] ?? 'If you want, I can schedule these steps for later.'),
-                    'next_options_chip_texts' => is_array($narrative['next_options_chip_texts'] ?? null)
-                        ? $narrative['next_options_chip_texts']
-                        : [
-                            'Schedule these for later',
-                            'Schedule these tasks for a specific time',
-                        ],
-                    'suggested_next_actions' => $narrative['suggested_next_actions'] ?? [],
+                    // Standardized follow-ups: deterministic and safe.
+                    'next_options' => $next['next_options'],
+                    'next_options_chip_texts' => $next['next_options_chip_texts'],
                 ];
             }
         }
@@ -594,6 +576,51 @@ final class TaskAssistantService
         $msg = mb_strtolower(trim($content));
 
         return (bool) preg_match('/\b(list|show|display|give me|what)\s+(all\s+)?(my\s+)?tasks?\b/i', $msg);
+    }
+
+    /**
+     * Standardize prioritize follow-up options (text + chips) to avoid odd model outputs.
+     *
+     * @param  mixed  $items
+     * @return array{next_options: string, next_options_chip_texts: list<string>}
+     */
+    private function buildDeterministicPrioritizeNextOptions(mixed $items): array
+    {
+        $rows = is_array($items) ? array_values(array_filter($items, static fn (mixed $r): bool => is_array($r))) : [];
+        $count = count($rows);
+
+        $hasNonTask = false;
+        foreach ($rows as $row) {
+            $type = strtolower(trim((string) ($row['entity_type'] ?? 'task')));
+            if ($type !== 'task') {
+                $hasNonTask = true;
+                break;
+            }
+        }
+
+        if ($count <= 1) {
+            $nextOptions = 'If you want, I can schedule this for later, or show your next 3 priorities.';
+
+            return [
+                'next_options' => TaskAssistantListingDefaults::clampNextField($nextOptions),
+                'next_options_chip_texts' => [
+                    'Schedule this',
+                    'Show next 3',
+                ],
+            ];
+        }
+
+        $nextOptions = $hasNonTask
+            ? 'If you want, I can schedule time for the task(s) on this list, or show your next 3 priorities.'
+            : 'If you want, I can schedule time for these, or show your next 3 priorities.';
+
+        return [
+            'next_options' => TaskAssistantListingDefaults::clampNextField($nextOptions),
+            'next_options_chip_texts' => [
+                'Schedule these',
+                'Show next 3',
+            ],
+        ];
     }
 
     /**
