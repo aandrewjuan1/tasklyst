@@ -337,19 +337,20 @@ final class TaskAssistantHybridNarrativeService
         $includeInsight = $uxInclude['insight'];
 
         $listLabel = $ambiguous
-            ? 'The user asked for a general list; the backend returned a short ranked slice (see FILTER_CONTEXT).'
-            : 'The user asked with filters; the backend applied FILTER_CONTEXT and ranking.';
+            ? 'The user asked for a general list; use the provided rows as a short prioritized slice.'
+            : 'The user asked with filters; use the provided rows as the prioritized results.';
 
         $messages = collect([
             new UserMessage($userMessage),
             new UserMessage(
-                'The following rows were selected by backend filtering and ranking (tasks, events, or projects). '.
-                'Do NOT change ordering or membership. Only fill narrative JSON fields in the schema.'."\n\n".
+                'Use the following rows as the prioritized list for this request (tasks, events, or projects). '.
+                'Do NOT change ordering or membership. Write only the user-facing narrative fields (acknowledgment, framing, insight, reasoning, next actions, and options). '."\n\n".
                 $listLabel."\n\n".
                 'You are the task assistant speaking to the student. '.
+                'Use a calm, reassuring, empathetic tone. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
                 'In acknowledgment, framing, insight, reasoning, suggested_next_actions, next_actions_intro, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'framing is REQUIRED: write 1-2 sentences explaining how this list/focus helps, without sounding technical or inventing dates. '.
-                'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. '.
+                'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 'insight is OPTIONAL: include only when UX_INCLUDE_INSIGHT is true; otherwise set it to null. '.
                 'reasoning is REQUIRED: short (1-2 sentences) explanation of why this ordering matches the request. '.
                 'suggested_next_actions is REQUIRED: array of 1-2 action strings. Each must be distinct, start with a verb, has no question marks, and has no bullet characters inside the string. Tie actions to the provided row titles/order when helpful. '.
@@ -416,7 +417,7 @@ final class TaskAssistantHybridNarrativeService
             if (isset($payload['suggested_next_actions']) && is_array($payload['suggested_next_actions'])) {
                 $suggestedNextActions = array_values(array_filter(
                     array_map(static fn (mixed $v): string => trim((string) $v), $payload['suggested_next_actions']),
-                    static fn (string $v): bool => $v !== '' && ! str_contains($v, '?')
+                    static fn (string $v): bool => $v !== '' && mb_strlen($v) >= 3 && ! str_contains($v, '?')
                 ));
             }
 
@@ -435,7 +436,7 @@ final class TaskAssistantHybridNarrativeService
             if (isset($payload['next_options_chip_texts']) && is_array($payload['next_options_chip_texts'])) {
                 $nextOptionsChipTexts = array_values(array_filter(
                     array_map(static fn (mixed $v): string => trim((string) $v), $payload['next_options_chip_texts']),
-                    static fn (string $v): bool => $v !== '' && ! str_contains($v, '?')
+                    static fn (string $v): bool => $v !== '' && mb_strlen($v) >= 2 && ! str_contains($v, '?')
                 ));
             }
         } catch (\Throwable $e) {
@@ -476,7 +477,15 @@ final class TaskAssistantHybridNarrativeService
             $nextActionsIntro = __('I recommend you take these next steps.');
         }
 
+        if (mb_strlen((string) $nextActionsIntro) < 10) {
+            $nextActionsIntro = __('I recommend you take these next steps.');
+        }
+
         if ($nextOptions === null || trim($nextOptions) === '') {
+            $nextOptions = __('If you want, I can schedule these steps for later.');
+        }
+
+        if (mb_strlen((string) $nextOptions) < 5) {
             $nextOptions = __('If you want, I can schedule these steps for later.');
         }
 
@@ -560,7 +569,7 @@ final class TaskAssistantHybridNarrativeService
             }
 
             if ($acknowledgment === null || trim($acknowledgment) === '') {
-                $acknowledgment = __('I hear you. Let\'s start with your top priority.');
+                $acknowledgment = __('I get it; this is a lot to handle—let\'s start with your top priority.');
             }
         }
 
@@ -589,14 +598,22 @@ final class TaskAssistantHybridNarrativeService
         return [
             'items' => $cleanItems,
             'focus' => $focus,
-            'acknowledgment' => $acknowledgment,
-            'framing' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $framing),
+            'acknowledgment' => $acknowledgment !== null
+                ? TaskAssistantListingDefaults::clampFraming((string) $acknowledgment)
+                : null,
+            'framing' => TaskAssistantListingDefaults::clampFraming((string) $framing),
             'insight' => $insight !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($insight) : null,
             'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $reasoning),
-            'suggested_next_actions' => $suggestedNextActions,
-            'next_actions_intro' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $nextActionsIntro),
-            'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $nextOptions),
-            'next_options_chip_texts' => $nextOptionsChipTexts,
+            'suggested_next_actions' => array_values(array_map(
+                static fn (mixed $a): string => TaskAssistantListingDefaults::clampSuggestedNextAction((string) $a),
+                $suggestedNextActions
+            )),
+            'next_actions_intro' => TaskAssistantListingDefaults::clampNextField((string) $nextActionsIntro),
+            'next_options' => TaskAssistantListingDefaults::clampNextField((string) $nextOptions),
+            'next_options_chip_texts' => array_values(array_map(
+                static fn (mixed $t): string => TaskAssistantListingDefaults::clampNextOptionChipText((string) $t),
+                $nextOptionsChipTexts
+            )),
         ];
     }
 

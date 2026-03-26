@@ -185,13 +185,13 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Narrative fields for prioritize output: tasks are fixed by the backend; the model only polishes wording.
+     * Narrative fields for prioritize output: assistant voice for a prioritized list.
      */
     public static function prioritizeNarrativeSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'prioritize_narrative',
-            description: 'Assistant voice: read-only list order fixed by the server. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
+            description: 'Assistant voice: speak as the one who prioritized these items for the student. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
             properties: [
                 new StringSchema(
                     name: 'acknowledgment',
