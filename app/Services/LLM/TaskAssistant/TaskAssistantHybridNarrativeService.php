@@ -32,10 +32,81 @@ final class TaskAssistantHybridNarrativeService
     {
         $framing = trim($framing);
         if ($framing === '' || $this->containsVisibilityOverclaim($framing)) {
-            return 'Here is a focused starting point to help you get momentum.';
+            return 'Here are your top priorities in a simple order you can start now.';
+        }
+
+        $lower = mb_strtolower($framing);
+
+        // Avoid over-claimy/hand-wavy openers for neutral prompts.
+        if (
+            str_contains($lower, 'based on your current priorities')
+            || str_contains($lower, 'based on your upcoming tasks')
+            || str_contains($lower, 'based on your tasks')
+        ) {
+            return 'Here are your top priorities in a simple order you can start now.';
         }
 
         return $framing;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function buildDefaultPrioritizeInsight(array $items): ?string
+    {
+        $top = array_values(array_slice($items, 0, 3));
+
+        $types = [];
+        $duePhrases = [];
+        $priorities = [];
+
+        foreach ($top as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $types[] = strtolower(trim((string) ($row['entity_type'] ?? 'task')));
+
+            $due = trim((string) ($row['due_phrase'] ?? ''));
+            if ($due !== '') {
+                $duePhrases[] = $due;
+            }
+
+            $prio = strtolower(trim((string) ($row['priority'] ?? '')));
+            if ($prio !== '') {
+                $priorities[] = $prio;
+            }
+        }
+
+        $types = array_values(array_unique($types));
+        $duePhrasesLower = array_values(array_unique(array_map(static fn (string $p): string => mb_strtolower($p), $duePhrases)));
+        $priorities = array_values(array_unique($priorities));
+
+        $hasNonTask = count(array_filter($types, static fn (string $t): bool => $t !== 'task')) > 0;
+        $dueDiff = count($duePhrasesLower) > 1;
+        $prioDiff = count($priorities) > 1;
+
+        if (! $hasNonTask && ! $dueDiff && ! $prioDiff) {
+            return null;
+        }
+
+        if ($hasNonTask) {
+            return 'This list mixes tasks and projects—start with the most time-sensitive task first, then use the projects as your next focus once you have momentum.';
+        }
+
+        if ($dueDiff) {
+            if (in_array('overdue', $duePhrasesLower, true) && in_array('due today', $duePhrasesLower, true)) {
+                return 'Some items are overdue while others are due today—starting with the most time-sensitive one helps you reduce pressure fastest.';
+            }
+
+            return 'The top items don’t share the same due timing—this order helps you start with the most time-sensitive work first.';
+        }
+
+        if ($prioDiff) {
+            return 'Priority levels differ across your top items—this order helps you start with what matters most first.';
+        }
+
+        return null;
     }
 
     /**
@@ -633,6 +704,10 @@ final class TaskAssistantHybridNarrativeService
         }
         if (! $includeInsight) {
             $insight = null;
+        } else {
+            if ($insight === null || trim((string) $insight) === '') {
+                $insight = $this->buildDefaultPrioritizeInsight($cleanItems);
+            }
         }
 
         // Remove redundancy between acknowledgment and framing for stress prompts.

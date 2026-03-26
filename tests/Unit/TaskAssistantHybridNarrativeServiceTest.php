@@ -725,3 +725,115 @@ test('refinePrioritizeListing sanitizes visibility overclaims and avoids bundled
     expect($result['reasoning'])->toContain('Start with Alpha.');
     expect(mb_strtolower($result['next_options']))->toContain('remaining');
 });
+
+test('refinePrioritizeListing replaces over-claimy neutral framing with grounded default', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Based on your current priorities, start with the first item.',
+                'acknowledgment' => null,
+                'insight' => null,
+                'reasoning' => 'This ordering matches what you asked for.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [[
+        'entity_type' => 'task',
+        'entity_id' => 1,
+        'title' => 'Alpha',
+        'priority' => 'medium',
+        'due_phrase' => 'overdue',
+        'due_on' => 'Mar 22, 2026',
+        'complexity_label' => 'Not set',
+    ]];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-22',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'what should i do first?',
+        items: $items,
+        deterministicSummary: 'One task.',
+        filterContextForPrompt: 'time: today',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['framing'])->toBe('Here are your top priorities in a simple order you can start now.');
+});
+
+test('refinePrioritizeListing emits default insight when mixed entity types and model omits insight', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is a focused list you can act on right away.',
+                'acknowledgment' => null,
+                'insight' => null,
+                'reasoning' => 'This ordering matches what you asked for.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'medium',
+            'due_phrase' => 'due today',
+            'due_on' => 'Mar 1, 2026',
+            'complexity_label' => 'Not set',
+        ],
+        [
+            'entity_type' => 'project',
+            'entity_id' => 2,
+            'title' => 'Project Beta',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-01',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'what are my top priorities today?',
+        items: $items,
+        deterministicSummary: 'Two items.',
+        filterContextForPrompt: 'time: today',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['insight'])->not->toBeNull();
+    expect(mb_strtolower((string) $result['insight']))->toContain('mix');
+});
