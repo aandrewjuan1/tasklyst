@@ -27,12 +27,7 @@ test('queued prioritize flow stores selected entities for multiturn state', func
             ->withStructured([
                 'framing' => 'Start with the most urgent item first, then move down the list.',
                 'acknowledgment' => null,
-                'suggested_next_actions' => [
-                    'Open the first item and do one small step.',
-                    'Then continue with the next item for a short session.',
-                ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
-                'next_actions_intro' => 'I recommend you take these next steps.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
             ])
@@ -95,12 +90,7 @@ test('multiturn schedule can target previous prioritized selection', function ()
             ->withStructured([
                 'framing' => 'Start with the item that feels most doable today, then proceed down the ranked list.',
                 'acknowledgment' => null,
-                'suggested_next_actions' => [
-                    'Open the first item and do one small step.',
-                    'Then pick the next item and keep going for 15–30 minutes.',
-                ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
-                'next_actions_intro' => 'I recommend you take these next steps.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
             ])
@@ -225,12 +215,7 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
             ->withStructured([
                 'framing' => 'Start with the most urgent item first, then work down the list to keep your momentum.',
                 'acknowledgment' => null,
-                'suggested_next_actions' => [
-                    'Open the first item and complete one small step.',
-                    'Then continue with the next item for a short focused session.',
-                ],
                 'reasoning' => 'These tasks matched the filters and score highest by urgency.',
-                'next_actions_intro' => 'I recommend you take these next steps.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
             ])
@@ -239,12 +224,7 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
             ->withStructured([
                 'framing' => 'Pick the first item to open so you can focus, then move to the next one if you still have time.',
                 'acknowledgment' => null,
-                'suggested_next_actions' => [
-                    'Open the first item and do one small step.',
-                    'Then move to the next item.',
-                ],
                 'reasoning' => 'Ranked by urgency.',
-                'next_actions_intro' => 'I recommend you take these next steps.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
             ])

@@ -247,6 +247,14 @@ final class IntentRoutingPolicy
             return max(1, min((int) ($matches[2] ?? 3), 10));
         }
 
+        if (preg_match('/\bwhat\s+should\s+i\s+do\s+first\b/i', $normalized) === 1) {
+            return 1;
+        }
+
+        if (preg_match('/\bdo\s+first\b/i', $normalized) === 1) {
+            return 1;
+        }
+
         if (preg_match('/\b(top|first|only|limit)\s+(\d+)\b/', $normalized, $matches) === 1) {
             return max(1, min((int) ($matches[2] ?? 3), 10));
         }

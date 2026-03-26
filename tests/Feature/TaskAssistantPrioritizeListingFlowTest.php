@@ -24,12 +24,7 @@ test('prioritize flow returns structured prioritized tasks with hybrid narrative
             ->withStructured([
                 'framing' => 'Start with the most urgent item first, then work down the list.',
                 'acknowledgment' => null,
-                'suggested_next_actions' => [
-                    'Open the first item and do one small step for 10 minutes.',
-                    'Then pick the next item and continue for a short focused session.',
-                ],
                 'reasoning' => 'These tasks matched your filters.',
-                'next_actions_intro' => 'I recommend you take these next steps.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
             ])
@@ -61,4 +56,6 @@ test('prioritize flow returns structured prioritized tasks with hybrid narrative
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
     expect($assistantMessage->metadata['prioritize']['items'] ?? null)->toBeArray();
+    expect($assistantMessage->metadata['prioritize']['next_options'] ?? null)->toContain('schedule');
+    expect($assistantMessage->metadata['prioritize']['next_options_chip_texts'] ?? null)->toBeArray();
 });

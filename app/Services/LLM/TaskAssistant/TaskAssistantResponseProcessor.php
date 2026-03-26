@@ -178,7 +178,6 @@ final class TaskAssistantResponseProcessor
         $maxFraming = min(400, TaskAssistantListingDefaults::maxSuggestedGuidanceChars());
         $maxNextField = min(260, $maxReasoning);
         $maxFocusTitle = 200;
-        $maxAction = 180;
         $rules = [
             'limit_used' => ['required', 'integer', 'min:0', 'max:50'],
             'items' => ['required', 'array', 'max:50'],
@@ -187,9 +186,6 @@ final class TaskAssistantResponseProcessor
             'focus.secondary_tasks' => ['present', 'array', 'max:49'],
             'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
             'framing' => ['required', 'string', 'min:5', 'max:'.$maxFraming],
-            'suggested_next_actions' => ['required', 'array', 'min:1', 'max:2'],
-            'suggested_next_actions.*' => ['string', 'min:3', 'max:'.$maxAction],
-            'next_actions_intro' => ['required', 'string', 'min:10', 'max:'.$maxNextField],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextField],
             'next_options_chip_texts' => ['required', 'array', 'min:1', 'max:2'],
             'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],
