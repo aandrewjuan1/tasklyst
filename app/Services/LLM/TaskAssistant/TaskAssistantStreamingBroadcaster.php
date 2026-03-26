@@ -81,7 +81,7 @@ final class TaskAssistantStreamingBroadcaster
             $truncated = true;
         }
 
-        Log::info('task-assistant.broadcast', [
+        Log::debug('task-assistant.broadcast', [
             'layer' => 'broadcast',
             'user_id' => $userId,
             'assistant_message_id' => $assistantMessage->id,

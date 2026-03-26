@@ -123,26 +123,8 @@ new class extends Component
         }
 
         $delta = $payload['delta'] ?? '';
-        Log::debug('task-assistant.ui', [
-            'layer' => 'ui',
-            'stage' => 'echo_json_delta_received',
-            'user_id' => $this->userId,
-            'thread_id' => $this->thread?->id,
-            'streaming_message_id' => $this->streamingMessageId,
-            'is_streaming' => $this->isStreaming,
-            'delta_length' => is_string($delta) ? mb_strlen($delta) : 0,
-            'existing_streaming_content_length' => mb_strlen($this->streamingContent),
-        ]);
         if ($delta !== '') {
             $this->streamingContent .= $delta;
-            Log::debug('task-assistant.ui', [
-                'layer' => 'ui',
-                'stage' => 'echo_json_delta_appended',
-                'user_id' => $this->userId,
-                'thread_id' => $this->thread?->id,
-                'streaming_message_id' => $this->streamingMessageId,
-                'updated_streaming_content_length' => mb_strlen($this->streamingContent),
-            ]);
         }
     }
 
@@ -153,16 +135,6 @@ new class extends Component
         if ($assistantMessageId <= 0 || $assistantMessageId !== $this->streamingMessageId) {
             return;
         }
-
-        Log::debug('task-assistant.ui', [
-            'layer' => 'ui',
-            'stage' => 'echo_stream_end',
-            'user_id' => $this->userId,
-            'thread_id' => $this->thread?->id,
-            'streaming_message_id' => $this->streamingMessageId,
-            'streaming_content_length' => mb_strlen($this->streamingContent),
-            'is_streaming' => $this->isStreaming,
-        ]);
 
         $this->refreshMessages();
     }
@@ -184,13 +156,6 @@ new class extends Component
         try {
             $this->validate();
         } catch (ValidationException $e) {
-            Log::info('task-assistant.ui', [
-                'layer' => 'ui',
-                'stage' => 'validation_failed',
-                'user_id' => Auth::id(),
-                'thread_id' => $this->thread?->id,
-                'errors' => $e->errors(),
-            ]);
             throw $e;
         }
 
@@ -234,14 +199,6 @@ new class extends Component
         $this->streamingContent = '';
         $this->showWorking = false;
         $this->markThreadProcessing($assistantMessage->id);
-        Log::debug('task-assistant.ui', [
-            'layer' => 'ui',
-            'stage' => 'streaming_state_initialized',
-            'user_id' => Auth::id(),
-            'thread_id' => $this->thread->id,
-            'assistant_message_id' => $assistantMessage->id,
-            'is_streaming' => $this->isStreaming,
-        ]);
 
         Log::info('task-assistant.job.dispatch', [
             'layer' => 'ui',
@@ -371,15 +328,6 @@ new class extends Component
 
     public function refreshMessages(bool $preserveStreamingState = false): void
     {
-        Log::debug('task-assistant.ui', [
-            'layer' => 'ui',
-            'stage' => 'refresh_messages_start',
-            'user_id' => $this->userId,
-            'thread_id' => $this->thread?->id,
-            'streaming_message_id' => $this->streamingMessageId,
-            'streaming_content_length' => mb_strlen($this->streamingContent),
-            'preserve_streaming_state' => $preserveStreamingState,
-        ]);
         $this->loadMessages();
 
         if (! $preserveStreamingState) {
@@ -392,15 +340,6 @@ new class extends Component
             $this->syncStreamingStateFromPersistence();
         }
 
-        Log::debug('task-assistant.ui', [
-            'layer' => 'ui',
-            'stage' => 'refresh_messages_done',
-            'user_id' => $this->userId,
-            'thread_id' => $this->thread?->id,
-            'chat_messages_count' => $this->chatMessages->count(),
-            'is_streaming' => $this->isStreaming,
-            'streaming_message_id' => $this->streamingMessageId,
-        ]);
     }
 
     public function acceptScheduleProposalItem(int $assistantMessageId, string $proposalId): void

@@ -42,7 +42,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
 
     public function handle(TaskAssistantService $service): void
     {
-        Log::info('task-assistant.job.handle', [
+        Log::debug('task-assistant.job.handle', [
             'layer' => 'queue_job',
             'thread_id' => $this->threadId,
             'user_message_id' => $this->userMessageId,
@@ -64,7 +64,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         }
 
         if ($this->isCancellationRequested()) {
-            Log::info('task-assistant.job.cancelled_before_start', [
+            Log::debug('task-assistant.job.cancelled_before_start', [
                 'layer' => 'queue_job',
                 'thread_id' => $this->threadId,
                 'assistant_message_id' => $this->assistantMessageId,
@@ -77,7 +77,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
             return;
         }
 
-        Log::info('task-assistant.job.broadcastStream.call', [
+        Log::debug('task-assistant.job.broadcastStream.call', [
             'layer' => 'queue_job',
             'thread_id' => $this->threadId,
             'user_message_id' => $this->userMessageId,
