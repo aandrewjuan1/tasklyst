@@ -734,7 +734,12 @@ class Task extends Model
         return $query
             ->forUser($userId)
             ->incomplete()
-            ->relevantForDate($date)
+            ->where(function (Builder $q) use ($date): void {
+                $q->relevantForDate($date)
+                    ->orWhere(function (Builder $overdue) use ($date): void {
+                        $overdue->overdue($date);
+                    });
+            })
             ->orderByPriority()
             ->orderBy('end_datetime')
             ->summaryColumns()

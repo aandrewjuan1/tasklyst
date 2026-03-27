@@ -103,6 +103,7 @@ test('overwhelmed what should i do first routes to prioritize (not general_guida
 
     expect($decision->flow)->toBe('prioritize');
     expect($decision->constraints['count_limit'])->toBe(1);
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
 });
 
 test('time query routes to general guidance (not schedule)', function (): void {

@@ -822,3 +822,62 @@ test('refinePrioritizeListing handles mixed entity types without insight field',
 
     expect($result)->not->toHaveKey('insight');
 });
+
+test('refinePrioritizeListing forces reasoning to reference the first ranked item for mixed lists', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here are your top priorities.',
+                'acknowledgment' => null,
+                // Bad: talks about item #2 only, not item #1 (event).
+                'reasoning' => 'You have an important essay to research, so start there.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these', 'Show next 3'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'event',
+            'entity_id' => 2,
+            'title' => 'CS group project meetup',
+        ],
+        [
+            'entity_type' => 'task',
+            'entity_id' => 26,
+            'title' => 'Library research for history essay',
+            'priority' => 'high',
+            'due_phrase' => 'due later',
+            'due_on' => 'Apr 12, 2026',
+            'complexity_label' => 'Moderate',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-22',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'show next 3',
+        items: $items,
+        deterministicSummary: 'Two items.',
+        filterContextForPrompt: 'no strong filters',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['reasoning'])->toContain('CS group project meetup');
+});

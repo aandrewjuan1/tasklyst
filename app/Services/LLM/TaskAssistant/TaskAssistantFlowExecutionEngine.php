@@ -40,9 +40,24 @@ final class TaskAssistantFlowExecutionEngine
         array $generationResult,
         string $assistantFallbackContent
     ): array {
+        $runId = app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null;
+        $startNs = hrtime(true);
+
+        Log::info('task-assistant.flow_execution.begin', [
+            'layer' => 'flow_execution',
+            'run_id' => $runId,
+            'flow' => $flow,
+            'metadata_key' => $metadataKey,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'generation_valid' => (bool) ($generationResult['valid'] ?? false),
+            'generation_data_keys' => array_keys(is_array($generationResult['data'] ?? null) ? $generationResult['data'] : []),
+        ]);
+
         if ($this->isStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
                 'layer' => 'flow_execution',
+                'run_id' => $runId,
                 'flow' => $flow,
                 'metadata_key' => $metadataKey,
                 'thread_id' => $thread->id,
@@ -101,6 +116,7 @@ final class TaskAssistantFlowExecutionEngine
         if ($this->isStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
                 'layer' => 'flow_execution',
+                'run_id' => $runId,
                 'flow' => $flow,
                 'metadata_key' => $metadataKey,
                 'thread_id' => $thread->id,
@@ -128,9 +144,11 @@ final class TaskAssistantFlowExecutionEngine
         ]);
 
         $mergedErrors = array_values(array_unique(array_merge($generationErrors, $processedResponse['errors'] ?? [])));
+        $elapsedMs = (int) ((hrtime(true) - $startNs) / 1_000_000);
 
         Log::info('task-assistant.flow_execution', [
             'layer' => 'flow_execution',
+            'run_id' => $runId,
             'flow' => $flow,
             'metadata_key' => $metadataKey,
             'thread_id' => $thread->id,
@@ -140,6 +158,8 @@ final class TaskAssistantFlowExecutionEngine
             'final_valid' => $finalValid,
             'merged_errors' => $mergedErrors,
             'generation_payload_summary' => self::summarizeGenerationPayload($flow, $payload),
+            'assistant_content_length' => mb_strlen($assistantContent),
+            'elapsed_ms' => $elapsedMs,
         ]);
 
         return [

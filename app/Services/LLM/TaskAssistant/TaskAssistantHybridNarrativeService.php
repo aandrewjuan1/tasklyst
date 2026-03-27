@@ -682,6 +682,10 @@ final class TaskAssistantHybridNarrativeService
         // Enforce student-directed POV (avoid third-person phrasing).
         $reasoning = TaskAssistantListingDefaults::normalizePrioritizeReasoningVoice((string) $reasoning, $cleanItems);
 
+        // Ensure reasoning stays anchored to the ranked list (especially item #1).
+        // Models sometimes explain a secondary item, which feels inconsistent even when schema-valid.
+        $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
+
         // If UX includes acknowledgment, ensure it's actually empathetic and not just generic framing.
         if ($includeAcknowledgment) {
             $ackNorm = $acknowledgment !== null ? $this->normalizeForSimilarity((string) $acknowledgment) : '';
@@ -756,6 +760,41 @@ final class TaskAssistantHybridNarrativeService
                 $nextOptionsChipTexts
             )),
         ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function enforceReasoningAnchorsTopItem(string $reasoning, array $items): string
+    {
+        $text = trim($reasoning);
+        if ($text === '' || $items === []) {
+            return $reasoning;
+        }
+
+        $first = is_array($items[0] ?? null) ? $items[0] : null;
+        if (! is_array($first)) {
+            return $reasoning;
+        }
+
+        $title = trim((string) ($first['title'] ?? ''));
+        if ($title === '') {
+            return $reasoning;
+        }
+
+        $lower = mb_strtolower($text);
+        $titleLower = mb_strtolower($title);
+
+        // If it already references the top item title, keep it.
+        if ($titleLower !== '' && mb_stripos($lower, $titleLower) !== false) {
+            return $reasoning;
+        }
+
+        // Otherwise, fall back to a deterministic explanation that cannot contradict ordering.
+        // Avoid due-time phrasing to stay consistent for mixed lists (events/projects may not have due_phrase).
+        $safe = "I put {$title} first because it's the most time-sensitive or urgent right now. Start with {$title}, then move down the list.";
+
+        return $safe;
     }
 
     /**

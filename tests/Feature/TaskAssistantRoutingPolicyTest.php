@@ -8,7 +8,7 @@ use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
 
-test('low composite margin triggers clarification flow', function (): void {
+test('low composite margin routes to general_guidance instead of clarification branch', function (): void {
     config()->set('task-assistant.intent.merge.clarify_margin', 0.99);
     config()->set('task-assistant.intent.merge.clarify_composite_ceiling', 0.99);
 
@@ -18,6 +18,17 @@ test('low composite margin triggers clarification flow', function (): void {
                 'intent' => 'prioritization',
                 'confidence' => 0.45,
                 'rationale' => 'Ambiguous.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'task',
+                'acknowledgement' => 'I hear you.',
+                'message' => 'Do you want me to prioritize your tasks or schedule time blocks for them?',
+                'suggested_next_actions' => [
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
+                ],
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -38,8 +49,8 @@ test('low composite margin triggers clarification flow', function (): void {
     $assistantMessage->refresh();
     $thread->refresh();
 
-    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('clarify');
-    expect(data_get($assistantMessage->metadata, 'clarification.needed'))->toBeTrue();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
 });
 
 test('structured intent routes to schedule when LLM selects scheduling', function (): void {

@@ -14,6 +14,8 @@ final class TaskPrioritizationService
 
     private const EVENT_ONGOING_BOOST = 50;
 
+    private const TIME_CRITICAL_EVENT_MINUTES = 60;
+
     /**
      * Build one ranked list of "focus candidates" across tasks, events, and projects.
      *
@@ -31,10 +33,98 @@ final class TaskPrioritizationService
         $events = is_array($snapshot['events'] ?? null) ? $snapshot['events'] : [];
         $projects = is_array($snapshot['projects'] ?? null) ? $snapshot['projects'] : [];
 
+        $preference = $this->normalizeEntityTypePreference($context['entity_type_preference'] ?? null);
+
         $taskRanked = $this->prioritizeTasks($tasks, $now, $context);
         $eventRanked = $this->prioritizeEvents($events, $now, $context);
         $projectRanked = $this->prioritizeProjects($projects, $now, $context);
 
+        // Apply soft preference: keep the requested type as the primary list,
+        // but allow "time-critical" non-task items to show up (e.g. an event in 30 minutes)
+        // to stay practical and student-safe.
+        [$taskRanked, $eventRanked, $projectRanked] = $this->applySoftEntityTypePreference(
+            $taskRanked,
+            $eventRanked,
+            $projectRanked,
+            $preference,
+            $now
+        );
+
+        $candidates = $this->buildCandidates($taskRanked, $eventRanked, $projectRanked, $now);
+
+        return $this->sortAndStripCandidates($candidates);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $taskRanked
+     * @param  array<int, array<string, mixed>>  $eventRanked
+     * @param  array<int, array<string, mixed>>  $projectRanked
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>, 2: array<int, array<string, mixed>>}
+     */
+    private function applySoftEntityTypePreference(
+        array $taskRanked,
+        array $eventRanked,
+        array $projectRanked,
+        string $preference,
+        \DateTimeImmutable $now
+    ): array {
+        if ($preference === 'mixed') {
+            return [$taskRanked, $eventRanked, $projectRanked];
+        }
+
+        $criticalEvents = $this->filterTimeCriticalEvents($eventRanked, $now);
+
+        // Only events are time-bound enough to override type preference for now.
+        // Projects are kept within the requested type unless the user asks for projects directly.
+        return match ($preference) {
+            'task' => [$taskRanked, $criticalEvents, []],
+            'event' => [[], $eventRanked, []],
+            'project' => [[], $criticalEvents, $projectRanked],
+            default => [$taskRanked, $eventRanked, $projectRanked],
+        };
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterTimeCriticalEvents(array $events, \DateTimeImmutable $now): array
+    {
+        $out = [];
+
+        foreach ($events as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
+
+            $startsAt = $event['starts_at'] ?? null;
+            if (! is_string($startsAt) || trim($startsAt) === '') {
+                continue;
+            }
+
+            try {
+                $start = new \DateTimeImmutable($startsAt);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
+            if ($minutesUntil <= self::TIME_CRITICAL_EVENT_MINUTES) {
+                $out[] = $event;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $taskRanked
+     * @param  array<int, array<string, mixed>>  $eventRanked
+     * @param  array<int, array<string, mixed>>  $projectRanked
+     * @return list<array<string, mixed>>
+     */
+    private function buildCandidates(array $taskRanked, array $eventRanked, array $projectRanked, \DateTimeImmutable $now): array
+    {
         $candidates = [];
 
         /**
@@ -123,6 +213,15 @@ final class TaskPrioritizationService
             ];
         }
 
+        return $candidates;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $candidates
+     * @return array<int, array{type: 'task'|'event'|'project', id: int, title: string, score: int, reasoning: string, raw: array<string, mixed>}>
+     */
+    private function sortAndStripCandidates(array $candidates): array
+    {
         usort($candidates, function (array $a, array $b): int {
             $aDeadline = (int) ($a['deadline_score'] ?? 0);
             $bDeadline = (int) ($b['deadline_score'] ?? 0);
@@ -163,6 +262,29 @@ final class TaskPrioritizationService
 
             return $c;
         }, $candidates);
+    }
+
+    /**
+     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>, 2: array<int, array<string, mixed>>}
+     */
+    private function applyEntityTypePreference(array $tasks, array $events, array $projects, string $preference): array
+    {
+        return match ($preference) {
+            'task' => [$tasks, [], []],
+            'event' => [[], $events, []],
+            'project' => [[], [], $projects],
+            default => [$tasks, $events, $projects],
+        };
+    }
+
+    private function normalizeEntityTypePreference(mixed $value): string
+    {
+        $raw = strtolower(trim((string) ($value ?? 'mixed')));
+
+        return match ($raw) {
+            'task', 'event', 'project', 'mixed' => $raw,
+            default => 'mixed',
+        };
     }
 
     /**
@@ -353,21 +475,27 @@ final class TaskPrioritizationService
                             $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
 
                             if ($minutesUntil < 0) {
-                                $deadlineScore = 900; // started today (treated as due today urgency)
+                                // Event already started (treat as very urgent).
+                                $deadlineScore = 980;
                                 $reasoning = 'Event already started';
+                            } elseif ($minutesUntil <= 60) {
+                                // Near-term events can outrank many same-day tasks.
+                                $deadlineScore = 950;
+                                $reasoning = 'Event starts within 1 hour';
                             } elseif ($start->format('Y-m-d') === $now->format('Y-m-d')) {
-                                $deadlineScore = 900;
-                                $reasoning = $minutesUntil <= 60 ? 'Event starts within 1 hour' : 'Event is today';
+                                // Still today, but not imminent: should not automatically beat due-today tasks.
+                                $deadlineScore = 850;
+                                $reasoning = 'Event is today';
                             } else {
                                 $daysUntil = (int) $now->diff($start)->days;
                                 if ($daysUntil === 1) {
-                                    $deadlineScore = 800;
+                                    $deadlineScore = 750;
                                     $reasoning = 'Event starts tomorrow';
                                 } elseif ($daysUntil <= 7) {
-                                    $deadlineScore = 700 - ($daysUntil * 50);
+                                    $deadlineScore = 650 - ($daysUntil * 40);
                                     $reasoning = 'Event starts soon';
                                 } else {
-                                    $deadlineScore = max(100, 600 - ($daysUntil * 20));
+                                    $deadlineScore = max(80, 520 - ($daysUntil * 15));
                                     $reasoning = 'Event starts later';
                                 }
                             }
@@ -383,13 +511,14 @@ final class TaskPrioritizationService
                     $reasoning = $reasoning === 'Upcoming event' ? 'All-day event' : $reasoning;
                 }
 
-                // Map events to a strong priority because the user asked to prep for a time-bound item.
-                $priorityScore = ($event['status'] ?? null) === EventStatus::Ongoing->value ? 120 : 110;
-                $durationScore = 50;
+                // Events should not automatically outrank tasks with the same urgency bucket.
+                // Priority score is intentionally kept below an "urgent" task's priority_score (100).
+                $priorityScore = ($event['status'] ?? null) === EventStatus::Ongoing->value ? 70 : 50;
+                $durationScore = 0;
 
                 // If we have no deadline score but we still have starts_at, treat as low urgency (so it doesn't beat tasks).
                 if ($deadlineScore === 0 && $deadlineEpoch !== PHP_INT_MAX) {
-                    $deadlineScore = 100;
+                    $deadlineScore = 80;
                 }
 
                 // Preserve legacy $score field for any existing logs/diagnostics.

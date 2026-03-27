@@ -49,6 +49,26 @@ it('prioritizes overdue tasks over upcoming events and projects', function (): v
     expect($top['id'])->toBe(1);
 });
 
+it('candidate provider includes overdue tasks', function (): void {
+    $user = \App\Models\User::factory()->create();
+
+    $now = now();
+
+    \App\Models\Task::factory()->for($user)->create([
+        'title' => 'Overdue outside day window',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'priority' => \App\Enums\TaskPriority::Urgent,
+        'start_datetime' => $now->copy()->subDays(2),
+        'end_datetime' => $now->copy()->subDay(),
+        'completed_at' => null,
+    ]);
+
+    $candidates = app(\App\Services\LLM\Prioritization\AssistantCandidateProvider::class)->candidatesForUser($user, 200);
+    $titles = collect($candidates['tasks'] ?? [])->pluck('title')->all();
+
+    expect($titles)->toContain('Overdue outside day window');
+});
+
 it('prioritizes the earliest upcoming event using real now', function (): void {
     $service = app(TaskPrioritizationService::class);
 
@@ -403,6 +423,54 @@ it('prefers near events over medium tasks due today', function (): void {
     expect($top)->not->toBeNull();
     expect($top['type'])->toBe('event');
     expect($top['id'])->toBe(10);
+});
+
+it('task preference still allows time-critical events, and falls back when no tasks exist', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task due tomorrow',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addDay()->toIso8601String(),
+                'duration_minutes' => 60,
+            ],
+        ],
+        'events' => [
+            [
+                'id' => 10,
+                'title' => 'Meeting soon',
+                'starts_at' => $now->addMinutes(30)->toIso8601String(),
+                'ends_at' => $now->addMinutes(60)->toIso8601String(),
+                'all_day' => false,
+                'status' => 'scheduled',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot, ['entity_type_preference' => 'task']);
+    expect($ranked)->not->toBeEmpty();
+    // Meeting soon is time-critical and should be included even with task preference.
+    expect(collect($ranked)->pluck('type')->all())->toContain('event');
+
+    $rankedNoTasks = $service->prioritizeFocus([
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
+        'tasks' => [],
+        'events' => $snapshot['events'],
+        'projects' => [],
+    ], ['entity_type_preference' => 'task']);
+    expect($rankedNoTasks)->not->toBeEmpty();
+    expect($rankedNoTasks[0]['type'])->toBe('event');
 });
 
 it('school domain keeps academic tasks and drops errands like school bag titles', function (): void {

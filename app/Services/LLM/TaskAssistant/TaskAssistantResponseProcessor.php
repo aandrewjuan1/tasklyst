@@ -9,7 +9,7 @@ use Illuminate\Validation\Validator as ValidationValidator;
 
 final class TaskAssistantResponseProcessor
 {
-    private const FORMATTED_MESSAGE_LOG_MAX_CHARS = 50000;
+    private const FORMATTED_MESSAGE_LOG_MAX_CHARS = 8000;
 
     public function __construct(
         private readonly TaskAssistantMessageFormatter $messageFormatter,
@@ -39,19 +39,23 @@ final class TaskAssistantResponseProcessor
         Log::info('task-assistant.formatted_message', [
             'layer' => 'message_format',
             'flow' => $flow,
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => app()->bound('task_assistant.thread_id') ? app('task_assistant.thread_id') : null,
             'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
             'validation_valid' => $validation['valid'],
             'content_length' => $contentLength,
             'formatted_message_truncated' => $truncated,
+            'formatted_message_sha256' => hash('sha256', $formattedContent),
             'formatted_message' => $loggedBody,
         ]);
 
         Log::info('task-assistant.validation', [
             'layer' => 'validation',
             'flow' => $flow,
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'valid' => $validation['valid'],
             'errors' => $validation['errors'],
+            'errors_count' => is_array($validation['errors'] ?? null) ? count($validation['errors']) : 0,
             'data_keys' => array_keys($data),
         ]);
 
@@ -218,7 +222,7 @@ final class TaskAssistantResponseProcessor
             'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
             'framing' => ['required', 'string', 'min:5', 'max:'.$maxFraming],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextField],
-            'next_options_chip_texts' => ['required', 'array', 'min:1', 'max:2'],
+            'next_options_chip_texts' => ['required', 'array', 'min:1', 'max:3'],
             'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],

@@ -271,42 +271,6 @@ final class TaskAssistantConversationStateService
     }
 
     /**
-     * Store pending clarification state for a follow-up reply.
-     *
-     * @return array{target_flow: string, reason_codes: array<int, string>}|null
-     */
-    public function pendingClarification(TaskAssistantThread $thread): ?array
-    {
-        $state = $this->get($thread);
-        $pending = $state['pending_clarification'] ?? null;
-
-        if (! is_array($pending)) {
-            return null;
-        }
-
-        $targetFlow = (string) ($pending['target_flow'] ?? '');
-        if ($targetFlow === '') {
-            return null;
-        }
-
-        $reasonCodes = is_array($pending['reason_codes'] ?? null)
-            ? array_values(array_map(static fn (mixed $code): string => (string) $code, $pending['reason_codes']))
-            : [];
-
-        return [
-            'target_flow' => $targetFlow,
-            'reason_codes' => $reasonCodes,
-        ];
-    }
-
-    public function clearPendingClarification(TaskAssistantThread $thread): void
-    {
-        $state = $this->get($thread);
-        unset($state['pending_clarification']);
-        $this->put($thread, $state);
-    }
-
-    /**
      * Clears listing selection state (legacy name; prefer {@see clearLastListing}).
      */
     public function clearSelectedEntities(TaskAssistantThread $thread): void

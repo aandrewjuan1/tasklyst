@@ -7,6 +7,7 @@ use App\Enums\TaskComplexity;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Services\LLM\Browse\TaskAssistantListingSelectionService;
+use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
@@ -14,6 +15,7 @@ use App\Support\LLM\TaskAssistantListingDefaults;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
 use Prism\Prism\ValueObjects\Messages\ToolResultMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
@@ -36,6 +38,7 @@ final class TaskAssistantService
         private readonly TaskAssistantStreamingBroadcaster $streamingBroadcaster,
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
+        private readonly AssistantCandidateProvider $candidateProvider,
         private readonly TaskAssistantConversationStateService $conversationState,
         private readonly TaskAssistantGeneralGuidanceService $generalGuidanceService,
         private readonly IntentRoutingPolicy $routingPolicy,
@@ -49,10 +52,14 @@ final class TaskAssistantService
         // queued job loads fresh models; in-process calls (tests) can reuse instances.
         $thread->refresh();
 
+        $runId = (string) Str::uuid();
+        app()->instance('task_assistant.run_id', $runId);
+
         if ($this->isCancellationRequested($thread, $assistantMessageId)) {
             Log::info('task-assistant.orchestration', [
                 'layer' => 'orchestration',
                 'stage' => 'cancelled_before_processing',
+                'run_id' => $runId,
                 'thread_id' => $thread->id,
                 'assistant_message_id' => $assistantMessageId,
             ]);
@@ -75,6 +82,7 @@ final class TaskAssistantService
             Log::warning('task-assistant.orchestration', [
                 'layer' => 'orchestration',
                 'stage' => 'aborted_missing_message',
+                'run_id' => $runId,
                 'thread_id' => $thread->id,
                 'user_message_id' => $userMessageId,
                 'assistant_message_id' => $assistantMessageId,
@@ -89,6 +97,7 @@ final class TaskAssistantService
             Log::info('task-assistant.orchestration', [
                 'layer' => 'orchestration',
                 'stage' => 'cancelled_after_message_load',
+                'run_id' => $runId,
                 'thread_id' => $thread->id,
                 'assistant_message_id' => $assistantMessageId,
             ]);
@@ -105,6 +114,7 @@ final class TaskAssistantService
             Log::info('task-assistant.orchestration', [
                 'layer' => 'orchestration',
                 'stage' => 'start',
+                'run_id' => $runId,
                 'thread_id' => $thread->id,
                 'user_id' => $thread->user_id,
                 'user_message_id' => $userMessageId,
@@ -112,125 +122,57 @@ final class TaskAssistantService
             ]);
 
             $content = (string) ($userMessage->content ?? '');
+            Log::debug('task-assistant.user_message', [
+                'layer' => 'orchestration',
+                'stage' => 'user_message_loaded',
+                'run_id' => $runId,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessageId,
+                'content_length' => mb_strlen($content),
+                'content_preview' => $this->previewForLogs($content),
+            ]);
 
-            // If we previously asked a clarification question, resolve the implied
-            // branch and forced constraints from the user's answer.
-            $pendingClarification = $this->conversationState->pendingClarification($thread);
-            if ($pendingClarification !== null) {
-                $pendingTargetFlow = (string) ($pendingClarification['target_flow'] ?? '');
-                $reasonCodes = is_array($pendingClarification['reason_codes'] ?? null)
-                    ? $pendingClarification['reason_codes']
-                    : [];
+            $pending = $this->conversationState->pendingGeneralGuidance($thread);
+            if ($pending !== null && ! $this->looksLikeStandaloneGeneralGuidancePrompt($content)) {
+                $targetDecision = $this->generalGuidanceService->resolveTargetFromAnswer(
+                    $thread->user,
+                    (string) $pending['clarifying_question'],
+                    $content
+                );
+                $target = (string) ($targetDecision['target'] ?? 'either');
+                $confidence = (float) ($targetDecision['confidence'] ?? 0.0);
 
-                $answer = mb_strtolower(trim($content));
-
-                $scheduleIntent = preg_match(
-                    '/\b(schedule|calendar|time\s*block|time\s*slot|time\s*blocking|plan\s*my\s*day|daily\s*plan|when\s*should\s*i\s*work)\b/i',
-                    $answer
-                ) === 1;
-
-                $freshPlanIntent = preg_match(
-                    '/\b(whole\s*day|entire\s*day|all\s*day|fresh\s*plan|new\s*plan|schedule\s*everything|plan\s*the\s*day)\b/i',
-                    $answer
-                ) === 1;
-
-                $selectedTasksIntent = preg_match(
-                    '/\b(those|them|these|selected|top\s*tasks|those\s*\d+|them\s*\d+)\b/i',
-                    $answer
-                ) === 1;
-
-                $forcedFlow = null;
-                $constraints = null;
-                $targetEntitiesOverride = null;
-
-                if ($pendingTargetFlow === 'prioritize') {
-                    if ($scheduleIntent) {
-                        $forcedFlow = 'schedule';
-                        $constraints = $this->routingPolicy->extractConstraintsForFlow(
-                            $thread,
-                            $content,
-                            $forcedFlow
-                        );
-
-                        // The question context implies "schedule them" refers to the
-                        // existing prioritize selection.
-                        $existingTargets = is_array($constraints['target_entities'] ?? null)
-                            ? $constraints['target_entities']
-                            : [];
-                        $selectedEntities = $this->conversationState->selectedEntities($thread);
-                        $targetEntitiesOverride = $existingTargets === [] && $selectedEntities !== []
-                            ? $selectedEntities
-                            : null;
-                    } else {
-                        $forcedFlow = 'prioritize';
-                        $constraints = $this->routingPolicy->extractConstraintsForFlow(
-                            $thread,
-                            $content,
-                            $forcedFlow
-                        );
-                    }
-                } elseif ($pendingTargetFlow === 'schedule') {
-                    $forcedFlow = 'schedule';
-                    $constraints = $this->routingPolicy->extractConstraintsForFlow(
-                        $thread,
-                        $content,
-                        $forcedFlow
+                if (in_array($target, ['prioritize', 'schedule'], true) && $confidence >= 0.6) {
+                    $forcedFlow = $target;
+                    $forcedConstraints = $this->routingPolicy->extractConstraintsForFlow($thread, $content, $forcedFlow);
+                    $forcedCountLimit = max(1, min((int) ($forcedConstraints['count_limit'] ?? 3), 10));
+                    $forcedTimeWindowHint = is_string($forcedConstraints['time_window_hint'] ?? null)
+                        ? $forcedConstraints['time_window_hint']
+                        : null;
+                    $forcedTargetEntities = is_array($forcedConstraints['target_entities'] ?? null)
+                        ? $forcedConstraints['target_entities']
+                        : [];
+                    $forcedReasonCodes = array_merge(
+                        is_array($pending['reason_codes'] ?? null) ? $pending['reason_codes'] : [],
+                        ['pending_general_guidance_forced_'.$forcedFlow]
                     );
 
-                    if ($freshPlanIntent) {
-                        // "Fresh plan / whole day" means "don't schedule only the selected ones".
-                        $targetEntitiesOverride = [];
-                    } elseif ($selectedTasksIntent) {
-                        // "Selected tasks" means keep/derive targets from the previous selection.
-                        $existingTargets = is_array($constraints['target_entities'] ?? null)
-                            ? $constraints['target_entities']
-                            : [];
-                        $selectedEntities = $this->conversationState->selectedEntities($thread);
-                        $targetEntitiesOverride = $existingTargets === [] && $selectedEntities !== []
-                            ? $selectedEntities
-                            : null;
-                    } else {
-                        // Ambiguous answer: fall back to normal routing, but clear pending state
-                        // so we do not loop on every message.
-                        $this->conversationState->clearPendingClarification($thread);
-                        $pendingClarification = null;
-                    }
-                }
-
-                if ($pendingClarification !== null && $forcedFlow !== null && is_array($constraints)) {
-                    if (is_array($targetEntitiesOverride)) {
-                        $constraints['target_entities'] = $targetEntitiesOverride;
-                    }
-
-                    $minConfidence = 0.75;
-                    $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
-                    $timeWindowHint = is_string($constraints['time_window_hint'] ?? null)
-                        ? $constraints['time_window_hint']
-                        : null;
-                    $targetEntities = is_array($constraints['target_entities'] ?? null)
-                        ? $constraints['target_entities']
-                        : [];
-
-                    $finalConfidence = max($minConfidence, 0.85);
-                    $reasonCodes = array_values(array_unique(array_merge(
-                        $reasonCodes,
-                        ['clarification_enforced_'.$forcedFlow]
-                    )));
+                    $this->conversationState->clearPendingGeneralGuidance($thread);
 
                     $forcedPlan = new ExecutionPlan(
                         flow: $forcedFlow,
-                        confidence: $finalConfidence,
+                        confidence: 1.0,
                         clarificationNeeded: false,
                         clarificationQuestion: null,
-                        reasonCodes: $reasonCodes,
-                        constraints: $constraints,
-                        targetEntities: $targetEntities,
-                        timeWindowHint: $timeWindowHint,
-                        countLimit: $countLimit,
-                        generationProfile: $forcedFlow === 'schedule' ? 'schedule' : 'prioritize',
+                        reasonCodes: $forcedReasonCodes,
+                        constraints: $forcedConstraints,
+                        targetEntities: $forcedTargetEntities,
+                        timeWindowHint: $forcedTimeWindowHint,
+                        countLimit: $forcedCountLimit,
+                        generationProfile: $forcedFlow,
                     );
 
-                    $this->conversationState->clearPendingClarification($thread);
+                    $this->logRoutingDecision($thread, $assistantMessage, $forcedPlan);
 
                     if ($forcedFlow === 'prioritize') {
                         $this->runPrioritizeFlow($thread, $assistantMessage, $content, $forcedPlan);
@@ -244,21 +186,8 @@ final class TaskAssistantService
                 }
             }
 
-            // Hard cutover: if legacy pending guidance state exists, clear it and
-            // continue with normal routing for the current user message.
-            $pending = $this->conversationState->pendingGeneralGuidance($thread);
-            if ($pending !== null) {
-                $this->conversationState->clearPendingGeneralGuidance($thread);
-            }
-
             $plan = $this->buildExecutionPlan($thread, $content);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
-
-            if ($plan->clarificationNeeded) {
-                $this->runClarificationFlow($thread, $assistantMessage, $plan);
-
-                return;
-            }
 
             if ($plan->flow === 'general_guidance') {
                 $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
@@ -279,9 +208,22 @@ final class TaskAssistantService
             }
 
             throw new \UnexpectedValueException('Unsupported task assistant flow: '.$plan->flow);
+        } catch (\Throwable $e) {
+            Log::error('task-assistant.orchestration', [
+                'layer' => 'orchestration',
+                'stage' => 'unhandled_exception',
+                'run_id' => $runId,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessageId,
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+            ]);
+
+            throw $e;
         } finally {
             app()->forgetInstance('task_assistant.thread_id');
             app()->forgetInstance('task_assistant.message_id');
+            app()->forgetInstance('task_assistant.run_id');
         }
     }
 
@@ -292,6 +234,7 @@ final class TaskAssistantService
         Log::info('task-assistant.flow', [
             'layer' => 'flow',
             'flow' => 'prioritize',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
             'count_limit' => $plan->countLimit,
@@ -300,6 +243,10 @@ final class TaskAssistantService
         $context = $this->constraintsExtractor->extract($content);
         $prioritizeTaskListMode = $this->shouldUsePrioritizeTaskListMode($plan, $content);
         $isNextSliceFollowup = $this->isPrioritizeNextSliceFollowup($thread, $plan, $content);
+
+        if ($isNextSliceFollowup) {
+            $context = $this->inheritEntityTypePreferenceForPrioritizeFollowup($thread, $context);
+        }
         $seenEntityKeys = $isNextSliceFollowup
             ? $this->conversationState->prioritizeShownEntityKeys($thread)
             : [];
@@ -313,7 +260,10 @@ final class TaskAssistantService
 
         if ($prioritizeTaskListMode) {
             $taskLimit = max(1, (int) config('task-assistant.listing.snapshot_task_limit', 200));
-            $snapshot = $this->snapshotService->buildForUser($thread->user, $taskLimit);
+            $snapshot = $this->candidateProvider->candidatesForUser(
+                $thread->user,
+                taskLimit: $taskLimit,
+            );
             $selectionLimit = $isNextSliceFollowup
                 ? max($plan->countLimit + count($seenEntityKeys), 50)
                 : $plan->countLimit;
@@ -385,11 +335,36 @@ final class TaskAssistantService
                 ];
             }
         } else {
-            $snapshot = $this->snapshotService->buildForUser($thread->user, 100);
+            $snapshot = $this->candidateProvider->candidatesForUser(
+                $thread->user,
+                taskLimit: 200,
+            );
             $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
             $now = CarbonImmutable::now($timezone);
 
             $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
+            Log::debug('task-assistant.prioritize.candidates', [
+                'layer' => 'prioritize',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'tasks_count' => is_array($snapshot['tasks'] ?? null) ? count($snapshot['tasks']) : 0,
+                'events_count' => is_array($snapshot['events'] ?? null) ? count($snapshot['events']) : 0,
+                'projects_count' => is_array($snapshot['projects'] ?? null) ? count($snapshot['projects']) : 0,
+                'entity_type_preference' => $context['entity_type_preference'] ?? null,
+            ]);
+            Log::debug('task-assistant.prioritize.ranked_top', [
+                'layer' => 'prioritize',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'top' => array_slice(array_map(static fn (mixed $c): array => is_array($c) ? [
+                    'type' => $c['type'] ?? null,
+                    'id' => $c['id'] ?? null,
+                    'score' => $c['score'] ?? null,
+                    'title' => $c['title'] ?? null,
+                ] : [], $ranked), 0, 10),
+            ]);
             $allItems = [];
 
             foreach ($ranked as $candidate) {
@@ -600,6 +575,62 @@ final class TaskAssistantService
     }
 
     /**
+     * For prioritize follow-ups like "show next 3", keep the same entity-type preference as the
+     * previous prioritize listing unless the user explicitly changes it in the new message.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function inheritEntityTypePreferenceForPrioritizeFollowup(TaskAssistantThread $thread, array $context): array
+    {
+        $preference = (string) ($context['entity_type_preference'] ?? 'mixed');
+        if ($preference !== '' && $preference !== 'mixed') {
+            return $context;
+        }
+
+        $lastListing = $this->conversationState->lastListing($thread);
+        $sourceFlow = is_array($lastListing) ? (string) ($lastListing['source_flow'] ?? '') : '';
+        $items = is_array($lastListing) ? ($lastListing['items'] ?? null) : null;
+
+        if ($sourceFlow !== 'prioritize' || ! is_array($items) || $items === []) {
+            return $context;
+        }
+
+        $counts = ['task' => 0, 'event' => 0, 'project' => 0];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $type = strtolower(trim((string) ($item['entity_type'] ?? '')));
+            if (isset($counts[$type])) {
+                $counts[$type]++;
+            }
+        }
+
+        $nonZero = array_values(array_filter($counts, static fn (int $n): bool => $n > 0));
+        if (count($nonZero) !== 1) {
+            return $context;
+        }
+
+        $inherited = (string) array_key_first(array_filter($counts, static fn (int $n): bool => $n > 0));
+        if (! in_array($inherited, ['task', 'event', 'project'], true)) {
+            return $context;
+        }
+
+        Log::info('task-assistant.prioritize.followup_inherit_preference', [
+            'layer' => 'prioritize',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+            'inherited_entity_type_preference' => $inherited,
+        ]);
+
+        $context['entity_type_preference'] = $inherited;
+
+        return $context;
+    }
+
+    /**
      * @param  array<string, mixed>  $item
      */
     private function prioritizeEntityKeyFromItem(array $item): ?string
@@ -652,49 +683,35 @@ final class TaskAssistantService
         $rows = is_array($items) ? array_values(array_filter($items, static fn (mixed $r): bool => is_array($r))) : [];
         $count = count($rows);
 
+        $windowChips = [
+            'Later today',
+            'Tomorrow',
+            'This week',
+        ];
+
         if (! $hasMoreUnseen) {
-            $nextOptions = 'You are caught up on the unseen priorities from this list. If you want, I can schedule tasks next, or refine your priorities with a filter.';
+            $nextOptions = 'You are caught up on the unseen priorities from this list. If you want, I can schedule these tasks for later today, tomorrow, or this week.';
 
             return [
                 'next_options' => TaskAssistantListingDefaults::clampNextField($nextOptions),
-                'next_options_chip_texts' => [
-                    'Schedule tasks',
-                    'Refine list',
-                ],
+                'next_options_chip_texts' => $windowChips,
             ];
-        }
-
-        $hasNonTask = false;
-        foreach ($rows as $row) {
-            $type = strtolower(trim((string) ($row['entity_type'] ?? 'task')));
-            if ($type !== 'task') {
-                $hasNonTask = true;
-                break;
-            }
         }
 
         if ($count <= 1) {
-            $nextOptions = 'If you want, I can schedule this for later, or show your next 3 priorities.';
+            $nextOptions = 'If you want, I can schedule this task for later today, tomorrow, or this week.';
 
             return [
                 'next_options' => TaskAssistantListingDefaults::clampNextField($nextOptions),
-                'next_options_chip_texts' => [
-                    'Schedule this',
-                    'Show next 3',
-                ],
+                'next_options_chip_texts' => $windowChips,
             ];
         }
 
-        $nextOptions = $hasNonTask
-            ? 'If you want, I can schedule time for the task(s) on this list, or show your next 3 priorities.'
-            : 'If you want, I can schedule time for these, or show your next 3 priorities.';
+        $nextOptions = 'If you want, I can schedule these tasks for later today, tomorrow, or this week.';
 
         return [
             'next_options' => TaskAssistantListingDefaults::clampNextField($nextOptions),
-            'next_options_chip_texts' => [
-                'Schedule these',
-                'Show next 3',
-            ],
+            'next_options_chip_texts' => $windowChips,
         ];
     }
 
@@ -854,6 +871,7 @@ final class TaskAssistantService
         Log::info('task-assistant.flow', [
             'layer' => 'flow',
             'flow' => 'schedule',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
             'target_entities_count' => count($plan->targetEntities),
@@ -892,48 +910,6 @@ final class TaskAssistantService
         );
     }
 
-    private function runClarificationFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, ExecutionPlan $plan): void
-    {
-        Log::info('task-assistant.flow', [
-            'layer' => 'flow',
-            'flow' => 'clarify',
-            'thread_id' => $thread->id,
-            'assistant_message_id' => $assistantMessage->id,
-            'target_flow' => $plan->flow,
-            'reason_codes' => $plan->reasonCodes,
-        ]);
-
-        $assistantMessage->update([
-            'content' => (string) ($plan->clarificationQuestion ?? 'Could you clarify whether you want prioritization, scheduling, or general assistance?'),
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                'clarification' => [
-                    'needed' => true,
-                    'reason_codes' => $plan->reasonCodes,
-                    'confidence' => $plan->confidence,
-                    'target_flow' => $plan->flow,
-                ],
-            ]),
-        ]);
-
-        $state = $this->conversationState->get($thread);
-        $state['pending_clarification'] = [
-            'target_flow' => $plan->flow,
-            'reason_codes' => $plan->reasonCodes,
-        ];
-        $this->conversationState->put($thread, $state);
-
-        $this->streamFinalAssistantJson($thread->user_id, $assistantMessage, $this->buildJsonEnvelope(
-            flow: 'clarify',
-            data: [
-                'message' => (string) $assistantMessage->content,
-                'reason_codes' => $plan->reasonCodes,
-            ],
-            threadId: $thread->id,
-            assistantMessageId: $assistantMessage->id,
-            ok: false,
-        ));
-    }
-
     private function runGeneralGuidanceFlow(
         TaskAssistantThread $thread,
         TaskAssistantMessage $assistantMessage,
@@ -943,6 +919,7 @@ final class TaskAssistantService
         Log::info('task-assistant.flow', [
             'layer' => 'flow',
             'flow' => 'general_guidance',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
         ]);
@@ -1218,8 +1195,8 @@ final class TaskAssistantService
         return new ExecutionPlan(
             flow: $flow,
             confidence: $decision->confidence,
-            clarificationNeeded: $decision->clarificationNeeded,
-            clarificationQuestion: $decision->clarificationQuestion,
+            clarificationNeeded: false,
+            clarificationQuestion: null,
             reasonCodes: $decision->reasonCodes,
             constraints: $constraints,
             targetEntities: $targetEntities,
@@ -1233,11 +1210,12 @@ final class TaskAssistantService
     {
         Log::info('task-assistant.routing_decision', [
             'layer' => 'routing',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
             'flow' => $plan->flow,
             'confidence' => $plan->confidence,
-            'clarification_needed' => $plan->clarificationNeeded,
+            'clarification_needed' => false,
             'reason_codes' => $plan->reasonCodes,
             'target_entities_count' => count($plan->targetEntities),
             'time_window_hint' => $plan->timeWindowHint,
@@ -1245,6 +1223,20 @@ final class TaskAssistantService
             'generation_profile' => $plan->generationProfile,
             'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
         ]);
+    }
+
+    private function previewForLogs(string $text, int $maxChars = 120): string
+    {
+        $value = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+        if ($value === '') {
+            return '';
+        }
+
+        if (mb_strlen($value) <= $maxChars) {
+            return $value;
+        }
+
+        return mb_substr($value, 0, $maxChars).'…';
     }
 
     private function isCancellationRequested(TaskAssistantThread $thread, int $assistantMessageId): bool

@@ -21,6 +21,16 @@ final class TaskAssistantIntentResolutionService
         ?TaskAssistantIntentInferenceResult $inference,
         array $signals,
     ): IntentRoutingDecision {
+        Log::debug('task-assistant.intent_resolution.begin', [
+            'layer' => 'intent_resolution',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+            'use_llm' => (bool) config('task-assistant.intent.use_llm', true),
+            'normalized_length' => mb_strlen($normalized),
+            'signals' => $signals,
+        ]);
+
         $useLlm = (bool) config('task-assistant.intent.use_llm', true);
 
         if (! $useLlm) {
@@ -44,8 +54,59 @@ final class TaskAssistantIntentResolutionService
         $llmConf = max(0.0, min(1.0, $inference->confidence));
 
         $reasonCodes = ['llm_intent_'.$llmIntent->value];
+        $prioritizeSignal = (float) ($signals['prioritization'] ?? 0.0);
+        $scheduleSignal = (float) ($signals['scheduling'] ?? 0.0);
+        $signalOverrideThreshold = (float) config('task-assistant.intent.merge.validator_override_signal_min', 0.72);
 
         if ($llmIntent === TaskAssistantUserIntent::Greeting || $llmIntent === TaskAssistantUserIntent::GeneralGuidance) {
+            // If the model says "general guidance" but signals are clearly prioritize/schedule,
+            // prefer the deterministic signal route to avoid obvious misclassification.
+            if ($llmIntent === TaskAssistantUserIntent::GeneralGuidance) {
+                if ($prioritizeSignal >= $signalOverrideThreshold && $prioritizeSignal > $scheduleSignal) {
+                    $codes = array_values(array_unique(array_merge($reasonCodes, ['intent_general_guidance_overridden_by_signal_prioritize'])));
+                    $this->logResolution(
+                        $thread,
+                        $llmIntent->value,
+                        $llmConf,
+                        $signals,
+                        'prioritize',
+                        $codes,
+                        false
+                    );
+
+                    return new IntentRoutingDecision(
+                        flow: 'prioritize',
+                        confidence: $prioritizeSignal,
+                        reasonCodes: $codes,
+                        constraints: [],
+                        clarificationNeeded: false,
+                        clarificationQuestion: null,
+                    );
+                }
+
+                if ($scheduleSignal >= $signalOverrideThreshold && $scheduleSignal > $prioritizeSignal) {
+                    $codes = array_values(array_unique(array_merge($reasonCodes, ['intent_general_guidance_overridden_by_signal_schedule'])));
+                    $this->logResolution(
+                        $thread,
+                        $llmIntent->value,
+                        $llmConf,
+                        $signals,
+                        'schedule',
+                        $codes,
+                        false
+                    );
+
+                    return new IntentRoutingDecision(
+                        flow: 'schedule',
+                        confidence: $scheduleSignal,
+                        reasonCodes: $codes,
+                        constraints: [],
+                        clarificationNeeded: false,
+                        clarificationQuestion: null,
+                    );
+                }
+            }
+
             $this->logResolution(
                 $thread,
                 $llmIntent->value,
@@ -194,20 +255,32 @@ final class TaskAssistantIntentResolutionService
         }
 
         if ($clarificationNeeded) {
-            $reasonCodes[] = 'low_margin_intent';
-        } else {
-            $reasonCodes[] = 'validator_merged';
+            // Clarification is no longer a separate branch; fall back to general guidance
+            // and let the general flow ask the user to pick prioritize vs schedule.
+            $reasonCodes[] = 'low_margin_intent_general_guidance';
+            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'general_guidance', $reasonCodes, false);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: $topComposite,
+                reasonCodes: $reasonCodes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
         }
 
-        $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, $finalFlow, $reasonCodes, $clarificationNeeded);
+        $reasonCodes[] = 'validator_merged';
+
+        $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, $finalFlow, $reasonCodes, false);
 
         return new IntentRoutingDecision(
             flow: $finalFlow,
             confidence: $topComposite,
             reasonCodes: $reasonCodes,
             constraints: [],
-            clarificationNeeded: $clarificationNeeded,
-            clarificationQuestion: $clarificationNeeded ? $this->buildClarificationQuestion($finalFlow) : null,
+            clarificationNeeded: false,
+            clarificationQuestion: null,
         );
     }
 
@@ -246,17 +319,30 @@ final class TaskAssistantIntentResolutionService
         }
 
         $clarificationNeeded = $margin < $clarifyMargin;
-        $reasonCodes = $clarificationNeeded ? ['signal_only_low_margin'] : ['signal_only'];
+        if ($clarificationNeeded) {
+            $reasonCodes = ['signal_only_low_margin_general_guidance'];
+            $this->logResolution($thread, null, null, $signals, 'general_guidance', $reasonCodes, false);
 
-        $this->logResolution($thread, null, null, $signals, $topFlow, $reasonCodes, $clarificationNeeded);
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: $top,
+                reasonCodes: $reasonCodes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        $reasonCodes = ['signal_only'];
+        $this->logResolution($thread, null, null, $signals, $topFlow, $reasonCodes, false);
 
         return new IntentRoutingDecision(
             flow: $topFlow,
             confidence: $top,
             reasonCodes: $reasonCodes,
             constraints: [],
-            clarificationNeeded: $clarificationNeeded,
-            clarificationQuestion: $clarificationNeeded ? $this->buildClarificationQuestion($topFlow) : null,
+            clarificationNeeded: false,
+            clarificationQuestion: null,
         );
     }
 
@@ -301,15 +387,6 @@ final class TaskAssistantIntentResolutionService
         };
     }
 
-    private function buildClarificationQuestion(string $flow): string
-    {
-        return match ($flow) {
-            'schedule' => 'Do you want me to build a schedule for selected tasks, or create a fresh plan for your whole day?',
-            'prioritize' => 'Should I prioritize your top tasks now, or help schedule them on your calendar?',
-            default => 'Do you want to list or filter tasks, prioritize what to do next, or schedule time for them?',
-        };
-    }
-
     /**
      * @param  array{prioritization: float, scheduling: float}  $signals
      * @param  array<int, string>  $reasonCodes
@@ -325,7 +402,9 @@ final class TaskAssistantIntentResolutionService
     ): void {
         Log::info('task-assistant.intent_resolution', [
             'layer' => 'intent_resolution',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => $thread->id,
+            'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
             'llm_intent' => $llmIntent,
             'llm_confidence' => $llmConfidence,
             'signals' => $signals,
