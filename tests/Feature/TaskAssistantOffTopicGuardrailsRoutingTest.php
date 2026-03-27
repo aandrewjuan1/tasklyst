@@ -55,3 +55,44 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
     $thread->refresh();
     expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();
 });
+
+test('off-topic heuristic still applies guardrail when llm intent inference is disabled', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    Prism::fake([
+        // general guidance generation should still be forced to off-topic mode.
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'unclear',
+                'acknowledgement' => 'I understand your question.',
+                'message' => 'The best keyboard right now is Cooledown.',
+                'suggested_next_actions' => [
+                    'Could you share your preference?',
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
+                ],
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'whats the best keyboard right now',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain("can't help");
+    expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('cooledown');
+    expect(data_get($assistantMessage->metadata, 'validation_errors', []))->toBeEmpty();
+});

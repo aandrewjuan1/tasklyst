@@ -103,9 +103,10 @@ final class TaskAssistantGeneralGuidanceService
 
                 $mode = $forcedMode !== null ? $this->normalizeGuidanceMode($forcedMode) : $resolvedMode;
 
-                $intent = $this->normalizeIntent((string) ($payload['intent'] ?? ''));
+                $intent = $this->intentFromMode($mode);
                 if ($intent === self::INTENT_TASK) {
-                    $intent = $this->intentFromMode($mode);
+                    // Friendly-general mode can accept model intent labels.
+                    $intent = $this->normalizeIntent((string) ($payload['intent'] ?? ''));
                 }
 
                 if ($this->isLikelyEmotionalOffDomain($userMessage)) {
@@ -129,6 +130,11 @@ final class TaskAssistantGeneralGuidanceService
                     $intent,
                     $userMessage
                 );
+
+                if ($intent === self::INTENT_OUT_OF_SCOPE) {
+                    $acknowledgement = $this->enforceOutOfScopeSafeAcknowledgement($acknowledgement);
+                    $message = $this->enforceOutOfScopeNoAdvice($message, $userMessage);
+                }
 
                 if (str_contains($userMessage, 'GREETING_GUARDRAIL:')) {
                     [$intent, $acknowledgement, $message, $suggestedNextActions] = $this->enforceGreetingOnlyOutput(
@@ -156,6 +162,10 @@ final class TaskAssistantGeneralGuidanceService
                         self::INTENT_UNCLEAR => "I didn't fully understand that yet. Rephrase what you need in one short sentence, and I'll help you take the next step.",
                         default => "Tell me what you're working on or what's stressing you most, and I'll help you pick one clear next step.",
                     };
+                }
+
+                if ($intent === self::INTENT_UNCLEAR) {
+                    [$acknowledgement, $message] = $this->enforceUnclearQuality($acknowledgement, $message);
                 }
 
                 $acknowledgement = $this->clampAtSentenceBoundary($acknowledgement, 220);
@@ -317,6 +327,49 @@ final class TaskAssistantGeneralGuidanceService
         return trim(preg_replace('/\s+/u', ' ', $sanitized) ?? $sanitized);
     }
 
+    private function enforceOutOfScopeNoAdvice(string $message, string $userMessage): string
+    {
+        $value = $this->normalizeGeneralGuidanceText($message);
+        if ($value === '') {
+            return "I can't help with that topic, but I can help you move forward with your tasks.";
+        }
+
+        $lower = mb_strtolower($value);
+        $looksLikeRecommendation = preg_match(
+            '/\b(i recommend|recommend|best (choice|option)|best\s+[a-z0-9_-]+|top (choice|pick)|stands out|you should buy|buy|purchase|go with|get the|cooledown)\b/u',
+            $lower
+        ) === 1;
+
+        if (! $looksLikeRecommendation) {
+            return $value;
+        }
+
+        $topic = $this->inferTopicLabel($userMessage);
+        $topicLine = $topic !== '' ? "I can't help with {$topic}, but I can help you move forward with your tasks." : "I can't help with that topic, but I can help you move forward with your tasks.";
+
+        return $topicLine;
+    }
+
+    private function enforceOutOfScopeSafeAcknowledgement(string $acknowledgement): string
+    {
+        $value = $this->normalizeGeneralGuidanceText($acknowledgement);
+        if ($value === '') {
+            return "That's an interesting question.";
+        }
+
+        $lower = mb_strtolower($value);
+        $looksLikeRecommendation = preg_match(
+            '/\b(i recommend|recommend|best (choice|option)|top (choice|pick)|stands out|you should buy|buy|purchase|go with|get the|cooledown)\b/u',
+            $lower
+        ) === 1;
+
+        if (! $looksLikeRecommendation) {
+            return $value;
+        }
+
+        return "That's an interesting question.";
+    }
+
     private function normalizeIntent(string $intent): string
     {
         $normalized = mb_strtolower(trim($intent));
@@ -399,6 +452,10 @@ final class TaskAssistantGeneralGuidanceService
             $contextual = $intentSpecific[0];
         }
 
+        if ($contextual !== null && ! $this->isVerbLedAction($contextual)) {
+            $contextual = $intentSpecific[0] ?? 'Tell me one thing you need to get done today.';
+        }
+
         $ordered = [];
         if ($contextual !== null && trim($contextual) !== '') {
             $ordered[] = $contextual;
@@ -406,6 +463,16 @@ final class TaskAssistantGeneralGuidanceService
         $ordered = array_merge($ordered, $mustInclude);
 
         return array_slice(array_values(array_unique($ordered)), 0, 3);
+    }
+
+    private function isVerbLedAction(string $line): bool
+    {
+        $value = trim($line);
+        if ($value === '') {
+            return false;
+        }
+
+        return preg_match('/^(tell|share|list|pick|ask|show|help|rephrase|schedule|prioritize)\b/i', $value) === 1;
     }
 
     private function lightweightAcknowledgementPolish(string $intent, string $acknowledgement): string
@@ -633,6 +700,40 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         return $value;
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function enforceUnclearQuality(string $acknowledgement, string $message): array
+    {
+        $ack = $this->normalizeGeneralGuidanceText($acknowledgement);
+        $msg = $this->normalizeGeneralGuidanceText($message);
+
+        $lower = mb_strtolower($ack.' '.$msg);
+        $forbidden = [
+            'based on your list',
+            'your list data',
+            'high-priority',
+            'highest-priority',
+            'due today',
+            'due tomorrow',
+            'overdue',
+        ];
+        foreach ($forbidden as $needle) {
+            if (str_contains($lower, $needle)) {
+                $ack = "I didn't quite catch that yet.";
+                $msg = 'Rephrase what you mean in one short sentence, and I’ll help you take the next step.';
+                break;
+            }
+        }
+
+        // Ensure the message actually asks for a rephrase.
+        if (mb_stripos($msg, 'rephrase') === false && mb_stripos($msg, 'say') === false && mb_stripos($msg, 'one short sentence') === false) {
+            $msg = rtrim($msg, '.').' Please rephrase it in one short sentence.';
+        }
+
+        return [$ack, $msg];
     }
 
     /**

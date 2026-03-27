@@ -220,8 +220,7 @@ final class TaskAssistantMessageFormatter
 
         $actionsParagraph = '';
         if ($suggestedNextActions !== []) {
-            $actionLines = array_map(static fn (string $line): string => '- '.$line, $suggestedNextActions);
-            $actionsParagraph = "Suggested next actions:\n".implode("\n", $actionLines);
+            $actionsParagraph = $this->formatSuggestedNextActionsSentence($suggestedNextActions);
         }
 
         $segments = array_values(array_filter([
@@ -250,6 +249,27 @@ final class TaskAssistantMessageFormatter
         }
 
         return trim(implode("\n\n", $unique));
+    }
+
+    /**
+     * @param  list<string>  $actions
+     */
+    private function formatSuggestedNextActionsSentence(array $actions): string
+    {
+        $actions = $this->normalizeStringList($actions);
+        if ($actions === []) {
+            return '';
+        }
+
+        if (count($actions) === 1) {
+            return 'Next, '.$actions[0];
+        }
+
+        if (count($actions) === 2) {
+            return 'Next, '.$actions[0].' Or '.$actions[1];
+        }
+
+        return 'Next, '.$actions[0].' Or '.$actions[1].' Or '.$actions[2];
     }
 
     /**
