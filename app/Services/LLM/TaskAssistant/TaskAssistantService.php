@@ -961,26 +961,26 @@ final class TaskAssistantService
         $shouldIntroduce = ! (bool) ($state['general_guidance_intro_done'] ?? false);
         if ($shouldIntroduce) {
             $intro = "Hi, I'm TaskLyst—your task assistant.";
-            $currentMessage = trim((string) ($guidance['response'] ?? ''));
+            $currentAck = trim((string) ($guidance['acknowledgement'] ?? ''));
 
-            if ($currentMessage !== '' && ! str_starts_with($currentMessage, $intro)) {
-                $currentMessage = $intro.' '.$currentMessage;
+            if ($currentAck !== '' && ! str_starts_with($currentAck, $intro)) {
+                $currentAck = $intro.' '.$currentAck;
             }
 
             // If the model still adds another greeting right after the intro,
             // remove the second greeting sentence to keep things non-repetitive.
-            $currentMessage = preg_replace(
+            $currentAck = preg_replace(
                 '/^(Hi, I\'m TaskLyst—your task assistant\.)\s+(hi|hello|hey)\b[^.!?]*[.!?]\s*/iu',
                 '$1 ',
-                (string) $currentMessage
-            ) ?: $currentMessage;
+                (string) $currentAck
+            ) ?: $currentAck;
 
             // Keep within general guidance validation bounds.
-            if (mb_strlen($currentMessage) > 500) {
-                $currentMessage = mb_substr($currentMessage, 0, 500);
+            if (mb_strlen($currentAck) > 220) {
+                $currentAck = mb_substr($currentAck, 0, 220);
             }
 
-            $guidance['response'] = $currentMessage;
+            $guidance['acknowledgement'] = $currentAck;
 
             $state['general_guidance_intro_done'] = true;
             $this->conversationState->put($thread, $state);

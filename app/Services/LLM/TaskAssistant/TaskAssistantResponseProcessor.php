@@ -93,6 +93,9 @@ final class TaskAssistantResponseProcessor
         $validator = Validator::make($data, $rules);
         $validator->after(function (ValidationValidator $validator) use ($data): void {
             $response = mb_strtolower((string) ($data['response'] ?? ''));
+            $ack = (string) ($data['acknowledgement'] ?? '');
+            $framing = (string) ($data['framing'] ?? '');
+            $responseRaw = (string) ($data['response'] ?? '');
             $actions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
             $actionBlob = mb_strtolower(implode(' ', array_map(static fn (mixed $line): string => (string) $line, $actions)));
 
@@ -109,6 +112,34 @@ final class TaskAssistantResponseProcessor
                 || str_contains($response, 'backend')
                 || str_contains($response, 'database')) {
                 $validator->errors()->add('response', 'response must not include internal technical terms.');
+            }
+
+            // Light coherence checks: avoid near-duplicate stitched sections.
+            $pairs = [
+                ['acknowledgement', $ack, 'framing', $framing],
+                ['acknowledgement', $ack, 'response', $responseRaw],
+                ['framing', $framing, 'response', $responseRaw],
+            ];
+            foreach ($pairs as [$leftKey, $left, $rightKey, $right]) {
+                $score = $this->textSimilarityScore((string) $left, (string) $right);
+                if ($score >= 0.98 && mb_strlen((string) $left) >= 40 && mb_strlen((string) $right) >= 40) {
+                    $validator->errors()->add(
+                        'general_guidance',
+                        "{$leftKey} and {$rightKey} are too similar; avoid repeated content across sections."
+                    );
+                }
+            }
+
+            // Detect obvious truncation fragments.
+            foreach ([$ack, $framing, $responseRaw] as $fieldText) {
+                $trimmed = rtrim((string) $fieldText);
+                if ($trimmed === '') {
+                    continue;
+                }
+                if (preg_match('/\b[a-z]{1,2}$/u', $trimmed) === 1 && ! preg_match('/[.!?]$/u', $trimmed)) {
+                    $validator->errors()->add('general_guidance', 'section appears truncated mid-thought; regenerate cleaner wording.');
+                    break;
+                }
             }
         });
 
@@ -127,6 +158,31 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    private function textSimilarityScore(string $left, string $right): float
+    {
+        $a = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $left) ?? $left));
+        $b = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $right) ?? $right));
+        if ($a === '' || $b === '') {
+            return 0.0;
+        }
+
+        $aTokens = preg_split('/[^\pL\pN]+/u', $a, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $bTokens = preg_split('/[^\pL\pN]+/u', $b, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($aTokens === [] || $bTokens === []) {
+            return 0.0;
+        }
+
+        $aSet = array_values(array_unique($aTokens));
+        $bSet = array_values(array_unique($bTokens));
+        $intersection = count(array_intersect($aSet, $bSet));
+        $union = count(array_unique(array_merge($aSet, $bSet)));
+        if ($union === 0) {
+            return 0.0;
+        }
+
+        return $intersection / $union;
     }
 
     /**
