@@ -15,10 +15,10 @@ test('pure greeting short-circuits to general guidance', function (): void {
         StructuredResponseFake::make()
             ->withStructured([
                 'intent' => 'task',
-                'acknowledgement' => 'Thanks for saying hello.',
-                'framing' => 'You are opening with a general task-support request.',
-                'response' => 'I can help you get organized with your tasks.',
+                'acknowledgement' => "I understand you're looking for suggestions on what tasks to tackle next.",
+                'message' => "Based on your list data, one task is 'Review meeting notes for [CLIENT] project'.",
                 'suggested_next_actions' => [
+                    'Create a new task titled "Review meeting notes for [CLIENT] project" if it\'s not already created.',
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
@@ -45,6 +45,12 @@ test('pure greeting short-circuits to general guidance', function (): void {
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
+    expect((string) $assistantMessage->content)->toContain("Hi, I'm TaskLyst—your task assistant.");
+    expect((string) $assistantMessage->content)->toContain('Prioritize my tasks.');
+    expect((string) $assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('based on your list');
+    expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('your list data');
+    expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('create a new task');
 });
 
 test('intent policy returns general_guidance for hello via greeting short-circuit', function (): void {
@@ -55,4 +61,5 @@ test('intent policy returns general_guidance for hello via greeting short-circui
 
     expect($decision->flow)->toBe('general_guidance');
     expect($decision->reasonCodes)->toContain('greeting_shortcircuit_general_guidance');
+    expect($decision->reasonCodes)->toContain('general_guidance_greeting_only');
 });

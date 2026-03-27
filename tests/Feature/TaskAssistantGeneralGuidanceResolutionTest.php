@@ -17,8 +17,7 @@ test('unclear general guidance keeps no pending guidance state', function (): vo
             ->withStructured([
                 'intent' => 'unclear',
                 'acknowledgement' => "I didn't quite catch that yet.",
-                'framing' => "Your message doesn't form a clear request yet.",
-                'response' => 'Rephrase what you need and I will help you.',
+                'message' => 'Rephrase what you need and I will help you.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -58,8 +57,7 @@ test('follow-up after unclear prompt is treated as a fresh message', function ()
             ->withStructured([
                 'intent' => 'unclear',
                 'acknowledgement' => "I didn't quite catch that yet.",
-                'framing' => "Your message doesn't form a clear request yet.",
-                'response' => 'Rephrase what you need and I will help you.',
+                'message' => 'Rephrase what you need and I will help you.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -71,8 +69,7 @@ test('follow-up after unclear prompt is treated as a fresh message', function ()
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'I hear you.',
-                'framing' => 'You are asking for a concrete next planning action.',
-                'response' => "Let's pick one immediate step you can execute now.",
+                'message' => "Let's pick one immediate step you can execute now.",
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',

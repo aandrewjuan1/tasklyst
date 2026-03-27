@@ -54,7 +54,7 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['greeting_shortcircuit_general_guidance'],
+                reasonCodes: ['greeting_shortcircuit_general_guidance', 'general_guidance_greeting_only'],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -72,7 +72,7 @@ final class IntentRoutingPolicy
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: 1.0,
-                reasonCodes: ['gibberish_shortcircuit_general_guidance'],
+                reasonCodes: ['gibberish_shortcircuit_general_guidance', 'general_guidance_noisy_unclear'],
                 constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
@@ -106,6 +106,25 @@ final class IntentRoutingPolicy
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
+        }
+
+        // Prioritize pagination follow-up: if the user asks "show next 3" and the last listing
+        // came from prioritize, keep routing to prioritize so unseen slicing can work.
+        if ($this->isPrioritizeNextSliceRequest($normalized)) {
+            // Ensure we see the most recent persisted conversation_state.
+            $thread->refresh();
+            $lastListing = $this->conversationState->lastListing($thread);
+            $sourceFlow = is_array($lastListing) ? (string) ($lastListing['source_flow'] ?? '') : '';
+            if ($sourceFlow === 'prioritize') {
+                return new IntentRoutingDecision(
+                    flow: 'prioritize',
+                    confidence: 1.0,
+                    reasonCodes: ['prioritize_next_slice_followup'],
+                    constraints: $this->extractConstraintsForFlow($thread, $normalized, 'prioritize'),
+                    clarificationNeeded: false,
+                    clarificationQuestion: null,
+                );
+            }
         }
 
         $signals = $this->signalExtractor->extract($normalized);
@@ -357,6 +376,11 @@ final class IntentRoutingPolicy
     private function isLikelyGibberish(string $normalized): bool
     {
         if ($normalized === '') {
+            return false;
+        }
+
+        // Common short commands like "show next 3" are valid follow-ups, not gibberish.
+        if (preg_match('/\bshow\s+next(\s+\d+)?\b|\bnext\s+\d+\b|\bshow\s+more\b/u', $normalized) === 1) {
             return false;
         }
 

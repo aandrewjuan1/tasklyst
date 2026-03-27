@@ -84,18 +84,18 @@ final class TaskAssistantResponseProcessor
         $rules = [
             'intent' => ['required', 'string', 'in:task,out_of_scope,unclear'],
             'acknowledgement' => ['required', 'string', 'min:2', 'max:220'],
-            'framing' => ['required', 'string', 'min:5', 'max:320'],
-            'response' => ['required', 'string', 'min:5', 'max:760'],
+            'message' => ['required', 'string', 'min:5', 'max:760'],
             'suggested_next_actions' => ['required', 'array', 'min:2', 'max:3'],
             'suggested_next_actions.*' => ['required', 'string', 'min:2', 'max:140'],
         ];
 
         $validator = Validator::make($data, $rules);
         $validator->after(function (ValidationValidator $validator) use ($data): void {
-            $response = mb_strtolower((string) ($data['response'] ?? ''));
+            $intent = (string) ($data['intent'] ?? '');
+            $message = (string) ($data['message'] ?? '');
+            $messageLower = mb_strtolower($message);
             $ack = (string) ($data['acknowledgement'] ?? '');
-            $framing = (string) ($data['framing'] ?? '');
-            $responseRaw = (string) ($data['response'] ?? '');
+            $ackLower = mb_strtolower($ack);
             $actions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
             $actionBlob = mb_strtolower(implode(' ', array_map(static fn (mixed $line): string => (string) $line, $actions)));
 
@@ -107,31 +107,43 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('suggested_next_actions', 'suggested_next_actions must include a schedule/time-block option.');
             }
 
-            if (str_contains($response, 'snapshot')
-                || str_contains($response, 'json')
-                || str_contains($response, 'backend')
-                || str_contains($response, 'database')) {
-                $validator->errors()->add('response', 'response must not include internal technical terms.');
+            if (str_contains($messageLower, 'snapshot')
+                || str_contains($messageLower, 'json')
+                || str_contains($messageLower, 'backend')
+                || str_contains($messageLower, 'database')) {
+                $validator->errors()->add('message', 'message must not include internal technical terms.');
             }
 
-            // Light coherence checks: avoid near-duplicate stitched sections.
-            $pairs = [
-                ['acknowledgement', $ack, 'framing', $framing],
-                ['acknowledgement', $ack, 'response', $responseRaw],
-                ['framing', $framing, 'response', $responseRaw],
-            ];
-            foreach ($pairs as [$leftKey, $left, $rightKey, $right]) {
-                $score = $this->textSimilarityScore((string) $left, (string) $right);
-                if ($score >= 0.98 && mb_strlen((string) $left) >= 40 && mb_strlen((string) $right) >= 40) {
-                    $validator->errors()->add(
-                        'general_guidance',
-                        "{$leftKey} and {$rightKey} are too similar; avoid repeated content across sections."
-                    );
+            // Acknowledgement should be empathy-only (no refusal/boundary language).
+            if (str_contains($ackLower, "can't help")
+                || str_contains($ackLower, 'cannot help')
+                || str_contains($ackLower, 'out of scope')
+                || str_contains($ackLower, 'off-topic')
+                || str_contains($ackLower, 'off topic')) {
+                $validator->errors()->add('acknowledgement', 'acknowledgement must not include refusal/boundary language.');
+            }
+
+            // For out_of_scope, the boundary must live in message.
+            if ($intent === 'out_of_scope'
+                && ! str_contains($messageLower, "can't help")
+                && ! str_contains($messageLower, 'cannot help')) {
+                $validator->errors()->add('message', 'out_of_scope message must include a gentle refusal/boundary.');
+            }
+
+            // Suggested next actions should be clausal/verb-led (not noun labels).
+            foreach ($actions as $index => $action) {
+                $line = trim((string) $action);
+                if ($line === '') {
+                    continue;
+                }
+
+                if (preg_match('/^(tell|share|list|pick|ask|show|help|rephrase|schedule|prioritize)\\b/i', $line) !== 1) {
+                    $validator->errors()->add("suggested_next_actions.$index", 'suggested_next_actions must start with a verb-led clause (e.g., Tell/Share/List/Pick/Ask).');
                 }
             }
 
             // Detect obvious truncation fragments.
-            foreach ([$ack, $framing, $responseRaw] as $fieldText) {
+            foreach ([$ack, $message] as $fieldText) {
                 $trimmed = rtrim((string) $fieldText);
                 if ($trimmed === '') {
                     continue;

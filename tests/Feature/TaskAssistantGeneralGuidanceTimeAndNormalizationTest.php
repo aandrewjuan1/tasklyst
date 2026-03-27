@@ -14,8 +14,7 @@ test('time query is answered deterministically and redirects to prioritize/sched
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'Thanks for asking.',
-                'framing' => 'You asked for current time context before planning tasks.',
-                'response' => 'Thanks for your time question. Right now, it is 3:45 PM for you.',
+                'message' => 'Thanks for your time question. Right now, it is 3:45 PM for you.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -56,8 +55,7 @@ test('off-topic guidance stays in out_of_scope intent', function (): void {
             ->withStructured([
                 'intent' => 'out_of_scope',
                 'acknowledgement' => 'Thanks for sharing.',
-                'framing' => 'That question is outside task planning.',
-                'response' => 'I can help with task planning and execution.',
+                'message' => "I can't help with that topic, but I can help you prioritize or schedule your tasks.",
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -94,11 +92,10 @@ test('gibberish prompt uses unclear intent', function (): void {
             ->withStructured([
                 'intent' => 'unclear',
                 'acknowledgement' => "I didn't quite catch that.",
-                'framing' => "Your message isn't clear yet.",
-                'response' => 'I did not fully understand that message. I can still help once you rephrase it clearly.',
+                'message' => 'I did not fully understand that message yet. Please rephrase it in one short sentence.',
                 'suggested_next_actions' => [
-                    'Please prioritize my tasks.',
-                    'Please schedule time blocks for my tasks.',
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
                 ],
             ])
             ->withUsage(new Usage(1, 2)),

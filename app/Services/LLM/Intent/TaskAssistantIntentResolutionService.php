@@ -45,6 +45,48 @@ final class TaskAssistantIntentResolutionService
 
         $reasonCodes = ['llm_intent_'.$llmIntent->value];
 
+        if ($llmIntent === TaskAssistantUserIntent::Greeting || $llmIntent === TaskAssistantUserIntent::GeneralGuidance) {
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'general_guidance',
+                array_values(array_unique(array_merge($reasonCodes, ['intent_general_guidance']))),
+                false
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: $llmConf,
+                reasonCodes: array_values(array_unique(array_merge($reasonCodes, ['intent_general_guidance']))),
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        if ($llmIntent === TaskAssistantUserIntent::Unclear) {
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'general_guidance',
+                array_values(array_unique(array_merge($reasonCodes, ['intent_unclear']))),
+                false
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: $llmConf,
+                reasonCodes: array_values(array_unique(array_merge($reasonCodes, ['intent_unclear']))),
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($llmIntent === TaskAssistantUserIntent::OffTopic) {
             $minConf = (float) config('task-assistant.intent.off_topic_min_confidence', 0.65);
             if ($llmConf >= $minConf) {

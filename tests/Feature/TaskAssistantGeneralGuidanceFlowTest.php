@@ -17,8 +17,7 @@ test('vague help prompt routes to task intent guidance without pending follow-up
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'I hear you.',
-                'framing' => "You're asking for support before deciding the exact planning flow.",
-                'response' => 'We can make this manageable one step at a time.',
+                'message' => 'We can make this manageable one step at a time.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -46,7 +45,7 @@ test('vague help prompt routes to task intent guidance without pending follow-up
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
-    expect((string) data_get($assistantMessage->metadata, 'general_guidance.response'))->toContain('manageable');
+    expect((string) data_get($assistantMessage->metadata, 'general_guidance.message'))->toContain('manageable');
     $actions = data_get($assistantMessage->metadata, 'general_guidance.suggested_next_actions', []);
     expect(is_array($actions))->toBeTrue();
     expect(implode(' ', $actions))->toContain('Prioritize');
@@ -62,8 +61,7 @@ test('pending guidance low-confidence retry uses latest user message instead of 
             ->withStructured([
                 'intent' => 'out_of_scope',
                 'acknowledgement' => 'That is an interesting question.',
-                'framing' => 'This request is outside task planning.',
-                'response' => "I can't help with that unrelated topic, but I can help you plan tasks.",
+                'message' => "I can't help with that unrelated topic, but I can help you plan tasks.",
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -94,9 +92,9 @@ test('pending guidance low-confidence retry uses latest user message instead of 
 
     app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
 
-    $response = (string) data_get($assistantMessage->fresh()->metadata, 'general_guidance.response');
-    expect($response)->not->toContain('asdkjzxqwe');
-    expect($response)->toContain("I can't help with that");
+    $message = (string) data_get($assistantMessage->fresh()->metadata, 'general_guidance.message');
+    expect($message)->not->toContain('asdkjzxqwe');
+    expect($message)->toContain("I can't help with that");
     expect(data_get($thread->fresh()->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();
 });
 
@@ -108,8 +106,7 @@ test('gibberish guidance output uses unclear intent and stitched sections', func
             ->withStructured([
                 'intent' => 'unclear',
                 'acknowledgement' => "I didn't quite catch that yet.",
-                'framing' => "Your message doesn't form a clear request yet.",
-                'response' => 'Rephrase what you need help with and I will guide you.',
+                'message' => 'Rephrase what you need help with and I will guide you.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -148,8 +145,7 @@ test('pending guidance does not hijack fresh standalone emotional off-topic prom
             ->withStructured([
                 'intent' => 'out_of_scope',
                 'acknowledgement' => "I'm sorry you're feeling this way.",
-                'framing' => 'That request is outside task planning support.',
-                'response' => "I can't help with personal relationship advice, but I can help you get unstuck with tasks.",
+                'message' => "I can't help with personal relationship advice, but I can help you get unstuck with tasks.",
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
