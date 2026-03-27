@@ -50,66 +50,6 @@ final class TaskAssistantHybridNarrativeService
     }
 
     /**
-     * @param  list<array<string, mixed>>  $items
-     */
-    private function buildDefaultPrioritizeInsight(array $items): ?string
-    {
-        $top = array_values(array_slice($items, 0, 3));
-
-        $types = [];
-        $duePhrases = [];
-        $priorities = [];
-
-        foreach ($top as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-
-            $types[] = strtolower(trim((string) ($row['entity_type'] ?? 'task')));
-
-            $due = trim((string) ($row['due_phrase'] ?? ''));
-            if ($due !== '') {
-                $duePhrases[] = $due;
-            }
-
-            $prio = strtolower(trim((string) ($row['priority'] ?? '')));
-            if ($prio !== '') {
-                $priorities[] = $prio;
-            }
-        }
-
-        $types = array_values(array_unique($types));
-        $duePhrasesLower = array_values(array_unique(array_map(static fn (string $p): string => mb_strtolower($p), $duePhrases)));
-        $priorities = array_values(array_unique($priorities));
-
-        $hasNonTask = count(array_filter($types, static fn (string $t): bool => $t !== 'task')) > 0;
-        $dueDiff = count($duePhrasesLower) > 1;
-        $prioDiff = count($priorities) > 1;
-
-        if (! $hasNonTask && ! $dueDiff && ! $prioDiff) {
-            return null;
-        }
-
-        if ($hasNonTask) {
-            return 'This list mixes tasks and projects—start with the most time-sensitive task first, then use the projects as your next focus once you have momentum.';
-        }
-
-        if ($dueDiff) {
-            if (in_array('overdue', $duePhrasesLower, true) && in_array('due today', $duePhrasesLower, true)) {
-                return 'Some items are overdue while others are due today—starting with the most time-sensitive one helps you reduce pressure fastest.';
-            }
-
-            return 'The top items don’t share the same due timing—this order helps you start with the most time-sensitive work first.';
-        }
-
-        if ($prioDiff) {
-            return 'Priority levels differ across your top items—this order helps you start with what matters most first.';
-        }
-
-        return null;
-    }
-
-    /**
      * Detect the common redundancy pattern where both acknowledgment and framing
      * say essentially the same "I understand you're overwhelmed" sentence.
      */
@@ -576,7 +516,6 @@ final class TaskAssistantHybridNarrativeService
 
         $uxInclude = $this->detectPrioritizeUxIncludes($userMessage, $items);
         $includeAcknowledgment = $uxInclude['acknowledgment'];
-        $includeInsight = $uxInclude['insight'];
 
         $listLabel = $ambiguous
             ? 'The user asked for a general list; use the provided rows as a short prioritized slice.'
@@ -586,20 +525,18 @@ final class TaskAssistantHybridNarrativeService
             new UserMessage($userMessage),
             new UserMessage(
                 'Use the following rows as the prioritized list for this request (tasks, events, or projects). '.
-                'Do NOT change ordering or membership. Write only the user-facing narrative fields (acknowledgment, framing, insight, reasoning, next actions, and options). '."\n\n".
+                'Do NOT change ordering or membership. Write only the user-facing narrative fields (acknowledgment, framing, reasoning, and options). '."\n\n".
                 $listLabel."\n\n".
                 'You are the task assistant speaking to the student. '.
                 'Use a calm, reassuring, empathetic tone. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
                 'Do not claim extra visibility into the student\'s full life or full list. Avoid phrases like "I reviewed your tasks", "I looked at your list", "I see you have", or "I\'ve taken a look at your to-do list". '.
-                'In acknowledgment, framing, insight, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
+                'In acknowledgment, framing, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'framing is REQUIRED: write 1-2 sentences explaining how this list/focus helps, without sounding technical or inventing dates. '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
-                'insight is OPTIONAL: include only when UX_INCLUDE_INSIGHT is true; otherwise set it to null. '.
                 'reasoning is REQUIRED: short (1-2 sentences) explanation written directly to the student (use first-person "I" or second-person "You"). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". '.
                 'next_options is REQUIRED: 1-2 sentences offering a follow-up option (e.g., scheduling these steps later). Do not suggest rescheduling tasks that were already completed; if you mention rescheduling, it should be about the remaining tasks. '.
                 'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
                 'UX_INCLUDE_ACK: '.($includeAcknowledgment ? 'true' : 'false').
-                '; UX_INCLUDE_INSIGHT: '.($includeInsight ? 'true' : 'false').
                 "\n".
                 'DUE-TIME SAFETY: Do not paraphrase due-time. If you mention "due today", "due tomorrow", "overdue", or "due this week", it MUST match the exact wording present in at least one items[].due_phrase. Never mention due-time phrasing that is not present in items due_phrase values. '.
                 'Do not invent items, deadlines, durations, or priorities. '.
@@ -611,7 +548,6 @@ final class TaskAssistantHybridNarrativeService
 
         $acknowledgment = null;
         $framing = null;
-        $insight = null;
         $reasoning = null;
         $nextOptions = null;
         $nextOptionsChipTexts = [];
@@ -638,12 +574,6 @@ final class TaskAssistantHybridNarrativeService
             if (isset($payload['framing']) && is_string($payload['framing'])) {
                 $framing = trim($payload['framing']) !== ''
                     ? trim($payload['framing'])
-                    : null;
-            }
-
-            if (isset($payload['insight']) && is_string($payload['insight'])) {
-                $insight = trim($payload['insight']) !== ''
-                    ? trim($payload['insight'])
                     : null;
             }
 
@@ -701,13 +631,6 @@ final class TaskAssistantHybridNarrativeService
         // when the deterministic UX include flags allow it.
         if (! $includeAcknowledgment) {
             $acknowledgment = null;
-        }
-        if (! $includeInsight) {
-            $insight = null;
-        } else {
-            if ($insight === null || trim((string) $insight) === '') {
-                $insight = $this->buildDefaultPrioritizeInsight($cleanItems);
-            }
         }
 
         // Remove redundancy between acknowledgment and framing for stress prompts.
@@ -826,7 +749,6 @@ final class TaskAssistantHybridNarrativeService
                 ? TaskAssistantListingDefaults::clampFraming((string) $acknowledgment)
                 : null,
             'framing' => TaskAssistantListingDefaults::clampFraming((string) $framing),
-            'insight' => $insight !== null ? TaskAssistantListingDefaults::clampBrowseReasoning($insight) : null,
             'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $reasoning),
             'next_options' => TaskAssistantListingDefaults::clampNextField((string) $nextOptions),
             'next_options_chip_texts' => array_values(array_map(
@@ -940,7 +862,7 @@ final class TaskAssistantHybridNarrativeService
      *
      * @param  array<string, mixed>  $userMessage
      * @param  list<array<string, mixed>>  $items
-     * @return array{acknowledgment: bool, insight: bool}
+     * @return array{acknowledgment: bool}
      */
     private function detectPrioritizeUxIncludes(string $userMessage, array $items): array
     {
@@ -951,74 +873,9 @@ final class TaskAssistantHybridNarrativeService
             $content
         );
 
-        $topItems = array_values(array_slice($items, 0, 3));
-
-        $nonTaskInTop = false;
-        $topTasks = [];
-        foreach ($topItems as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-            $entityType = strtolower(trim((string) ($item['entity_type'] ?? 'task')));
-            if ($entityType !== 'task') {
-                $nonTaskInTop = true;
-
-                continue;
-            }
-            $topTasks[] = $item;
-        }
-
-        $top1 = $topTasks[0] ?? [];
-        $top2 = $topTasks[1] ?? [];
-
-        $due1 = (string) ($top1['due_bucket'] ?? '');
-        $due2 = (string) ($top2['due_bucket'] ?? '');
-        if ($due1 === '' && is_string($top1['due_phrase'] ?? null)) {
-            $due1 = $this->mapDuePhraseToBucket((string) ($top1['due_phrase'] ?? ''));
-        }
-        if ($due2 === '' && is_string($top2['due_phrase'] ?? null)) {
-            $due2 = $this->mapDuePhraseToBucket((string) ($top2['due_phrase'] ?? ''));
-        }
-
-        $prio1 = (string) ($top1['priority'] ?? '');
-        $prio2 = (string) ($top2['priority'] ?? '');
-
-        $dueDiff = $due1 !== '' && $due2 !== '' && $due1 !== $due2;
-        $prioDiff = $prio1 !== '' && $prio2 !== '' && $prio1 !== $prio2;
-
-        $includeInsight = $nonTaskInTop || $dueDiff || $prioDiff;
-
         return [
             'acknowledgment' => $includeAcknowledgment,
-            'insight' => $includeInsight,
         ];
-    }
-
-    private function mapDuePhraseToBucket(string $duePhrase): string
-    {
-        $p = mb_strtolower(trim($duePhrase));
-
-        if ($p === '') {
-            return '';
-        }
-
-        if (str_contains($p, 'overdue')) {
-            return 'overdue';
-        }
-
-        if (str_contains($p, 'due today')) {
-            return 'due_today';
-        }
-
-        if (str_contains($p, 'tomorrow')) {
-            return 'due_tomorrow';
-        }
-
-        if (str_contains($p, 'this week')) {
-            return 'due_this_week';
-        }
-
-        return '';
     }
 
     /**

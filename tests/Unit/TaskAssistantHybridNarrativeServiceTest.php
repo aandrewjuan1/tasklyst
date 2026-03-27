@@ -64,7 +64,6 @@ test('refinePrioritizeListing derives focus from items order and uses suggested_
             ->withStructured([
                 'acknowledgment' => 'You\'ve got this.',
                 'framing' => 'Start with the most urgent items and move down the list.',
-                'insight' => 'This order lines up with what tends to help first.',
                 'reasoning' => 'Alpha is due soon, then Beta keeps momentum.',
                 'suggested_next_actions' => [
                     'Start with Alpha and complete one small step.',
@@ -139,7 +138,6 @@ test('refinePrioritizeListing falls back suggested_next_actions and strips place
             ->withStructured([
                 'framing' => 'Focus on what you can finish first.',
                 'acknowledgment' => null,
-                'insight' => null,
                 'reasoning' => 'This ordering helps you act quickly.',
                 'suggested_next_actions' => [],
                 'next_actions_intro' => 'I recommend you take these next steps.',
@@ -207,7 +205,6 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
             ->withStructured([
                 'acknowledgment' => 'You got this.',
                 'framing' => 'Start with the most urgent items and move down the list.',
-                'insight' => 'This is the order that makes sense.',
                 'reasoning' => 'Because the two items match the same urgency.',
                 'suggested_next_actions' => [
                     'Start with Alpha and complete one small step.',
@@ -267,18 +264,16 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
     );
 
     expect($result['acknowledgment'])->toBeNull();
-    expect($result['insight'])->toBeNull();
     expect($result['reasoning'])->toStartWith('I chose these priorities because');
     expect($result['reasoning'])->toContain('due today');
 });
 
-test('refinePrioritizeListing includes optional fields when UX include flags are true', function (): void {
+test('refinePrioritizeListing includes acknowledgment when UX include flags are true', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
                 'acknowledgment' => 'You got this.',
                 'framing' => 'Use the earliest due work first.',
-                'insight' => 'Due timing and priority don\'t line up, so this order helps.',
                 'reasoning' => 'The due date makes this the best first move.',
                 'suggested_next_actions' => [
                     'Start with Alpha and complete one small step.',
@@ -339,7 +334,6 @@ test('refinePrioritizeListing includes optional fields when UX include flags are
 
     expect($result['acknowledgment'])->not->toBeNull();
     expect(mb_strtolower((string) $result['acknowledgment']))->toContain('i get it');
-    expect($result['insight'])->toBe('Due timing and priority don\'t line up, so this order helps.');
     expect($result['reasoning'])->toStartWith('I chose these priorities because');
     expect($result['reasoning'])->toContain('due tomorrow');
 });
@@ -350,7 +344,6 @@ test('refinePrioritizeListing provides a single-item start guidance in reasoning
             ->withStructured([
                 'acknowledgment' => null,
                 'framing' => 'I recommend focusing on your top task first.',
-                'insight' => null,
                 'reasoning' => 'Because I think this is the best order.',
                 'suggested_next_actions' => [
                     'First do Alpha.',
@@ -412,7 +405,6 @@ test('refinePrioritizeListing removes conflicting due timing from framing', func
             ->withStructured([
                 'framing' => 'I recommend focusing on your high-priority tasks due tomorrow.',
                 'acknowledgment' => null,
-                'insight' => null,
                 'reasoning' => 'Because tomorrow conflicts with the due phrases in your items.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
@@ -475,7 +467,6 @@ test('refinePrioritizeListing ignores \"tomorrow\\u2019s\" in titles for due dri
             ->withStructured([
                 'framing' => 'You can handle this with a quick plan.',
                 'acknowledgment' => null,
-                'insight' => null,
                 'reasoning' => 'This ordering matches your request.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
@@ -540,7 +531,6 @@ test('refinePrioritizeListing ensures stressed prompts yield an empathetic ackno
                 // Model output is generic and duplicates framing; post-processing should replace acknowledgment.
                 'acknowledgment' => 'Here is a focused starting point to help you get momentum.',
                 'framing' => 'Here is a focused starting point to help you get momentum.',
-                'insight' => null,
                 'reasoning' => 'This ordering matches what you asked for.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
@@ -597,7 +587,6 @@ test('refinePrioritizeListing strips bracketed artifacts from next_options', fun
             ->withStructured([
                 'acknowledgment' => 'You got this.',
                 'framing' => 'Start with the most urgent item.',
-                'insight' => null,
                 'reasoning' => 'This ordering matches what you asked for.',
                 'next_options' => '[Continue with other tasks after this one or, if needed, consider setting aside some time later to work on these items]',
                 'next_options_chip_texts' => ['Schedule these for later'],
@@ -652,7 +641,6 @@ test('refinePrioritizeListing sanitizes visibility overclaims and avoids bundled
             ->withStructured([
                 'framing' => 'I\'ve reviewed your tasks and here is what to do first.',
                 'acknowledgment' => null,
-                'insight' => null,
                 'reasoning' => 'This ordering matches what you asked for.',
                 'suggested_next_actions' => [
                     'Start with the first two overdue tasks.',
@@ -732,7 +720,6 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
             ->withStructured([
                 'framing' => 'Based on your current priorities, start with the first item.',
                 'acknowledgment' => null,
-                'insight' => null,
                 'reasoning' => 'This ordering matches what you asked for.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
@@ -778,13 +765,12 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
     expect($result['framing'])->toBe('Here are your top priorities in a simple order you can start now.');
 });
 
-test('refinePrioritizeListing emits default insight when mixed entity types and model omits insight', function (): void {
+test('refinePrioritizeListing handles mixed entity types without insight field', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
                 'framing' => 'Here is a focused list you can act on right away.',
                 'acknowledgment' => null,
-                'insight' => null,
                 'reasoning' => 'This ordering matches what you asked for.',
                 'next_options' => 'If you want, I can schedule these steps for later.',
                 'next_options_chip_texts' => ['Schedule these for later'],
@@ -834,6 +820,5 @@ test('refinePrioritizeListing emits default insight when mixed entity types and 
         userId: 1,
     );
 
-    expect($result['insight'])->not->toBeNull();
-    expect(mb_strtolower((string) $result['insight']))->toContain('mix');
+    expect($result)->not->toHaveKey('insight');
 });

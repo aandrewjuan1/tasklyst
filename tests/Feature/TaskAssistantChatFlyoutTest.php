@@ -404,7 +404,7 @@ test('chat flyout stops previous active assistant run when sending a new prompt'
     expect(data_get($previousAssistant->metadata, 'stream.status'))->toBe('stopped');
 });
 
-test('chat flyout does not render prioritize next option chips', function (): void {
+test('chat flyout renders prioritize next option chips only for latest assistant message', function (): void {
     Bus::fake();
 
     $user = User::factory()->create();
@@ -421,12 +421,25 @@ test('chat flyout does not render prioritize next option chips', function (): vo
 
     $thread->messages()->create([
         'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Older assistant content',
+        'metadata' => [
+            'prioritize' => [
+                'next_options_chip_texts' => [
+                    'Old chip one',
+                    'Old chip two',
+                ],
+            ],
+        ],
+    ]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
         'content' => '',
         'metadata' => [
             'prioritize' => [
                 'next_options_chip_texts' => [
-                    'Schedule these for later',
-                    'Schedule these tasks for a specific time',
+                    'Schedule these',
+                    'Show next 3',
                 ],
             ],
         ],
@@ -434,10 +447,51 @@ test('chat flyout does not render prioritize next option chips', function (): vo
 
     Livewire::test('assistant.chat-flyout')
         ->assertSet('isStreaming', false)
-        ->assertDontSee('Schedule these for later')
-        ->assertDontSee('Schedule these tasks for a specific time');
+        ->assertSee('Schedule these')
+        ->assertSee('Show next 3')
+        ->assertDontSee('Old chip one')
+        ->assertDontSee('Old chip two');
 
     Bus::assertNotDispatched(BroadcastTaskAssistantStreamJob::class);
+});
+
+test('chat flyout chip click auto-submits next option and dispatches job', function (): void {
+    Bus::fake();
+
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::User,
+        'content' => 'What should I do first?',
+    ]);
+
+    $assistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'If you want, I can schedule this for later, or show your next 3 priorities.',
+        'metadata' => [
+            'prioritize' => [
+                'next_options_chip_texts' => [
+                    'Show next 3',
+                ],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->assertSee('Show next 3')
+        ->call('submitNextOptionChip', $assistant->id, 'Show next 3')
+        ->assertSet('newMessage', '')
+        ->assertSet('isStreaming', true);
+
+    Bus::assertDispatched(BroadcastTaskAssistantStreamJob::class, function (BroadcastTaskAssistantStreamJob $job) use ($user) {
+        return $job->userId === $user->id;
+    });
 });
 
 test('chat flyout new chat stops active processing run before switching thread', function () {
@@ -464,7 +518,9 @@ test('chat flyout new chat stops active processing run before switching thread',
         ->assertSet('isStreaming', false);
 
     $oldThread->refresh();
-    $activeAssistant?->refresh();
+    if ($activeAssistant instanceof \App\Models\TaskAssistantMessage) {
+        $activeAssistant->refresh();
+    }
 
     expect(data_get($activeAssistant?->metadata, 'stream.status'))->toBe('stopped');
     expect(data_get($oldThread->metadata, 'stream.processing'))->toBeNull();

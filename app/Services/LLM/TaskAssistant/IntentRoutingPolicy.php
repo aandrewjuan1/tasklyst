@@ -185,6 +185,9 @@ final class IntentRoutingPolicy
             'count_limit' => $this->extractCountLimit($normalized),
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'target_entities' => $targetEntities,
+            'prioritize_followup' => $resolvedFlow === 'prioritize'
+                ? $this->isPrioritizeNextSliceRequest($normalized)
+                : false,
         ];
     }
 
@@ -275,6 +278,11 @@ final class IntentRoutingPolicy
         }
 
         return null;
+    }
+
+    private function isPrioritizeNextSliceRequest(string $normalized): bool
+    {
+        return preg_match('/\bshow\s+next(\s+\d+)?\b|\bnext\s+\d+\b|\bshow\s+more\b/u', $normalized) === 1;
     }
 
     /**

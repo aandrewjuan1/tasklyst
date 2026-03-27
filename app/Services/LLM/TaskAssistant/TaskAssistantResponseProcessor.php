@@ -198,7 +198,6 @@ final class TaskAssistantResponseProcessor
             'items.*.due_on' => ['nullable', 'string', 'max:64'],
             'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
             'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
-            'insight' => ['nullable', 'string', 'max:'.$maxReasoning],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
         ];
 

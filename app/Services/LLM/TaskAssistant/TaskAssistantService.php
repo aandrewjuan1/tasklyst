@@ -369,6 +369,14 @@ final class TaskAssistantService
 
         $context = $this->constraintsExtractor->extract($content);
         $prioritizeTaskListMode = $this->shouldUsePrioritizeTaskListMode($plan, $content);
+        $isNextSliceFollowup = $this->isPrioritizeNextSliceFollowup($thread, $plan, $content);
+        $seenEntityKeys = $isNextSliceFollowup
+            ? $this->conversationState->prioritizeShownEntityKeys($thread)
+            : [];
+
+        if (! $isNextSliceFollowup) {
+            $this->conversationState->clearPrioritizePagination($thread);
+        }
 
         $items = [];
         $prioritizeData = [];
@@ -376,14 +384,25 @@ final class TaskAssistantService
         if ($prioritizeTaskListMode) {
             $taskLimit = max(1, (int) config('task-assistant.listing.snapshot_task_limit', 200));
             $snapshot = $this->snapshotService->buildForUser($thread->user, $taskLimit);
-            $selection = $this->listingSelectionService->build($content, $snapshot, $plan->countLimit);
-            $items = $selection['items'];
+            $selectionLimit = $isNextSliceFollowup
+                ? max($plan->countLimit + count($seenEntityKeys), 50)
+                : $plan->countLimit;
+            $selection = $this->listingSelectionService->build($content, $snapshot, $selectionLimit);
+            $allItems = is_array($selection['items'] ?? null) ? $selection['items'] : [];
+            [$items, $hasMoreUnseen, $isExhaustedNextSlice] = $this->applyPrioritizeUnseenSlice(
+                $allItems,
+                $plan->countLimit,
+                $seenEntityKeys,
+                $isNextSliceFollowup
+            );
 
             $promptData = $this->promptData->forUser($thread->user);
             $promptData['snapshot'] = $snapshot;
             $promptData['route_context'] = (string) config('task-assistant.listing_route_context', '');
 
-            if ($items === []) {
+            if ($isExhaustedNextSlice) {
+                $prioritizeData = $this->buildPrioritizeExhaustedData();
+            } elseif ($items === []) {
                 $emptyReasoning = trim((string) $selection['deterministic_summary']);
                 $fallbackReasoning = $emptyReasoning !== '' ? $emptyReasoning : TaskAssistantListingDefaults::reasoningWhenEmpty();
                 $prioritizeData = [
@@ -399,7 +418,6 @@ final class TaskAssistantService
                             ? $emptyReasoning
                             : 'No matching items found. Here are next steps to refine your list.',
                     ),
-                    'insight' => null,
                     'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($fallbackReasoning),
                     'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning('If you want, I can schedule these steps for later.'),
                     'next_options_chip_texts' => [
@@ -419,7 +437,10 @@ final class TaskAssistantService
                     $thread->user_id,
                 );
 
-                $next = $this->buildDeterministicPrioritizeNextOptions($narrative['items'] ?? []);
+                $next = $this->buildDeterministicPrioritizeNextOptions(
+                    $narrative['items'] ?? [],
+                    $hasMoreUnseen
+                );
 
                 $prioritizeData = [
                     'items' => $narrative['items'],
@@ -427,7 +448,6 @@ final class TaskAssistantService
                     'focus' => $narrative['focus'],
                     'acknowledgment' => $narrative['acknowledgment'] ?? null,
                     'framing' => (string) ($narrative['framing'] ?? ''),
-                    'insight' => $narrative['insight'] ?? null,
                     'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantListingDefaults::reasoningWhenEmpty()),
                     // Standardized follow-ups: deterministic and safe.
                     'next_options' => $next['next_options'],
@@ -440,9 +460,9 @@ final class TaskAssistantService
             $now = CarbonImmutable::now($timezone);
 
             $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
-            $itemsRaw = array_slice($ranked, 0, $plan->countLimit);
+            $allItems = [];
 
-            foreach ($itemsRaw as $candidate) {
+            foreach ($ranked as $candidate) {
                 if (! is_array($candidate)) {
                     continue;
                 }
@@ -457,17 +477,24 @@ final class TaskAssistantService
                 $raw = is_array($candidate['raw'] ?? null) ? $candidate['raw'] : [];
 
                 if ($type === 'task') {
-                    $items[] = $this->buildPrioritizeListingTaskRowFromRawTask($raw, $id, $title, $now, $timezone);
+                    $allItems[] = $this->buildPrioritizeListingTaskRowFromRawTask($raw, $id, $title, $now, $timezone);
 
                     continue;
                 }
 
-                $items[] = [
+                $allItems[] = [
                     'entity_type' => $type,
                     'entity_id' => $id,
                     'title' => $title,
                 ];
             }
+
+            [$items, $hasMoreUnseen, $isExhaustedNextSlice] = $this->applyPrioritizeUnseenSlice(
+                $allItems,
+                $plan->countLimit,
+                $seenEntityKeys,
+                $isNextSliceFollowup
+            );
 
             $promptData = $this->promptData->forUser($thread->user);
             $promptData['snapshot'] = $snapshot;
@@ -477,7 +504,9 @@ final class TaskAssistantService
             $deterministicSummary = $this->buildPrioritizeListingDeterministicSummary(count($items), $ambiguous);
             $filterContextForPrompt = $this->buildPrioritizeListingFilterContextForPrompt($ambiguous, $context);
 
-            if ($items === []) {
+            if ($isExhaustedNextSlice) {
+                $prioritizeData = $this->buildPrioritizeExhaustedData();
+            } elseif ($items === []) {
                 $emptyReasoning = trim((string) $deterministicSummary);
                 $fallbackReasoning = $emptyReasoning !== '' ? $emptyReasoning : TaskAssistantListingDefaults::reasoningWhenEmpty();
                 $prioritizeData = [
@@ -493,7 +522,6 @@ final class TaskAssistantService
                             ? $emptyReasoning
                             : 'No matching items found. Here are next steps to refine your list.',
                     ),
-                    'insight' => null,
                     'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning($fallbackReasoning),
                     'next_options' => TaskAssistantListingDefaults::clampBrowseReasoning('If you want, I can schedule these steps for later.'),
                     'next_options_chip_texts' => [
@@ -513,7 +541,10 @@ final class TaskAssistantService
                     $thread->user_id,
                 );
 
-                $next = $this->buildDeterministicPrioritizeNextOptions($narrative['items'] ?? []);
+                $next = $this->buildDeterministicPrioritizeNextOptions(
+                    $narrative['items'] ?? [],
+                    $hasMoreUnseen
+                );
 
                 $prioritizeData = [
                     'items' => $narrative['items'],
@@ -521,7 +552,6 @@ final class TaskAssistantService
                     'focus' => $narrative['focus'],
                     'acknowledgment' => $narrative['acknowledgment'] ?? null,
                     'framing' => (string) ($narrative['framing'] ?? ''),
-                    'insight' => $narrative['insight'] ?? null,
                     'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantListingDefaults::reasoningWhenEmpty()),
                     // Standardized follow-ups: deterministic and safe.
                     'next_options' => $next['next_options'],
@@ -548,7 +578,9 @@ final class TaskAssistantService
         $finalListingItems = is_array($prioritizeData['items'] ?? null) ? $prioritizeData['items'] : [];
 
         if ($finalListingItems === []) {
-            $this->conversationState->clearLastListing($thread);
+            if (! $isNextSliceFollowup) {
+                $this->conversationState->clearLastListing($thread);
+            }
         } else {
             $this->conversationState->rememberLastListing(
                 $thread,
@@ -557,6 +589,7 @@ final class TaskAssistantService
                 $assistantMessage->id,
                 count($finalListingItems)
             );
+            $this->conversationState->rememberPrioritizeShownEntities($thread, $finalListingItems);
         }
 
         $this->streamFlowEnvelope(
@@ -578,16 +611,128 @@ final class TaskAssistantService
         return (bool) preg_match('/\b(list|show|display|give me|what)\s+(all\s+)?(my\s+)?tasks?\b/i', $msg);
     }
 
+    private function isPrioritizeNextSliceFollowup(TaskAssistantThread $thread, ExecutionPlan $plan, string $content): bool
+    {
+        $fromRouting = (bool) ($plan->constraints['prioritize_followup'] ?? false);
+        if (! $fromRouting) {
+            return false;
+        }
+
+        if ($this->conversationState->lastListing($thread) === null) {
+            return false;
+        }
+
+        return preg_match('/\bshow\s+next(\s+\d+)?\b|\bnext\s+\d+\b|\bshow\s+more\b/i', $content) === 1;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $allItems
+     * @param  list<string>  $seenEntityKeys
+     * @return array{0: list<array<string, mixed>>, 1: bool, 2: bool}
+     */
+    private function applyPrioritizeUnseenSlice(array $allItems, int $countLimit, array $seenEntityKeys, bool $followup): array
+    {
+        $limit = max(1, min($countLimit, 10));
+
+        if (! $followup) {
+            $slice = array_values(array_slice($allItems, 0, $limit));
+
+            return [$slice, count($allItems) > count($slice), false];
+        }
+
+        $seenLookup = [];
+        foreach ($seenEntityKeys as $key) {
+            $normalized = trim((string) $key);
+            if ($normalized !== '') {
+                $seenLookup[$normalized] = true;
+            }
+        }
+
+        $unseen = [];
+        foreach ($allItems as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $entityKey = $this->prioritizeEntityKeyFromItem($item);
+            if ($entityKey === null || isset($seenLookup[$entityKey])) {
+                continue;
+            }
+            $unseen[] = $item;
+        }
+
+        if ($unseen === []) {
+            return [[], false, true];
+        }
+
+        $slice = array_values(array_slice($unseen, 0, $limit));
+
+        return [$slice, count($unseen) > count($slice), false];
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function prioritizeEntityKeyFromItem(array $item): ?string
+    {
+        $type = strtolower(trim((string) ($item['entity_type'] ?? '')));
+        $id = (int) ($item['entity_id'] ?? 0);
+        if ($type === '' || $id <= 0) {
+            return null;
+        }
+
+        return $type.':'.$id;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildPrioritizeExhaustedData(): array
+    {
+        return [
+            'items' => [],
+            'limit_used' => 0,
+            'focus' => [
+                'main_task' => 'No more unseen priorities',
+                'secondary_tasks' => [],
+            ],
+            'acknowledgment' => null,
+            'framing' => TaskAssistantListingDefaults::clampFraming(
+                'You are caught up on the unseen priorities from this list.'
+            ),
+            'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning(
+                'I have already shown the highest-ranked unseen items from your current priorities.'
+            ),
+            'next_options' => TaskAssistantListingDefaults::clampNextField(
+                'If you want, I can schedule these tasks, or refine this list with a filter like today, this week, or by keyword.'
+            ),
+            'next_options_chip_texts' => [
+                'Schedule tasks',
+                'Refine list',
+            ],
+        ];
+    }
+
     /**
      * Standardize prioritize follow-up options (text + chips) to avoid odd model outputs.
      *
-     * @param  mixed  $items
      * @return array{next_options: string, next_options_chip_texts: list<string>}
      */
-    private function buildDeterministicPrioritizeNextOptions(mixed $items): array
+    private function buildDeterministicPrioritizeNextOptions(mixed $items, bool $hasMoreUnseen = true): array
     {
         $rows = is_array($items) ? array_values(array_filter($items, static fn (mixed $r): bool => is_array($r))) : [];
         $count = count($rows);
+
+        if (! $hasMoreUnseen) {
+            $nextOptions = 'You are caught up on the unseen priorities from this list. If you want, I can schedule tasks next, or refine your priorities with a filter.';
+
+            return [
+                'next_options' => TaskAssistantListingDefaults::clampNextField($nextOptions),
+                'next_options_chip_texts' => [
+                    'Schedule tasks',
+                    'Refine list',
+                ],
+            ];
+        }
 
         $hasNonTask = false;
         foreach ($rows as $row) {

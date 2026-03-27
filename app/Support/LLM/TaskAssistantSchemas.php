@@ -204,11 +204,6 @@ final class TaskAssistantSchemas
                     nullable: false
                 ),
                 new StringSchema(
-                    name: 'insight',
-                    description: 'Optional: one short sentence about something non-obvious (why this order matters for the user today). Use only information visible on the provided rows.',
-                    nullable: true
-                ),
-                new StringSchema(
                     name: 'next_options',
                     description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling these steps for later). Keep it student-friendly and not robotic. If you mention rescheduling, it must be about remaining tasks, not tasks already completed.',
                     nullable: false
