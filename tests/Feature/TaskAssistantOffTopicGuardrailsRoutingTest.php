@@ -22,8 +22,7 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
             ->withStructured([
                 'intent' => 'out_of_scope',
                 'acknowledgement' => 'Thanks for sharing your question.',
-                'framing' => 'That topic is outside task planning.',
-                'response' => "I can't help with that topic. I'm a task assistant.",
+                'message' => "I can't help with that topic, but I can help you move forward with your tasks.",
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -49,7 +48,7 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
     $assistantMessage->refresh();
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
-    expect($assistantMessage->content)->toContain("I'm a task assistant");
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain("can't help");
     expect($assistantMessage->content)->toContain('Prioritize my tasks.');
     expect($assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
 

@@ -23,11 +23,11 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'Thanks for reaching out.',
-                'framing' => 'You are asking for guidance before choosing a planning flow.',
-                'response' => 'Thanks for reaching out. '.$longMessagePrefix,
+                'message' => 'Thanks for reaching out. '.$longMessagePrefix,
                 'suggested_next_actions' => [
-                    'Short reply.',
-                    str_repeat('B', 250),
+                    'Tell me what to do first today.',
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
                 ],
             ])
             ->withUsage(new Usage(1, 2)),
@@ -71,8 +71,7 @@ test('general_guidance intro is only added once per thread', function (): void {
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'Thanks for reaching out.',
-                'framing' => 'General task support.',
-                'response' => 'First guidance.',
+                'message' => 'First guidance.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
@@ -83,8 +82,7 @@ test('general_guidance intro is only added once per thread', function (): void {
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'Thanks for reaching out again.',
-                'framing' => 'General task support.',
-                'response' => 'Second guidance.',
+                'message' => 'Second guidance.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',

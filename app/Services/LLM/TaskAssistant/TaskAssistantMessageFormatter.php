@@ -209,13 +209,12 @@ final class TaskAssistantMessageFormatter
     private function formatGeneralGuidanceMessage(array $data): string
     {
         $acknowledgement = $this->normalizeGuidanceSentence((string) ($data['acknowledgement'] ?? ''));
-        $framing = $this->normalizeGuidanceSentence((string) ($data['framing'] ?? ''));
-        $response = $this->normalizeGuidanceSentence((string) ($data['response'] ?? ''));
+        $message = $this->normalizeGuidanceSentence((string) ($data['message'] ?? ''));
         $suggestedNextActions = is_array($data['suggested_next_actions'] ?? null)
             ? $this->normalizeStringList($data['suggested_next_actions'])
             : [];
 
-        if ($acknowledgement === '' && $framing === '' && $response === '' && $suggestedNextActions === []) {
+        if ($acknowledgement === '' && $message === '' && $suggestedNextActions === []) {
             return 'I can help. What would you like to do next?';
         }
 
@@ -227,8 +226,7 @@ final class TaskAssistantMessageFormatter
 
         $segments = array_values(array_filter([
             $acknowledgement,
-            $framing,
-            $response,
+            $message,
             $actionsParagraph,
         ], static fn (string $segment): bool => $segment !== ''));
 

@@ -45,6 +45,10 @@ final class TaskAssistantService
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
     {
+        // Ensure we have the latest persisted thread metadata/state. In production the
+        // queued job loads fresh models; in-process calls (tests) can reuse instances.
+        $thread->refresh();
+
         if ($this->isCancellationRequested($thread, $assistantMessageId)) {
             Log::info('task-assistant.orchestration', [
                 'layer' => 'orchestration',
@@ -283,6 +287,8 @@ final class TaskAssistantService
 
     private function runPrioritizeFlow(TaskAssistantThread $thread, TaskAssistantMessage $assistantMessage, string $content, ExecutionPlan $plan): void
     {
+        $thread->refresh();
+
         Log::info('task-assistant.flow', [
             'layer' => 'flow',
             'flow' => 'prioritize',
@@ -948,6 +954,11 @@ final class TaskAssistantService
             $userMessage .= "\n\nOFF_TOPIC_GUARDRAIL: This request is off-topic for a task assistant. Acknowledge briefly, refuse to help with the unrelated topic, and suggest task-focused next steps (prioritize tasks or schedule time blocks) while following the current general_guidance schema.";
         }
 
+        if (in_array('general_guidance_greeting_only', $plan->reasonCodes, true)) {
+            // Greeting-only prompts should not assume tasks exist or pull list details.
+            $userMessage .= "\n\nGREETING_GUARDRAIL: The user only greeted (hello/hi/yo). Do not assume they want task suggestions yet. Do not reference their list data, deadlines, priorities, or specific task titles. Introduce TaskLyst, say you can prioritize tasks or schedule time blocks, and offer neutral next actions.";
+        }
+
         $guidance = $this->generalGuidanceService->generateGeneralGuidance(
             user: $thread->user,
             userMessage: $userMessage,
@@ -993,8 +1004,7 @@ final class TaskAssistantService
             'data' => [
                 'intent' => (string) ($guidance['intent'] ?? 'task'),
                 'acknowledgement' => (string) ($guidance['acknowledgement'] ?? ''),
-                'framing' => (string) ($guidance['framing'] ?? ''),
-                'response' => (string) ($guidance['response'] ?? ''),
+                'message' => (string) ($guidance['message'] ?? ''),
                 'suggested_next_actions' => is_array($guidance['suggested_next_actions'] ?? null)
                     ? $guidance['suggested_next_actions']
                     : null,

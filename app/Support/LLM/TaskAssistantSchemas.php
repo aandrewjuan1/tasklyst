@@ -247,22 +247,17 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'acknowledgement',
-                    description: 'One short empathetic acknowledgement sentence in clear user-facing language.',
+                    description: 'One short empathetic acknowledgement sentence in clear user-facing language. No refusal/boundary language here.',
                     nullable: false
                 ),
                 new StringSchema(
-                    name: 'framing',
-                    description: 'One short sentence that interprets user intent or lack of clarity in supportive language.',
-                    nullable: false
-                ),
-                new StringSchema(
-                    name: 'response',
-                    description: 'Primary response body (1-3 short sentences). Must stay task-assistant oriented and action-oriented.',
+                    name: 'message',
+                    description: 'Main message body (1-3 short sentences). For out_of_scope intent, include a single gentle refusal/boundary here (and only here), then redirect to task help. For unclear intent, ask for a rephrase without sounding robotic. For task intent, give a small actionable next step.',
                     nullable: false
                 ),
                 new ArraySchema(
                     name: 'suggested_next_actions',
-                    description: '2-3 short actionable follow-ups. Must include explicit prioritize/schedule options.',
+                    description: '2-3 short clausal (verb-led) actionable follow-ups. Must include explicit prioritize/schedule options.',
                     items: new StringSchema(name: 'action', description: 'One suggested next action.'),
                     nullable: false
                 ),
@@ -270,8 +265,7 @@ final class TaskAssistantSchemas
             requiredFields: [
                 'intent',
                 'acknowledgement',
-                'framing',
-                'response',
+                'message',
                 'suggested_next_actions',
             ]
         );

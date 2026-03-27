@@ -113,9 +113,12 @@ final class TaskAssistantIntentInferenceService
 Classify the user's message for a student task assistant.
 
 Allowed intent values (exactly one): {$allowed}
+- greeting: social greeting-only (hi/hello/yo) with no task request.
+- general_guidance: vague help-seeking, stress/overwhelm, \"help\", \"what now\", or productivity/task support without a clear request to prioritize vs schedule.
+- unclear: unintelligible, noisy, or unclear message where you cannot identify a real request yet.
 - prioritization: what to do first, top tasks, ordering by importance/urgency, or listing/filtering requests.
 - scheduling: calendar, time blocks, plan my day, when to work on something.
-- off_topic: unrelated to task management, student productivity, planning, scheduling, or overcoming difficulty with tasks.
+- off_topic: unrelated to task management or productivity (e.g., politics, celebrity, product recommendations, relationship advice).
 
 USER MESSAGE:
 "{$userMessage}"
@@ -123,9 +126,10 @@ USER MESSAGE:
 Rules for confidence discipline:
 - If the user explicitly asks to prioritize or list what to do next, set confidence >= 0.75.
 - If the user explicitly asks for scheduling, calendar, or time blocks, set confidence >= 0.75.
-- If the user is vague / only says "help", "what now", "overwhelmed", or otherwise does not clearly ask for prioritize vs schedule,
-  choose the best guess intent but set confidence <= 0.45 (so the router can safely ask a redirect question).
-- If the user is social/greeting-only or unintelligible gibberish, use off_topic with confidence >= 0.80.
+- If the user is vague / only says \"help\", \"what now\", \"overwhelmed\", or otherwise does not clearly ask for prioritize vs schedule,
+  use general_guidance with confidence between 0.55 and 0.80.
+- If the user is social/greeting-only, use greeting with confidence >= 0.80.
+- If the user is gibberish/noisy/unclear, use unclear with confidence >= 0.75.
 - Keep confidence <= 0.60 whenever the input is ambiguous between prioritize and scheduling.
 
 Respond with JSON matching the schema. Set confidence between 0 and 1. Keep rationale under one sentence.

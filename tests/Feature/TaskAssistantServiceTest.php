@@ -182,8 +182,7 @@ test('greeting is routed to general_guidance and persists structured metadata', 
             ->withStructured([
                 'intent' => 'task',
                 'acknowledgement' => 'Hello.',
-                'framing' => 'You are starting with a general task-assistant request.',
-                'response' => 'I can help you organize tasks and time.',
+                'message' => 'I can help you organize tasks and time.',
                 'suggested_next_actions' => [
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
