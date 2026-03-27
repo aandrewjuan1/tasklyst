@@ -24,7 +24,7 @@ class StudentLifeSampleSeeder extends Seeder
 {
     private const TARGET_EMAIL = 'andrew.juan.cvt@eac.edu.ph';
 
-    private const DUE_DATE_FLOOR = '2026-03-22';
+    private const DUE_DATE_FLOOR = '2026-04-10';
 
     /**
      * @var array<int, array<string, mixed>>
@@ -68,6 +68,7 @@ class StudentLifeSampleSeeder extends Seeder
             'complexity' => TaskComplexity::Complex,
             'start_offset_minutes' => 0,
             'end_offset_minutes' => 120,
+            'allow_overdue' => true,
         ],
         [
             'title' => 'Finish CS 220 report and slides',
@@ -698,7 +699,14 @@ class StudentLifeSampleSeeder extends Seeder
                 $end = $start->copy()->addHours(4);
             }
 
-            $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['title']);
+            $allowOverdue = (bool) ($spec['allow_overdue'] ?? false);
+            if ($allowOverdue) {
+                // Keep exactly one overdue active task for prioritize-flow testing.
+                $end = $now->copy()->subDay()->setTime(9, 0);
+                $start = $end->copy()->subHours(2);
+            } else {
+                $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['title']);
+            }
 
             Task::create([
                 'user_id' => $user->id,

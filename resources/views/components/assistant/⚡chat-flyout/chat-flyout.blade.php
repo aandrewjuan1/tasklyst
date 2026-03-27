@@ -95,6 +95,16 @@
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
                                 $display = $isStopped ? '' : ($message->content ?: __('…'));
                                 $proposals = data_get($message->metadata, 'daily_schedule.proposals', data_get($message->metadata, 'structured.data.proposals', []));
+                                $nextOptionChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', data_get($message->metadata, 'structured.data.next_options_chip_texts', []));
+                                if (! is_array($nextOptionChips)) {
+                                    $nextOptionChips = [];
+                                }
+                                $nextOptionChips = array_values(array_filter(
+                                    array_map(static fn (mixed $chip): string => trim((string) $chip), $nextOptionChips),
+                                    static fn (string $chip): bool => $chip !== ''
+                                ));
+                                $isLatestAssistant = $latestAssistantMessageId !== null && $message->id === $latestAssistantMessageId;
+                                $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
                             @endphp
                             @if ($isStopped)
                                 <flux:text class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">{{ __('Stopped') }}</flux:text>
@@ -172,6 +182,22 @@
                                                 </div>
                                             </div>
                                         @endif
+                                    @endforeach
+                                </div>
+                            @endif
+
+                            @if (! $isStopped && $isLatestAssistant && ! $chipsDismissed && count($nextOptionChips) > 0)
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    @foreach ($nextOptionChips as $chipText)
+                                        <flux:button
+                                            size="xs"
+                                            variant="ghost"
+                                            wire:click="submitNextOptionChip({{ $message->id }}, @js($chipText))"
+                                            wire:loading.attr="disabled"
+                                            wire:target="submitNextOptionChip,submitMessage"
+                                        >
+                                            {{ $chipText }}
+                                        </flux:button>
                                     @endforeach
                                 </div>
                             @endif

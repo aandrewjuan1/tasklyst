@@ -36,6 +36,11 @@ new class extends Component
     #[Locked]
     public ?int $streamingMessageId = null;
 
+    public ?int $latestAssistantMessageId = null;
+
+    /** @var array<int, bool> */
+    public array $dismissedNextOptionChipsByMessage = [];
+
     public bool $showWorking = false;
 
     public function mount(): void
@@ -77,6 +82,8 @@ new class extends Component
         $this->streamingContent = '';
         $this->isStreaming = false;
         $this->streamingMessageId = null;
+        $this->latestAssistantMessageId = null;
+        $this->dismissedNextOptionChipsByMessage = [];
         $this->showWorking = false;
     }
 
@@ -91,6 +98,8 @@ new class extends Component
             'streamingContent' => $this->streamingContent,
             'isStreaming' => $this->isStreaming,
             'streamingMessageId' => $this->streamingMessageId,
+            'latestAssistantMessageId' => $this->latestAssistantMessageId,
+            'dismissedNextOptionChipsByMessage' => $this->dismissedNextOptionChipsByMessage,
             'showWorking' => $this->showWorking,
         ]);
     }
@@ -216,6 +225,35 @@ new class extends Component
         )->onQueue((string) config('task-assistant.queue', 'task-assistant'));
     }
 
+    public function submitNextOptionChip(int $assistantMessageId, string $chipText): void
+    {
+        if ($this->isStreaming || ! $this->thread) {
+            return;
+        }
+
+        $assistantMessage = $this->thread->messages()
+            ->whereKey($assistantMessageId)
+            ->where('role', MessageRole::Assistant)
+            ->first();
+
+        if (! $assistantMessage) {
+            return;
+        }
+
+        if ($this->latestAssistantMessageId !== null && $assistantMessageId !== $this->latestAssistantMessageId) {
+            return;
+        }
+
+        $content = trim($chipText);
+        if ($content === '') {
+            return;
+        }
+
+        $this->dismissedNextOptionChipsByMessage[$assistantMessageId] = true;
+        $this->newMessage = $content;
+        $this->submitMessage();
+    }
+
     public function requestStopStreaming(): void
     {
         if (! $this->thread || ! $this->isStreaming || ! $this->streamingMessageId) {
@@ -309,6 +347,11 @@ new class extends Component
         $this->chatMessages = $this->thread
             ? $this->thread->messages()->orderBy('id')->get()
             : collect();
+
+        $latestAssistant = $this->chatMessages
+            ->filter(fn (TaskAssistantMessage $message): bool => $message->role === MessageRole::Assistant)
+            ->last();
+        $this->latestAssistantMessageId = $latestAssistant?->id;
     }
 
     public function refreshMessages(bool $preserveStreamingState = false): void

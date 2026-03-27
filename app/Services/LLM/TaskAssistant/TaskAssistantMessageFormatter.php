@@ -174,7 +174,6 @@ final class TaskAssistantMessageFormatter
         }
 
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-        $insight = trim((string) ($data['insight'] ?? ''));
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
         $nextOptions = trim((string) ($data['next_options'] ?? ''));
 
@@ -189,10 +188,6 @@ final class TaskAssistantMessageFormatter
         $lines = $this->formatBrowseItemLines($items);
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);
-        }
-
-        if ($insight !== '') {
-            $paragraphs[] = 'Insight: '.$insight;
         }
 
         if ($reasoning === '') {

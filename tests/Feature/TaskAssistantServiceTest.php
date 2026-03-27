@@ -270,3 +270,76 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
     expect($thread->metadata['conversation_state']['last_listing']['source_flow'] ?? null)->toBe('prioritize');
     expect($thread->metadata['conversation_state']['last_listing']['items'] ?? [])->not->toBeEmpty();
 });
+
+test('prioritize follow-up show next 3 excludes previously shown items', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here are your top priorities in a simple order you can start now.',
+                'acknowledgment' => null,
+                'reasoning' => 'This ordering helps you start with the most urgent work first.',
+                'next_options' => 'If you want, I can schedule this for later, or show your next 3 priorities.',
+                'next_options_chip_texts' => ['Schedule this', 'Show next 3'],
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here are the next priorities from your list.',
+                'acknowledgment' => null,
+                'reasoning' => 'These are the next highest-ranked unseen items.',
+                'next_options' => 'If you want, I can schedule time for these.',
+                'next_options_chip_texts' => ['Schedule these'],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->count(6)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $service = app(TaskAssistantService::class);
+
+    $firstUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'What should I do first?',
+    ]);
+    $firstAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    $service->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
+
+    $secondUser = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'show next 3',
+    ]);
+    $secondAssistant = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+    $service->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+
+    $firstAssistant->refresh();
+    $secondAssistant->refresh();
+    $thread->refresh();
+
+    $firstItems = $firstAssistant->metadata['prioritize']['items'] ?? [];
+    $secondItems = $secondAssistant->metadata['prioritize']['items'] ?? [];
+
+    $firstKeys = collect($firstItems)->map(fn (array $row): string => $row['entity_type'].':'.$row['entity_id'])->values()->all();
+    $secondKeys = collect($secondItems)->map(fn (array $row): string => $row['entity_type'].':'.$row['entity_id'])->values()->all();
+
+    expect($firstItems)->toHaveCount(1);
+    expect($secondItems)->toHaveCount(3);
+    expect(array_intersect($firstKeys, $secondKeys))->toBe([]);
+    expect($thread->metadata['conversation_state']['prioritize_pagination']['shown_entity_keys'] ?? [])
+        ->toHaveCount(4);
+});
