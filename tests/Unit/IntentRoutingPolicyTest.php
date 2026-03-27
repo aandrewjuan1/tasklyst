@@ -106,6 +106,22 @@ test('overwhelmed what should i do first routes to prioritize (not general_guida
     expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
 });
 
+test('explicit top count with do first keeps requested count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'in my tasks whats the top 3 that i should do first?'
+    );
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
+    expect($decision->constraints['count_limit'])->toBe(3);
+});
+
 test('time query routes to general guidance (not schedule)', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
