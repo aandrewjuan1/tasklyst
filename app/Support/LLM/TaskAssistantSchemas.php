@@ -174,7 +174,7 @@ final class TaskAssistantSchemas
                 new ArraySchema(
                     name: 'assumptions',
                     description: 'Assumptions made while planning (e.g., availability, estimated durations).',
-                    items: new StringSchema(name: 'assumption', description: 'One planning assumption.'),
+                    items: new StringSchema(name: 'assumption', description: 'Assumption item.'),
                     nullable: true
                 ),
             ],
@@ -210,7 +210,7 @@ final class TaskAssistantSchemas
                 ),
                 new ArraySchema(
                     name: 'next_options_chip_texts',
-                    description: 'Required: array of 1-2 short chip strings that a student can click to trigger the follow-up (e.g., scheduling). No question marks. No bullets.',
+                    description: 'Required: array of 1-3 short chip strings that a student can click to trigger the follow-up (e.g., scheduling windows). No question marks. No bullets.',
                     items: new StringSchema(name: 'next_option_chip_text', description: 'One chip text.'),
                     nullable: false
                 ),

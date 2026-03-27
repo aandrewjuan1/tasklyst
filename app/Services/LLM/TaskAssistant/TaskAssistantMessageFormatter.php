@@ -261,6 +261,24 @@ final class TaskAssistantMessageFormatter
             return '';
         }
 
+        $normalizedActions = array_map(
+            static fn (string $action): string => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $action) ?? $action)),
+            $actions
+        );
+        $hasPrioritize = false;
+        $hasSchedule = false;
+        foreach ($normalizedActions as $action) {
+            if (str_contains($action, 'priorit')) {
+                $hasPrioritize = true;
+            }
+            if (str_contains($action, 'schedule') || str_contains($action, 'time block')) {
+                $hasSchedule = true;
+            }
+        }
+        if ($hasPrioritize && $hasSchedule) {
+            return 'Next, you can prioritize your tasks or schedule time blocks for your tasks.';
+        }
+
         if (count($actions) === 1) {
             return 'Next, '.$actions[0];
         }

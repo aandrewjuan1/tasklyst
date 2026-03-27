@@ -13,7 +13,8 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
      *   time_constraint: string|null,
      *   recurring_requested: bool,
      *   comparison_focus: string|null,
-     *   domain_focus: 'school'|'chores'|null
+     *   domain_focus: 'school'|'chores'|null,
+     *   entity_type_preference: 'task'|'event'|'project'|'mixed'
      * }
      */
     public function extract(string $userMessageContent): array
@@ -103,6 +104,8 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             }
         }
 
+        $entityTypePreference = $this->inferEntityTypePreference($userMessageContent);
+
         return [
             'priority_filters' => $priorityFilters,
             'task_keywords' => $taskKeywords,
@@ -110,7 +113,40 @@ final class TaskAssistantTaskChoiceConstraintsExtractor
             'recurring_requested' => $recurringRequested,
             'comparison_focus' => null,
             'domain_focus' => $domainFocus,
+            'entity_type_preference' => $entityTypePreference,
         ];
+    }
+
+    /**
+     * If the user explicitly says "tasks" (and doesn't mention events/calendar),
+     * prefer ranking tasks only. Same for "events" and "projects".
+     */
+    private function inferEntityTypePreference(string $message): string
+    {
+        $normalized = mb_strtolower($message);
+
+        $mentionsTasks = preg_match('/\b(tasks?|to\s*do|todo|to-do)\b/u', $normalized) === 1;
+        $mentionsEvents = preg_match('/\b(events?|calendar|meetings?|appointments?)\b/u', $normalized) === 1;
+        $mentionsProjects = preg_match('/\bprojects?\b/u', $normalized) === 1;
+
+        $mentionsMultiple = (int) $mentionsTasks + (int) $mentionsEvents + (int) $mentionsProjects >= 2;
+        if ($mentionsMultiple) {
+            return 'mixed';
+        }
+
+        if ($mentionsTasks) {
+            return 'task';
+        }
+
+        if ($mentionsEvents) {
+            return 'event';
+        }
+
+        if ($mentionsProjects) {
+            return 'project';
+        }
+
+        return 'mixed';
     }
 
     /**

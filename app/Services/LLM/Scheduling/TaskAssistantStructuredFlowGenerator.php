@@ -33,16 +33,21 @@ final class TaskAssistantStructuredFlowGenerator
     ): array {
         $user = $thread->user;
 
+        $runId = app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null;
+
         $promptData = $this->promptData->forUser($user);
         $snapshot = $this->snapshotService->buildForUser($user);
 
         Log::info('task-assistant.snapshot', [
             'layer' => 'structured_generation',
+            'run_id' => $runId,
             'user_id' => $user->id,
             'thread_id' => $thread->id,
             'task_count' => count($snapshot['tasks'] ?? []),
             'event_count' => count($snapshot['events'] ?? []),
             'project_count' => count($snapshot['projects'] ?? []),
+            'user_message_length' => mb_strlen($userMessageContent),
+            'history_messages_count' => $historyMessages->count(),
         ]);
 
         $context = $this->scheduleContextBuilder->build($userMessageContent, $snapshot);
@@ -82,6 +87,7 @@ final class TaskAssistantStructuredFlowGenerator
         $horizonLog = $contextualSnapshot['schedule_horizon'] ?? null;
         Log::info('task-assistant.structured_generation', [
             'layer' => 'structured_generation',
+            'run_id' => $runId,
             'thread_id' => $thread->id,
             'user_id' => $user->id,
             'flow' => 'daily_schedule',

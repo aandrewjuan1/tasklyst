@@ -3,6 +3,8 @@
 namespace App\Services\LLM\Browse;
 
 use App\Enums\TaskComplexity;
+use App\Models\User;
+use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Support\LLM\TaskAssistantListingDefaults;
@@ -17,7 +19,25 @@ final class TaskAssistantListingSelectionService
     public function __construct(
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
         private readonly TaskPrioritizationService $prioritizationService,
+        private readonly AssistantCandidateProvider $candidateProvider,
     ) {}
+
+    /**
+     * Build a deterministic task listing directly from DB candidates.
+     *
+     * @return array{
+     *   items: list<array<string, mixed>>,
+     *   deterministic_summary: string,
+     *   filter_context_for_prompt: string,
+     *   ambiguous: bool
+     * }
+     */
+    public function buildForUser(User $user, string $userMessage, ?int $countLimit = null): array
+    {
+        $snapshot = $this->candidateProvider->candidatesForUser($user);
+
+        return $this->build($userMessage, $snapshot, $countLimit);
+    }
 
     /**
      * @param  array<string, mixed>  $snapshot

@@ -420,20 +420,23 @@ final class TaskAssistantGeneralGuidanceService
      */
     private function enforceSuggestedNextActions(?array $actions, string $intent): array
     {
+        $mustInclude = [
+            'Prioritize my tasks.',
+            'Schedule time blocks for my tasks.',
+        ];
+
+        if ($intent === self::INTENT_UNCLEAR) {
+            return $mustInclude;
+        }
+
         $clean = $actions ?? [];
         $clean = array_values(array_filter(array_map(
             fn (string $line): string => $this->sanitizeUserFacingLanguage($this->normalizeGeneralGuidanceText($line)),
             $clean
         ), static fn (string $line): bool => $line !== ''));
 
-        $mustInclude = [
-            'Prioritize my tasks.',
-            'Schedule time blocks for my tasks.',
-        ];
-
         $intentSpecific = match ($intent) {
             self::INTENT_OUT_OF_SCOPE => ['Tell me one real task I need to do today.'],
-            self::INTENT_UNCLEAR => ['Rephrase what you need help with in one short sentence.'],
             default => ['Tell me what to do first today.'],
         };
 
