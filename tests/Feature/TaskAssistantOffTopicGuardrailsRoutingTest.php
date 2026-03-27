@@ -20,13 +20,13 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
         // Second structured call: general guidance generation.
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'off_topic',
-                'response' => "Thanks for sharing your question. I can't help with that topic. I'm a task assistant.",
-                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next.',
-                'redirect_target' => 'either',
-                'suggested_replies' => [
+                'intent' => 'out_of_scope',
+                'acknowledgement' => 'Thanks for sharing your question.',
+                'framing' => 'That topic is outside task planning.',
+                'response' => "I can't help with that topic. I'm a task assistant.",
+                'suggested_next_actions' => [
                     'Prioritize my tasks.',
-                    'Plan time blocks for my tasks.',
+                    'Schedule time blocks for my tasks.',
                 ],
             ])
             ->withUsage(new Usage(1, 2)),
@@ -48,10 +48,10 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
 
     $assistantMessage->refresh();
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
-    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('off_topic');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
     expect($assistantMessage->content)->toContain("I'm a task assistant");
-    expect($assistantMessage->content)->toContain('prioritize your tasks');
-    expect($assistantMessage->content)->toContain('schedule time blocks');
+    expect($assistantMessage->content)->toContain('Prioritize my tasks.');
+    expect($assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
 
     $thread->refresh();
     expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();

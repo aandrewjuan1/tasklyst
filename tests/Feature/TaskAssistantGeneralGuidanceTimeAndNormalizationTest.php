@@ -12,12 +12,13 @@ test('time query is answered deterministically and redirects to prioritize/sched
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'friendly_general',
+                'intent' => 'task',
+                'acknowledgement' => 'Thanks for asking.',
+                'framing' => 'You asked for current time context before planning tasks.',
                 'response' => 'Thanks for your time question. Right now, it is 3:45 PM for you.',
-                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next.',
-                'suggested_replies' => [
+                'suggested_next_actions' => [
                     'Prioritize my tasks.',
-                    'Plan time blocks for my tasks.',
+                    'Schedule time blocks for my tasks.',
                 ],
             ])
             ->withUsage(new Usage(1, 2)),
@@ -40,26 +41,26 @@ test('time query is answered deterministically and redirects to prioritize/sched
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
-    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('friendly_general');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
     expect((string) $assistantMessage->content)->toMatch('/\d{1,2}:\d{2}\s?(AM|PM)/i');
 
     // We don't hardcode exact wording because general guidance is LLM-generated.
     expect((string) $assistantMessage->content)->toContain('tasks');
 });
 
-test('off-topic guidance keeps a normalized redirect target', function (): void {
+test('off-topic guidance stays in out_of_scope intent', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'off_topic',
-                'response' => 'Thanks for sharing your request. I hear you.',
-                'next_step_guidance' => 'I can help with your tasks by prioritizing them or planning time blocks.',
-                'redirect_target' => 'tasks',
-                'suggested_replies' => [
+                'intent' => 'out_of_scope',
+                'acknowledgement' => 'Thanks for sharing.',
+                'framing' => 'That question is outside task planning.',
+                'response' => 'I can help with task planning and execution.',
+                'suggested_next_actions' => [
                     'Prioritize my tasks.',
-                    'Plan time blocks for my tasks.',
+                    'Schedule time blocks for my tasks.',
                 ],
             ])
             ->withUsage(new Usage(1, 2)),
@@ -82,21 +83,20 @@ test('off-topic guidance keeps a normalized redirect target', function (): void 
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
-    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('off_topic');
-    expect(data_get($assistantMessage->metadata, 'general_guidance.redirect_target'))->toBe('either');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
 });
 
-test('gibberish prompt uses gibberish_unclear mode with clarifying question', function (): void {
+test('gibberish prompt uses unclear intent', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'gibberish_unclear',
+                'intent' => 'unclear',
+                'acknowledgement' => "I didn't quite catch that.",
+                'framing' => "Your message isn't clear yet.",
                 'response' => 'I did not fully understand that message. I can still help once you rephrase it clearly.',
-                'next_step_guidance' => 'Please send one short sentence, then I can prioritize tasks or plan time blocks.',
-                'clarifying_question' => 'Can you rephrase what you want help with in one short sentence?',
-                'suggested_replies' => [
+                'suggested_next_actions' => [
                     'Please prioritize my tasks.',
                     'Please schedule time blocks for my tasks.',
                 ],
@@ -120,7 +120,6 @@ test('gibberish prompt uses gibberish_unclear mode with clarifying question', fu
     $assistantMessage->refresh();
     $thread->refresh();
 
-    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('gibberish_unclear');
-    expect(trim((string) data_get($assistantMessage->metadata, 'general_guidance.clarifying_question')))->not->toBe('');
-    expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->not->toBeNull();
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('unclear');
+    expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();
 });

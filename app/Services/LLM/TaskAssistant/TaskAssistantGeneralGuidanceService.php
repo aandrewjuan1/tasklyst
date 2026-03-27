@@ -21,6 +21,12 @@ final class TaskAssistantGeneralGuidanceService
 
     private const MODE_OFF_TOPIC = 'off_topic';
 
+    private const INTENT_TASK = 'task';
+
+    private const INTENT_OUT_OF_SCOPE = 'out_of_scope';
+
+    private const INTENT_UNCLEAR = 'unclear';
+
     private const MAX_GENERAL_GUIDANCE_MESSAGE_CHARS = 500;
 
     private const MAX_GENERAL_GUIDANCE_QUESTION_CHARS = 220;
@@ -33,18 +39,16 @@ final class TaskAssistantGeneralGuidanceService
 
     /**
      * @return array{
-     *   guidance_mode: string,
+     *   intent: string,
+     *   acknowledgement: string,
+     *   framing: string,
      *   response: string,
-     *   next_step_guidance: string,
-     *   clarifying_question?: string|null,
-     *   redirect_target?: string|null,
-     *   suggested_replies?: list<string>|null
+     *   suggested_next_actions: list<string>
      * }
      */
     public function generateGeneralGuidance(
         User $user,
         string $userMessage,
-        ?string $forcedClarifyingQuestion = null,
         ?string $forcedMode = null,
     ): array {
         $promptData = $this->promptData->forUser($user);
@@ -72,13 +76,17 @@ final class TaskAssistantGeneralGuidanceService
         $messages = collect([
             new UserMessage(
                 'User message for guidance mode selection: '.$userMessage.$timeContext."\n\n".
-                ($forcedClarifyingQuestion !== null
-                    ? 'Re-ask mode: keep clarifying_question EXACTLY as provided: '.$forcedClarifyingQuestion."\n".'Do not change question wording.'
-                    : 'Generate guidance_mode + user-facing guidance fields. Do not force a clarifying question unless the message is gibberish/unclear.')
+                'Generate intent + acknowledgement + framing + response + suggested_next_actions. '.
+                'Keep the user prompt as the primary context anchor for every field. '.
+                'Do not output generic boilerplate if the prompt gives concrete context. '.
+                'Use concise, supportive wording grounded in the user message. '.
+                'Write natural conversational English for a student. Prefer verbal clauses over nominalized/formal phrasing. '.
+                'Do not quote or parrot the full user message. Paraphrase the meaning naturally.'
             ),
         ]);
 
         $resolvedMode = $this->resolveGuidanceMode($userMessage, $forcedMode);
+        $resolvedIntent = $this->intentFromMode($resolvedMode);
 
         for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
             try {
@@ -94,118 +102,78 @@ final class TaskAssistantGeneralGuidanceService
                 $payload = $structuredResponse->structured ?? [];
                 $payload = is_array($payload) ? $payload : [];
 
-                $payloadMode = $this->normalizeGuidanceMode((string) ($payload['guidance_mode'] ?? ''));
                 $mode = $forcedMode !== null ? $this->normalizeGuidanceMode($forcedMode) : $resolvedMode;
-                if ($mode === self::MODE_FRIENDLY_GENERAL && $payloadMode !== self::MODE_FRIENDLY_GENERAL) {
-                    $mode = $payloadMode;
+
+                $intent = $this->normalizeIntent((string) ($payload['intent'] ?? ''));
+                if ($intent === self::INTENT_TASK) {
+                    $intent = $this->intentFromMode($mode);
                 }
 
-                $response = $this->normalizeGeneralGuidanceText((string) ($payload['response'] ?? ''));
+                if ($this->isLikelyEmotionalOffDomain($userMessage)) {
+                    $intent = self::INTENT_OUT_OF_SCOPE;
+                }
+
                 $acknowledgement = $this->normalizeGeneralGuidanceText((string) ($payload['acknowledgement'] ?? ''));
-                $message = (string) ($payload['message'] ?? '');
-                $nextStepGuidance = $this->normalizeGeneralGuidanceText((string) ($payload['next_step_guidance'] ?? ''));
-                $clarifyingQuestion = (string) ($payload['clarifying_question'] ?? '');
-                $suggestedReplies = $payload['suggested_replies'] ?? null;
+                $framing = $this->normalizeGeneralGuidanceText((string) ($payload['framing'] ?? ''));
+                $response = $this->normalizeGeneralGuidanceText((string) ($payload['response'] ?? ''));
+                $suggestedNextActions = $this->normalizeSuggestedNextActions($payload['suggested_next_actions'] ?? null);
 
-                $message = $this->normalizeGeneralGuidanceText($message);
-                $clarifyingQuestion = $this->normalizeGeneralGuidanceText($clarifyingQuestion);
-                if ($response === '') {
-                    $response = trim($acknowledgement.' '.$message);
-                }
+                $acknowledgement = $this->sanitizeUserFacingLanguage($acknowledgement);
+                $framing = $this->sanitizeUserFacingLanguage($framing);
+                $response = $this->sanitizeUserFacingLanguage($response);
 
-                // Hermes sometimes leaks the redirect question inside `message`.
-                // The UI always renders `message + clarifying_question`, so we strip
-                // overlap to avoid duplication.
-                $response = $this->stripClarifyingQuestionFromMessage(
-                    message: $response,
-                    clarifyingQuestion: $clarifyingQuestion,
+                $acknowledgement = $this->humanizeTone(
+                    $this->lightweightAcknowledgementPolish($intent, $acknowledgement),
+                    $intent,
+                    $userMessage
+                );
+                $framing = $this->humanizeTone(
+                    $this->lightweightFramingPolish($intent, $framing, $userMessage),
+                    $intent,
+                    $userMessage
+                );
+                $response = $this->humanizeTone(
+                    $this->lightweightResponsePolish($intent, $response, $userMessage),
+                    $intent,
+                    $userMessage
                 );
 
-                // If the user message looks like typing noise or otherwise
-                // unintelligible, steer to a short rephrase-oriented response.
-                if ($this->isLikelyGibberish($userMessage) && $forcedClarifyingQuestion === null) {
-                    $response = "I didn't quite catch what you meant yet.";
-                }
-
-                // `clarifying_question` is the only question allowed. If the model
-                // still included a question mark inside `message`, sanitize it.
-                if (mb_strpos($response, '?') !== false) {
-                    $response = str_replace('?', '.', $response);
-                }
-
-                if ($response === '') {
-                    $response = 'I hear you. We can take one clear next step.';
-                }
-
-                // Emotional/personal off-domain messages: empathize briefly,
-                // refuse the personal topic, and redirect into task management.
-                if ($this->isLikelyEmotionalOffDomain($userMessage) && $forcedClarifyingQuestion === null) {
-                    $response = $this->emotionalOffDomainMessageVariant();
-                    $mode = self::MODE_OFF_TOPIC;
-                }
-
-                $redirectTarget = $this->normalizeRedirectTarget((string) ($payload['redirect_target'] ?? 'either'));
-                if ($nextStepGuidance === '') {
-                    $nextStepGuidance = $this->defaultNextStepGuidance($redirectTarget);
-                }
-
-                $response = $this->clampString($response, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
-                $response = $this->simplifyGeneralGuidanceMessage($response);
-                $response = $this->sanitizeUserFacingLanguage($response);
-                $response = $this->lightweightResponsePolish($mode, $response, $userMessage);
-                $nextStepGuidance = $this->clampString($nextStepGuidance, 360);
-                $nextStepGuidance = $this->sanitizeUserFacingLanguage($nextStepGuidance);
-                if ($mode === self::MODE_FRIENDLY_GENERAL) {
-                    $nextStepGuidance = $this->enforceFriendlyGeneralHighLevelGuidance($nextStepGuidance);
-                }
-                $nextStepGuidance = $this->enforceUnifiedNextStepGuidance($nextStepGuidance, $userMessage);
-
-                $clarifyingQuestion = $this->normalizeGeneralGuidanceText($clarifyingQuestion);
-                if ($mode === self::MODE_GIBBERISH_UNCLEAR) {
-                    if ($clarifyingQuestion === '') {
-                        $clarifyingQuestion = 'I did not catch that. Can you rephrase your request in one short sentence?';
-                    }
-                    $clarifyingQuestion = $this->clampString($clarifyingQuestion, self::MAX_GENERAL_GUIDANCE_QUESTION_CHARS);
-                    if (! str_ends_with($clarifyingQuestion, '?')) {
-                        $clarifyingQuestion = rtrim($clarifyingQuestion, " \t\n\r\0\x0B.").'?';
-                    }
-                } else {
-                    $clarifyingQuestion = '';
-                }
-
-                if ($mode === self::MODE_OFF_TOPIC && $redirectTarget === '') {
-                    $redirectTarget = 'either';
-                }
-                if ($mode !== self::MODE_OFF_TOPIC) {
-                    $redirectTarget = '';
-                }
-
-                $suggestedReplies = $this->normalizeSuggestedReplies($suggestedReplies);
-
-                if ($suggestedReplies === null) {
-                    $suggestedReplies = match ($redirectTarget) {
-                        'prioritize' => [
-                            'Show my top tasks.',
-                            'Help me pick my next priority.',
-                        ],
-                        'schedule' => [
-                            'Plan time blocks for my tasks.',
-                            'Schedule focused work time for my next task.',
-                        ],
-                        default => [
-                            'Prioritize my tasks.',
-                            'Schedule time blocks for my tasks.',
-                        ],
+                if ($acknowledgement === '') {
+                    $acknowledgement = match ($intent) {
+                        self::INTENT_OUT_OF_SCOPE => "That's an interesting question.",
+                        self::INTENT_UNCLEAR => "I didn't quite catch that yet.",
+                        default => 'I hear you.',
                     };
                 }
 
+                if ($framing === '') {
+                    $framing = match ($intent) {
+                        self::INTENT_OUT_OF_SCOPE => "That request is outside task planning, so I'll keep us focused on what I can help with.",
+                        self::INTENT_UNCLEAR => "Your message isn't clear enough yet for me to identify a task request.",
+                        default => "You're asking for general support before we choose a specific planning flow.",
+                    };
+                }
+
+                if ($response === '') {
+                    $response = match ($intent) {
+                        self::INTENT_OUT_OF_SCOPE => "I'm focused on helping you manage tasks and take action. I can't help with that unrelated topic, but I can help you get organized right now.",
+                        self::INTENT_UNCLEAR => "I'm here to help with tasks and next steps. Rephrase what you need in one short sentence, and I'll help you move forward.",
+                        default => "Let's keep this simple and actionable. We can pick one clear next step and build momentum from there.",
+                    };
+                }
+
+                $acknowledgement = $this->clampString($acknowledgement, 220);
+                $framing = $this->clampString($framing, 320);
+                $response = $this->clampString($response, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
+
+                $suggestedNextActions = $this->enforceSuggestedNextActions($suggestedNextActions, $intent);
+
                 return [
-                    'guidance_mode' => $mode,
+                    'intent' => $intent,
+                    'acknowledgement' => $acknowledgement,
+                    'framing' => $framing,
                     'response' => $response,
-                    'next_step_guidance' => $nextStepGuidance,
-                    'clarifying_question' => $clarifyingQuestion !== '' ? $clarifyingQuestion : null,
-                    'redirect_target' => $redirectTarget !== '' ? $redirectTarget : null,
-                    'suggested_replies' => $suggestedReplies,
+                    'suggested_next_actions' => $suggestedNextActions,
                 ];
             } catch (\Throwable $e) {
                 if ($attempt === $maxRetries) {
@@ -216,44 +184,30 @@ final class TaskAssistantGeneralGuidanceService
                     ]);
 
                     return [
-                        'guidance_mode' => $resolvedMode,
+                        'intent' => $resolvedIntent,
+                        'acknowledgement' => 'I hear you.',
+                        'framing' => $resolvedIntent === self::INTENT_UNCLEAR
+                            ? "Your message isn't clear enough yet for me to identify a task request."
+                            : 'You are asking for guidance before choosing the next planning step.',
                         'response' => $timeLabelForFallback !== null
-                            ? "Thanks for asking. Right now, it's {$timeLabelForFallback} for you."
-                            : 'Thanks for sharing. I can help make this feel more manageable with one clear next step.',
-                        'next_step_guidance' => $this->enforceUnifiedNextStepGuidance(
-                            $this->defaultNextStepGuidance($resolvedMode === self::MODE_OFF_TOPIC ? 'either' : '', $userMessage),
-                            $userMessage
-                        ),
-                        'clarifying_question' => $resolvedMode === self::MODE_GIBBERISH_UNCLEAR
-                            ? ($forcedClarifyingQuestion ?? 'I did not catch that. Can you rephrase your request in one short sentence?')
-                            : null,
-                        'redirect_target' => $resolvedMode === self::MODE_OFF_TOPIC ? 'either' : null,
-                        'suggested_replies' => [
-                            'Show my top tasks.',
-                            'Plan time blocks for my tasks.',
-                        ],
+                            ? "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action."
+                            : 'I can help make this manageable with one clear next step.',
+                        'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
                     ];
                 }
             }
         }
 
         return [
-            'guidance_mode' => $resolvedMode,
+            'intent' => $resolvedIntent,
+            'acknowledgement' => 'I hear you.',
+            'framing' => $resolvedIntent === self::INTENT_UNCLEAR
+                ? "Your message isn't clear enough yet for me to identify a task request."
+                : 'You are asking for guidance before choosing the next planning step.',
             'response' => $timeLabelForFallback !== null
-                ? "Thanks for asking. Right now, it's {$timeLabelForFallback} for you."
-                : 'Thanks for sharing. I can help make this feel more manageable with one clear next step.',
-            'next_step_guidance' => $this->enforceUnifiedNextStepGuidance(
-                $this->defaultNextStepGuidance($resolvedMode === self::MODE_OFF_TOPIC ? 'either' : '', $userMessage),
-                $userMessage
-            ),
-            'clarifying_question' => $resolvedMode === self::MODE_GIBBERISH_UNCLEAR
-                ? ($forcedClarifyingQuestion ?? 'I did not catch that. Can you rephrase your request in one short sentence?')
-                : null,
-            'redirect_target' => $resolvedMode === self::MODE_OFF_TOPIC ? 'either' : null,
-            'suggested_replies' => [
-                'Show my top tasks.',
-                'Plan time blocks for my tasks.',
-            ],
+                ? "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action."
+                : 'I can help make this feel more manageable with one clear next step.',
+            'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
         ];
     }
 
@@ -468,18 +422,141 @@ final class TaskAssistantGeneralGuidanceService
         return $normalized;
     }
 
-    private function lightweightResponsePolish(string $mode, string $response, string $userMessage): string
+    private function normalizeIntent(string $intent): string
+    {
+        $normalized = mb_strtolower(trim($intent));
+
+        return match ($normalized) {
+            self::INTENT_OUT_OF_SCOPE, 'off_topic', 'offtopic' => self::INTENT_OUT_OF_SCOPE,
+            self::INTENT_UNCLEAR, 'gibberish_unclear', 'gibberish' => self::INTENT_UNCLEAR,
+            default => self::INTENT_TASK,
+        };
+    }
+
+    private function intentFromMode(string $mode): string
+    {
+        return match ($mode) {
+            self::MODE_OFF_TOPIC => self::INTENT_OUT_OF_SCOPE,
+            self::MODE_GIBBERISH_UNCLEAR => self::INTENT_UNCLEAR,
+            default => self::INTENT_TASK,
+        };
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function normalizeSuggestedNextActions(mixed $suggestedNextActions): ?array
+    {
+        if (! is_array($suggestedNextActions)) {
+            return null;
+        }
+
+        $clean = array_values(array_filter(array_map(static function (mixed $v): string {
+            return trim((string) $v);
+        }, $suggestedNextActions), static fn (string $v): bool => $v !== ''));
+
+        if ($clean === []) {
+            return null;
+        }
+
+        $clean = array_slice($clean, 0, 3);
+        $clean = array_values(array_map(fn (string $s): string => $this->clampString($s, self::MAX_GENERAL_GUIDANCE_SUGGESTED_REPLY_CHARS), $clean));
+        $clean = array_values(array_filter($clean, static fn (string $s): bool => mb_strlen($s) >= 1));
+
+        return $clean === [] ? null : $clean;
+    }
+
+    /**
+     * @param  list<string>|null  $actions
+     * @return list<string>
+     */
+    private function enforceSuggestedNextActions(?array $actions, string $intent): array
+    {
+        $clean = $actions ?? [];
+        $clean = array_values(array_filter(array_map(
+            fn (string $line): string => $this->sanitizeUserFacingLanguage($this->normalizeGeneralGuidanceText($line)),
+            $clean
+        ), static fn (string $line): bool => $line !== ''));
+
+        $mustInclude = [
+            'Prioritize my tasks.',
+            'Schedule time blocks for my tasks.',
+        ];
+
+        $intentSpecific = match ($intent) {
+            self::INTENT_OUT_OF_SCOPE => ['Tell me one real task I need to do today.'],
+            self::INTENT_UNCLEAR => ['Rephrase what you need help with in one short sentence.'],
+            default => ['Tell me what to do first today.'],
+        };
+
+        $contextual = null;
+        foreach ($clean as $line) {
+            $lower = mb_strtolower($line);
+            $isPrioritize = str_contains($lower, 'priorit');
+            $isSchedule = str_contains($lower, 'schedule') || str_contains($lower, 'time block');
+            if (! $isPrioritize && ! $isSchedule) {
+                $contextual = $line;
+                break;
+            }
+        }
+
+        if ($contextual === null && $intentSpecific !== []) {
+            $contextual = $intentSpecific[0];
+        }
+
+        $ordered = [];
+        if ($contextual !== null && trim($contextual) !== '') {
+            $ordered[] = $contextual;
+        }
+        $ordered = array_merge($ordered, $mustInclude);
+
+        return array_slice(array_values(array_unique($ordered)), 0, 3);
+    }
+
+    private function lightweightAcknowledgementPolish(string $intent, string $acknowledgement): string
+    {
+        $ack = trim($acknowledgement);
+        if ($ack !== '') {
+            return $ack;
+        }
+
+        return match ($intent) {
+            self::INTENT_OUT_OF_SCOPE => "That's an interesting question.",
+            self::INTENT_UNCLEAR => "I didn't quite catch that yet.",
+            default => 'I hear you.',
+        };
+    }
+
+    private function lightweightFramingPolish(string $intent, string $framing, string $userMessage): string
+    {
+        $normalized = trim($framing);
+        if ($normalized !== '') {
+            return $normalized;
+        }
+        $topicLabel = $this->inferTopicLabel($userMessage);
+
+        return match ($intent) {
+            self::INTENT_OUT_OF_SCOPE => $topicLabel !== ''
+                ? "You're asking about {$topicLabel}, which falls outside task planning."
+                : "You're asking about a topic outside task planning.",
+            self::INTENT_UNCLEAR => "Your message doesn't form a clear request yet.",
+            default => "You're asking for guidance before choosing a concrete planning action.",
+        };
+    }
+
+    private function lightweightResponsePolish(string $intent, string $response, string $userMessage): string
     {
         $normalized = trim($response);
-        $topic = $this->extractUserTopicSnippet($userMessage);
-        $ack = $topic !== '' ? "I hear what you're asking about {$topic}." : 'I hear you.';
+        $ack = 'I hear you.';
 
         if ($normalized === '') {
             $normalized = $ack;
         }
 
-        if ($mode === self::MODE_OFF_TOPIC) {
-            if ($topic !== '' && mb_stripos($normalized, $topic) === false) {
+        if ($intent === self::INTENT_OUT_OF_SCOPE) {
+            if (mb_stripos($normalized, 'i hear you') === false
+                && mb_stripos($normalized, "i'm sorry") === false
+                && mb_stripos($normalized, "that's an interesting") === false) {
                 $normalized = $ack.' '.$normalized;
             }
             if (mb_stripos($normalized, "can't help") === false && mb_stripos($normalized, 'cannot help') === false) {
@@ -488,15 +565,19 @@ final class TaskAssistantGeneralGuidanceService
             if (mb_stripos($normalized, 'task assistant') === false) {
                 $normalized .= " I'm a task assistant focused on task planning.";
             }
-        } elseif ($mode === self::MODE_GIBBERISH_UNCLEAR) {
-            $normalized = 'I did not fully understand what you meant yet.';
-            if ($topic !== '') {
-                $normalized = "I did not fully understand what you meant by \"{$topic}\" yet.";
+        } elseif ($intent === self::INTENT_UNCLEAR) {
+            if ($normalized === '') {
+                $normalized = 'I did not fully understand what you meant yet.';
             }
-            $normalized .= ' Could you rephrase it in one short sentence.';
+            $needsRephraseCue = mb_stripos($normalized, 'rephrase') === false
+                && mb_stripos($normalized, 'clarify') === false
+                && mb_stripos($normalized, 'say that again') === false;
+            if ($needsRephraseCue) {
+                $normalized .= ' Please rephrase it in one short sentence.';
+            }
         } else {
-            if ($topic !== '' && mb_stripos($normalized, $topic) === false) {
-                $normalized = $ack.' '.$normalized;
+            if ($normalized === '') {
+                $normalized = 'Let us start with one manageable step and build from there.';
             }
         }
 
@@ -505,6 +586,82 @@ final class TaskAssistantGeneralGuidanceService
         $normalized = rtrim($normalized, " \t\n\r\0\x0B");
 
         return $this->clampString($normalized, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
+    }
+
+    private function humanizeTone(string $text, string $intent, string $userMessage): string
+    {
+        $value = $this->normalizeGeneralGuidanceText($text);
+        if ($value === '') {
+            return '';
+        }
+
+        // Avoid robotic lead-ins and overly formal assistant language.
+        $value = preg_replace('/\b(task planning|planning action)\b/iu', 'your next step', $value) ?? $value;
+        $value = preg_replace('/\bI can assist you\b/iu', 'I can help', $value) ?? $value;
+        $value = preg_replace('/\bYou are asking\b/iu', "You're asking", $value) ?? $value;
+        $value = preg_replace('/\bLet us\b/iu', "Let's", $value) ?? $value;
+
+        // If output is too generic, add a short contextual anchor (paraphrased).
+        if ($this->looksGeneric($value)) {
+            $anchor = $this->inferTopicLabel($userMessage);
+            if ($anchor !== '') {
+                $value = rtrim($value, '.').". We can focus on {$anchor} first.";
+            }
+        }
+
+        // Keep out-of-scope tone boundary gentle and student-oriented.
+        if ($intent === self::INTENT_OUT_OF_SCOPE && mb_stripos($value, "can't help") === false) {
+            $value .= " I can't help with that topic, but I can help you move forward with your tasks.";
+        }
+
+        return $this->clampString($this->normalizeGeneralGuidanceText($value), self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
+    }
+
+    private function looksGeneric(string $text): bool
+    {
+        $lower = mb_strtolower($text);
+        $genericMarkers = [
+            'i hear you',
+            'i can help',
+            'one clear next step',
+            'your next step',
+            'task assistant',
+        ];
+
+        $hits = 0;
+        foreach ($genericMarkers as $marker) {
+            if (str_contains($lower, $marker)) {
+                $hits++;
+            }
+        }
+
+        return $hits >= 2 && mb_strlen($lower) < 220;
+    }
+
+    private function inferTopicLabel(string $userMessage): string
+    {
+        $message = mb_strtolower($this->extractUserTopicSnippet($userMessage));
+        if ($message === '') {
+            return '';
+        }
+
+        $map = [
+            'time management' => ['time', 'schedule', 'day plan'],
+            'feeling overwhelmed' => ['overwhelmed', 'stressed', 'stress', 'burnout'],
+            'an unclear request' => ['asd', 'qwe', 'dwad', 'bkwajh'],
+            'an unrelated topic' => ['ufc', 'fighter', 'president', 'politics', 'relationship', 'partner'],
+            'task planning' => ['task', 'prioritize', 'next step', 'to do', 'todo'],
+        ];
+
+        foreach ($map as $label => $needles) {
+            foreach ($needles as $needle) {
+                if (str_contains($message, $needle)) {
+                    return $label;
+                }
+            }
+        }
+
+        return '';
     }
 
     private function extractUserTopicSnippet(string $userMessage): string

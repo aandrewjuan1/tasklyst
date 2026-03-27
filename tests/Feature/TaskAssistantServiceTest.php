@@ -180,9 +180,14 @@ test('greeting is routed to general_guidance and persists structured metadata', 
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'friendly_general',
-                'response' => 'Hello. I can help you organize tasks and time.',
-                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks next. Which would you like to start with?',
+                'intent' => 'task',
+                'acknowledgement' => 'Hello.',
+                'framing' => 'You are starting with a general task-assistant request.',
+                'response' => 'I can help you organize tasks and time.',
+                'suggested_next_actions' => [
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
+                ],
             ])
             ->withUsage(new Usage(1, 2)),
     ]);

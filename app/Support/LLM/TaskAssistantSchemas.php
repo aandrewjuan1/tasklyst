@@ -238,44 +238,41 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'general_guidance',
-            description: 'General help for greetings/help prompts, gibberish clarification, and off-topic boundaries. Do not mention snapshot, JSON, backend, database, or other internal terms. Output only the guidance fields.',
+            description: 'General help for greetings/help prompts, gibberish/unclear input, and out-of-scope boundaries. Do not mention snapshot, JSON, backend, database, or other internal terms. Output only these intent-driven fields.',
             properties: [
                 new StringSchema(
-                    name: 'guidance_mode',
-                    description: 'One of: friendly_general, gibberish_unclear, off_topic.',
+                    name: 'intent',
+                    description: 'One of: task, out_of_scope, unclear.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'acknowledgement',
+                    description: 'One short empathetic acknowledgement sentence in clear user-facing language.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'framing',
+                    description: 'One short sentence that interprets user intent or lack of clarity in supportive language.',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'response',
-                    description: 'Primary response body (2-4 short sentences) that combines acknowledgement and role message in one section. Must acknowledge the user request content in supportive language, keep task-assistant role framing, and stay declarative (no clarifying question here). Mode requirements: friendly_general -> acknowledge + task-assistant framing; off_topic -> acknowledge + explicit out-of-scope boundary + role framing; gibberish_unclear -> acknowledge unclear input + ask for rephrase in declarative style without question marks.',
+                    description: 'Primary response body (1-3 short sentences). Must stay task-assistant oriented and action-oriented.',
                     nullable: false
-                ),
-                new StringSchema(
-                    name: 'next_step_guidance',
-                    description: 'Final section. One short actionable paragraph that always mentions both options (prioritize tasks and schedule time blocks), then asks which the user wants first. In friendly_general mode keep this high-level and do not refer to specific task titles or IDs.',
-                    nullable: false
-                ),
-                new StringSchema(
-                    name: 'clarifying_question',
-                    description: 'Required only when guidance_mode is gibberish_unclear: one short rephrase question ending with a single question mark.',
-                    nullable: true
-                ),
-                new StringSchema(
-                    name: 'redirect_target',
-                    description: 'Required only when guidance_mode is off_topic. Allowed values: prioritize, schedule, or either.',
-                    nullable: true
                 ),
                 new ArraySchema(
-                    name: 'suggested_replies',
-                    description: 'Optional 2-3 short suggested user replies aligned to the mode and next-step guidance.',
-                    items: new StringSchema(name: 'reply', description: 'One suggested reply.'),
-                    nullable: true
+                    name: 'suggested_next_actions',
+                    description: '2-3 short actionable follow-ups. Must include explicit prioritize/schedule options.',
+                    items: new StringSchema(name: 'action', description: 'One suggested next action.'),
+                    nullable: false
                 ),
             ],
             requiredFields: [
-                'guidance_mode',
+                'intent',
+                'acknowledgement',
+                'framing',
                 'response',
-                'next_step_guidance',
+                'suggested_next_actions',
             ]
         );
     }
