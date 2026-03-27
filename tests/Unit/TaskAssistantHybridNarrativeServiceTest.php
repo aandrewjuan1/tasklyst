@@ -762,7 +762,7 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
         userId: 1,
     );
 
-    expect($result['framing'])->toBe('Here are your top priorities in a simple order you can start now.');
+    expect($result['framing'])->toBe('Here is your top priority in a simple order you can start now.');
 });
 
 test('refinePrioritizeListing handles mixed entity types without insight field', function (): void {

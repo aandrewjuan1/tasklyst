@@ -83,7 +83,6 @@ final class IntentRoutingPolicy
 
         if ($this->isLikelyDirectPrioritizeFirstPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize');
-            $constraints['count_limit'] = 1;
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -93,7 +92,7 @@ final class IntentRoutingPolicy
                 'outcome' => 'prioritize_first_shortcircuit',
                 'flow' => 'prioritize',
                 'constraints' => [
-                    'count_limit' => 1,
+                    'count_limit' => $constraints['count_limit'] ?? 1,
                     'time_window_hint' => $constraints['time_window_hint'] ?? null,
                     'target_entities_count' => is_array($constraints['target_entities'] ?? null)
                         ? count($constraints['target_entities'])
@@ -326,16 +325,16 @@ final class IntentRoutingPolicy
             return max(1, min((int) ($matches[2] ?? 3), 10));
         }
 
+        if (preg_match('/\b(top|first|next|only|limit)\s+(\d+)\b/', $normalized, $matches) === 1) {
+            return max(1, min((int) ($matches[2] ?? 3), 10));
+        }
+
         if (preg_match('/\bwhat\s+should\s+i\s+do\s+first\b/i', $normalized) === 1) {
             return 1;
         }
 
         if (preg_match('/\bdo\s+first\b/i', $normalized) === 1) {
             return 1;
-        }
-
-        if (preg_match('/\b(top|first|only|limit)\s+(\d+)\b/', $normalized, $matches) === 1) {
-            return max(1, min((int) ($matches[2] ?? 3), 10));
         }
 
         return 3;

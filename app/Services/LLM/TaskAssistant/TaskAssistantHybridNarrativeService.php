@@ -28,11 +28,13 @@ final class TaskAssistantHybridNarrativeService
         );
     }
 
-    private function sanitizeFraming(string $framing): string
+    private function sanitizeFraming(string $framing, int $listedTaskCount): string
     {
         $framing = trim($framing);
         if ($framing === '' || $this->containsVisibilityOverclaim($framing)) {
-            return 'Here are your top priorities in a simple order you can start now.';
+            return $listedTaskCount <= 1
+                ? 'Here is your top priority in a simple order you can start now.'
+                : 'Here are your top priorities in a simple order you can start now.';
         }
 
         $lower = mb_strtolower($framing);
@@ -43,7 +45,15 @@ final class TaskAssistantHybridNarrativeService
             || str_contains($lower, 'based on your upcoming tasks')
             || str_contains($lower, 'based on your tasks')
         ) {
-            return 'Here are your top priorities in a simple order you can start now.';
+            return $listedTaskCount <= 1
+                ? 'Here is your top priority in a simple order you can start now.'
+                : 'Here are your top priorities in a simple order you can start now.';
+        }
+
+        // Keep count references coherent with the actual listed items count.
+        if ($listedTaskCount <= 1) {
+            $framing = preg_replace('/\btop\s+\d+\b/iu', 'top priority', $framing) ?? $framing;
+            $framing = preg_replace('/\b(top\s+three|top\s+3)\b/iu', 'top priority', $framing) ?? $framing;
         }
 
         return $framing;
@@ -609,7 +619,7 @@ final class TaskAssistantHybridNarrativeService
                 ? trim($deterministicSummary)
                 : 'Here is a focused list you can act on right away.';
         }
-        $framing = $this->sanitizeFraming((string) $framing);
+        $framing = $this->sanitizeFraming((string) $framing, $listedTaskCount);
 
         if ($nextOptions === null || trim($nextOptions) === '') {
             $nextOptions = __('If you want, I can schedule these steps for later.');
