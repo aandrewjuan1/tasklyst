@@ -97,6 +97,24 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyOffTopicPrompt($normalized)) {
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'thread_id' => $thread->id,
+                'outcome' => 'off_topic_heuristic_general_guidance',
+                'flow' => 'general_guidance',
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: 1.0,
+                reasonCodes: ['off_topic_heuristic_general_guidance', 'intent_off_topic'],
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyTimeQuery($normalized)) {
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
@@ -433,5 +451,34 @@ final class IntentRoutingPolicy
         }
 
         return true;
+    }
+
+    private function isLikelyOffTopicPrompt(string $normalized): bool
+    {
+        if ($normalized === '' || $this->isLikelyTimeQuery($normalized)) {
+            return false;
+        }
+
+        $taskKeywords = [
+            'task', 'tasks', 'prioritize', 'priority', 'schedule', 'time block', 'time blocks',
+            'calendar', 'study', 'deadline', 'project', 'focus', 'plan my day', 'to do', 'todo',
+        ];
+        foreach ($taskKeywords as $keyword) {
+            if (str_contains($normalized, $keyword)) {
+                return false;
+            }
+        }
+
+        $offTopicMarkers = [
+            'best ', 'who is', 'why he', 'why she', 'relationship', 'politics', 'president',
+            'shoes', 'cook', 'martial artist', 'love me', 'keyboard', 'laptop', 'phone',
+        ];
+        foreach ($offTopicMarkers as $marker) {
+            if (str_contains($normalized, $marker)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

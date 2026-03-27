@@ -88,33 +88,29 @@ final class TaskAssistantIntentResolutionService
         }
 
         if ($llmIntent === TaskAssistantUserIntent::OffTopic) {
-            $minConf = (float) config('task-assistant.intent.off_topic_min_confidence', 0.65);
-            if ($llmConf >= $minConf) {
-                $this->logResolution(
-                    $thread,
-                    $llmIntent->value,
-                    $llmConf,
-                    $signals,
-                    'general_guidance',
-                    array_values(array_unique(array_merge(
-                        $reasonCodes,
-                        ['intent_off_topic']
-                    ))),
-                    false
-                );
+            // Off-topic should always take the general-guidance guardrail path so
+            // we never "helpfully answer" unrelated questions (e.g. product recs).
+            // Confidence can be low, but the policy should still protect scope.
+            $reasonCodes = array_values(array_unique(array_merge($reasonCodes, ['intent_off_topic'])));
 
-                return new IntentRoutingDecision(
-                    flow: 'general_guidance',
-                    confidence: $llmConf,
-                    reasonCodes: array_values(array_unique(array_merge(
-                        $reasonCodes,
-                        ['intent_off_topic']
-                    ))),
-                    constraints: [],
-                    clarificationNeeded: false,
-                    clarificationQuestion: null,
-                );
-            }
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'general_guidance',
+                $reasonCodes,
+                false
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'general_guidance',
+                confidence: $llmConf,
+                reasonCodes: $reasonCodes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
         }
 
         $strongestSignalKey = $this->strongestSignalKey($signals);
