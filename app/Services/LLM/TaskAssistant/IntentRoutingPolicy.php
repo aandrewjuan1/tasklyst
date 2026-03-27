@@ -356,8 +356,41 @@ final class IntentRoutingPolicy
 
     private function isLikelyGibberish(string $normalized): bool
     {
-        if ($normalized === '' || str_contains($normalized, ' ')) {
+        if ($normalized === '') {
             return false;
+        }
+
+        $hasTaskKeyword = preg_match('/\b(task|tasks|prioritize|schedule|time block|todo|to do|plan)\b/u', $normalized) === 1;
+        if ($hasTaskKeyword) {
+            return false;
+        }
+
+        $hasStrongOffTopicEntity = preg_match('/\b(president|ufc|fighter|politics|election|nba|movie|celebrity)\b/u', $normalized) === 1;
+        if ($hasStrongOffTopicEntity) {
+            return false;
+        }
+
+        $hasProfanity = preg_match('/\b(tangina|putangina|gago|ulol|bwisit|fuck|shit)\b/u', $normalized) === 1;
+        if ($hasProfanity && mb_strlen($normalized) <= 48) {
+            return true;
+        }
+
+        // Prefer unclear for noisy mixed text with weak lexical signals.
+        if (str_contains($normalized, ' ') && mb_strlen($normalized) <= 48) {
+            $alphaCount = preg_match_all('/\p{L}/u', $normalized);
+            $wordCount = preg_match_all('/\b[\p{L}\p{N}]+\b/u', $normalized);
+            $hasCommonBigram = false;
+            $commonBigrams = ['th', 'he', 'in', 'er', 'an', 're', 'on', 'at', 'en', 'nd', 'ti', 'es', 'or', 'te', 'of'];
+            foreach ($commonBigrams as $bigram) {
+                if (mb_stripos($normalized, $bigram) !== false) {
+                    $hasCommonBigram = true;
+                    break;
+                }
+            }
+
+            if ($wordCount <= 4 && $alphaCount <= 28 && ! $hasCommonBigram) {
+                return true;
+            }
         }
 
         if (mb_strlen($normalized) < 9) {

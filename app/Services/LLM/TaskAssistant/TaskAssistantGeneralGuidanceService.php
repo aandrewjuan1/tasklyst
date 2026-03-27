@@ -29,8 +29,6 @@ final class TaskAssistantGeneralGuidanceService
 
     private const MAX_GENERAL_GUIDANCE_MESSAGE_CHARS = 500;
 
-    private const MAX_GENERAL_GUIDANCE_QUESTION_CHARS = 220;
-
     private const MAX_GENERAL_GUIDANCE_SUGGESTED_REPLY_CHARS = 140;
 
     public function __construct(
@@ -81,7 +79,8 @@ final class TaskAssistantGeneralGuidanceService
                 'Do not output generic boilerplate if the prompt gives concrete context. '.
                 'Use concise, supportive wording grounded in the user message. '.
                 'Write natural conversational English for a student. Prefer verbal clauses over nominalized/formal phrasing. '.
-                'Do not quote or parrot the full user message. Paraphrase the meaning naturally.'
+                'Do not quote or parrot the full user message. Paraphrase the meaning naturally. '.
+                'Field boundaries are strict: acknowledgement=1 short empathy sentence, framing=1 short interpretation sentence, response=1-2 actionable sentences.'
             ),
         ]);
 
@@ -162,9 +161,9 @@ final class TaskAssistantGeneralGuidanceService
                     };
                 }
 
-                $acknowledgement = $this->clampString($acknowledgement, 220);
-                $framing = $this->clampString($framing, 320);
-                $response = $this->clampString($response, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
+                $acknowledgement = $this->clampAtSentenceBoundary($acknowledgement, 220);
+                $framing = $this->clampAtSentenceBoundary($framing, 320);
+                $response = $this->clampAtSentenceBoundary($response, self::MAX_GENERAL_GUIDANCE_MESSAGE_CHARS);
 
                 $suggestedNextActions = $this->enforceSuggestedNextActions($suggestedNextActions, $intent);
 
@@ -226,6 +225,10 @@ final class TaskAssistantGeneralGuidanceService
             return self::MODE_GIBBERISH_UNCLEAR;
         }
 
+        if ($this->isLikelyNoisyUnclearPrompt($userMessage)) {
+            return self::MODE_GIBBERISH_UNCLEAR;
+        }
+
         if ($this->isLikelyOffTopicPrompt($userMessage)) {
             return self::MODE_OFF_TOPIC;
         }
@@ -283,32 +286,6 @@ final class TaskAssistantGeneralGuidanceService
         };
     }
 
-    /**
-     * @return list<string>|null
-     */
-    private function normalizeSuggestedReplies(mixed $suggestedReplies): ?array
-    {
-        if (! is_array($suggestedReplies)) {
-            return null;
-        }
-
-        $clean = array_values(array_filter(array_map(static function (mixed $v): string {
-            return trim((string) $v);
-        }, $suggestedReplies), static fn (string $v): bool => $v !== ''));
-
-        if ($clean === []) {
-            return null;
-        }
-
-        $clean = array_slice($clean, 0, 3);
-        $clean = array_values(array_map(fn (string $s): string => $this->clampString($s, self::MAX_GENERAL_GUIDANCE_SUGGESTED_REPLY_CHARS), $clean));
-
-        // Ensure suggested replies still meet min length.
-        $clean = array_values(array_filter($clean, static fn (string $s): bool => mb_strlen($s) >= 1));
-
-        return $clean === [] ? null : $clean;
-    }
-
     private function normalizeGeneralGuidanceText(string $value): string
     {
         $value = trim($value);
@@ -321,43 +298,6 @@ final class TaskAssistantGeneralGuidanceService
         $value = preg_replace('/\s+/u', ' ', $value);
 
         return trim((string) $value);
-    }
-
-    private function buildAcknowledgement(string $userMessage): string
-    {
-        $normalized = trim($userMessage);
-        if ($normalized === '') {
-            return 'Thanks for your message.';
-        }
-
-        if ($this->isLikelyGibberish($userMessage)) {
-            return "Thanks for reaching out. I couldn't fully understand that message yet.";
-        }
-
-        if ($this->isLikelyTimeQuery($userMessage)) {
-            return 'Thanks for asking about your current time.';
-        }
-
-        $topic = trim(preg_replace('/\s+/u', ' ', $normalized) ?? $normalized);
-        $topic = mb_substr($topic, 0, 80);
-
-        return "Thanks for sharing what you need help with: \"{$topic}\".";
-    }
-
-    private function defaultNextStepGuidance(string $redirectTarget, string $seed = ''): string
-    {
-        $variants = [
-            'I can help you prioritize your tasks or schedule time blocks for them. Which one do you want to start with first?',
-            "If you're ready, we can either prioritize your tasks or schedule time blocks. Which should we do first?",
-            'We can take the next step by prioritizing your tasks or scheduling time blocks. Which one would you like first?',
-        ];
-        $pick = $this->pickVariantIndex($variants, $seed !== '' ? $seed : $redirectTarget);
-
-        return match ($redirectTarget) {
-            'prioritize' => 'Nice progress so far. I can prioritize your tasks first or schedule time blocks for them next. Which one do you want to start with?',
-            'schedule' => 'Nice progress so far. I can schedule time blocks first or prioritize your tasks first. Which one do you want to start with?',
-            default => $variants[$pick],
-        };
     }
 
     private function sanitizeUserFacingLanguage(string $value): string
@@ -383,43 +323,6 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         return trim(preg_replace('/\s+/u', ' ', $sanitized) ?? $sanitized);
-    }
-
-    private function enforceFriendlyGeneralHighLevelGuidance(string $guidance): string
-    {
-        $normalized = trim($guidance);
-        if ($normalized === '') {
-            return $this->defaultNextStepGuidance('', $guidance);
-        }
-
-        $looksSpecific = preg_match('/\b(task|todo)\s*#?\d+\b/ui', $normalized) === 1
-            || preg_match('/\bexactly\s+\d+\b/ui', $normalized) === 1
-            || str_contains($normalized, '"');
-
-        if ($looksSpecific) {
-            return $this->defaultNextStepGuidance('', $guidance);
-        }
-
-        return trim($normalized);
-    }
-
-    private function enforceUnifiedNextStepGuidance(string $guidance, string $seed = ''): string
-    {
-        $normalized = trim($guidance);
-        if ($normalized === '') {
-            return $this->defaultNextStepGuidance('either', $seed);
-        }
-
-        $lower = mb_strtolower($normalized);
-        $mentionsPrioritize = str_contains($lower, 'priorit');
-        $mentionsSchedule = str_contains($lower, 'schedule') || str_contains($lower, 'time block');
-        $hasChoicePrompt = str_contains($lower, 'which') && str_contains($lower, 'first');
-
-        if (! $mentionsPrioritize || ! $mentionsSchedule || ! $hasChoicePrompt) {
-            return $this->defaultNextStepGuidance('either', $seed !== '' ? $seed : $guidance);
-        }
-
-        return $normalized;
     }
 
     private function normalizeIntent(string $intent): string
@@ -460,7 +363,7 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         $clean = array_slice($clean, 0, 3);
-        $clean = array_values(array_map(fn (string $s): string => $this->clampString($s, self::MAX_GENERAL_GUIDANCE_SUGGESTED_REPLY_CHARS), $clean));
+        $clean = array_values(array_map(fn (string $s): string => $this->clampAtSentenceBoundary($s, self::MAX_GENERAL_GUIDANCE_SUGGESTED_REPLY_CHARS), $clean));
         $clean = array_values(array_filter($clean, static fn (string $s): bool => mb_strlen($s) >= 1));
 
         return $clean === [] ? null : $clean;
@@ -596,10 +499,11 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         // Avoid robotic lead-ins and overly formal assistant language.
-        $value = preg_replace('/\b(task planning|planning action)\b/iu', 'your next step', $value) ?? $value;
         $value = preg_replace('/\bI can assist you\b/iu', 'I can help', $value) ?? $value;
         $value = preg_replace('/\bYou are asking\b/iu', "You're asking", $value) ?? $value;
         $value = preg_replace('/\bLet us\b/iu', "Let's", $value) ?? $value;
+        $value = preg_replace('/\bconcrete\s+your next step\b/iu', 'concrete next step', $value) ?? $value;
+        $value = preg_replace('/\bthe your\b/iu', 'your', $value) ?? $value;
 
         // If output is too generic, add a short contextual anchor (paraphrased).
         if ($this->looksGeneric($value)) {
@@ -636,6 +540,35 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         return $hits >= 2 && mb_strlen($lower) < 220;
+    }
+
+    private function isLikelyNoisyUnclearPrompt(string $userMessage): bool
+    {
+        $msg = mb_strtolower(trim($userMessage));
+        if ($msg === '') {
+            return false;
+        }
+
+        if ($this->isLikelyTimeQuery($msg)) {
+            return false;
+        }
+
+        $letters = preg_match_all('/\p{L}/u', $msg);
+        $spaces = substr_count($msg, ' ');
+        $hasProfanity = preg_match('/\b(tangina|putangina|gago|ulol|bwisit|fuck|shit)\b/u', $msg) === 1;
+        $hasClearOffTopicEntity = preg_match('/\b(president|ufc|fighter|politics|election|nba|movie|celebrity)\b/u', $msg) === 1;
+        $hasTaskKeyword = preg_match('/\b(task|tasks|prioritize|schedule|time block|todo|to do|plan)\b/u', $msg) === 1;
+
+        if ($hasTaskKeyword || $hasClearOffTopicEntity) {
+            return false;
+        }
+
+        // Multi-word noisy strings and profanity-only messages should prefer unclear.
+        if (($spaces >= 1 && $letters <= 28) || $hasProfanity) {
+            return true;
+        }
+
+        return false;
     }
 
     private function inferTopicLabel(string $userMessage): string
@@ -681,20 +614,6 @@ final class TaskAssistantGeneralGuidanceService
     /**
      * @param  list<string>  $variants
      */
-    private function pickVariantIndex(array $variants, string $seed): int
-    {
-        if ($variants === []) {
-            return 0;
-        }
-
-        $hash = crc32($seed);
-        if (! is_int($hash)) {
-            return 0;
-        }
-
-        return abs($hash) % count($variants);
-    }
-
     private function isLikelyGibberish(string $userMessage): bool
     {
         $msg = mb_strtolower(trim($userMessage));
@@ -751,89 +670,6 @@ final class TaskAssistantGeneralGuidanceService
         return true;
     }
 
-    private function emotionalOffDomainMessageVariant(): string
-    {
-        // Keep it declarative: message should not include the redirect question.
-        return "I'm really sorry you're feeling that way. I'm a task assistant, so I can't help with that personal topic - but I can help you get unstuck with your tasks.";
-    }
-
-    private function simplifyGeneralGuidanceMessage(string $message): string
-    {
-        $message = trim($message);
-        if ($message === '') {
-            return $message;
-        }
-
-        $message = preg_replace('/\s+/u', ' ', $message) ?? $message;
-
-        // Remove common greeting-only first sentence fragments to reduce repetition.
-        $message = preg_replace('/^(hi|hello|hey)\b[^.!?]{0,40}[.!?]\s*/iu', '', $message) ?? $message;
-
-        // Keep at most 2 sentences to avoid long "generic paragraphs".
-        $parts = preg_split('/(?<=[.!?])\s+/u', $message) ?: [];
-        if (count($parts) > 2) {
-            $message = trim(implode(' ', array_slice($parts, 0, 2)));
-        }
-
-        // If the message still contains question-leading phrasing, cut it off.
-        $questionStarters = ['would you', 'could you', 'let me know', 'how about', 'can you', 'would you like'];
-        $lower = mb_strtolower($message);
-        foreach ($questionStarters as $starter) {
-            $idx = mb_stripos($lower, $starter);
-            if ($idx !== false) {
-                $message = trim(mb_substr($message, 0, $idx));
-                break;
-            }
-        }
-
-        $message = rtrim($message, " \t\n\r\0\x0B-:;.");
-        if ($message !== '') {
-            $message .= '.';
-        }
-
-        return trim($message);
-    }
-
-    private function stripClarifyingQuestionFromMessage(string $message, string $clarifyingQuestion): string
-    {
-        if ($message === '' || $clarifyingQuestion === '') {
-            return $message;
-        }
-
-        // Exact overlap: message already includes the full question.
-        if (str_contains($message, $clarifyingQuestion)) {
-            $message = str_replace($clarifyingQuestion, '', $message);
-
-            return trim(preg_replace('/\s+/u', ' ', $message) ?: '');
-        }
-
-        // Heuristic: message includes a "Would you like / Do you want" tail.
-        $startTokens = ['would you like', 'do you want', 'if you want', 'which would you like', 'can you help'];
-        $lower = mb_strtolower($message);
-
-        $startIndex = null;
-        foreach ($startTokens as $token) {
-            $idx = mb_stripos($lower, $token);
-            if ($idx === false) {
-                continue;
-            }
-            $startIndex = $idx;
-            break;
-        }
-
-        if ($startIndex !== null) {
-            $message = mb_substr($message, 0, $startIndex);
-            $message = trim($message);
-
-            // Avoid trailing punctuation artifacts like ":" or "-" leftovers.
-            $message = rtrim($message, " \t\n\r\0\x0B-:;");
-
-            return trim(preg_replace('/\s+/u', ' ', $message) ?: '');
-        }
-
-        return $message;
-    }
-
     private function clampString(string $value, int $maxChars): string
     {
         $value = trim($value);
@@ -846,6 +682,37 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         return mb_substr($value, 0, $maxChars);
+    }
+
+    private function clampAtSentenceBoundary(string $value, int $maxChars): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        if (mb_strlen($value) <= $maxChars) {
+            return $value;
+        }
+
+        $slice = mb_substr($value, 0, $maxChars);
+        $lastPunctuation = max(
+            (int) (mb_strrpos($slice, '.') ?: 0),
+            (int) (mb_strrpos($slice, '!') ?: 0),
+            (int) (mb_strrpos($slice, '?') ?: 0)
+        );
+
+        if ($lastPunctuation > 20) {
+            return trim(mb_substr($slice, 0, $lastPunctuation + 1));
+        }
+
+        // Fall back to the last safe whitespace so we don't cut mid-word.
+        $lastSpace = mb_strrpos($slice, ' ');
+        if ($lastSpace !== false && $lastSpace > 20) {
+            return rtrim(mb_substr($slice, 0, $lastSpace), " \t\n\r\0\x0B.,;:-");
+        }
+
+        return rtrim($slice, " \t\n\r\0\x0B.,;:-");
     }
 
     /**
@@ -916,47 +783,6 @@ final class TaskAssistantGeneralGuidanceService
             'confidence' => 0.0,
             'rationale' => null,
         ];
-    }
-
-    private function normalizeRedirectTarget(string $redirectTarget): string
-    {
-        $t = mb_strtolower(trim($redirectTarget));
-
-        if (in_array($t, ['prioritize', 'priority'], true)) {
-            return 'prioritize';
-        }
-
-        if (in_array($t, [
-            'schedule',
-            'calendar',
-            'time block',
-            'timeblock',
-            'time blocks',
-            'time slot',
-            'time slots',
-            'time blocking',
-        ], true)) {
-            return 'schedule';
-        }
-
-        if (in_array($t, ['prioritizing', 'prioritization'], true)) {
-            return 'prioritize';
-        }
-
-        if (in_array($t, ['top tasks', 'next tasks', 'rank', 'ranking', 'order', 'do first'], true)) {
-            return 'prioritize';
-        }
-
-        // The model may emit "tasks"/"task list" when it means "prioritize".
-        if (in_array($t, ['tasks', 'task list', 'task', 'todo', 'to-do', 'to do', 'todos', 'to-dos'], true)) {
-            return 'either';
-        }
-
-        if (in_array($t, ['either', 'unknown', 'both'], true)) {
-            return 'either';
-        }
-
-        return 'either';
     }
 
     private function normalizeTarget(string $target): string

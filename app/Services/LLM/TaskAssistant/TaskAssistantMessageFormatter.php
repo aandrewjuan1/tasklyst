@@ -208,9 +208,9 @@ final class TaskAssistantMessageFormatter
      */
     private function formatGeneralGuidanceMessage(array $data): string
     {
-        $acknowledgement = trim((string) ($data['acknowledgement'] ?? ''));
-        $framing = trim((string) ($data['framing'] ?? ''));
-        $response = trim((string) ($data['response'] ?? ''));
+        $acknowledgement = $this->normalizeGuidanceSentence((string) ($data['acknowledgement'] ?? ''));
+        $framing = $this->normalizeGuidanceSentence((string) ($data['framing'] ?? ''));
+        $response = $this->normalizeGuidanceSentence((string) ($data['response'] ?? ''));
         $suggestedNextActions = is_array($data['suggested_next_actions'] ?? null)
             ? $this->normalizeStringList($data['suggested_next_actions'])
             : [];
@@ -233,13 +233,21 @@ final class TaskAssistantMessageFormatter
         ], static fn (string $segment): bool => $segment !== ''));
 
         $unique = [];
-        $seen = [];
         foreach ($segments as $segment) {
             $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $segment) ?? $segment));
-            if ($normalized === '' || isset($seen[$normalized])) {
+            if ($normalized === '') {
                 continue;
             }
-            $seen[$normalized] = true;
+            $isDuplicate = false;
+            foreach ($unique as $existing) {
+                if ($this->guidanceSimilarityScore($segment, $existing) >= 0.9) {
+                    $isDuplicate = true;
+                    break;
+                }
+            }
+            if ($isDuplicate) {
+                continue;
+            }
             $unique[] = $segment;
         }
 
@@ -481,6 +489,46 @@ final class TaskAssistantMessageFormatter
         $t = preg_replace('/\s+/u', ' ', $t) ?? $t;
 
         return mb_strtolower($t);
+    }
+
+    private function normalizeGuidanceSentence(string $text): string
+    {
+        $value = trim($text);
+        if ($value === '') {
+            return '';
+        }
+
+        $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+        $value = preg_replace('/\bthe your\b/iu', 'your', $value) ?? $value;
+        $value = preg_replace('/\bconcrete your next step\b/iu', 'concrete next step', $value) ?? $value;
+        $value = trim($value);
+
+        return $value;
+    }
+
+    private function guidanceSimilarityScore(string $left, string $right): float
+    {
+        $a = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $left) ?? $left));
+        $b = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $right) ?? $right));
+        if ($a === '' || $b === '') {
+            return 0.0;
+        }
+
+        $aTokens = preg_split('/[^\pL\pN]+/u', $a, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $bTokens = preg_split('/[^\pL\pN]+/u', $b, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($aTokens === [] || $bTokens === []) {
+            return 0.0;
+        }
+
+        $aSet = array_values(array_unique($aTokens));
+        $bSet = array_values(array_unique($bTokens));
+        $intersection = count(array_intersect($aSet, $bSet));
+        $union = count(array_unique(array_merge($aSet, $bSet)));
+        if ($union === 0) {
+            return 0.0;
+        }
+
+        return $intersection / $union;
     }
 
     private function tokenJaccardSimilarity(string $aNorm, string $bNorm): float
