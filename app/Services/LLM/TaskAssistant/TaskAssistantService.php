@@ -240,87 +240,11 @@ final class TaskAssistantService
                 }
             }
 
-            // If we previously asked a guidance question, resolve prioritize vs
-            // schedule from the user's answer, instead of re-running normal routing.
+            // Hard cutover: if legacy pending guidance state exists, clear it and
+            // continue with normal routing for the current user message.
             $pending = $this->conversationState->pendingGeneralGuidance($thread);
             if ($pending !== null) {
-                $targetResolution = $this->generalGuidanceService->resolveTargetFromAnswer(
-                    $thread->user,
-                    $pending['clarifying_question'],
-                    $content
-                );
-
-                $minConfidence = 0.55;
-                $target = (string) ($targetResolution['target'] ?? 'either');
-                $confidence = (float) ($targetResolution['confidence'] ?? 0.0);
-
-                $decisionForTarget = $target !== 'either' && $confidence >= $minConfidence;
-                if (! $decisionForTarget) {
-                    $this->runGeneralGuidanceFlow(
-                        thread: $thread,
-                        assistantMessage: $assistantMessage,
-                        userMessage: $pending['initial_user_message'],
-                        plan: new ExecutionPlan(
-                            flow: 'general_guidance',
-                            confidence: $confidence,
-                            clarificationNeeded: false,
-                            clarificationQuestion: null,
-                            reasonCodes: $pending['reason_codes'],
-                            constraints: [],
-                            targetEntities: [],
-                            timeWindowHint: null,
-                            countLimit: 3,
-                            generationProfile: 'general_guidance',
-                        ),
-                        forcedClarifyingQuestion: $pending['clarifying_question'],
-                    );
-
-                    return;
-                }
-
-                $forcedFlow = $target === 'schedule' ? 'schedule' : 'prioritize';
-
-                // Extract constraints for the forced flow. We do not want a second
-                // "full routing decision" that could disagree with the guidance target.
-                $constraints = $this->routingPolicy->extractConstraintsForFlow(
-                    $thread,
-                    $content,
-                    $forcedFlow
-                );
-                $countLimit = max(1, min((int) ($constraints['count_limit'] ?? 3), 10));
-                $timeWindowHint = is_string($constraints['time_window_hint'] ?? null) ? $constraints['time_window_hint'] : null;
-                $targetEntities = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
-
-                $finalConfidence = $confidence;
-                $reasonCodes = array_values(array_unique(array_merge(
-                    $pending['reason_codes'],
-                    ['general_guidance_target_'.$forcedFlow],
-                )));
-
-                $forcedPlan = new ExecutionPlan(
-                    flow: $forcedFlow,
-                    confidence: $finalConfidence,
-                    clarificationNeeded: false,
-                    clarificationQuestion: null,
-                    reasonCodes: $reasonCodes,
-                    constraints: $constraints,
-                    targetEntities: $targetEntities,
-                    timeWindowHint: $timeWindowHint,
-                    countLimit: $countLimit,
-                    generationProfile: $forcedFlow === 'schedule' ? 'schedule' : 'prioritize',
-                );
-
                 $this->conversationState->clearPendingGeneralGuidance($thread);
-
-                if ($forcedFlow === 'prioritize') {
-                    $this->runPrioritizeFlow($thread, $assistantMessage, $content, $forcedPlan);
-
-                    return;
-                }
-
-                $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $forcedPlan);
-
-                return;
             }
 
             $plan = $this->buildExecutionPlan($thread, $content);
@@ -1009,7 +933,6 @@ final class TaskAssistantService
         TaskAssistantMessage $assistantMessage,
         string $userMessage,
         ExecutionPlan $plan,
-        ?string $forcedClarifyingQuestion = null
     ): void {
         Log::info('task-assistant.flow', [
             'layer' => 'flow',
@@ -1028,7 +951,6 @@ final class TaskAssistantService
         $guidance = $this->generalGuidanceService->generateGeneralGuidance(
             user: $thread->user,
             userMessage: $userMessage,
-            forcedClarifyingQuestion: $forcedClarifyingQuestion,
             forcedMode: in_array('intent_off_topic', $plan->reasonCodes, true) ? 'off_topic' : null,
         );
 
@@ -1064,43 +986,17 @@ final class TaskAssistantService
             $this->conversationState->put($thread, $state);
         }
 
-        // Avoid repeating the exact same redirect question if the user
-        // keeps asking different general prompts in the same thread.
-        $currentQuestion = (string) ($guidance['clarifying_question'] ?? '');
-        $lastQuestion = (string) ($state['last_general_guidance_clarifying_question'] ?? '');
-        if (
-            ($guidance['guidance_mode'] ?? 'friendly_general') === 'gibberish_unclear'
-            && $forcedClarifyingQuestion === null
-            && $currentQuestion !== ''
-            && $currentQuestion === $lastQuestion
-        ) {
-            $questionVariants = [
-                'I did not catch that clearly yet. Can you rephrase your request in one short sentence?',
-                'Could you say that again in one short, clear sentence so I can help?',
-                'I want to help, but I did not understand that message. Can you rephrase it clearly?',
-                'Can you rewrite your request in one simple sentence so I can guide you better?',
-            ];
-
-            $lastVariantIdx = (int) ($state['last_general_guidance_question_variant'] ?? 0);
-            $nextVariantIdx = ($lastVariantIdx + 1) % count($questionVariants);
-            $guidance['clarifying_question'] = $questionVariants[$nextVariantIdx];
-
-            $state['last_general_guidance_question_variant'] = $nextVariantIdx;
-        }
-
-        $state['last_general_guidance_clarifying_question'] = (string) ($guidance['clarifying_question'] ?? '');
         $this->conversationState->put($thread, $state);
 
         $generationResult = [
             'valid' => true,
             'data' => [
-                'guidance_mode' => (string) ($guidance['guidance_mode'] ?? 'friendly_general'),
+                'intent' => (string) ($guidance['intent'] ?? 'task'),
+                'acknowledgement' => (string) ($guidance['acknowledgement'] ?? ''),
+                'framing' => (string) ($guidance['framing'] ?? ''),
                 'response' => (string) ($guidance['response'] ?? ''),
-                'next_step_guidance' => (string) ($guidance['next_step_guidance'] ?? ''),
-                'clarifying_question' => $guidance['clarifying_question'] ?? null,
-                'redirect_target' => $guidance['redirect_target'] ?? null,
-                'suggested_replies' => is_array($guidance['suggested_replies'] ?? null)
-                    ? $guidance['suggested_replies']
+                'suggested_next_actions' => is_array($guidance['suggested_next_actions'] ?? null)
+                    ? $guidance['suggested_next_actions']
                     : null,
             ],
             'errors' => [],
@@ -1115,28 +1011,19 @@ final class TaskAssistantService
             assistantFallbackContent: "Hi, I'm TaskLyst—your task assistant. Would you like me to prioritize your tasks or schedule time blocks for them?",
         );
 
-        // Store pending guidance for the next user message.
-        $clarifyingQuestion = (string) ($guidance['clarifying_question'] ?? '');
-        $guidanceMode = (string) ($guidance['guidance_mode'] ?? 'friendly_general');
+        $intent = (string) ($guidance['intent'] ?? 'task');
+        $suggestedNextActions = is_array($guidance['suggested_next_actions'] ?? null)
+            ? $guidance['suggested_next_actions']
+            : [];
 
         Log::info('task-assistant.general_guidance.telemetry', [
             'layer' => 'flow',
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
-            'guidance_mode' => $guidanceMode,
-            'had_question' => $clarifyingQuestion !== '',
-            'had_redirect_target' => trim((string) ($guidance['redirect_target'] ?? '')) !== '',
+            'intent' => $intent,
+            'suggested_next_actions_count' => count($suggestedNextActions),
         ]);
-        if ($clarifyingQuestion !== '' && in_array($guidanceMode, ['gibberish_unclear', 'off_topic'], true)) {
-            $this->conversationState->rememberPendingGeneralGuidance(
-                $thread,
-                $userMessage,
-                $clarifyingQuestion,
-                $plan->reasonCodes
-            );
-        } else {
-            $this->conversationState->clearPendingGeneralGuidance($thread);
-        }
+        $this->conversationState->clearPendingGeneralGuidance($thread);
 
         $this->streamFlowEnvelope(
             thread: $thread,
@@ -1363,6 +1250,78 @@ final class TaskAssistantService
         }
 
         return data_get($assistantMessage->metadata, 'stream.status') === 'stopped';
+    }
+
+    private function looksLikeStandaloneGeneralGuidancePrompt(string $content): bool
+    {
+        $normalized = mb_strtolower(trim($content));
+        if ($normalized === '') {
+            return true;
+        }
+
+        if (preg_match(
+            '/^(hi|hii|hello|hey|yo|good morning|good afternoon|good evening|howdy|gm|hiya)(\s+(there|yo))?([!?.]|\s)*$/u',
+            $normalized
+        ) === 1) {
+            return true;
+        }
+
+        if (preg_match(
+            '/\b(current\s+time|time\s+now|time\s+right\s+now|what\s+time\s+is\s+it|what\s*\'?s\s+the\s+time|date\s+today|today\s*\'?s\s+date|what\s+date\s+is\s+it|what\s*\'?s\s+the\s+date)\b/u',
+            $normalized
+        ) === 1) {
+            return true;
+        }
+
+        // Single-token gibberish signal.
+        if (! str_contains($normalized, ' ')
+            && mb_strlen($normalized) >= 9
+            && preg_match('/^[a-z0-9]+$/u', $normalized) === 1
+        ) {
+            $commonBigrams = ['th', 'he', 'in', 'er', 'an', 're', 'on', 'at', 'en', 'nd', 'ti', 'es', 'or', 'te', 'of'];
+            $hasCommonBigram = false;
+            foreach ($commonBigrams as $bigram) {
+                if (mb_stripos($normalized, $bigram) !== false) {
+                    $hasCommonBigram = true;
+                    break;
+                }
+            }
+            if (! $hasCommonBigram) {
+                return true;
+            }
+        }
+
+        $offTopicMarkers = [
+            'best ', 'who is', 'why he', 'why she', 'relationship', 'politics', 'president',
+            'shoes', 'cook', 'martial artist', 'love me',
+        ];
+        foreach ($offTopicMarkers as $marker) {
+            if (mb_stripos($normalized, $marker) !== false) {
+                return true;
+            }
+        }
+
+        $emotionalMarkers = ['sad', 'heartbroken', 'broke up', 'cry', 'depressed', 'devastated', 'partner left me'];
+        $taskKeywords = ['task', 'tasks', 'prioritize', 'priority', 'schedule', 'time block', 'work on', 'to do', 'todo', 'list'];
+        foreach ($emotionalMarkers as $marker) {
+            if (mb_stripos($normalized, $marker) === false) {
+                continue;
+            }
+
+            $hasTaskKeyword = false;
+            foreach ($taskKeywords as $keyword) {
+                if (mb_stripos($normalized, $keyword) !== false) {
+                    $hasTaskKeyword = true;
+                    break;
+                }
+            }
+
+            if (! $hasTaskKeyword) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function markCancelled(TaskAssistantThread $thread, int $assistantMessageId): void

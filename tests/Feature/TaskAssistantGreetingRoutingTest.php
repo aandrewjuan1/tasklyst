@@ -14,12 +14,13 @@ test('pure greeting short-circuits to general guidance', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'friendly_general',
-                'response' => 'Thanks for saying hello. Hi! I can help you get organized with your tasks.',
-                'next_step_guidance' => 'If you want, I can prioritize tasks in your list or plan time blocks.',
-                'suggested_replies' => [
+                'intent' => 'task',
+                'acknowledgement' => 'Thanks for saying hello.',
+                'framing' => 'You are opening with a general task-support request.',
+                'response' => 'I can help you get organized with your tasks.',
+                'suggested_next_actions' => [
                     'Prioritize my tasks.',
-                    'Plan time blocks for my tasks.',
+                    'Schedule time blocks for my tasks.',
                 ],
             ])
             ->withUsage(new Usage(1, 2))
@@ -43,7 +44,7 @@ test('pure greeting short-circuits to general guidance', function (): void {
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
-    expect(data_get($assistantMessage->metadata, 'general_guidance.guidance_mode'))->toBe('friendly_general');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
 });
 
 test('intent policy returns general_guidance for hello via greeting short-circuit', function (): void {

@@ -208,32 +208,28 @@ final class TaskAssistantMessageFormatter
      */
     private function formatGeneralGuidanceMessage(array $data): string
     {
+        $acknowledgement = trim((string) ($data['acknowledgement'] ?? ''));
+        $framing = trim((string) ($data['framing'] ?? ''));
         $response = trim((string) ($data['response'] ?? ''));
-        $nextStepGuidance = trim((string) ($data['next_step_guidance'] ?? ''));
-        $question = trim((string) ($data['clarifying_question'] ?? ''));
+        $suggestedNextActions = is_array($data['suggested_next_actions'] ?? null)
+            ? $this->normalizeStringList($data['suggested_next_actions'])
+            : [];
 
-        if ($response !== '' && $question !== '' && str_contains($response, $question)) {
-            $response = trim(str_replace($question, '', $response));
-        }
-
-        if ($response !== '' && $question !== '' && mb_stripos($response, 'would you like') !== false && str_contains($response, '?')) {
-            // If the model leaked a redirect question into `message`, strip the
-            // tail starting at the last question mark.
-            $pos = mb_strrpos($response, '?');
-            if ($pos !== false) {
-                $response = trim(mb_substr($response, 0, $pos));
-            }
-        }
-
-        if ($response === '' && $nextStepGuidance === '' && $question === '') {
+        if ($acknowledgement === '' && $framing === '' && $response === '' && $suggestedNextActions === []) {
             return 'I can help. What would you like to do next?';
         }
 
-        // Keep the suggested flow as the final section for all guidance modes.
+        $actionsParagraph = '';
+        if ($suggestedNextActions !== []) {
+            $actionLines = array_map(static fn (string $line): string => '- '.$line, $suggestedNextActions);
+            $actionsParagraph = "Suggested next actions:\n".implode("\n", $actionLines);
+        }
+
         $segments = array_values(array_filter([
+            $acknowledgement,
+            $framing,
             $response,
-            $question,
-            $nextStepGuidance,
+            $actionsParagraph,
         ], static fn (string $segment): bool => $segment !== ''));
 
         $unique = [];

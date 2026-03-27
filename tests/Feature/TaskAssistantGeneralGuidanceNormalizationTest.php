@@ -21,10 +21,11 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'friendly_general',
+                'intent' => 'task',
+                'acknowledgement' => 'Thanks for reaching out.',
+                'framing' => 'You are asking for guidance before choosing a planning flow.',
                 'response' => 'Thanks for reaching out. '.$longMessagePrefix,
-                'next_step_guidance' => 'Use snapshot JSON from backend and start with task 42 "Finish Chemistry Report".',
-                'suggested_replies' => [
+                'suggested_next_actions' => [
                     'Short reply.',
                     str_repeat('B', 250),
                 ],
@@ -53,9 +54,10 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
     expect($assistantMessage->metadata['validation_errors'] ?? [])->toBeEmpty();
 
     expect(str_contains((string) $assistantMessage->content, introPrefix()))->toBeTrue();
-    expect((string) data_get($assistantMessage->metadata, 'general_guidance.clarifying_question', ''))->toBe('');
-    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('prioritize');
-    expect((string) data_get($assistantMessage->metadata, 'general_guidance.next_step_guidance'))->toContain('schedule');
+    expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
+    expect((string) $assistantMessage->content)->toContain('Suggested next actions:');
+    expect((string) $assistantMessage->content)->toContain('Prioritize my tasks.');
+    expect((string) $assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
     expect((string) $assistantMessage->content)->not->toContain('snapshot');
     expect((string) $assistantMessage->content)->not->toContain('JSON');
     expect((string) $assistantMessage->content)->not->toContain('backend');
@@ -67,18 +69,26 @@ test('general_guidance intro is only added once per thread', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'friendly_general',
-                'response' => 'Thanks for reaching out. First guidance.',
-                'next_step_guidance' => 'If you want, I can prioritize your tasks or schedule time blocks.',
-                'suggested_replies' => null,
+                'intent' => 'task',
+                'acknowledgement' => 'Thanks for reaching out.',
+                'framing' => 'General task support.',
+                'response' => 'First guidance.',
+                'suggested_next_actions' => [
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
+                ],
             ])
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'guidance_mode' => 'friendly_general',
-                'response' => 'Thanks for reaching out again. Second guidance.',
-                'next_step_guidance' => 'I can continue by prioritizing tasks or planning time blocks.',
-                'suggested_replies' => null,
+                'intent' => 'task',
+                'acknowledgement' => 'Thanks for reaching out again.',
+                'framing' => 'General task support.',
+                'response' => 'Second guidance.',
+                'suggested_next_actions' => [
+                    'Prioritize my tasks.',
+                    'Schedule time blocks for my tasks.',
+                ],
             ])
             ->withUsage(new Usage(1, 2)),
     ]);

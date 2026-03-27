@@ -25,10 +25,6 @@ final class TaskAssistantResponseProcessor
         array $data,
         array $snapshot = [],
     ): array {
-        if ($flow === 'general_guidance') {
-            $data = $this->normalizeGeneralGuidanceDataShape($data);
-        }
-
         $validation = $this->validateFlowData($flow, $data, $snapshot);
         $formattedContent = $this->messageFormatter->format($flow, $data, $snapshot);
 
@@ -85,41 +81,34 @@ final class TaskAssistantResponseProcessor
      */
     private function validateGeneralGuidanceData(array $data): array
     {
-        $mode = (string) ($data['guidance_mode'] ?? '');
-
         $rules = [
-            'guidance_mode' => ['required', 'string', 'in:friendly_general,gibberish_unclear,off_topic'],
-            'response' => ['required', 'string', 'min:1', 'max:760'],
-            'next_step_guidance' => ['required', 'string', 'min:20', 'max:360'],
-            'clarifying_question' => ['nullable', 'string', 'min:5', 'max:220'],
-            'redirect_target' => ['nullable', 'string', 'in:prioritize,schedule,either'],
-            'suggested_replies' => ['nullable', 'array', 'max:3'],
-            'suggested_replies.*' => ['string', 'min:1', 'max:140'],
+            'intent' => ['required', 'string', 'in:task,out_of_scope,unclear'],
+            'acknowledgement' => ['required', 'string', 'min:2', 'max:220'],
+            'framing' => ['required', 'string', 'min:5', 'max:320'],
+            'response' => ['required', 'string', 'min:5', 'max:760'],
+            'suggested_next_actions' => ['required', 'array', 'min:2', 'max:3'],
+            'suggested_next_actions.*' => ['required', 'string', 'min:2', 'max:140'],
         ];
 
         $validator = Validator::make($data, $rules);
-        $validator->after(function (ValidationValidator $validator) use ($mode, $data): void {
-            $clarifyingQuestion = trim((string) ($data['clarifying_question'] ?? ''));
-            $redirectTarget = trim((string) ($data['redirect_target'] ?? ''));
-            $response = (string) ($data['response'] ?? '');
+        $validator->after(function (ValidationValidator $validator) use ($data): void {
+            $response = mb_strtolower((string) ($data['response'] ?? ''));
+            $actions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
+            $actionBlob = mb_strtolower(implode(' ', array_map(static fn (mixed $line): string => (string) $line, $actions)));
 
-            if ($mode === 'friendly_general' && $clarifyingQuestion !== '') {
-                $validator->errors()->add('clarifying_question', 'clarifying_question must be empty for friendly_general mode.');
+            if (! str_contains($actionBlob, 'priorit')) {
+                $validator->errors()->add('suggested_next_actions', 'suggested_next_actions must include a prioritize option.');
             }
-            if ($mode === 'gibberish_unclear' && $clarifyingQuestion === '') {
-                $validator->errors()->add('clarifying_question', 'clarifying_question is required for gibberish_unclear mode.');
+
+            if (! str_contains($actionBlob, 'schedule') && ! str_contains($actionBlob, 'time block')) {
+                $validator->errors()->add('suggested_next_actions', 'suggested_next_actions must include a schedule/time-block option.');
             }
-            if ($mode !== 'gibberish_unclear' && $clarifyingQuestion !== '') {
-                $validator->errors()->add('clarifying_question', 'clarifying_question is only allowed for gibberish_unclear mode.');
-            }
-            if ($mode === 'off_topic' && $redirectTarget === '') {
-                $validator->errors()->add('redirect_target', 'redirect_target is required for off_topic mode.');
-            }
-            if ($mode !== 'off_topic' && $redirectTarget !== '') {
-                $validator->errors()->add('redirect_target', 'redirect_target is only allowed for off_topic mode.');
-            }
-            if (str_contains($response, '?')) {
-                $validator->errors()->add('response', 'response must be declarative and must not include question marks.');
+
+            if (str_contains($response, 'snapshot')
+                || str_contains($response, 'json')
+                || str_contains($response, 'backend')
+                || str_contains($response, 'database')) {
+                $validator->errors()->add('response', 'response must not include internal technical terms.');
             }
         });
 
@@ -138,32 +127,6 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
-    }
-
-    /**
-     * Backward compatibility: convert legacy acknowledgement+message payloads
-     * into the new single response field for validation and rendering.
-     *
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    private function normalizeGeneralGuidanceDataShape(array $data): array
-    {
-        $response = trim((string) ($data['response'] ?? ''));
-        if ($response !== '') {
-            return $data;
-        }
-
-        $acknowledgement = trim((string) ($data['acknowledgement'] ?? ''));
-        $message = trim((string) ($data['message'] ?? ''));
-        $merged = trim($acknowledgement.' '.$message);
-        if ($merged === '') {
-            return $data;
-        }
-
-        $data['response'] = $merged;
-
-        return $data;
     }
 
     /**
