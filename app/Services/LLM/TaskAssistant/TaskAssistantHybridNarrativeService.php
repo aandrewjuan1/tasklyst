@@ -2,12 +2,14 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Enums\TaskAssistantPrioritizeVariant;
 use App\Support\LLM\TaskAssistantListingDefaults;
 use App\Support\LLM\TaskAssistantSchemas;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
+use Prism\Prism\Structured\PendingRequest as StructuredPendingRequest;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
 
 /**
@@ -532,14 +534,21 @@ final class TaskAssistantHybridNarrativeService
      * @param  array<string, mixed>  $promptData
      * @param  list<array<string, mixed>>  $items
      * @return array{
+     *   items: list<array<string, mixed>>,
+     *   focus: array{main_task: string, secondary_tasks: list<string>},
+     *   acknowledgment: string|null,
+     *   framing: string,
      *   reasoning: string,
-     *   suggested_guidance: string,
-     *   items: list<array<string, mixed>>
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>,
+     *   filter_interpretation: string|null,
+     *   assumptions: list<string>|null
      * }
      */
     public function refinePrioritizeListing(
         array $promptData,
         string $userMessage,
+        TaskAssistantPrioritizeVariant $variant,
         array $items,
         string $deterministicSummary,
         string $filterContextForPrompt,
@@ -559,6 +568,12 @@ final class TaskAssistantHybridNarrativeService
             ? 'The user asked for a general list; use the provided rows as a short prioritized slice.'
             : 'The user asked with filters; use the provided rows as the prioritized results.';
 
+        $variantInstruction = match ($variant) {
+            TaskAssistantPrioritizeVariant::Browse => 'PRIORITIZE_VARIANT: browse. The rows are a filtered listing the student asked to see. Emphasize what is on this slice and any filters; avoid a rigid do-this-first ranking tone unless titles clearly imply urgency.',
+            TaskAssistantPrioritizeVariant::FollowupSlice => 'PRIORITIZE_VARIANT: followup_slice. Continue the previous listing politely (e.g. here are the next items) without repeating the full introduction from scratch.',
+            TaskAssistantPrioritizeVariant::Rank => 'PRIORITIZE_VARIANT: rank. Rows are urgency-ranked; explain briefly why the first row deserves attention first.',
+        };
+
         $firstRowEntity = 'task';
         if ($listedTaskCount >= 1 && isset($items[0]) && is_array($items[0])) {
             $entityGuess = strtolower(trim((string) ($items[0]['entity_type'] ?? 'task')));
@@ -577,17 +592,47 @@ final class TaskAssistantHybridNarrativeService
             ? 'LISTED_ITEM_COUNT: 1. The student sees exactly ONE prioritized row. Use strictly singular grammar in framing, reasoning, acknowledgment (if any), and next_options: say "this '.$firstRowEntity.'" or "that '.$firstRowEntity.'"—never "these '.$firstRowPlural.'" or "those '.$firstRowPlural.'"; "priority" not "priorities"; use it/this '.$firstRowEntity.' (not they/them) when referring to that row. Do not describe one row as multiple items. '
             : 'LISTED_ITEM_COUNT: '.$listedTaskCount.'. Multiple rows: plural wording is fine when referring to the set. ';
 
+        $doingContext = is_array($promptData['doing_context'] ?? null) ? $promptData['doing_context'] : null;
+        $doingCountForPrompt = is_array($doingContext) ? (int) ($doingContext['doing_count'] ?? 0) : 0;
+        $hasDoingContext = $variant === TaskAssistantPrioritizeVariant::Rank
+            && is_array($doingContext)
+            && ($doingContext['has_doing_tasks'] ?? false)
+            && $doingCountForPrompt > 0;
+
+        $doingProgressPromptBlock = '';
+        if ($hasDoingContext) {
+            $doingTitleLines = is_array($doingContext['doing_titles'] ?? null) ? $doingContext['doing_titles'] : [];
+            $titleBlob = implode('; ', array_values(array_filter(
+                array_map(static fn (mixed $t): string => trim((string) $t), $doingTitleLines),
+                static fn (string $s): bool => $s !== ''
+            )));
+            $doingProgressPromptBlock = "\n\nDOING_PROGRESS_CONTEXT: The student has {$doingCountForPrompt} task(s) marked in progress (Doing). For your awareness only—the student will see a separate fixed paragraph for this, so do NOT re-list these titles in acknowledgment, framing, filter_interpretation, or reasoning. Doing titles (reference only, do not repeat as a list): {$titleBlob}. RULE: In reasoning, anchor only to the first row in ITEMS_JSON (the top To Do item on this slice). Do not argue in framing or reasoning that a Doing task should be tackled first. Do not contradict that separate Doing paragraph.\n";
+        }
+
+        $narrativeFieldRoles = 'NARRATIVE_FIELD_ROLES (each field has ONE job; do not reuse the same sentences or stock phrases across fields): '.
+            'acknowledgment = brief empathy only when required; no task titles or list summary. '.
+            'framing = concise orientation (usually 1–3 sentences: how this slice helps the student move forward). Do not spell out why row #1 beats row #2—that belongs in reasoning. You may include light encouragement or one practical tip here if it fits. '.
+            'filter_interpretation = filters/wording only; use null if it would repeat framing. '.
+            'reasoning = why the first ITEMS_JSON row is first; include that row\'s exact title once; do not repeat framing\'s opening. You may add one grounded micro-tip (e.g., short focus block, next tiny step) if you did not already put a tip in framing. '.
+            'next_options = scheduling/follow-up only; do not re-summarize the list or paraphrase reasoning. '.
+            'COACHING: Across framing+reasoning, the student should get at least one helpful coach element (motivation, overload reframing, or a concrete study/task habit) tied to the listed titles/dates—never generic platitudes. Put the tip in framing OR reasoning, not both. '.
+            'Vary openings a little, but keep the same calm supportive voice everywhere. ';
+
         $messages = collect([
             new UserMessage($userMessage),
             new UserMessage(
                 'Use the following rows as the prioritized list for this request (tasks, events, or projects). '.
-                'Do NOT change ordering or membership. Write only the user-facing narrative fields (acknowledgment, framing, reasoning, and options). '."\n\n".
+                'Do NOT change ordering or membership. Write only the user-facing narrative fields (acknowledgment, framing, reasoning, optional filter_interpretation and assumptions, and options). '."\n\n".
+                $variantInstruction."\n\n".
                 $listLabel."\n\n".
                 $listedCountInstruction.
-                'You are the task assistant speaking to the student. '.
-                'Use a calm, reassuring, empathetic tone. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
+                $doingProgressPromptBlock.
+                $narrativeFieldRoles."\n".
+                'You are the task assistant speaking to the student as a supportive coach. '.
+                'Use a calm, reassuring, empathetic tone with light motivation when it fits—students should feel guided, not scolded. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
                 'Do not claim extra visibility into the student\'s full life or full list. Avoid phrases like "I reviewed your tasks", "I looked at your list", "I see you have", or "I\'ve taken a look at your to-do list". '.
                 'In acknowledgment, framing, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
+                'filter_interpretation is OPTIONAL: one short sentence on how filters or wording shaped this slice; null if not helpful. assumptions is OPTIONAL: up to 4 short student-safe strings (e.g. date interpretation); null or empty if none. '.
                 'framing is REQUIRED: open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive, not like a fixed template. Explain how this ranking helps the student take the next step, without sounding technical or inventing dates. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 'reasoning is REQUIRED: speak to the student directly (I/You/Let\'s/We are all fine). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". For a single-item list you may use "it" clearly tied to that task. Ground every claim in ITEMS_JSON (titles, due_phrase, priority). '.
@@ -610,6 +655,8 @@ final class TaskAssistantHybridNarrativeService
         $reasoning = null;
         $nextOptions = null;
         $nextOptionsChipTexts = [];
+        $filterInterpretation = null;
+        $assumptionsNormalized = null;
         $cleanItems = $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
 
         try {
@@ -653,6 +700,31 @@ final class TaskAssistantHybridNarrativeService
                     array_map(static fn (mixed $v): string => trim((string) $v), $payload['next_options_chip_texts']),
                     static fn (string $v): bool => $v !== '' && mb_strlen($v) >= 2 && ! str_contains($v, '?')
                 ));
+            }
+
+            if (isset($payload['filter_interpretation']) && is_string($payload['filter_interpretation'])) {
+                $fi = trim($payload['filter_interpretation']);
+                if ($fi !== '') {
+                    $filterInterpretation = mb_substr($fi, 0, 280);
+                }
+            }
+
+            if (isset($payload['assumptions']) && is_array($payload['assumptions'])) {
+                $assumptionLines = [];
+                foreach ($payload['assumptions'] as $row) {
+                    if (! is_string($row)) {
+                        continue;
+                    }
+                    $line = trim($row);
+                    if ($line === '') {
+                        continue;
+                    }
+                    $assumptionLines[] = mb_substr($line, 0, 240);
+                    if (count($assumptionLines) >= 4) {
+                        break;
+                    }
+                }
+                $assumptionsNormalized = $assumptionLines === [] ? null : $assumptionLines;
             }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.prioritize.narrative_failed', [
@@ -703,6 +775,11 @@ final class TaskAssistantHybridNarrativeService
             $framing = $this->firstPersonFramingFallback(max(1, $listedTaskCount), $userMessage.'|'.$threadId.'|due_time');
         }
 
+        $filterInterpretation = TaskAssistantListingDefaults::dedupePrioritizeFilterVersusFraming(
+            $filterInterpretation,
+            (string) $framing
+        );
+
         // Safety net for due-time drift in next options and chip texts.
         $nextOptionsConflict = $this->hasConflictingDueTiming((string) $nextOptions, $allowedDuePhrases);
         if ($nextOptionsConflict) {
@@ -731,11 +808,6 @@ final class TaskAssistantHybridNarrativeService
 
         // Enforce student-directed POV (avoid third-person phrasing).
         $reasoning = TaskAssistantListingDefaults::normalizePrioritizeReasoningVoice((string) $reasoning, $cleanItems);
-
-        // Ensure reasoning stays anchored to the ranked list (especially item #1).
-        // Models sometimes explain a secondary item, which feels inconsistent even when schema-valid.
-        $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
-        $reasoning = $this->normalizeReasoningOverdueGrammar((string) $reasoning, $cleanItems);
 
         // If UX includes acknowledgment, ensure it's actually empathetic and not just generic framing.
         if ($includeAcknowledgment) {
@@ -774,6 +846,24 @@ final class TaskAssistantHybridNarrativeService
                 $acknowledgment = __('I get it; this is a lot to handle—let\'s start with your top priority.');
             }
         }
+
+        $reasoning = TaskAssistantListingDefaults::dedupePrioritizeReasoningVersusPriorFields(
+            (string) $reasoning,
+            $acknowledgment,
+            (string) $framing,
+            $filterInterpretation
+        );
+
+        // Ensure reasoning stays anchored to the ranked list (especially item #1)—after cross-field dedupe.
+        $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
+        $reasoning = $this->normalizeReasoningOverdueGrammar((string) $reasoning, $cleanItems);
+
+        $nextOptions = TaskAssistantListingDefaults::dedupePrioritizeNextVersusPriorFields(
+            (string) $nextOptions,
+            (string) $framing,
+            (string) $reasoning,
+            is_array($cleanItems) ? count($cleanItems) : 0
+        );
 
         $focus = [
             'main_task' => 'No matching items found',
@@ -822,6 +912,8 @@ final class TaskAssistantHybridNarrativeService
                 ),
                 $nextOptionsChipTexts
             )),
+            'filter_interpretation' => $filterInterpretation,
+            'assumptions' => $assumptionsNormalized,
         ];
     }
 
@@ -1200,14 +1292,16 @@ final class TaskAssistantHybridNarrativeService
     ): mixed {
         for ($attempt = 0; $attempt <= $maxRetries; $attempt++) {
             try {
-                return Prism::structured()
+                $pending = Prism::structured()
                     ->using($this->resolveProvider(), $this->resolveModel())
                     ->withSystemPrompt(view('prompts.task-assistant-system', $promptData))
                     ->withMessages($messages->all())
                     ->withTools([])
-                    ->withSchema($refinementSchema)
-                    ->withClientOptions($this->resolveClientOptionsForRoute($generationRoute))
-                    ->asStructured();
+                    ->withSchema($refinementSchema);
+
+                $pending = $this->applyStructuredGenerationOptions($pending, $generationRoute);
+
+                return $pending->asStructured();
             } catch (\Throwable $exception) {
                 if ($attempt === $maxRetries) {
                     throw $exception;
@@ -1244,20 +1338,43 @@ final class TaskAssistantHybridNarrativeService
         return (string) config('task-assistant.model', 'hermes3:3b');
     }
 
-    /**
-     * @return array<string, int|float>
-     */
-    private function resolveClientOptionsForRoute(string $route): array
+    private function applyStructuredGenerationOptions(StructuredPendingRequest $pending, string $generationRoute): StructuredPendingRequest
     {
-        $temperature = config('task-assistant.generation.'.$route.'.temperature');
-        $maxTokens = config('task-assistant.generation.'.$route.'.max_tokens');
-        $topP = config('task-assistant.generation.'.$route.'.top_p');
+        $timeout = (int) config('prism.request_timeout', 120);
+        $pending = $pending->withClientOptions(['timeout' => $timeout]);
 
-        return [
-            'timeout' => (int) config('prism.request_timeout', 120),
-            'temperature' => is_numeric($temperature) ? (float) $temperature : (float) config('task-assistant.generation.temperature', 0.3),
-            'max_tokens' => is_numeric($maxTokens) ? (int) $maxTokens : (int) config('task-assistant.generation.max_tokens', 1200),
-            'top_p' => is_numeric($topP) ? (float) $topP : (float) config('task-assistant.generation.top_p', 0.9),
-        ];
+        $base = 'task-assistant.generation';
+        $routeKey = $base.'.'.$generationRoute;
+
+        $temperature = config($routeKey.'.temperature');
+        $maxTokens = config($routeKey.'.max_tokens');
+        $topP = config($routeKey.'.top_p');
+
+        if (! is_numeric($temperature)) {
+            $temperature = config($base.'.temperature');
+        }
+        if (! is_numeric($maxTokens)) {
+            $maxTokens = config($base.'.max_tokens');
+        }
+
+        if ($generationRoute === 'prioritize_narrative') {
+            if (! is_numeric($topP)) {
+                $topP = null;
+            }
+        } elseif (! is_numeric($topP)) {
+            $topP = config($base.'.top_p');
+        }
+
+        if (is_numeric($temperature)) {
+            $pending = $pending->usingTemperature((float) $temperature);
+        }
+        if (is_numeric($maxTokens)) {
+            $pending = $pending->withMaxTokens((int) $maxTokens);
+        }
+        if (is_numeric($topP)) {
+            $pending = $pending->usingTopP((float) $topP);
+        }
+
+        return $pending;
     }
 }

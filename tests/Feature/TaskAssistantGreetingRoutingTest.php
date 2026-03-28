@@ -46,8 +46,8 @@ test('pure greeting short-circuits to general guidance', function (): void {
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
     expect((string) $assistantMessage->content)->toContain("Hi, I'm TaskLyst—your task assistant.");
-    expect((string) $assistantMessage->content)->toContain('Prioritize my tasks.');
-    expect((string) $assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('based on your list');
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('your list data');
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('create a new task');

@@ -213,7 +213,8 @@ final class TaskAssistantResponseProcessor
     {
         $maxReasoning = TaskAssistantListingDefaults::maxReasoningChars();
         $maxFraming = TaskAssistantListingDefaults::maxFramingChars();
-        $maxNextField = min(260, $maxReasoning);
+        $maxDoingCoach = TaskAssistantListingDefaults::maxDoingProgressCoachChars();
+        $maxNextField = min(320, $maxReasoning);
         $maxFocusTitle = 200;
         $rules = [
             'limit_used' => ['required', 'integer', 'min:0', 'max:50'],
@@ -236,6 +237,11 @@ final class TaskAssistantResponseProcessor
             'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
             'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
+            'filter_interpretation' => ['nullable', 'string', 'max:280'],
+            'assumptions' => ['nullable', 'array', 'max:4'],
+            'assumptions.*' => ['string', 'max:240'],
+            'prioritize_variant' => ['nullable', 'string', 'in:rank,browse,followup_slice'],
+            'doing_progress_coach' => ['nullable', 'string', 'max:'.$maxDoingCoach],
         ];
 
         $validator = Validator::make($data, $rules);

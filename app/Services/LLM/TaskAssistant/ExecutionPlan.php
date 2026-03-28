@@ -2,6 +2,8 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Enums\TaskAssistantPrioritizeVariant;
+
 final class ExecutionPlan
 {
     /**
@@ -20,5 +22,6 @@ final class ExecutionPlan
         public readonly ?string $timeWindowHint,
         public readonly int $countLimit,
         public readonly string $generationProfile,
+        public readonly ?TaskAssistantPrioritizeVariant $prioritizeVariant = null,
     ) {}
 }

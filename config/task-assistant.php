@@ -29,10 +29,17 @@ return [
             'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_MAX_TOKENS'),
             'top_p' => env('TASK_ASSISTANT_PRIORITIZE_TOP_P'),
         ],
+        /*
+        | Prioritize listing narrative (structured JSON: framing, reasoning, etc.).
+        | Tuned for small local models (default hermes3:3b): warm enough for coach-like
+        | voice, low enough to respect schema and reduce rambling. Prefer temperature
+        | only—set TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P only if you know your
+        | stack benefits from nucleus sampling alongside temperature.
+        */
         'prioritize_narrative' => [
-            'temperature' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TEMPERATURE', 0.25),
-            'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 1200),
-            'top_p' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P', 0.88),
+            'temperature' => (float) env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TEMPERATURE', 0.38),
+            'max_tokens' => (int) env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 900),
+            'top_p' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P'),
         ],
         'general_guidance' => [
             'temperature' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TEMPERATURE', 0.35),
@@ -58,6 +65,11 @@ return [
             'temperature' => env('TASK_ASSISTANT_INTENT_TEMPERATURE', 0.1),
             'max_tokens' => env('TASK_ASSISTANT_INTENT_MAX_TOKENS', 200),
             'top_p' => env('TASK_ASSISTANT_INTENT_TOP_P', 0.85),
+        ],
+        'prioritize_variant' => [
+            'temperature' => env('TASK_ASSISTANT_PRIORITIZE_VARIANT_TEMPERATURE', 0.12),
+            'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_VARIANT_MAX_TOKENS', 200),
+            'top_p' => env('TASK_ASSISTANT_PRIORITIZE_VARIANT_TOP_P', 0.85),
         ],
         'listing' => [
             'temperature' => env('TASK_ASSISTANT_BROWSE_TEMPERATURE'),
@@ -129,6 +141,8 @@ return [
         'max_reasoning_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_REASONING_CHARS', 1200),
         /** Prioritize `framing` max length; must stay in sync with TaskAssistantListingDefaults::maxFramingChars() and validation. */
         'max_framing_chars' => (int) env('TASK_ASSISTANT_MAX_FRAMING_CHARS', 900),
+        /** Rank-flow deterministic `doing_progress_coach`; must match TaskAssistantListingDefaults::maxDoingProgressCoachChars() and validation. */
+        'max_doing_progress_coach_chars' => (int) env('TASK_ASSISTANT_MAX_DOING_PROGRESS_COACH_CHARS', 600),
         /** Single-paragraph recommendations field (suggested_guidance). */
         'max_suggested_guidance_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_SUGGESTED_GUIDANCE_CHARS', 1200),
         /** Per-row LLM placement line merged into items[].placement_blurb; must match validator max. */
@@ -184,6 +198,20 @@ TXT,
             // Keep general-guidance override limited to medium confidence.
             'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.65),
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Prioritize flow (rank vs browse vs follow-up slice)
+    |--------------------------------------------------------------------------
+    |
+    | When a message is ambiguous (list/show wording plus prioritize/focus),
+    | a small structured classifier can disambiguate. Disable in tests or
+    | low-latency environments via env.
+    |
+    */
+    'prioritize' => [
+        'use_variant_classifier' => (bool) env('TASK_ASSISTANT_PRIORITIZE_USE_VARIANT_CLASSIFIER', true),
     ],
 
     /*

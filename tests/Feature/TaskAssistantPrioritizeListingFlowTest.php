@@ -55,6 +55,7 @@ test('prioritize flow returns structured prioritized tasks with hybrid narrative
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($assistantMessage->metadata['prioritize']['prioritize_variant'] ?? null)->toBeString();
     expect($assistantMessage->metadata['prioritize']['items'] ?? null)->toBeArray();
     expect($assistantMessage->metadata['prioritize']['next_options'] ?? null)->toContain('schedule');
     expect($assistantMessage->metadata['prioritize']['next_options_chip_texts'] ?? null)->toBeArray();

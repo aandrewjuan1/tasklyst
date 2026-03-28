@@ -133,8 +133,8 @@ test('gibberish guidance output uses unclear intent and stitched sections', func
     $assistantText = (string) $assistantMessage->content;
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('unclear');
     expect($assistantText)->toContain('Next,');
-    expect($assistantText)->toContain('Prioritize my tasks.');
-    expect($assistantText)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower($assistantText))->toContain('prioritize your tasks');
+    expect(mb_strtolower($assistantText))->toContain('schedule time blocks for your tasks');
 });
 
 test('pending guidance does not hijack fresh standalone emotional off-topic prompt', function (): void {
