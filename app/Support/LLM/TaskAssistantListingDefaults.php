@@ -15,6 +15,79 @@ final class TaskAssistantListingDefaults
         return max(80, min($max, self::maxSuggestedGuidanceChars()));
     }
 
+    /**
+     * Max length for rank-variant deterministic doing-progress coach text.
+     *
+     * Must match TaskAssistantResponseProcessor::validatePrioritizeListingData().
+     */
+    public static function maxDoingProgressCoachChars(): int
+    {
+        $max = (int) config('task-assistant.listing.max_doing_progress_coach_chars', 600);
+
+        return max(200, min($max, 1200));
+    }
+
+    public static function clampDoingProgressCoach(string $text): string
+    {
+        $max = self::maxDoingProgressCoachChars();
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+
+        return mb_substr($text, 0, $max - 1).'…';
+    }
+
+    /**
+     * @param  list<string>  $orderedTitles
+     */
+    public static function buildDoingProgressCoach(array $orderedTitles, int $totalCount): ?string
+    {
+        if ($totalCount <= 0) {
+            return null;
+        }
+
+        $clean = [];
+        foreach ($orderedTitles as $t) {
+            $s = trim((string) $t);
+            if ($s !== '') {
+                $clean[] = $s;
+            }
+        }
+
+        if ($clean === []) {
+            return null;
+        }
+
+        $maxSample = 3;
+        $sample = array_slice($clean, 0, $maxSample);
+        $more = max(0, $totalCount - count($sample));
+        $list = implode(', ', $sample);
+
+        if ($totalCount === 1 && count($sample) === 1) {
+            $body = __('You already have one task in progress: :title. If you can, finishing it before you take on something new usually means less switching.', [
+                'title' => $sample[0],
+            ]);
+        } elseif ($more > 0) {
+            $body = __('You have :total tasks in progress: :list, and :more more. When you can, closing one before opening another often feels calmer than juggling several.', [
+                'total' => $totalCount,
+                'list' => $list,
+                'more' => $more,
+            ]);
+        } else {
+            $body = __('You have :total tasks in progress: :list. When you can, closing one before opening another often feels calmer than juggling several.', [
+                'total' => $totalCount,
+                'list' => $list,
+            ]);
+        }
+
+        return self::clampDoingProgressCoach((string) $body);
+    }
+
+    public static function framingWhenRankSliceHasNoTodoButDoing(): string
+    {
+        return (string) __('No other tasks surfaced in this slice yet—finishing what you started will unlock the next priorities.');
+    }
+
     public static function clampFraming(string $text): string
     {
         $max = self::maxFramingChars();
@@ -158,8 +231,8 @@ final class TaskAssistantListingDefaults
     public static function maxNextFieldChars(): int
     {
         // Must match TaskAssistantResponseProcessor::validatePrioritizeListingData().
-        // next_actions_intro + next_options max = min(260, maxReasoningChars()).
-        return max(1, min(260, self::maxReasoningChars()));
+        // next_options: room for a warm coach-style scheduling offer without truncation.
+        return max(1, min(320, self::maxReasoningChars()));
     }
 
     public static function clampNextField(string $text): string
@@ -388,6 +461,214 @@ final class TaskAssistantListingDefaults
         $out = preg_replace($pattern, '', $reasoning);
 
         return trim(is_string($out) ? $out : $reasoning);
+    }
+
+    /**
+     * Token Jaccard similarity on normalized word tokens (for cross-field redundancy).
+     */
+    public static function narrativeTokenJaccardSimilarity(string $a, string $b): float
+    {
+        $aNorm = self::narrativeNormalizeForCompare($a);
+        $bNorm = self::narrativeNormalizeForCompare($b);
+        if ($aNorm === '' || $bNorm === '') {
+            return 0.0;
+        }
+
+        $aTokens = preg_split('/[^\pL\pN]+/u', $aNorm, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $bTokens = preg_split('/[^\pL\pN]+/u', $bNorm, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($aTokens === [] || $bTokens === []) {
+            return 0.0;
+        }
+
+        $aSet = array_values(array_unique($aTokens));
+        $bSet = array_values(array_unique($bTokens));
+        $intersection = count(array_intersect($aSet, $bSet));
+        $union = count(array_unique(array_merge($aSet, $bSet)));
+
+        if ($union === 0) {
+            return 0.0;
+        }
+
+        return $intersection / $union;
+    }
+
+    /**
+     * Drop filter_interpretation when it mostly repeats framing (small models often echo).
+     */
+    public static function dedupePrioritizeFilterVersusFraming(?string $filterInterpretation, string $framing, float $wholeJaccardDrop = 0.78): ?string
+    {
+        if ($filterInterpretation === null) {
+            return null;
+        }
+        $fi = trim($filterInterpretation);
+        if ($fi === '') {
+            return null;
+        }
+        $framingTrim = trim($framing);
+        if ($framingTrim === '') {
+            return $fi;
+        }
+        if (self::narrativeTokenJaccardSimilarity($fi, $framingTrim) >= $wholeJaccardDrop) {
+            return null;
+        }
+        $fin = self::narrativeNormalizeForCompare($fi);
+        $frn = self::narrativeNormalizeForCompare($framingTrim);
+        if (mb_strlen($fin) >= 20 && str_contains($frn, $fin)) {
+            return null;
+        }
+
+        return $fi;
+    }
+
+    /**
+     * Remove reasoning sentences that largely repeat acknowledgment, framing, or filter (Hermes/small-model slop).
+     *
+     * @return string Non-empty; falls back to {@see reasoningWhenEmpty()} if everything would be stripped.
+     */
+    public static function dedupePrioritizeReasoningVersusPriorFields(
+        string $reasoning,
+        ?string $acknowledgment,
+        string $framing,
+        ?string $filterInterpretation,
+        float $sentenceJaccardDrop = 0.66,
+    ): string {
+        $reasoning = trim($reasoning);
+        if ($reasoning === '') {
+            return self::reasoningWhenEmpty();
+        }
+
+        $corpus = array_values(array_filter([
+            $acknowledgment !== null ? trim($acknowledgment) : '',
+            trim($framing),
+            $filterInterpretation !== null ? trim($filterInterpretation) : '',
+        ], static fn (string $s): bool => $s !== ''));
+
+        if ($corpus === []) {
+            return self::collapseAdjacentSimilarNarrativeSentences($reasoning);
+        }
+
+        $sentences = self::splitNarrativeSentences($reasoning);
+        if ($sentences === []) {
+            return self::collapseAdjacentSimilarNarrativeSentences($reasoning);
+        }
+
+        $kept = [];
+        foreach ($sentences as $sent) {
+            $sentTrim = trim($sent);
+            if ($sentTrim === '') {
+                continue;
+            }
+            $drop = false;
+            foreach ($corpus as $block) {
+                if (self::narrativeTokenJaccardSimilarity($sentTrim, $block) >= $sentenceJaccardDrop) {
+                    $drop = true;
+                    break;
+                }
+                $sn = self::narrativeNormalizeForCompare($sentTrim);
+                $bn = self::narrativeNormalizeForCompare($block);
+                if (mb_strlen($sn) >= 28 && mb_strlen($bn) >= 28 && str_contains($bn, $sn)) {
+                    $drop = true;
+                    break;
+                }
+            }
+            if (! $drop) {
+                $kept[] = $sentTrim;
+            }
+        }
+
+        $out = trim(implode(' ', $kept));
+        if ($out === '') {
+            return self::reasoningWhenEmpty();
+        }
+
+        return self::collapseAdjacentSimilarNarrativeSentences($out);
+    }
+
+    /**
+     * When next_options mostly repeats framing or reasoning, fall back to a neutral scheduling line.
+     */
+    public static function dedupePrioritizeNextVersusPriorFields(
+        string $nextOptions,
+        string $framing,
+        string $reasoning,
+        int $itemsCount,
+        float $wholeJaccardDrop = 0.68,
+        float $sentenceJaccardDrop = 0.62,
+    ): string {
+        $next = trim($nextOptions);
+        if ($next === '') {
+            return $next;
+        }
+        $blocks = array_values(array_filter([trim($framing), trim($reasoning)], static fn (string $s): bool => $s !== ''));
+        foreach ($blocks as $block) {
+            if (self::narrativeTokenJaccardSimilarity($next, $block) >= $wholeJaccardDrop) {
+                return $itemsCount === 1
+                    ? 'If you want, I can schedule this for later.'
+                    : 'If you want, I can schedule these steps for later.';
+            }
+        }
+
+        $sentences = self::splitNarrativeSentences($next);
+        foreach ($sentences as $sent) {
+            $sentTrim = trim($sent);
+            if ($sentTrim === '') {
+                continue;
+            }
+            foreach ($blocks as $block) {
+                if (self::narrativeTokenJaccardSimilarity($sentTrim, $block) >= $sentenceJaccardDrop) {
+                    return $itemsCount === 1
+                        ? 'If you want, I can schedule this for later.'
+                        : 'If you want, I can schedule these steps for later.';
+                }
+            }
+        }
+
+        return $next;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function splitNarrativeSentences(string $text): array
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return [];
+        }
+        $parts = preg_split('/(?<=[.!?])\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY);
+        if (! is_array($parts) || $parts === []) {
+            return [$text];
+        }
+
+        return array_values(array_filter(
+            array_map(static fn (string $s): string => trim($s), $parts),
+            static fn (string $s): bool => $s !== ''
+        ));
+    }
+
+    private static function narrativeNormalizeForCompare(string $text): string
+    {
+        $t = trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
+
+        return mb_strtolower($t);
+    }
+
+    private static function collapseAdjacentSimilarNarrativeSentences(string $text, float $threshold = 0.88): string
+    {
+        $sents = self::splitNarrativeSentences($text);
+        if (count($sents) < 2) {
+            return $text;
+        }
+        $out = [$sents[0]];
+        for ($i = 1, $max = count($sents); $i < $max; $i++) {
+            $prev = $out[array_key_last($out)];
+            if (self::narrativeTokenJaccardSimilarity($sents[$i], $prev) >= $threshold) {
+                continue;
+            }
+            $out[] = $sents[$i];
+        }
+
+        return trim(implode(' ', $out));
     }
 
     public static function complexityNotSetLabel(): string

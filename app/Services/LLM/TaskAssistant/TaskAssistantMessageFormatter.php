@@ -194,6 +194,23 @@ final class TaskAssistantMessageFormatter
 
         $paragraphs[] = $framing;
 
+        $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
+        if ($filterInterpretation !== '') {
+            if ($singularCoerceCount === 1) {
+                $filterInterpretation = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative(
+                    $filterInterpretation,
+                    $singularCoerceCount,
+                    $items
+                );
+            }
+            $paragraphs[] = $filterInterpretation;
+        }
+
+        $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
+        if ($doingProgressCoach !== '') {
+            $paragraphs[] = $doingProgressCoach;
+        }
+
         $lines = $this->formatBrowseItemLines($items);
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);

@@ -49,8 +49,8 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
     expect(mb_strtolower((string) $assistantMessage->content))->toContain("can't help");
-    expect($assistantMessage->content)->toContain('Prioritize my tasks.');
-    expect($assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
 
     $thread->refresh();
     expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();

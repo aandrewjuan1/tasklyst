@@ -53,6 +53,6 @@ test('off-topic low-confidence still forces out_of_scope guardrail and blocks re
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
     expect(mb_strtolower((string) $assistantMessage->content))->toContain("can't help");
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('cooledown');
-    expect((string) $assistantMessage->content)->toContain('Prioritize my tasks.');
-    expect((string) $assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
 });

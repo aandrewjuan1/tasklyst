@@ -34,7 +34,7 @@ class TaskAssistantListingDefaultsTest extends TestCase
 
     public function test_clamp_next_field_respects_next_field_max(): void
     {
-        // maxNextFieldChars = min(260, maxReasoningChars()).
+        // maxNextFieldChars = min(320, maxReasoningChars()).
         config(['task-assistant.listing.max_reasoning_chars' => 10]);
 
         $out = TaskAssistantListingDefaults::clampNextField(str_repeat('b', 50));
@@ -187,5 +187,68 @@ class TaskAssistantListingDefaultsTest extends TestCase
 
         $this->assertSame($body, $out);
         $this->assertStringNotContainsString('ordered list', $out);
+    }
+
+    public function test_build_doing_progress_coach_returns_null_when_no_tasks(): void
+    {
+        $this->assertNull(TaskAssistantListingDefaults::buildDoingProgressCoach([], 0));
+        $this->assertNull(TaskAssistantListingDefaults::buildDoingProgressCoach(['A'], 0));
+    }
+
+    public function test_build_doing_progress_coach_single_title(): void
+    {
+        $out = TaskAssistantListingDefaults::buildDoingProgressCoach(['Read chapter 3'], 1);
+
+        $this->assertIsString($out);
+        $this->assertStringContainsString('Read chapter 3', (string) $out);
+        $this->assertLessThanOrEqual(TaskAssistantListingDefaults::maxDoingProgressCoachChars(), mb_strlen((string) $out));
+    }
+
+    public function test_build_doing_progress_coach_lists_sample_and_more(): void
+    {
+        $titles = ['One', 'Two', 'Three', 'Four', 'Five'];
+        $out = TaskAssistantListingDefaults::buildDoingProgressCoach($titles, 5);
+
+        $this->assertIsString($out);
+        $this->assertStringContainsString('One', (string) $out);
+        $this->assertStringContainsString('Two', (string) $out);
+        $this->assertStringContainsString('Three', (string) $out);
+        $this->assertStringContainsString('2 more', (string) $out);
+    }
+
+    public function test_dedupe_prioritize_filter_versus_framing_drops_near_duplicate(): void
+    {
+        $framing = 'Here is a short slice of your highest-ranked tasks so you can focus.';
+        $filter = 'Here is a short slice of your highest ranked tasks so you can focus today.';
+
+        $this->assertNull(TaskAssistantListingDefaults::dedupePrioritizeFilterVersusFraming($filter, $framing));
+    }
+
+    public function test_dedupe_prioritize_reasoning_drops_sentences_that_repeat_framing(): void
+    {
+        $framing = 'I suggest starting with what is due soonest so you feel momentum.';
+        $reasoning = 'I suggest starting with what is due soonest so you feel momentum. Alpha is due today, so it makes sense to open it first.';
+
+        $out = TaskAssistantListingDefaults::dedupePrioritizeReasoningVersusPriorFields(
+            $reasoning,
+            null,
+            $framing,
+            null
+        );
+
+        $this->assertStringContainsString('Alpha', $out);
+        $this->assertStringNotContainsString('I suggest starting with what is due soonest', $out);
+    }
+
+    public function test_dedupe_prioritize_next_versus_prior_fields_replaces_echo(): void
+    {
+        $framing = 'Start with Alpha first because it is due today.';
+        $reasoning = 'Alpha is the top row because of its due date.';
+        $next = 'Start with Alpha first because it is due today and you can schedule later.';
+
+        $out = TaskAssistantListingDefaults::dedupePrioritizeNextVersusPriorFields($next, $framing, $reasoning, 2);
+
+        $this->assertStringContainsString('schedule these steps', mb_strtolower($out));
+        $this->assertStringNotContainsString('Start with Alpha first', $out);
     }
 }

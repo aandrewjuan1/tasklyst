@@ -46,6 +46,6 @@ test('general_guidance rewrites non-verb-led contextual action to avoid fallback
     expect(data_get($assistantMessage->metadata, 'validation_errors', []))->toBeEmpty();
     expect((string) $assistantMessage->content)->not->toBe("Hi, I'm TaskLyst—your task assistant. Would you like me to prioritize your tasks or schedule time blocks for them?");
     expect((string) $assistantMessage->content)->toContain('Next,');
-    expect((string) $assistantMessage->content)->toContain('Prioritize my tasks.');
-    expect((string) $assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
 });

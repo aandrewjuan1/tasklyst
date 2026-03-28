@@ -198,6 +198,7 @@ final class TaskAssistantFlowExecutionEngine
             $items = $payload['items'] ?? [];
             $summary['items_count'] = is_array($items) ? count($items) : 0;
             $summary['limit_used'] = $payload['limit_used'] ?? null;
+            $summary['prioritize_variant'] = $payload['prioritize_variant'] ?? null;
         }
 
         if ($flow === 'daily_schedule') {

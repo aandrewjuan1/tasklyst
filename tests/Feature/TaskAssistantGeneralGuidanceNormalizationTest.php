@@ -56,8 +56,8 @@ test('general_guidance clamps content and avoids duplicating clarifying_question
     expect(str_contains((string) $assistantMessage->content, introPrefix()))->toBeTrue();
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
     expect((string) $assistantMessage->content)->toContain('Next,');
-    expect((string) $assistantMessage->content)->toContain('Prioritize my tasks.');
-    expect((string) $assistantMessage->content)->toContain('Schedule time blocks for my tasks.');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
     expect((string) $assistantMessage->content)->not->toContain('snapshot');
     expect((string) $assistantMessage->content)->not->toContain('JSON');
     expect((string) $assistantMessage->content)->not->toContain('backend');

@@ -229,6 +229,7 @@ test('execution plan holds normalized orchestration fields', function (): void {
         timeWindowHint: 'morning',
         countLimit: 2,
         generationProfile: 'schedule',
+        prioritizeVariant: null,
     );
 
     expect($plan->flow)->toBe('schedule');

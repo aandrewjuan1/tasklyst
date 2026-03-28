@@ -38,6 +38,7 @@ final class TaskAssistantConversationStateService
         array $items,
         ?int $assistantMessageId = null,
         ?int $limit = null,
+        ?string $prioritizeEngine = null,
     ): void {
         $state = $this->get($thread);
         $state['last_flow'] = $sourceFlow;
@@ -75,6 +76,10 @@ final class TaskAssistantConversationStateService
         if ($limit !== null) {
             $state['last_listing']['last_limit'] = $limit;
         }
+        $engine = $prioritizeEngine !== null ? strtolower(trim($prioritizeEngine)) : '';
+        if (in_array($engine, ['browse', 'rank'], true)) {
+            $state['last_listing']['prioritize_engine'] = $engine;
+        }
 
         $this->put($thread, $state);
     }
@@ -84,7 +89,8 @@ final class TaskAssistantConversationStateService
      *   source_flow: string,
      *   items: list<array{entity_type: string, entity_id: int, title: string, position: int}>,
      *   assistant_message_id?: int|null,
-     *   last_limit?: int
+     *   last_limit?: int,
+     *   prioritize_engine?: string|null
      * }|null
      */
     public function lastListing(TaskAssistantThread $thread): ?array
@@ -109,11 +115,18 @@ final class TaskAssistantConversationStateService
             return null;
         }
 
+        $prioritizeEngine = $listing['prioritize_engine'] ?? null;
+        $prioritizeEngine = is_string($prioritizeEngine) ? strtolower(trim($prioritizeEngine)) : null;
+        if ($prioritizeEngine !== null && ! in_array($prioritizeEngine, ['browse', 'rank'], true)) {
+            $prioritizeEngine = null;
+        }
+
         return [
             'source_flow' => $source,
             'items' => $normalizedItems,
             'assistant_message_id' => isset($listing['assistant_message_id']) ? (int) $listing['assistant_message_id'] : null,
             'last_limit' => isset($listing['last_limit']) ? (int) $listing['last_limit'] : ($state['last_limit'] ?? null),
+            'prioritize_engine' => $prioritizeEngine,
         ];
     }
 

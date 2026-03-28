@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\TaskAssistantPrioritizeVariant;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use Illuminate\Support\Collection;
 use Prism\Prism\Facades\Prism;
@@ -114,6 +115,7 @@ test('refinePrioritizeListing derives focus from items order and uses suggested_
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -186,6 +188,7 @@ test('refinePrioritizeListing falls back suggested_next_actions and strips place
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -255,6 +258,7 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -324,6 +328,7 @@ test('refinePrioritizeListing includes acknowledgment when UX include flags are 
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'I\'m overwhelmed, prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -385,6 +390,7 @@ test('refinePrioritizeListing provides a single-item start guidance in reasoning
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -451,6 +457,7 @@ test('refinePrioritizeListing removes conflicting due timing from framing', func
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -513,6 +520,7 @@ test('refinePrioritizeListing replaces due soon framing with singular overdue op
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'what should I focus on today',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today (includes overdue and anything due today)',
@@ -578,6 +586,7 @@ test('refinePrioritizeListing ignores \"tomorrow\\u2019s\" in titles for due dri
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -633,6 +642,7 @@ test('refinePrioritizeListing ensures stressed prompts yield an empathetic ackno
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'im so stressed what should i do first for today?',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -689,6 +699,7 @@ test('refinePrioritizeListing strips bracketed artifacts from next_options', fun
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'i am overwhelmed, prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -766,6 +777,7 @@ test('refinePrioritizeListing sanitizes visibility overclaims and avoids bundled
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Three tasks.',
         filterContextForPrompt: 'time: today',
@@ -820,6 +832,7 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'what should i do first?',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -878,6 +891,7 @@ test('refinePrioritizeListing handles mixed entity types without insight field',
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'what are my top priorities today?',
+        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two items.',
         filterContextForPrompt: 'time: today',
@@ -937,6 +951,7 @@ test('refinePrioritizeListing does not append ordered-list boilerplate when reas
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'show next 3',
+        variant: TaskAssistantPrioritizeVariant::FollowupSlice,
         items: $items,
         deterministicSummary: 'Two items.',
         filterContextForPrompt: 'no strong filters',

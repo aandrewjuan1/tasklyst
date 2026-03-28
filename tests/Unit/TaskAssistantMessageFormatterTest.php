@@ -73,6 +73,80 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
     }
 
+    public function test_prioritize_places_filter_interpretation_after_framing_before_numbered_items(): void
+    {
+        $framing = 'Here is your slice.';
+        $filter = 'Filtered to tasks due today.';
+        $reasoning = 'This ordering matches what you asked for.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => $framing,
+            'filter_interpretation' => $filter,
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'A',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'reasoning' => $reasoning,
+            'next_options' => 'Next.',
+        ]);
+
+        $posFraming = strpos($out, $framing);
+        $posFilter = strpos($out, $filter);
+        $posItems = strpos($out, '1. A —');
+        $this->assertNotFalse($posFraming);
+        $this->assertNotFalse($posFilter);
+        $this->assertNotFalse($posItems);
+        // PHPUnit: assertLessThan($expected, $actual) asserts $actual < $expected.
+        $this->assertLessThan($posFilter, $posFraming);
+        $this->assertLessThan($posItems, $posFilter);
+    }
+
+    public function test_prioritize_places_doing_progress_coach_after_filter_before_numbered_items(): void
+    {
+        $framing = 'Here is your slice.';
+        $filter = 'Filtered to tasks due today.';
+        $coach = 'You already have one task in progress: X.';
+        $reasoning = 'This ordering matches what you asked for.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => $framing,
+            'filter_interpretation' => $filter,
+            'doing_progress_coach' => $coach,
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'A',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'reasoning' => $reasoning,
+            'next_options' => 'Next.',
+        ]);
+
+        $posFraming = strpos($out, $framing);
+        $posFilter = strpos($out, $filter);
+        $posCoach = strpos($out, $coach);
+        $posItems = strpos($out, '1. A —');
+        $this->assertNotFalse($posFraming);
+        $this->assertNotFalse($posFilter);
+        $this->assertNotFalse($posCoach);
+        $this->assertNotFalse($posItems);
+        $this->assertLessThan($posFilter, $posFraming);
+        $this->assertLessThan($posCoach, $posFilter);
+        $this->assertLessThan($posItems, $posCoach);
+    }
+
     public function test_prioritize_due_later_bucket_uses_due_date_label_not_vague_later_phrase(): void
     {
         $out = $this->formatter->format('prioritize', [
