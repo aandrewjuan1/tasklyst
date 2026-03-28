@@ -86,6 +86,11 @@ final class TaskAssistantHybridNarrativeService
             $framing = preg_replace('/\b(top\s+three|top\s+3)\b/iu', 'top priority', $framing) ?? $framing;
         }
 
+        $framing = TaskAssistantListingDefaults::sanitizePrioritizeFramingMetaVoice($framing, $listedTaskCount);
+        if ($framing === '' || $this->containsVisibilityOverclaim($framing)) {
+            return $this->firstPersonFramingFallback($listedTaskCount, $seed.'|meta_voice');
+        }
+
         return $framing;
     }
 
@@ -634,6 +639,7 @@ final class TaskAssistantHybridNarrativeService
                 'In acknowledgment, framing, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
                 'filter_interpretation is OPTIONAL: one short sentence on how filters or wording shaped this slice; null if not helpful. assumptions is OPTIONAL: up to 4 short student-safe strings (e.g. date interpretation); null or empty if none. '.
                 'framing is REQUIRED: open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive, not like a fixed template. Explain how this ranking helps the student take the next step, without sounding technical or inventing dates. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
+                'Never say the student "found", "discovered", or "has" a task "on their list" as if they unearthed it—you are recommending what to do first, not narrating their discovery. Prefer "I\'d start with…", "Here\'s what I\'d tackle first…", or "Your top priority here is…". Use "your attention" or "your focus", not "our attention". '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
                 'reasoning is REQUIRED: speak to the student directly (I/You/Let\'s/We are all fine). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". For a single-item list you may use "it" clearly tied to that task. Ground every claim in ITEMS_JSON (titles, due_phrase, priority). '.
                 'Always mention the exact title of the first row in ITEMS_JSON at least once, and explain why that row is first using its fields—do not add stiff meta lines about "ordered list", "first on this list", or "when you are ready" boilerplate. '.

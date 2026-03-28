@@ -134,17 +134,26 @@ class TaskAssistantMessageFormatterTest extends TestCase
             'next_options' => 'Next.',
         ]);
 
+        $bridgeBefore = TaskAssistantListingDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
+        $bridgeAfter = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach(1);
+
         $posFraming = strpos($out, $framing);
         $posFilter = strpos($out, $filter);
+        $posBridgeBefore = strpos($out, $bridgeBefore);
         $posCoach = strpos($out, $coach);
+        $posBridgeAfter = strpos($out, $bridgeAfter);
         $posItems = strpos($out, '1. A —');
         $this->assertNotFalse($posFraming);
         $this->assertNotFalse($posFilter);
+        $this->assertNotFalse($posBridgeBefore);
         $this->assertNotFalse($posCoach);
+        $this->assertNotFalse($posBridgeAfter);
         $this->assertNotFalse($posItems);
         $this->assertLessThan($posFilter, $posFraming);
-        $this->assertLessThan($posCoach, $posFilter);
-        $this->assertLessThan($posItems, $posCoach);
+        $this->assertLessThan($posBridgeBefore, $posFilter);
+        $this->assertLessThan($posCoach, $posBridgeBefore);
+        $this->assertLessThan($posBridgeAfter, $posCoach);
+        $this->assertLessThan($posItems, $posBridgeAfter);
     }
 
     public function test_prioritize_due_later_bucket_uses_due_date_label_not_vague_later_phrase(): void
