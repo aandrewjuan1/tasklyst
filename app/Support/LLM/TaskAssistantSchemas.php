@@ -191,21 +191,21 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'prioritize_narrative',
-            description: 'Assistant voice: speak as the one who prioritized these items for the student. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database in any field—the student must not see technical terms.',
+            description: 'Assistant voice for a prioritized slice. Follow LISTED_ITEM_COUNT in the user message: if it is 1, use strictly singular grammar (this task/event/project, it)—never pluralize to tasks/priorities/they when only one row is listed. If LISTED_ITEM_COUNT > 1, plural forms are fine for the set. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
             properties: [
                 new StringSchema(
                     name: 'acknowledgment',
-                    description: 'Optional but recommended when user expresses intent/emotion conversationally (e.g. overwhelmed, excited, frustrated). When present, it should be 1 short sentence acknowledging their request in student-friendly language. When absent, it may be null.',
+                    description: 'Optional but recommended when user expresses intent/emotion conversationally (e.g. overwhelmed, excited, frustrated). When present, it should be 1 short sentence acknowledging their request in student-friendly language. When absent, it may be null. When LISTED_ITEM_COUNT is 1, keep singular grammar consistent with that single row.',
                     nullable: true
                 ),
                 new StringSchema(
                     name: 'framing',
-                    description: 'Required: short framing sentence/mini-paragraph (<= 2 sentences). Explains how the list and focus approach will help the user succeed, without sounding technical. Do not invent due dates or reorder items. Avoid claiming you reviewed/checked their full list (no “I reviewed your tasks”, “I took a look at your to-do list”).',
+                    description: 'Required: natural assistant voice (I recommend, I suggest, Let\'s, We could, here\'s what I\'d do)—vary phrasing. You may use multiple sentences when it helps. When LISTED_ITEM_COUNT is 1, never say priorities/tasks/these in the plural for that one row—use the row entity type (task, event, or project) in singular. Do not invent due dates or reorder items. Avoid brochure-style openers like "Here is your top priority in a simple order". Avoid claiming you reviewed/checked their full list (no “I reviewed your tasks”, “I took a look at your to-do list”).',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'next_options',
-                    description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling these steps for later). Keep it student-friendly and not robotic. If you mention rescheduling, it must be about remaining tasks, not tasks already completed.',
+                    description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling). When LISTED_ITEM_COUNT is 1, refer to scheduling "this task" (or event/project per row), not "these tasks". Keep it student-friendly. If you mention rescheduling, it must be about remaining work, not tasks already completed.',
                     nullable: false
                 ),
                 new ArraySchema(
@@ -216,7 +216,7 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Required: short (1-2 sentences) explanation written directly to the student (use first-person "I" or second-person "You"). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". Use only task/event/project titles and fields. Do not include internal terms. If you include counts, it must match LISTED_TASK_COUNT.',
+                    description: 'Required: explanation written directly to the student (I, You, Let\'s, or We are all fine). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". Ground claims in the listed rows (titles, due_phrase, priority). Mention the exact title of the first row at least once and tie why it is first to that row\'s fields. When LISTED_ITEM_COUNT is 1, use singular nouns and it/this row only—no "they/them" for that single item. You may use multiple sentences. Do not include internal terms, stiff meta lines about "ordered list"/"first on this list", or template closers like "when you\'re ready". If you include counts, it must match LISTED_ITEM_COUNT.',
                     nullable: false
                 ),
             ],

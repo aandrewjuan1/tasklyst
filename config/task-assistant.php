@@ -31,7 +31,7 @@ return [
         ],
         'prioritize_narrative' => [
             'temperature' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TEMPERATURE', 0.25),
-            'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 900),
+            'max_tokens' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 1200),
             'top_p' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P', 0.88),
         ],
         'general_guidance' => [
@@ -126,7 +126,9 @@ return [
         'ambiguous_top_limit' => (int) env('TASK_ASSISTANT_BROWSE_AMBIGUOUS_TOP', 5),
         'max_items' => (int) env('TASK_ASSISTANT_BROWSE_MAX_ITEMS', 50),
         /** Must match Prism prioritize listing narrative output clamp and response validation. */
-        'max_reasoning_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_REASONING_CHARS', 800),
+        'max_reasoning_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_REASONING_CHARS', 1200),
+        /** Prioritize `framing` max length; must stay in sync with TaskAssistantListingDefaults::maxFramingChars() and validation. */
+        'max_framing_chars' => (int) env('TASK_ASSISTANT_MAX_FRAMING_CHARS', 900),
         /** Single-paragraph recommendations field (suggested_guidance). */
         'max_suggested_guidance_chars' => (int) env('TASK_ASSISTANT_BROWSE_MAX_SUGGESTED_GUIDANCE_CHARS', 1200),
         /** Per-row LLM placement line merged into items[].placement_blurb; must match validator max. */

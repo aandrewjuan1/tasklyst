@@ -60,7 +60,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'main_task' => 'A task',
                 'secondary_tasks' => [],
             ],
-            'framing' => 'Ok',
+            'framing' => 'No',
             'reasoning' => 'This ordering matches what you asked for.',
             'next_options' => 'If you want, I can schedule these steps for later.',
             'next_options_chip_texts' => [

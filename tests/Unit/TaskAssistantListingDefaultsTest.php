@@ -19,11 +19,11 @@ class TaskAssistantListingDefaultsTest extends TestCase
 
     public function test_clamp_framing_truncates_with_ellipsis(): void
     {
-        // maxFramingChars = min(400, maxSuggestedGuidanceChars()).
-        // maxSuggestedGuidanceChars = max(80, configured value).
+        // maxFramingChars = min(max_framing_chars, maxSuggestedGuidanceChars()), floored at 80.
         config([
             'task-assistant.listing.max_reasoning_chars' => 800,
             'task-assistant.listing.max_suggested_guidance_chars' => 50,
+            'task-assistant.listing.max_framing_chars' => 80,
         ]);
 
         $out = TaskAssistantListingDefaults::clampFraming(str_repeat('a', 120));
@@ -94,6 +94,21 @@ class TaskAssistantListingDefaultsTest extends TestCase
         $this->assertSame($in, $out);
     }
 
+    public function test_normalize_prioritize_reasoning_voice_keeps_lets_and_we_when_grounded(): void
+    {
+        $items = [[
+            'entity_type' => 'task',
+            'title' => 'Alpha',
+            'due_phrase' => 'overdue',
+            'priority' => 'medium',
+        ]];
+
+        $in = 'Let\'s knock out the overdue work first—you\'ll feel lighter once Alpha moves forward.';
+        $out = TaskAssistantListingDefaults::normalizePrioritizeReasoningVoice($in, $items);
+
+        $this->assertSame($in, $out);
+    }
+
     public function test_normalize_prioritize_reasoning_voice_rewrites_when_due_or_priority_drift_conflicts_items(): void
     {
         $items = [[
@@ -118,5 +133,59 @@ class TaskAssistantListingDefaultsTest extends TestCase
         config(['task-assistant.listing.max_reasoning_chars' => 400]);
 
         $this->assertSame(400, TaskAssistantListingDefaults::maxReasoningChars());
+    }
+
+    public function test_max_framing_chars_reads_config_and_caps_to_suggested_guidance(): void
+    {
+        config([
+            'task-assistant.listing.max_framing_chars' => 2000,
+            'task-assistant.listing.max_suggested_guidance_chars' => 500,
+        ]);
+
+        $this->assertSame(500, TaskAssistantListingDefaults::maxFramingChars());
+    }
+
+    public function test_coerce_singular_prioritize_narrative_only_when_one_item(): void
+    {
+        $items = [[
+            'entity_type' => 'task',
+            'entity_id' => 31,
+            'title' => 'Impossible 5h study block before quiz',
+        ]];
+
+        $in = 'I recommend focusing on these top priorities first. These high-priority tasks that are already overdue will help you get a head start, even though they have some time left.';
+        $out = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($in, 1, $items);
+
+        $this->assertStringContainsString('this top priority', mb_strtolower($out));
+        $this->assertStringContainsString('high-priority task that is', mb_strtolower($out));
+        $this->assertStringContainsString('it has some time left', mb_strtolower($out));
+        $this->assertStringNotContainsString('these top priorities', mb_strtolower($out));
+
+        $unchanged = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($in, 2, $items);
+        $this->assertSame($in, $unchanged);
+    }
+
+    public function test_coerce_singular_prioritize_narrative_uses_event_nouns(): void
+    {
+        $items = [[
+            'entity_type' => 'event',
+            'entity_id' => 5,
+            'title' => 'Team sync',
+        ]];
+
+        $in = 'These events are the next focus.';
+        $out = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($in, 1, $items);
+
+        $this->assertSame('This event is the next focus.', $out);
+    }
+
+    public function test_strip_robotic_prioritize_reasoning_tail_removes_legacy_anchor_paragraph(): void
+    {
+        $body = 'You should tackle the urgent work first.';
+        $tail = "\n\nStart with Impossible 5h study block before quiz when you're ready—it's first on this ordered list.";
+        $out = TaskAssistantListingDefaults::stripRoboticPrioritizeReasoningTail($body.$tail);
+
+        $this->assertSame($body, $out);
+        $this->assertStringNotContainsString('ordered list', $out);
     }
 }

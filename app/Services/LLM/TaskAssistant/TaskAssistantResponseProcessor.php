@@ -204,13 +204,15 @@ final class TaskAssistantResponseProcessor
     /**
      * Prioritize payload: backend items plus narrative reasoning and suggested_guidance paragraph.
      * No summary field; formatted message order is reasoning, items, then guidance.
+     * Narrative singular/plural coherence is enforced in {@see TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative}
+     * and prompts when count(items) is 1.
      *
      * @param  array<string, mixed>  $data
      */
     private function validatePrioritizeListingData(array $data): array
     {
         $maxReasoning = TaskAssistantListingDefaults::maxReasoningChars();
-        $maxFraming = min(400, TaskAssistantListingDefaults::maxSuggestedGuidanceChars());
+        $maxFraming = TaskAssistantListingDefaults::maxFramingChars();
         $maxNextField = min(260, $maxReasoning);
         $maxFocusTitle = 200;
         $rules = [
@@ -220,7 +222,7 @@ final class TaskAssistantResponseProcessor
             'focus.main_task' => ['required', 'string', 'min:1', 'max:'.$maxFocusTitle],
             'focus.secondary_tasks' => ['present', 'array', 'max:49'],
             'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
-            'framing' => ['required', 'string', 'min:5', 'max:'.$maxFraming],
+            'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextField],
             'next_options_chip_texts' => ['required', 'array', 'min:1', 'max:3'],
             'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],

@@ -10,8 +10,9 @@ final class TaskAssistantListingDefaults
     public static function maxFramingChars(): int
     {
         // Must match TaskAssistantResponseProcessor::validatePrioritizeListingData().
-        // framing max = min(400, maxSuggestedGuidanceChars()).
-        return min(400, self::maxSuggestedGuidanceChars());
+        $max = (int) config('task-assistant.listing.max_framing_chars', 900);
+
+        return max(80, min($max, self::maxSuggestedGuidanceChars()));
     }
 
     public static function clampFraming(string $text): string
@@ -22,6 +23,109 @@ final class TaskAssistantListingDefaults
         }
 
         return mb_substr($text, 0, $max - 1).'…';
+    }
+
+    /**
+     * When exactly one prioritized row is returned, fix common plural slips in model copy (framing, reasoning, etc.).
+     * Uses the first row's entity_type for task/event/project nouns.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    public static function coerceSingularPrioritizeNarrative(string $text, int $listedItemCount, array $items = []): string
+    {
+        if ($listedItemCount !== 1) {
+            return $text;
+        }
+
+        if (trim($text) === '') {
+            return $text;
+        }
+
+        $first = isset($items[0]) && is_array($items[0]) ? $items[0] : [];
+        $entity = strtolower(trim((string) ($first['entity_type'] ?? 'task')));
+        if (! in_array($entity, ['task', 'event', 'project'], true)) {
+            $entity = 'task';
+        }
+
+        $singular = match ($entity) {
+            'event' => 'event',
+            'project' => 'project',
+            default => 'task',
+        };
+
+        $plural = match ($entity) {
+            'event' => 'events',
+            'project' => 'projects',
+            default => 'tasks',
+        };
+
+        $out = $text;
+
+        $swap = static function (string $s, array $pairs): string {
+            foreach ($pairs as [$from, $to]) {
+                $s = str_replace($from, $to, $s);
+            }
+
+            return $s;
+        };
+
+        $out = $swap($out, [
+            ['These top priorities', 'This top priority'],
+            ['these top priorities', 'this top priority'],
+            ['Those top priorities', 'That top priority'],
+            ['those top priorities', 'that top priority'],
+            ['These priorities', 'This priority'],
+            ['these priorities', 'this priority'],
+            ['Those priorities', 'That priority'],
+            ['those priorities', 'that priority'],
+            ['top priorities first', 'top priority first'],
+        ]);
+
+        $out = $swap($out, [
+            ['These high-priority '.$plural, 'This high-priority '.$singular],
+            ['these high-priority '.$plural, 'this high-priority '.$singular],
+            ['Those high-priority '.$plural, 'That high-priority '.$singular],
+            ['those high-priority '.$plural, 'that high-priority '.$singular],
+            ['High-priority '.$plural.' that are', 'High-priority '.$singular.' that is'],
+            ['high-priority '.$plural.' that are', 'high-priority '.$singular.' that is'],
+            ['These '.$plural, 'This '.$singular],
+            ['these '.$plural, 'this '.$singular],
+            ['Those '.$plural, 'That '.$singular],
+            ['those '.$plural, 'that '.$singular],
+            ['High-priority '.$plural, 'High-priority '.$singular],
+            ['high-priority '.$plural, 'high-priority '.$singular],
+        ]);
+
+        $out = $swap($out, [
+            ['High-priority '.$singular.' that are', 'High-priority '.$singular.' that is'],
+            ['high-priority '.$singular.' that are', 'high-priority '.$singular.' that is'],
+            ['This '.$singular.' are ', 'This '.$singular.' is '],
+            ['this '.$singular.' are ', 'this '.$singular.' is '],
+            ['That '.$singular.' are ', 'That '.$singular.' is '],
+            ['that '.$singular.' are ', 'that '.$singular.' is '],
+        ]);
+
+        $out = $swap($out, [
+            ['They\'re already overdue', 'It\'s already overdue'],
+            ['they\'re already overdue', 'it\'s already overdue'],
+            ['They are already overdue', 'It is already overdue'],
+            ['they are already overdue', 'it is already overdue'],
+            ['By tackling them', 'By tackling it'],
+            ['by tackling them', 'by tackling it'],
+            ['Tackling them', 'Tackling it'],
+            ['tackling them', 'tackling it'],
+            ['even though they have', 'even though it has'],
+            ['Even though they have', 'Even though it has'],
+        ]);
+
+        $out = $swap($out, [
+            ['They have ', 'It has '],
+            ['they have ', 'it has '],
+            ['They are ', 'It is '],
+            ['they are ', 'it is '],
+        ]);
+
+        return $out;
     }
 
     public static function maxReasoningChars(): int
@@ -115,14 +219,14 @@ final class TaskAssistantListingDefaults
             return $trimmed;
         }
 
-        // Allow first/second person; rewrite when third-person patterns appear.
-        $startsWithAllowedPronoun = (bool) preg_match('/^(I|You)\b/u', $trimmed);
         $hasThirdPersonLeak = (bool) preg_match(
             '/\b(the\s+user|the\s+user\'s|user\'s\s+current|they\s+match|this\s+list\s+matches)\b/i',
             $trimmed
         );
 
-        if ($startsWithAllowedPronoun && ! $hasThirdPersonLeak && ! self::reasoningConflictsWithItems($trimmed, $items)) {
+        // Keep grounded model copy whenever voice is fine and due/priority tokens match items.
+        // (Do not require "I/You" at the start—Let's, We, This, Here, etc. are valid assistant voice.)
+        if (! $hasThirdPersonLeak && ! self::reasoningConflictsWithItems($trimmed, $items)) {
             return $trimmed;
         }
 
@@ -224,7 +328,7 @@ final class TaskAssistantListingDefaults
         }
 
         // Priority drift: only mention priority labels that exist on the items.
-        $priorityTokens = ['high', 'medium', 'low'];
+        $priorityTokens = ['high', 'medium', 'low', 'urgent'];
         foreach ($priorityTokens as $token) {
             if (mb_stripos($lower, $token.' priority') === false) {
                 continue;
@@ -273,6 +377,17 @@ final class TaskAssistantListingDefaults
     public static function reasoningWhenEmpty(): string
     {
         return __('This list reflects your filters and the same ranking order used elsewhere in the assistant.');
+    }
+
+    /**
+     * Strip legacy prioritize reasoning tail appended by older assistant versions (robotic anchor line).
+     */
+    public static function stripRoboticPrioritizeReasoningTail(string $reasoning): string
+    {
+        $pattern = '/\R{2,}Start with .+? when you[\x{2019}\']re ready—it[\x{2019}\']s first on this ordered list\./us';
+        $out = preg_replace($pattern, '', $reasoning);
+
+        return trim(is_string($out) ? $out : $reasoning);
     }
 
     public static function complexityNotSetLabel(): string

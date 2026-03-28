@@ -28,26 +28,54 @@ final class TaskAssistantHybridNarrativeService
         );
     }
 
-    private function sanitizeFraming(string $framing, int $listedTaskCount): string
+    /**
+     * When framing must be discarded, pick first-person wording that varies by request (stable per diversifier).
+     */
+    private function firstPersonFramingFallback(int $listedTaskCount, string $diversifier): string
     {
-        $framing = trim($framing);
-        if ($framing === '' || $this->containsVisibilityOverclaim($framing)) {
-            return $listedTaskCount <= 1
-                ? 'Here is your top priority in a simple order you can start now.'
-                : 'Here are your top priorities in a simple order you can start now.';
+        $n = abs(crc32($diversifier)) % 4;
+
+        if ($listedTaskCount <= 1) {
+            return match ($n) {
+                0 => "I'd start with what's below—it's in an order that keeps things straightforward.",
+                1 => 'I recommend tackling the item below first; you can adjust if something more urgent appears.',
+                2 => "I suggest beginning with the next step shown here so you don't have to guess where to start.",
+                default => "Here's what I'd do first: use the order below and take it one step at a time.",
+            };
         }
 
-        $lower = mb_strtolower($framing);
+        return match ($n) {
+            0 => "I'd work through these in the order below—it balances urgency with what you said matters.",
+            1 => 'I recommend moving from top to bottom; the sequence is there to cut down decision fatigue.',
+            2 => 'I suggest treating this list as your default path—you can swap a step if you need to.',
+            default => "Here's how I'd approach this: start at the top, then keep going down as you finish each piece.",
+        };
+    }
 
-        // Avoid over-claimy/hand-wavy openers for neutral prompts.
-        if (
-            str_contains($lower, 'based on your current priorities')
-            || str_contains($lower, 'based on your upcoming tasks')
-            || str_contains($lower, 'based on your tasks')
-        ) {
-            return $listedTaskCount <= 1
-                ? 'Here is your top priority in a simple order you can start now.'
-                : 'Here are your top priorities in a simple order you can start now.';
+    private function sanitizeFraming(string $framing, int $listedTaskCount, string $diversifier = ''): string
+    {
+        $framing = trim($framing);
+        $seed = $diversifier !== '' ? $diversifier : $framing;
+
+        if ($framing === '' || $this->containsVisibilityOverclaim($framing)) {
+            return $this->firstPersonFramingFallback($listedTaskCount, $seed);
+        }
+
+        // Soften "based on your whole list" openers into first-person assistant voice; keep the model's rest of the sentence.
+        $rewritten = preg_replace('/^based on your current priorities,?\s+/iu', "I'd suggest you ", $framing, 1);
+        $rewritten = is_string($rewritten) ? $rewritten : $framing;
+        $rewritten = preg_replace('/^based on your upcoming tasks,?\s+/iu', "I'd suggest you ", $rewritten, 1);
+        $rewritten = is_string($rewritten) ? $rewritten : $framing;
+        $rewritten = preg_replace('/^based on your tasks,?\s+/iu', "For this request, I'd suggest you ", $rewritten, 1);
+        $framing = trim(is_string($rewritten) ? $rewritten : $framing);
+
+        if ($this->containsVisibilityOverclaim($framing)) {
+            return $this->firstPersonFramingFallback($listedTaskCount, $seed);
+        }
+
+        // Replace impersonal brochure-style openers (models often echo old templates).
+        if (preg_match('/^here (is|are) your top priorit(?:y|ies) in a simple order\b/iu', $framing) === 1) {
+            return $this->firstPersonFramingFallback($listedTaskCount, $seed.'|brochure_opener');
         }
 
         // Keep count references coherent with the actual listed items count.
@@ -531,25 +559,46 @@ final class TaskAssistantHybridNarrativeService
             ? 'The user asked for a general list; use the provided rows as a short prioritized slice.'
             : 'The user asked with filters; use the provided rows as the prioritized results.';
 
+        $firstRowEntity = 'task';
+        if ($listedTaskCount >= 1 && isset($items[0]) && is_array($items[0])) {
+            $entityGuess = strtolower(trim((string) ($items[0]['entity_type'] ?? 'task')));
+            if (in_array($entityGuess, ['task', 'event', 'project'], true)) {
+                $firstRowEntity = $entityGuess;
+            }
+        }
+
+        $firstRowPlural = match ($firstRowEntity) {
+            'event' => 'events',
+            'project' => 'projects',
+            default => 'tasks',
+        };
+
+        $listedCountInstruction = $listedTaskCount === 1
+            ? 'LISTED_ITEM_COUNT: 1. The student sees exactly ONE prioritized row. Use strictly singular grammar in framing, reasoning, acknowledgment (if any), and next_options: say "this '.$firstRowEntity.'" or "that '.$firstRowEntity.'"—never "these '.$firstRowPlural.'" or "those '.$firstRowPlural.'"; "priority" not "priorities"; use it/this '.$firstRowEntity.' (not they/them) when referring to that row. Do not describe one row as multiple items. '
+            : 'LISTED_ITEM_COUNT: '.$listedTaskCount.'. Multiple rows: plural wording is fine when referring to the set. ';
+
         $messages = collect([
             new UserMessage($userMessage),
             new UserMessage(
                 'Use the following rows as the prioritized list for this request (tasks, events, or projects). '.
                 'Do NOT change ordering or membership. Write only the user-facing narrative fields (acknowledgment, framing, reasoning, and options). '."\n\n".
                 $listLabel."\n\n".
+                $listedCountInstruction.
                 'You are the task assistant speaking to the student. '.
                 'Use a calm, reassuring, empathetic tone. When UX_INCLUDE_ACK is true, the acknowledgment should validate the user\'s feelings briefly and smoothly transition into action, and the rest of the message should stay supportive and steady. '.
                 'Do not claim extra visibility into the student\'s full life or full list. Avoid phrases like "I reviewed your tasks", "I looked at your list", "I see you have", or "I\'ve taken a look at your to-do list". '.
                 'In acknowledgment, framing, reasoning, and next_options: NEVER mention snapshot, "snapshot data", JSON, ITEMS_JSON, FILTER_CONTEXT, backend, database, or internal technical terms—the student only sees plain English. '.
-                'framing is REQUIRED: write 1-2 sentences explaining how this list/focus helps, without sounding technical or inventing dates. '.
+                'framing is REQUIRED: open in natural assistant voice (I recommend, I suggest, Let\'s, We could, Here\'s what I\'d do—vary openings across turns). Sound human and supportive, not like a fixed template. Explain how this ranking helps the student take the next step, without sounding technical or inventing dates. Do not use impersonal brochure openers like "Here is your top priority in a simple order". '.
                 'acknowledgment is OPTIONAL: include only when UX_INCLUDE_ACK is true; otherwise set it to null. When included, it must be exactly one short empathetic sentence. '.
-                'reasoning is REQUIRED: short (1-2 sentences) explanation written directly to the student (use first-person "I" or second-person "You"). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". '.
+                'reasoning is REQUIRED: speak to the student directly (I/You/Let\'s/We are all fine). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". For a single-item list you may use "it" clearly tied to that task. Ground every claim in ITEMS_JSON (titles, due_phrase, priority). '.
+                'Always mention the exact title of the first row in ITEMS_JSON at least once, and explain why that row is first using its fields—do not add stiff meta lines about "ordered list", "first on this list", or "when you are ready" boilerplate. '.
                 'next_options is REQUIRED: 1-2 sentences offering a follow-up option (e.g., scheduling these steps later). Do not suggest rescheduling tasks that were already completed; if you mention rescheduling, it should be about the remaining tasks. '.
                 'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
                 'UX_INCLUDE_ACK: '.($includeAcknowledgment ? 'true' : 'false').
                 "\n".
                 'DUE-TIME SAFETY: Do not paraphrase due-time. If you mention "due today", "due tomorrow", "overdue", or "due this week", it MUST match the exact wording present in at least one items[].due_phrase. Never mention due-time phrasing that is not present in items due_phrase values. '.
                 'Do not invent items, deadlines, durations, or priorities. '.
+                'Do not invent subjects, courses, or domains (for example a specific class or math) unless they appear in item titles or FILTER_CONTEXT. '.
                 'Each task row may have a priority field: only describe priority if it matches that row—never mislabel. '."\n\n".
                 'FILTER_CONTEXT: '.$filterContextForPrompt."\n\n".
                 'ITEMS_JSON: '.$itemsJson
@@ -617,9 +666,9 @@ final class TaskAssistantHybridNarrativeService
         if (! is_string($framing) || trim($framing) === '') {
             $framing = trim($deterministicSummary) !== ''
                 ? trim($deterministicSummary)
-                : 'Here is a focused list you can act on right away.';
+                : $this->firstPersonFramingFallback(max(1, $listedTaskCount), $userMessage.'|'.$threadId);
         }
-        $framing = $this->sanitizeFraming((string) $framing, $listedTaskCount);
+        $framing = $this->sanitizeFraming((string) $framing, $listedTaskCount, $userMessage.'|'.$threadId);
 
         if ($nextOptions === null || trim($nextOptions) === '') {
             $nextOptions = __('If you want, I can schedule these steps for later.');
@@ -648,19 +697,10 @@ final class TaskAssistantHybridNarrativeService
 
         // Safety net against LLM due-date drift (e.g. "tomorrow" vs items[].due_phrase="due today").
         $allowedDuePhrases = $this->extractTaskDuePhrases($cleanItems);
+        $framing = $this->rewriteFramingWhenDueSoonConflictsWithOverdue((string) $framing, $cleanItems);
         $framingConflict = $this->hasConflictingDueTiming((string) $framing, $allowedDuePhrases);
         if ($framingConflict) {
-            $framing = 'Here is a focused list you can act on right away.';
-        }
-        // Common quality issue: “due soon” when items are explicitly “overdue”.
-        $allowedLower = array_map(static fn (string $p): string => mb_strtolower($p), $allowedDuePhrases);
-        if (
-            in_array('overdue', $allowedLower, true)
-            && ! in_array('due today', $allowedLower, true)
-            && ! in_array('due tomorrow', $allowedLower, true)
-            && mb_stripos((string) $framing, 'due soon') !== false
-        ) {
-            $framing = 'Start with the overdue items so you can feel caught up and less stressed.';
+            $framing = $this->firstPersonFramingFallback(max(1, $listedTaskCount), $userMessage.'|'.$threadId.'|due_time');
         }
 
         // Safety net for due-time drift in next options and chip texts.
@@ -682,7 +722,7 @@ final class TaskAssistantHybridNarrativeService
             $nextOptionsChipTexts = ['Schedule these for later', 'Schedule these tasks for a specific time'];
         }
 
-        $nextOptionsChipTexts = array_values(array_slice($nextOptionsChipTexts, 0, 2));
+        $nextOptionsChipTexts = array_values(array_slice($nextOptionsChipTexts, 0, 3));
 
         // Enforce required reasoning field (schema expects non-null).
         if ($reasoning === null || trim($reasoning) === '') {
@@ -695,6 +735,7 @@ final class TaskAssistantHybridNarrativeService
         // Ensure reasoning stays anchored to the ranked list (especially item #1).
         // Models sometimes explain a secondary item, which feels inconsistent even when schema-valid.
         $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
+        $reasoning = $this->normalizeReasoningOverdueGrammar((string) $reasoning, $cleanItems);
 
         // If UX includes acknowledgment, ensure it's actually empathetic and not just generic framing.
         if ($includeAcknowledgment) {
@@ -756,17 +797,29 @@ final class TaskAssistantHybridNarrativeService
             }
         }
 
+        $singularCoerceCount = count($cleanItems);
+
         return [
             'items' => $cleanItems,
             'focus' => $focus,
             'acknowledgment' => $acknowledgment !== null
-                ? TaskAssistantListingDefaults::clampFraming((string) $acknowledgment)
+                ? TaskAssistantListingDefaults::clampFraming(
+                    TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative((string) $acknowledgment, $singularCoerceCount, $cleanItems)
+                )
                 : null,
-            'framing' => TaskAssistantListingDefaults::clampFraming((string) $framing),
-            'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning((string) $reasoning),
-            'next_options' => TaskAssistantListingDefaults::clampNextField((string) $nextOptions),
+            'framing' => TaskAssistantListingDefaults::clampFraming(
+                TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative((string) $framing, $singularCoerceCount, $cleanItems)
+            ),
+            'reasoning' => TaskAssistantListingDefaults::clampBrowseReasoning(
+                TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative((string) $reasoning, $singularCoerceCount, $cleanItems)
+            ),
+            'next_options' => TaskAssistantListingDefaults::clampNextField(
+                TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative((string) $nextOptions, $singularCoerceCount, $cleanItems)
+            ),
             'next_options_chip_texts' => array_values(array_map(
-                static fn (mixed $t): string => TaskAssistantListingDefaults::clampNextOptionChipText((string) $t),
+                static fn (mixed $t): string => TaskAssistantListingDefaults::clampNextOptionChipText(
+                    TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative((string) $t, $singularCoerceCount, $cleanItems)
+                ),
                 $nextOptionsChipTexts
             )),
         ];
@@ -777,9 +830,12 @@ final class TaskAssistantHybridNarrativeService
      */
     private function enforceReasoningAnchorsTopItem(string $reasoning, array $items): string
     {
-        $text = trim($reasoning);
-        if ($text === '' || $items === []) {
+        $text = trim(TaskAssistantListingDefaults::stripRoboticPrioritizeReasoningTail($reasoning));
+        if ($items === []) {
             return $reasoning;
+        }
+        if ($text === '') {
+            return TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
 
         $first = is_array($items[0] ?? null) ? $items[0] : null;
@@ -797,14 +853,32 @@ final class TaskAssistantHybridNarrativeService
 
         // If it already references the top item title, keep it.
         if ($titleLower !== '' && mb_stripos($lower, $titleLower) !== false) {
-            return $reasoning;
+            return $text;
         }
 
-        // Otherwise, fall back to a deterministic explanation that cannot contradict ordering.
-        // Avoid due-time phrasing to stay consistent for mixed lists (events/projects may not have due_phrase).
-        $safe = "I put {$title} first because it's the most time-sensitive or urgent right now. Start with {$title}, then move down the list.";
+        // Substantial model copy: keep voice even if it omits the top title (the numbered list shows order).
+        // Short blurbs without the title still get a soft anchor so single-line fluff is not left vague.
+        $minCharsToTrustWithoutTopTitle = 50;
+        if (mb_strlen($text) >= $minCharsToTrustWithoutTopTitle) {
+            return $text;
+        }
 
-        return $safe;
+        return $this->softReasoningAnchorWhenTopTitleMissing($title, $text);
+    }
+
+    /**
+     * When reasoning is short and never names the top row, substitute varied copy (no "ordered list" tail).
+     */
+    private function softReasoningAnchorWhenTopTitleMissing(string $title, string $originalSnippet): string
+    {
+        $seed = $title.'|'.hash('sha256', $originalSnippet);
+
+        return match (abs(crc32($seed)) % 4) {
+            0 => "I put {$title} first because it's the most time-sensitive or urgent in this slice—then you can work down from there.",
+            1 => "I'd start with {$title}; it lines up best with the deadlines and priorities shown for the top row.",
+            2 => "Leading with {$title} matches what's ranked first here—tackle it before the other rows when you can.",
+            default => "I chose {$title} at the top because of its timing and priority relative to the rest of this short list.",
+        };
     }
 
     /**
@@ -845,6 +919,10 @@ final class TaskAssistantHybridNarrativeService
         $lower = mb_strtolower($text);
         $allowedLower = array_map(static fn (string $p): string => mb_strtolower($p), $allowedDuePhrases);
 
+        if (mb_stripos($lower, 'due soon') !== false && ! in_array('due soon', $allowedLower, true)) {
+            return true;
+        }
+
         // Only trigger on due-phrase tokens (not standalone "tomorrow"/"today"),
         // so task titles like "tomorrow's ..." do not cause false positives.
         $duePhraseTokens = [
@@ -866,6 +944,102 @@ final class TaskAssistantHybridNarrativeService
         }
 
         return false;
+    }
+
+    /**
+     * Count task rows whose due_phrase indicates overdue (used for singular/plural copy).
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function countTaskRowsWithOverdueDuePhrase(array $items): int
+    {
+        $n = 0;
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            if (strtolower(trim((string) ($item['entity_type'] ?? 'task'))) !== 'task') {
+                continue;
+            }
+            $phrase = mb_strtolower(trim((string) ($item['due_phrase'] ?? '')));
+            if ($phrase === '' || ! str_contains($phrase, 'overdue')) {
+                continue;
+            }
+            $n++;
+        }
+
+        return $n;
+    }
+
+    /**
+     * Replace vague "due soon" framing when the slice includes overdue tasks and no calendar
+     * "due today"/"due tomorrow" rows—wording matches how many overdue rows exist.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function rewriteFramingWhenDueSoonConflictsWithOverdue(string $framing, array $items): string
+    {
+        if (mb_stripos($framing, 'due soon') === false) {
+            return $framing;
+        }
+
+        $allowedLower = array_map(
+            static fn (string $p): string => mb_strtolower($p),
+            $this->extractTaskDuePhrases($items)
+        );
+
+        if (! in_array('overdue', $allowedLower, true)) {
+            return $framing;
+        }
+
+        if (in_array('due today', $allowedLower, true) || in_array('due tomorrow', $allowedLower, true)) {
+            return $framing;
+        }
+
+        $overdueCount = $this->countTaskRowsWithOverdueDuePhrase($items);
+        if ($overdueCount <= 0) {
+            return $framing;
+        }
+
+        return $this->framingLineForOverdueFirstFocus($overdueCount);
+    }
+
+    private function framingLineForOverdueFirstFocus(int $overdueTaskCount): string
+    {
+        if ($overdueTaskCount <= 1) {
+            return 'Start with the overdue item first so you can feel caught up and less stressed.';
+        }
+
+        return 'Start with the overdue items first so you can feel caught up and less stressed.';
+    }
+
+    /**
+     * Fix common model mistakes such as "These 'One title' tasks are overdue" when only one task is overdue.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function normalizeReasoningOverdueGrammar(string $reasoning, array $items): string
+    {
+        $text = $reasoning;
+        $overdueCount = $this->countTaskRowsWithOverdueDuePhrase($items);
+
+        if ($overdueCount === 1) {
+            $replaced = preg_replace_callback(
+                '/\b(these|those)\s+\'([^\']+)\'\s+tasks\s+are\b/iu',
+                static function (array $m): string {
+                    $lead = strcasecmp((string) ($m[1] ?? ''), 'those') === 0 ? 'That' : 'This';
+
+                    return $lead.' \''.($m[2] ?? '').'\' task is';
+                },
+                $text
+            );
+            $text = is_string($replaced) ? $replaced : $text;
+
+            $text = preg_replace('/\bthese\s+tasks\s+are\s+overdue\b/iu', 'This task is overdue', $text, 1) ?? $text;
+            $text = preg_replace('/\bthose\s+tasks\s+are\s+overdue\b/iu', 'That task is overdue', $text, 1) ?? $text;
+        }
+
+        return $text;
     }
 
     /**
