@@ -240,6 +240,34 @@ class TaskAssistantListingDefaultsTest extends TestCase
         $this->assertStringNotContainsString('I suggest starting with what is due soonest', $out);
     }
 
+    public function test_sanitize_prioritize_framing_meta_voice_drops_discovery_opener(): void
+    {
+        $in = 'I understand that you\'ve found one top priority task on your list. This first task deserves our attention first because it\'s overdue.';
+        $out = TaskAssistantListingDefaults::sanitizePrioritizeFramingMetaVoice($in, 1);
+
+        $this->assertStringNotContainsString('found one top priority', mb_strtolower($out));
+        $this->assertDoesNotMatchRegularExpression('/\bour attention\b/u', $out);
+        $this->assertStringContainsString('your attention', mb_strtolower($out));
+        $this->assertStringContainsString('overdue', mb_strtolower($out));
+    }
+
+    public function test_sanitize_prioritize_framing_meta_voice_keeps_clean_framing(): void
+    {
+        $in = 'I\'d start with what\'s most overdue so you feel caught up sooner.';
+        $out = TaskAssistantListingDefaults::sanitizePrioritizeFramingMetaVoice($in, 1);
+
+        $this->assertSame($in, $out);
+    }
+
+    public function test_prioritize_formatter_bridge_after_uses_plural_for_multiple_items(): void
+    {
+        $plural = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach(2);
+        $singular = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach(1);
+
+        $this->assertStringContainsString('here are', mb_strtolower($plural));
+        $this->assertMatchesRegularExpression('/here.{1,3}s the top to do item/i', $singular);
+    }
+
     public function test_dedupe_prioritize_next_versus_prior_fields_replaces_echo(): void
     {
         $framing = 'Start with Alpha first because it is due today.';

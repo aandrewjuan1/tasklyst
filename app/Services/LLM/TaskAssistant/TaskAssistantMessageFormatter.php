@@ -207,11 +207,15 @@ final class TaskAssistantMessageFormatter
         }
 
         $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
+        $lines = $this->formatBrowseItemLines($items);
         if ($doingProgressCoach !== '') {
+            $paragraphs[] = TaskAssistantListingDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
             $paragraphs[] = $doingProgressCoach;
+            if ($lines !== []) {
+                $paragraphs[] = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach($singularCoerceCount);
+            }
         }
 
-        $lines = $this->formatBrowseItemLines($items);
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);
         }

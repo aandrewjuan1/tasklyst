@@ -88,6 +88,97 @@ final class TaskAssistantListingDefaults
         return (string) __('No other tasks surfaced in this slice yet—finishing what you started will unlock the next priorities.');
     }
 
+    /**
+     * Formatter-only bridge when a deterministic doing-progress paragraph sits between framing and the ranked list.
+     */
+    public static function prioritizeFormatterBridgeBeforeDoingCoach(): string
+    {
+        return (string) __('Alongside what follows, you still have tasks already in progress—worth keeping in mind before you add more.');
+    }
+
+    /**
+     * Formatter-only bridge after the doing coach and before numbered To Do rows.
+     *
+     * @param  int  $listedToDoCount  Displayed ranked rows (not Doing tasks).
+     */
+    public static function prioritizeFormatterBridgeAfterDoingCoach(int $listedToDoCount): string
+    {
+        if ($listedToDoCount <= 0) {
+            return '';
+        }
+
+        return $listedToDoCount === 1
+            ? (string) __('When you’re ready to line up what’s next, here’s the top To Do item I’d surface by urgency.')
+            : (string) __('When you’re ready to line up what’s next, here are the To Do items I’d surface in urgency order.');
+    }
+
+    /**
+     * Remove student-"discovery" meta phrasing and odd "we" voice from prioritize framing (all variants).
+     * Drops whole sentences that match; may return empty so callers can fall back.
+     */
+    public static function sanitizePrioritizeFramingMetaVoice(string $framing, int $listedItemCount): string
+    {
+        $f = trim($framing);
+        if ($f === '') {
+            return $f;
+        }
+
+        $f = preg_replace('/\bour attention\b/iu', 'your attention', $f) ?? $f;
+        $f = preg_replace('/\bour focus\b/iu', 'your focus', $f) ?? $f;
+        $f = preg_replace('/\bwe should\b/iu', 'you could', $f) ?? $f;
+
+        $parts = preg_split('/(?<=[.!?])\s+/u', $f, -1, PREG_SPLIT_NO_EMPTY);
+        if (! is_array($parts) || $parts === []) {
+            $parts = [$f];
+        }
+
+        $kept = [];
+        foreach ($parts as $part) {
+            $sentence = trim((string) $part);
+            if ($sentence === '') {
+                continue;
+            }
+            if (self::isPrioritizeFramingDiscoveryMetaSentence($sentence)) {
+                continue;
+            }
+            $kept[] = $sentence;
+        }
+
+        $f = trim(implode(' ', $kept));
+
+        $f = preg_replace('/\bThis first (task|event|project)\b/iu', 'This $1', $f) ?? $f;
+        $f = preg_replace('/\bThat first (task|event|project)\b/iu', 'That $1', $f) ?? $f;
+
+        if ($listedItemCount <= 1) {
+            $f = preg_replace('/\bthese next (?:items|tasks|priorities)\b/iu', 'this next step', $f) ?? $f;
+        }
+
+        return trim($f);
+    }
+
+    private static function isPrioritizeFramingDiscoveryMetaSentence(string $sentence): bool
+    {
+        $s = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $sentence) ?? $sentence));
+        if ($s === '') {
+            return false;
+        }
+
+        if (preg_match('/^i understand (?:that )?you(?:\'ve| have)?\s+(found|discovered)\b/', $s) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^you(?:\'ve| have)\s+(found|discovered)\b/', $s) === 1
+            && preg_match('/\b(on your list|your list|your tasks)\b/', $s) === 1) {
+            return true;
+        }
+
+        if (preg_match('/\byou(?:\'ve| have)?\s+(found|discovered)\s+(?:one\s+|a\s+|an\s+)?(?:top\s+)?priority\b/', $s) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
     public static function clampFraming(string $text): string
     {
         $max = self::maxFramingChars();
