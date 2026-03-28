@@ -71,8 +71,33 @@ class TaskAssistantMessageFormatterTest extends TestCase
         // The output should contain both segments in the intended order.
         // (We avoid strict strpos comparisons since substrings can overlap.)
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
+    }
+
+    public function test_prioritize_due_later_bucket_uses_due_date_label_not_vague_later_phrase(): void
+    {
+        $out = $this->formatter->format('prioritize', [
+            'framing' => 'Here is your slice.',
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Reading',
+                    'priority' => 'medium',
+                    'due_bucket' => 'due_later',
+                    'due_phrase' => 'due later',
+                    'due_on' => 'Apr 10, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'reasoning' => 'Because.',
+            'next_options' => 'Next.',
+        ]);
+
+        $this->assertStringContainsString('Due Apr 10, 2026', $out);
+        $this->assertStringNotContainsString('due later (Apr 10, 2026)', $out);
         $this->assertStringContainsString('Complexity: Simple', $out);
-        $this->assertStringContainsString($nextOptions, $out);
+        $this->assertStringContainsString('Next.', $out);
     }
 
     public function test_prioritize_dedupes_when_acknowledgment_equals_framing(): void
@@ -179,7 +204,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Medium priority', $out);
         $this->assertStringContainsString(TaskAssistantListingDefaults::noDueDateLabel(), $out);
         $this->assertStringContainsString('Complexity: '.TaskAssistantListingDefaults::complexityNotSetLabel(), $out);
-        $this->assertStringContainsString('If you want, I can schedule these steps for later.', $out);
+        $this->assertStringContainsString('If you want, I can schedule this for later.', $out);
     }
 
     public function test_browse_uses_default_framing_when_payload_omits_it(): void

@@ -136,6 +136,9 @@ final class TaskAssistantMessageFormatter
 
         // Deduplicate when the narrative model/stress heuristics accidentally
         // produce overlapping acknowledgment + framing paragraphs.
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        $singularCoerceCount = count($items);
+
         if ($acknowledgment !== '' && $framing !== '') {
             $ackNorm = $this->normalizeForDedupe($acknowledgment);
             $framingNorm = $this->normalizeForDedupe($framing);
@@ -163,7 +166,7 @@ final class TaskAssistantMessageFormatter
                 // Fallback: if they're extremely similar by token overlap,
                 // avoid repeating both.
                 $jaccard = $this->tokenJaccardSimilarity($ackNorm, $framingNorm);
-                if ($jaccard >= 0.92) {
+                if ($jaccard >= 0.97) {
                     if (mb_strlen($framingNorm) >= mb_strlen($ackNorm)) {
                         $acknowledgment = '';
                     } else {
@@ -173,8 +176,14 @@ final class TaskAssistantMessageFormatter
             }
         }
 
-        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
-        $reasoning = trim((string) ($data['reasoning'] ?? ''));
+        if ($singularCoerceCount === 1) {
+            $acknowledgment = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($acknowledgment, $singularCoerceCount, $items);
+            $framing = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($framing, $singularCoerceCount, $items);
+        }
+
+        $reasoning = TaskAssistantListingDefaults::stripRoboticPrioritizeReasoningTail(
+            trim((string) ($data['reasoning'] ?? ''))
+        );
         $nextOptions = trim((string) ($data['next_options'] ?? ''));
 
         $paragraphs = [];
@@ -193,11 +202,23 @@ final class TaskAssistantMessageFormatter
         if ($reasoning === '') {
             $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
         }
+
+        if ($singularCoerceCount === 1) {
+            $reasoning = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($reasoning, $singularCoerceCount, $items);
+        }
+
         $paragraphs[] = $reasoning;
 
         if ($nextOptions === '') {
-            $nextOptions = __('If you want, I can schedule these steps for later.');
+            $nextOptions = $singularCoerceCount === 1
+                ? __('If you want, I can schedule this for later.')
+                : __('If you want, I can schedule these steps for later.');
         }
+
+        if ($singularCoerceCount === 1) {
+            $nextOptions = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($nextOptions, $singularCoerceCount, $items);
+        }
+
         $paragraphs[] = $nextOptions;
 
         return trim(implode("\n\n", array_filter($paragraphs, static fn (string $p): bool => $p !== '')));
@@ -330,7 +351,12 @@ final class TaskAssistantMessageFormatter
             $detailParts[] = $priority.' priority';
 
             if ($dueOn !== '' && $dueOn !== '—') {
-                $detailParts[] = $duePhrase !== '' ? $duePhrase.' ('.$dueOn.')' : $dueOn;
+                $dueBucket = strtolower(trim((string) ($item['due_bucket'] ?? '')));
+                if ($dueBucket === 'due_later' || mb_strtolower($duePhrase) === 'due later') {
+                    $detailParts[] = 'Due '.$dueOn;
+                } else {
+                    $detailParts[] = $duePhrase !== '' ? $duePhrase.' ('.$dueOn.')' : $dueOn;
+                }
             } else {
                 $detailParts[] = $duePhrase !== ''
                     ? $duePhrase.' · '.TaskAssistantListingDefaults::noDueDateLabel()

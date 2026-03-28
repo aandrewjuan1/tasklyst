@@ -716,6 +716,22 @@ final class TaskAssistantService
     }
 
     /**
+     * Human-readable time line for prioritize narrative prompts (aligned with {@see TaskPrioritizationService::applyTimeConstraintFilter}).
+     */
+    private function formatTimeConstraintForPrioritizePrompt(?string $timeConstraint): ?string
+    {
+        if ($timeConstraint === null || $timeConstraint === '') {
+            return null;
+        }
+
+        $tc = (string) $timeConstraint;
+
+        return $tc === 'today'
+            ? 'time: today (includes overdue and anything due today)'
+            : 'time: '.$tc;
+    }
+
+    /**
      * @param  array<string, mixed>  $context
      */
     private function buildPrioritizeListingFilterContextForPrompt(bool $ambiguous, array $context): string
@@ -726,8 +742,11 @@ final class TaskAssistantService
 
         if (($context['domain_focus'] ?? null) === 'school') {
             $parts = [];
-            if (($context['time_constraint'] ?? null) !== null) {
-                $parts[] = 'time: '.(string) $context['time_constraint'];
+            $timeLine = $this->formatTimeConstraintForPrioritizePrompt(
+                is_string($context['time_constraint'] ?? null) ? (string) $context['time_constraint'] : null
+            );
+            if ($timeLine !== null) {
+                $parts[] = $timeLine;
             }
             if (! empty($context['task_keywords'] ?? [])) {
                 $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
@@ -742,8 +761,11 @@ final class TaskAssistantService
 
         if (($context['domain_focus'] ?? null) === 'chores') {
             $parts = [];
-            if (($context['time_constraint'] ?? null) !== null) {
-                $parts[] = 'time: '.(string) $context['time_constraint'];
+            $timeLine = $this->formatTimeConstraintForPrioritizePrompt(
+                is_string($context['time_constraint'] ?? null) ? (string) $context['time_constraint'] : null
+            );
+            if ($timeLine !== null) {
+                $parts[] = $timeLine;
             }
             if (! empty($context['task_keywords'] ?? [])) {
                 $parts[] = 'keywords/tags/title: '.implode(', ', $context['task_keywords']);
@@ -760,8 +782,11 @@ final class TaskAssistantService
         if (! empty($context['recurring_requested'])) {
             $parts[] = 'recurring tasks only';
         }
-        if (($context['time_constraint'] ?? null) !== null) {
-            $parts[] = 'time: '.(string) $context['time_constraint'];
+        $timeLine = $this->formatTimeConstraintForPrioritizePrompt(
+            is_string($context['time_constraint'] ?? null) ? (string) $context['time_constraint'] : null
+        );
+        if ($timeLine !== null) {
+            $parts[] = $timeLine;
         }
         if (! empty($context['priority_filters'] ?? [])) {
             $parts[] = 'priority: '.implode(',', $context['priority_filters']);

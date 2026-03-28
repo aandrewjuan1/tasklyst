@@ -128,7 +128,7 @@ test('refinePrioritizeListing derives focus from items order and uses suggested_
     expect($result['framing'])->toContain('most urgent items');
     expect($result)->not->toHaveKey('suggested_next_actions');
     expect($result)->not->toHaveKey('next_actions_intro');
-    expect($result['reasoning'])->toContain('Start with Alpha.');
+    expect($result['reasoning'])->toContain('Alpha');
     expect($result['items'][0])->not->toHaveKey('placement_blurb');
 });
 
@@ -196,7 +196,7 @@ test('refinePrioritizeListing falls back suggested_next_actions and strips place
 
     expect($result['items'][0])->not->toHaveKey('placement_blurb');
     expect($result)->not->toHaveKey('suggested_next_actions');
-    expect($result['reasoning'])->toContain('Start with Alpha.');
+    expect($result['reasoning'])->toContain('Alpha');
 });
 
 test('refinePrioritizeListing suppresses optional fields when UX include flags are false', function (): void {
@@ -205,7 +205,7 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
             ->withStructured([
                 'acknowledgment' => 'You got this.',
                 'framing' => 'Start with the most urgent items and move down the list.',
-                'reasoning' => 'Because the two items match the same urgency.',
+                'reasoning' => 'Because Alpha and Beta share the same due today urgency, I kept a consistent order so you can start without debating which comes first.',
                 'suggested_next_actions' => [
                     'Start with Alpha and complete one small step.',
                     'Then open Beta and do a short focused session.',
@@ -264,7 +264,7 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
     );
 
     expect($result['acknowledgment'])->toBeNull();
-    expect($result['reasoning'])->toStartWith('I chose these priorities because');
+    expect($result['reasoning'])->toContain('Alpha');
     expect($result['reasoning'])->toContain('due today');
 });
 
@@ -274,7 +274,7 @@ test('refinePrioritizeListing includes acknowledgment when UX include flags are 
             ->withStructured([
                 'acknowledgment' => 'You got this.',
                 'framing' => 'Use the earliest due work first.',
-                'reasoning' => 'The due date makes this the best first move.',
+                'reasoning' => 'The due dates make Alpha the best first move since it is due tomorrow, while Beta is still due today and can follow right after.',
                 'suggested_next_actions' => [
                     'Start with Alpha and complete one small step.',
                     'Then open Beta and do a short focused session.',
@@ -334,7 +334,7 @@ test('refinePrioritizeListing includes acknowledgment when UX include flags are 
 
     expect($result['acknowledgment'])->not->toBeNull();
     expect(mb_strtolower((string) $result['acknowledgment']))->toContain('i get it');
-    expect($result['reasoning'])->toStartWith('I chose these priorities because');
+    expect($result['reasoning'])->toContain('Alpha');
     expect($result['reasoning'])->toContain('due tomorrow');
 });
 
@@ -396,7 +396,8 @@ test('refinePrioritizeListing provides a single-item start guidance in reasoning
     expect($result['items'])->toHaveCount(1);
     expect($result)->not->toHaveKey('suggested_next_actions');
     expect($result)->not->toHaveKey('next_actions_intro');
-    expect($result['reasoning'])->toStartWith('I chose this task because');
+    expect($result['reasoning'])->toContain('Alpha');
+    expect($result['reasoning'])->not->toContain('first on this ordered list');
 });
 
 test('refinePrioritizeListing removes conflicting due timing from framing', function (): void {
@@ -459,6 +460,71 @@ test('refinePrioritizeListing removes conflicting due timing from framing', func
     );
 
     expect($result['framing'])->not->toContain('tomorrow');
+});
+
+test('refinePrioritizeListing replaces due soon framing with singular overdue opener when one task is overdue', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I suggest handling what is due soon first.',
+                'acknowledgment' => null,
+                'reasoning' => 'These \'Alpha\' tasks are overdue, so start there.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'high',
+            'due_phrase' => 'overdue',
+            'due_on' => 'Mar 27, 2026',
+            'complexity_label' => 'Simple',
+        ],
+        [
+            'entity_type' => 'task',
+            'entity_id' => 2,
+            'title' => 'Beta',
+            'priority' => 'low',
+            'due_phrase' => 'due later',
+            'due_on' => 'Apr 10, 2026',
+            'complexity_label' => 'Simple',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-28',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'what should I focus on today',
+        items: $items,
+        deterministicSummary: 'Two tasks.',
+        filterContextForPrompt: 'time: today (includes overdue and anything due today)',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['framing'])->toContain('overdue item first');
+    expect($result['framing'])->not->toContain('overdue items first');
+    expect($result['reasoning'])->toContain("This 'Alpha' task is");
+    expect($result['reasoning'])->not->toContain("These 'Alpha' tasks are");
 });
 
 test('refinePrioritizeListing ignores \"tomorrow\\u2019s\" in titles for due drift detection', function (): void {
@@ -710,7 +776,7 @@ test('refinePrioritizeListing sanitizes visibility overclaims and avoids bundled
 
     expect(mb_strtolower($result['framing']))->not->toContain('reviewed');
     expect($result)->not->toHaveKey('suggested_next_actions');
-    expect($result['reasoning'])->toContain('Start with Alpha.');
+    expect($result['reasoning'])->toContain('Alpha');
     expect(mb_strtolower($result['next_options']))->toContain('remaining');
 });
 
@@ -762,7 +828,7 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
         userId: 1,
     );
 
-    expect($result['framing'])->toBe('Here is your top priority in a simple order you can start now.');
+    expect($result['framing'])->toBe("I'd suggest you start with the first item.");
 });
 
 test('refinePrioritizeListing handles mixed entity types without insight field', function (): void {
@@ -823,7 +889,7 @@ test('refinePrioritizeListing handles mixed entity types without insight field',
     expect($result)->not->toHaveKey('insight');
 });
 
-test('refinePrioritizeListing forces reasoning to reference the first ranked item for mixed lists', function (): void {
+test('refinePrioritizeListing does not append ordered-list boilerplate when reasoning is long but omits the top title', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
@@ -879,5 +945,7 @@ test('refinePrioritizeListing forces reasoning to reference the first ranked ite
         userId: 1,
     );
 
-    expect($result['reasoning'])->toContain('CS group project meetup');
+    expect($result['reasoning'])->toBe('You have an important essay to research, so start there.');
+    expect($result['reasoning'])->not->toContain('first on this ordered list');
+    expect($result['reasoning'])->not->toContain("when you're ready");
 });

@@ -799,14 +799,19 @@ final class TaskPrioritizationService
         $today = $now;
 
         return match ($constraint) {
+            // "Today" workload: overdue (deadline before today) and due today, so prioritization
+            // matches how students phrase "what I need to do today" without silently falling back
+            // to unrelated future-dated tasks when nothing is due strictly calendar-today.
             'today' => $tasks->filter(function (array $task) use ($today) {
                 if (! isset($task['ends_at']) || $task['ends_at'] === null) {
                     return false;
                 }
                 try {
                     $deadline = new \DateTime($task['ends_at']);
+                    $deadlineDate = $deadline->format('Y-m-d');
+                    $todayStr = $today->format('Y-m-d');
 
-                    return $deadline->format('Y-m-d') === $today->format('Y-m-d');
+                    return $deadlineDate <= $todayStr;
                 } catch (\Exception $e) {
                     return false;
                 }
