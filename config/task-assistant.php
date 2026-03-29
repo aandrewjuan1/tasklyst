@@ -280,6 +280,23 @@ TXT,
 
     /*
     |--------------------------------------------------------------------------
+    | General guidance (structured flow)
+    |--------------------------------------------------------------------------
+    |
+    | Default closing offer when the model omits next_options; chip labels are
+    | always attached in TaskAssistantGeneralGuidanceService (not model-generated).
+    |
+    */
+    'general_guidance' => [
+        'default_next_options' => 'If you want, I can help you decide what to tackle first, or block time on your calendar for what matters most.',
+        'next_options_chip_texts' => [
+            'What should I do first',
+            'Schedule my most important task',
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Retry Policy
     |--------------------------------------------------------------------------
     |

@@ -19,6 +19,7 @@ test('time query is answered deterministically and redirects to prioritize/sched
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -43,8 +44,9 @@ test('time query is answered deterministically and redirects to prioritize/sched
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
     expect((string) $assistantMessage->content)->toMatch('/\d{1,2}:\d{2}\s?(AM|PM)/i');
 
-    // We don't hardcode exact wording because general guidance is LLM-generated.
-    expect((string) $assistantMessage->content)->toContain('tasks');
+    // Closing paragraph (next_options) should still offer prioritize + schedule themes.
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('tackle');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('calendar');
 });
 
 test('off-topic guidance stays in out_of_scope intent', function (): void {
@@ -60,6 +62,7 @@ test('off-topic guidance stays in out_of_scope intent', function (): void {
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -97,6 +100,7 @@ test('gibberish prompt uses unclear intent', function (): void {
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);

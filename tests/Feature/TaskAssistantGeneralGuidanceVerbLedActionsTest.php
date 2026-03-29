@@ -23,6 +23,7 @@ test('general_guidance rewrites non-verb-led contextual action to avoid fallback
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -45,7 +46,6 @@ test('general_guidance rewrites non-verb-led contextual action to avoid fallback
     expect(data_get($assistantMessage->metadata, 'processed'))->toBeTrue();
     expect(data_get($assistantMessage->metadata, 'validation_errors', []))->toBeEmpty();
     expect((string) $assistantMessage->content)->not->toBe("Hi, I'm TaskLyst—your task assistant. Would you like me to prioritize your tasks or schedule time blocks for them?");
-    expect((string) $assistantMessage->content)->toContain('Next,');
-    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
-    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('tackle');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('calendar');
 });

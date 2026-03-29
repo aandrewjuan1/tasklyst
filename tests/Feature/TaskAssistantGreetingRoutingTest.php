@@ -22,6 +22,7 @@ test('pure greeting short-circuits to general guidance', function (): void {
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2))
             ->withMeta(new Meta('fake', 'fake')),
@@ -46,8 +47,8 @@ test('pure greeting short-circuits to general guidance', function (): void {
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('task');
     expect((string) $assistantMessage->content)->toContain("Hi, I'm TaskLyst—your task assistant.");
-    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
-    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('tackle');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('calendar');
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('based on your list');
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('your list data');
     expect(mb_strtolower((string) $assistantMessage->content))->not->toContain('create a new task');

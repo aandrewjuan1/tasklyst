@@ -85,12 +85,16 @@ final class TaskAssistantResponseProcessor
      */
     private function validateGeneralGuidanceData(array $data): array
     {
+        $maxNextOptions = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
         $rules = [
             'intent' => ['required', 'string', 'in:task,out_of_scope,unclear'],
             'acknowledgement' => ['required', 'string', 'min:2', 'max:220'],
             'message' => ['required', 'string', 'min:5', 'max:760'],
             'suggested_next_actions' => ['required', 'array', 'min:2', 'max:3'],
             'suggested_next_actions.*' => ['required', 'string', 'min:2', 'max:140'],
+            'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextOptions],
+            'next_options_chip_texts' => ['present', 'array', 'size:2'],
+            'next_options_chip_texts.*' => ['required', 'string', 'min:2', 'max:120'],
         ];
 
         $validator = Validator::make($data, $rules);
@@ -102,6 +106,8 @@ final class TaskAssistantResponseProcessor
             $ackLower = mb_strtolower($ack);
             $actions = is_array($data['suggested_next_actions'] ?? null) ? $data['suggested_next_actions'] : [];
             $actionBlob = mb_strtolower(implode(' ', array_map(static fn (mixed $line): string => (string) $line, $actions)));
+            $nextOptions = (string) ($data['next_options'] ?? '');
+            $nextOptionsLower = mb_strtolower($nextOptions);
 
             if (! str_contains($actionBlob, 'priorit')) {
                 $validator->errors()->add('suggested_next_actions', 'suggested_next_actions must include a prioritize option.');
@@ -109,6 +115,28 @@ final class TaskAssistantResponseProcessor
 
             if (! str_contains($actionBlob, 'schedule') && ! str_contains($actionBlob, 'time block')) {
                 $validator->errors()->add('suggested_next_actions', 'suggested_next_actions must include a schedule/time-block option.');
+            }
+
+            $nextHasPrioritizeTheme = str_contains($nextOptionsLower, 'priorit')
+                || str_contains($nextOptionsLower, 'do first')
+                || str_contains($nextOptionsLower, 'tackle')
+                || str_contains($nextOptionsLower, 'rank');
+            $nextHasScheduleTheme = str_contains($nextOptionsLower, 'schedule')
+                || str_contains($nextOptionsLower, 'time block')
+                || str_contains($nextOptionsLower, 'block time')
+                || str_contains($nextOptionsLower, 'calendar');
+            if (! $nextHasPrioritizeTheme) {
+                $validator->errors()->add('next_options', 'next_options must offer a prioritize or ordering theme.');
+            }
+            if (! $nextHasScheduleTheme) {
+                $validator->errors()->add('next_options', 'next_options must offer a scheduling or time-blocking theme.');
+            }
+
+            if (str_contains($nextOptionsLower, 'snapshot')
+                || str_contains($nextOptionsLower, 'json')
+                || str_contains($nextOptionsLower, 'backend')
+                || str_contains($nextOptionsLower, 'database')) {
+                $validator->errors()->add('next_options', 'next_options must not include internal technical terms.');
             }
 
             if (str_contains($messageLower, 'snapshot')

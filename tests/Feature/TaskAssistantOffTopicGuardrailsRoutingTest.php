@@ -27,6 +27,7 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -49,8 +50,8 @@ test('off-topic intent routes to general_guidance and injects guardrail instruct
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('out_of_scope');
     expect(mb_strtolower((string) $assistantMessage->content))->toContain("can't help");
-    expect(mb_strtolower((string) $assistantMessage->content))->toContain('prioritize your tasks');
-    expect(mb_strtolower((string) $assistantMessage->content))->toContain('schedule time blocks for your tasks');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('tackle');
+    expect(mb_strtolower((string) $assistantMessage->content))->toContain('calendar');
 
     $thread->refresh();
     expect(data_get($thread->metadata, 'conversation_state.pending_general_guidance'))->toBeNull();
@@ -71,6 +72,7 @@ test('off-topic heuristic still applies guardrail when llm intent inference is d
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);

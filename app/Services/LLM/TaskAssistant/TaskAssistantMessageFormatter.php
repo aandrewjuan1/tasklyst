@@ -281,19 +281,23 @@ final class TaskAssistantMessageFormatter
             ? $this->normalizeStringList($data['suggested_next_actions'])
             : [];
 
-        if ($acknowledgement === '' && $message === '' && $suggestedNextActions === []) {
+        $nextOptions = trim((string) ($data['next_options'] ?? ''));
+
+        if ($acknowledgement === '' && $message === '' && $suggestedNextActions === [] && $nextOptions === '') {
             return 'I can help. What would you like to do next?';
         }
 
-        $actionsParagraph = '';
-        if ($suggestedNextActions !== []) {
-            $actionsParagraph = $this->formatSuggestedNextActionsSentence($suggestedNextActions);
+        $closingParagraph = '';
+        if ($nextOptions !== '') {
+            $closingParagraph = $this->normalizeGuidanceSentence($nextOptions);
+        } elseif ($suggestedNextActions !== []) {
+            $closingParagraph = $this->formatSuggestedNextActionsSentence($suggestedNextActions);
         }
 
         $segments = array_values(array_filter([
             $acknowledgement,
             $message,
-            $actionsParagraph,
+            $closingParagraph,
         ], static fn (string $segment): bool => $segment !== ''));
 
         $unique = [];
