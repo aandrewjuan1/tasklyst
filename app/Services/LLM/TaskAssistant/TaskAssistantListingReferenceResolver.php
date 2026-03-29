@@ -4,6 +4,7 @@ namespace App\Services\LLM\TaskAssistant;
 
 /**
  * Maps schedule-oriented phrases to concrete entity targets from {@see TaskAssistantConversationStateService::lastListing}.
+ * This is multiturn reference resolution only (e.g. "schedule those") — not a separate browse/listing LLM flow.
  *
  * Precedence when multiple patterns match: explicit "last|bottom N" or "top|first N" wins over vague "those|them|the above"
  * (evaluated in that order: last/first slices, then those/them).

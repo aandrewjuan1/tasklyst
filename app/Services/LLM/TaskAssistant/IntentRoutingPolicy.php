@@ -6,6 +6,7 @@ use App\Models\TaskAssistantThread;
 use App\Services\LLM\Intent\TaskAssistantIntentInferenceService;
 use App\Services\LLM\Intent\TaskAssistantIntentResolutionService;
 use App\Services\LLM\Intent\TaskAssistantIntentSignalExtractor;
+use App\Support\LLM\TaskAssistantWhatToDoFirstIntent;
 use Illuminate\Support\Facades\Log;
 
 final class IntentRoutingPolicy
@@ -161,44 +162,6 @@ final class IntentRoutingPolicy
             );
         }
 
-        if ($this->isPrioritizeNextSliceRequest($normalized)) {
-            $thread->refresh();
-            $lastListing = $this->conversationState->lastListing($thread);
-            $sourceFlow = is_array($lastListing) ? (string) ($lastListing['source_flow'] ?? '') : '';
-            if ($sourceFlow === 'prioritize') {
-                $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize');
-
-                Log::info('task-assistant.intent.policy', [
-                    'layer' => 'intent_policy',
-                    'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
-                    'thread_id' => $thread->id,
-                    'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
-                    'outcome' => 'prioritize_next_slice_followup',
-                    'resolved_flow' => 'prioritize',
-                    'confidence' => 1.0,
-                    'reason_codes' => ['prioritize_next_slice_followup'],
-                    'constraints' => [
-                        'count_limit' => $constraints['count_limit'] ?? null,
-                        'time_window_hint' => $constraints['time_window_hint'] ?? null,
-                        'target_entities_count' => is_array($constraints['target_entities'] ?? null)
-                            ? count($constraints['target_entities'])
-                            : 0,
-                        'prioritize_followup' => (bool) ($constraints['prioritize_followup'] ?? false),
-                    ],
-                    'message_length' => mb_strlen($content),
-                ]);
-
-                return new IntentRoutingDecision(
-                    flow: 'prioritize',
-                    confidence: 1.0,
-                    reasonCodes: ['prioritize_next_slice_followup'],
-                    constraints: $constraints,
-                    clarificationNeeded: false,
-                    clarificationQuestion: null,
-                );
-            }
-        }
-
         $signals = $this->signalExtractor->extract($normalized);
         $inference = null;
         $useLlm = (bool) config('task-assistant.intent.use_llm', true);
@@ -227,7 +190,6 @@ final class IntentRoutingPolicy
                 'target_entities_count' => is_array($constraints['target_entities'] ?? null)
                     ? count($constraints['target_entities'])
                     : 0,
-                'prioritize_followup' => (bool) ($constraints['prioritize_followup'] ?? false),
             ],
             'message_length' => mb_strlen($content),
         ]);
@@ -266,9 +228,6 @@ final class IntentRoutingPolicy
             'count_limit' => $this->extractCountLimit($normalized),
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'target_entities' => $targetEntities,
-            'prioritize_followup' => $resolvedFlow === 'prioritize'
-                ? $this->isPrioritizeNextSliceRequest($normalized)
-                : false,
         ];
     }
 
@@ -329,11 +288,14 @@ final class IntentRoutingPolicy
             return max(1, min((int) ($matches[2] ?? 3), 10));
         }
 
-        if (preg_match('/\bwhat\s+should\s+i\s+do\s+first\b/i', $normalized) === 1) {
-            return 1;
+        $defaultMulti = (int) config('task-assistant.intent.prioritize_default_multi_count', 3);
+        $defaultMulti = max(2, min($defaultMulti, 10));
+
+        if (TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows($normalized)) {
+            return $defaultMulti;
         }
 
-        if (preg_match('/\bdo\s+first\b/i', $normalized) === 1) {
+        if (TaskAssistantWhatToDoFirstIntent::matchesSingleFocusPrioritizeFirst($normalized)) {
             return 1;
         }
 
@@ -355,17 +317,9 @@ final class IntentRoutingPolicy
         return null;
     }
 
-    private function isPrioritizeNextSliceRequest(string $normalized): bool
-    {
-        return preg_match('/\bshow\s+next(\s+\d+)?\b|\bnext\s+\d+\b|\bshow\s+more\b/u', $normalized) === 1;
-    }
-
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool
     {
-        return preg_match(
-            '/\b(what\s+should\s+i\s+do\s+first|do\s+first|where\s+should\s+i\s+start|what\s+do\s+i\s+start\s+with)\b/i',
-            $normalized
-        ) === 1;
+        return TaskAssistantWhatToDoFirstIntent::matches($normalized);
     }
 
     private function isLikelyPureGreeting(string $normalized): bool
@@ -427,10 +381,6 @@ final class IntentRoutingPolicy
     private function isLikelyGibberish(string $normalized): bool
     {
         if ($normalized === '') {
-            return false;
-        }
-
-        if (preg_match('/\bshow\s+next(\s+\d+)?\b|\bnext\s+\d+\b|\bshow\s+more\b/u', $normalized) === 1) {
             return false;
         }
 

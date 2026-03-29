@@ -122,6 +122,39 @@ test('explicit top count with do first keeps requested count', function (): void
     expect($decision->constraints['count_limit'])->toBe(3);
 });
 
+test('what top tasks should i do first short circuits to prioritize with multi default count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+    config()->set('task-assistant.intent.prioritize_default_multi_count', 3);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'what top tasks should i do first'
+    );
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
+    expect($decision->constraints['count_limit'])->toBe(3);
+});
+
+test('in my tasks what should i do first stays single item count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'in my tasks what should i do first'
+    );
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('prioritize_first_shortcircuit');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('time query routes to general guidance (not schedule)', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
@@ -229,7 +262,6 @@ test('execution plan holds normalized orchestration fields', function (): void {
         timeWindowHint: 'morning',
         countLimit: 2,
         generationProfile: 'schedule',
-        prioritizeVariant: null,
     );
 
     expect($plan->flow)->toBe('schedule');

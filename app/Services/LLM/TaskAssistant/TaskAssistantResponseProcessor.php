@@ -2,7 +2,7 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
-use App\Support\LLM\TaskAssistantListingDefaults;
+use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Validator as ValidationValidator;
@@ -202,30 +202,33 @@ final class TaskAssistantResponseProcessor
     }
 
     /**
-     * Prioritize payload: backend items plus narrative reasoning and suggested_guidance paragraph.
-     * No summary field; formatted message order is reasoning, items, then guidance.
-     * Narrative singular/plural coherence is enforced in {@see TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative}
+     * Prioritize payload: backend items plus narrative fields for {@see TaskAssistantMessageFormatter::formatPrioritizeListingMessage}.
+     * Student-visible order is optional acknowledgment, framing, Doing block when present, ranked lines,
+     * filter_interpretation, reasoning (coach/why), then next_options last.
+     * Narrative singular/plural coherence is enforced in {@see TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative}
      * and prompts when count(items) is 1.
      *
      * @param  array<string, mixed>  $data
      */
     private function validatePrioritizeListingData(array $data): array
     {
-        $maxReasoning = TaskAssistantListingDefaults::maxReasoningChars();
-        $maxFraming = TaskAssistantListingDefaults::maxFramingChars();
-        $maxDoingCoach = TaskAssistantListingDefaults::maxDoingProgressCoachChars();
+        $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
+        $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
+        $maxDoingCoach = TaskAssistantPrioritizeOutputDefaults::maxDoingProgressCoachChars();
         $maxNextField = min(320, $maxReasoning);
         $maxFocusTitle = 200;
         $rules = [
             'limit_used' => ['required', 'integer', 'min:0', 'max:50'],
-            'items' => ['required', 'array', 'max:50'],
+            // `present` allows an empty ranked slice (empty workspace or zero matches after filters).
+            'items' => ['present', 'array', 'max:50'],
             'focus' => ['required', 'array'],
             'focus.main_task' => ['required', 'string', 'min:1', 'max:'.$maxFocusTitle],
             'focus.secondary_tasks' => ['present', 'array', 'max:49'],
             'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
             'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextField],
-            'next_options_chip_texts' => ['required', 'array', 'min:1', 'max:3'],
+            // Empty array is allowed (e.g. deterministic empty-workspace reply has no follow-up chips).
+            'next_options_chip_texts' => ['present', 'array', 'max:3'],
             'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
@@ -240,11 +243,36 @@ final class TaskAssistantResponseProcessor
             'filter_interpretation' => ['nullable', 'string', 'max:280'],
             'assumptions' => ['nullable', 'array', 'max:4'],
             'assumptions.*' => ['string', 'max:240'],
-            'prioritize_variant' => ['nullable', 'string', 'in:rank,browse,followup_slice'],
+            'prioritize_variant' => ['nullable', 'string', 'in:rank'],
+            'doing_titles' => ['nullable', 'array', 'max:20'],
+            'doing_titles.*' => ['string', 'max:200'],
             'doing_progress_coach' => ['nullable', 'string', 'max:'.$maxDoingCoach],
         ];
 
         $validator = Validator::make($data, $rules);
+        $validator->after(function (ValidationValidator $validator) use ($data): void {
+            $framing = trim((string) ($data['framing'] ?? ''));
+            $reasoning = trim((string) ($data['reasoning'] ?? ''));
+            $framingNorm = trim(preg_replace('/\s+/u', ' ', $framing) ?? $framing);
+            $reasoningNorm = trim(preg_replace('/\s+/u', ' ', $reasoning) ?? $reasoning);
+            if ($framingNorm !== '' && $framingNorm === $reasoningNorm) {
+                $validator->errors()->add('reasoning', 'reasoning must not duplicate framing verbatim.');
+            }
+
+            $doingTitles = is_array($data['doing_titles'] ?? null) ? $data['doing_titles'] : [];
+            $doingTitles = array_values(array_filter(
+                array_map(static fn (mixed $t): string => trim((string) $t), $doingTitles),
+                static fn (string $s): bool => $s !== ''
+            ));
+            $coach = trim((string) ($data['doing_progress_coach'] ?? ''));
+            if ($doingTitles !== [] && $coach === '') {
+                $validator->errors()->add('doing_progress_coach', 'doing_progress_coach is required when doing_titles is non-empty.');
+            }
+            if ($doingTitles === [] && $coach !== '') {
+                $validator->errors()->add('doing_progress_coach', 'doing_progress_coach must be empty when doing_titles is empty.');
+            }
+        });
+
         if ($validator->fails()) {
             return [
                 'valid' => false,

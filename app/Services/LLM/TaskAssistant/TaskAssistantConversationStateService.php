@@ -38,7 +38,6 @@ final class TaskAssistantConversationStateService
         array $items,
         ?int $assistantMessageId = null,
         ?int $limit = null,
-        ?string $prioritizeEngine = null,
     ): void {
         $state = $this->get($thread);
         $state['last_flow'] = $sourceFlow;
@@ -76,10 +75,6 @@ final class TaskAssistantConversationStateService
         if ($limit !== null) {
             $state['last_listing']['last_limit'] = $limit;
         }
-        $engine = $prioritizeEngine !== null ? strtolower(trim($prioritizeEngine)) : '';
-        if (in_array($engine, ['browse', 'rank'], true)) {
-            $state['last_listing']['prioritize_engine'] = $engine;
-        }
 
         $this->put($thread, $state);
     }
@@ -89,8 +84,7 @@ final class TaskAssistantConversationStateService
      *   source_flow: string,
      *   items: list<array{entity_type: string, entity_id: int, title: string, position: int}>,
      *   assistant_message_id?: int|null,
-     *   last_limit?: int,
-     *   prioritize_engine?: string|null
+     *   last_limit?: int
      * }|null
      */
     public function lastListing(TaskAssistantThread $thread): ?array
@@ -115,18 +109,11 @@ final class TaskAssistantConversationStateService
             return null;
         }
 
-        $prioritizeEngine = $listing['prioritize_engine'] ?? null;
-        $prioritizeEngine = is_string($prioritizeEngine) ? strtolower(trim($prioritizeEngine)) : null;
-        if ($prioritizeEngine !== null && ! in_array($prioritizeEngine, ['browse', 'rank'], true)) {
-            $prioritizeEngine = null;
-        }
-
         return [
             'source_flow' => $source,
             'items' => $normalizedItems,
             'assistant_message_id' => isset($listing['assistant_message_id']) ? (int) $listing['assistant_message_id'] : null,
             'last_limit' => isset($listing['last_limit']) ? (int) $listing['last_limit'] : ($state['last_limit'] ?? null),
-            'prioritize_engine' => $prioritizeEngine,
         ];
     }
 
@@ -134,72 +121,6 @@ final class TaskAssistantConversationStateService
     {
         $state = $this->get($thread);
         unset($state['last_listing'], $state['selected_entities'], $state['last_limit'], $state['prioritize_pagination']);
-        $this->put($thread, $state);
-    }
-
-    /**
-     * Append newly shown prioritize entities for follow-up "show next N" pagination.
-     *
-     * @param  array<int, array<string, mixed>>  $items
-     */
-    public function rememberPrioritizeShownEntities(TaskAssistantThread $thread, array $items): void
-    {
-        $state = $this->get($thread);
-        $pagination = is_array($state['prioritize_pagination'] ?? null)
-            ? $state['prioritize_pagination']
-            : [];
-        $shownKeys = is_array($pagination['shown_entity_keys'] ?? null)
-            ? array_values(array_filter(
-                array_map(static fn (mixed $key): string => trim((string) $key), $pagination['shown_entity_keys']),
-                static fn (string $key): bool => $key !== ''
-            ))
-            : [];
-
-        foreach ($items as $entity) {
-            if (! is_array($entity)) {
-                continue;
-            }
-
-            $type = strtolower(trim((string) ($entity['entity_type'] ?? '')));
-            $id = (int) ($entity['entity_id'] ?? 0);
-            if ($type === '' || $id <= 0) {
-                continue;
-            }
-
-            $shownKeys[] = $type.':'.$id;
-        }
-
-        $pagination['shown_entity_keys'] = array_values(array_unique($shownKeys));
-        $state['prioritize_pagination'] = $pagination;
-        $this->put($thread, $state);
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function prioritizeShownEntityKeys(TaskAssistantThread $thread): array
-    {
-        $state = $this->get($thread);
-        $pagination = $state['prioritize_pagination'] ?? null;
-        if (! is_array($pagination)) {
-            return [];
-        }
-
-        $shownKeys = $pagination['shown_entity_keys'] ?? [];
-        if (! is_array($shownKeys)) {
-            return [];
-        }
-
-        return array_values(array_filter(
-            array_map(static fn (mixed $key): string => trim((string) $key), $shownKeys),
-            static fn (string $key): bool => $key !== ''
-        ));
-    }
-
-    public function clearPrioritizePagination(TaskAssistantThread $thread): void
-    {
-        $state = $this->get($thread);
-        unset($state['prioritize_pagination']);
         $this->put($thread, $state);
     }
 
