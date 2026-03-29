@@ -270,11 +270,17 @@ final class TaskAssistantHybridNarrativeService
      * @param  array<string, mixed>  $promptData
      * @return array{
      *   summary: string,
+     *   framing: string,
+     *   filter_interpretation: string|null,
+     *   acknowledgment: string|null,
+     *   reasoning: string,
      *   assistant_note: string|null,
-     *   reasoning: string|null,
      *   strategy_points: list<string>,
      *   suggested_next_steps: list<string>,
-     *   assumptions: list<string>
+     *   assumptions: list<string>,
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>,
+     *   display_block_order: list<int>|null
      * }
      */
     public function refineDailySchedule(
@@ -285,9 +291,32 @@ final class TaskAssistantHybridNarrativeService
         string $deterministicSummary,
         int $threadId,
         int $userId,
+        bool $isEmptyPlacement,
+        int $schedulableProposalCount,
     ): array {
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
         $refinementSchema = TaskAssistantSchemas::scheduleNarrativeRefinementSchema();
+
+        $parsedBlocks = $this->decodeBlocksJson($blocksJson);
+        $blockCount = count($parsedBlocks);
+
+        $deterministicNarrative = $this->buildDeterministicDailyScheduleNarrative(
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            deterministicSummary: $deterministicSummary
+        );
+
+        $summary = $deterministicNarrative['summary'];
+        $deterministicReasoning = $deterministicNarrative['reasoning'];
+        $deterministicAssistantNote = $deterministicNarrative['assistant_note'];
+
+        if ($isEmptyPlacement) {
+            return $this->buildEmptyPlacementScheduleNarrative(
+                deterministicSummary: $deterministicSummary,
+                deterministicReasoning: $deterministicReasoning,
+                deterministicAssistantNote: $deterministicAssistantNote,
+            );
+        }
 
         $horizonHint = '';
         $h = $promptData['schedule_horizon'] ?? null;
@@ -298,34 +327,23 @@ final class TaskAssistantHybridNarrativeService
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
-            'Here are the proposed schedule blocks (task_id/event_id values are internal and must not be mentioned). '.
-            'Refine narrative fields to sound natural, supportive, and practical. Return JSON only.'.$horizonHint."\n\n".
-            'Write concise, human-sounding guidance:'."\n".
-            '- summary: clear overview of the suggested timing'."\n".
-            '- reasoning: why this order and timing fit the requested scheduling window'."\n".
-            '- strategy_points: 2-4 practical rationale points (do not mention exact times/dates)'."\n".
-            '- suggested_next_steps: 2-4 actionable execution steps (do not mention exact times/dates)'."\n".
-            '- assumptions: optional, only if relevant (do not mention exact times/dates)'."\n".
-            '- assistant_note: friendly one-liner with encouraging tone'."\n\n".
+            'BLOCKS_JSON describes fixed time blocks already computed server-side. Do not invent or revise clock times, dates, or durations. task_id/event_id are internal—do not mention them.'.$horizonHint."\n\n".
+            'Student-visible field order matches prioritize: optional acknowledgment → framing → (app shows blocks) → optional filter_interpretation → reasoning → optional strategy_points/suggested_next_steps/assumptions → next_options last (with chip texts).'."\n".
+            'Return JSON only per schema. display_block_order may reorder block indices for narrative sentence order only (0..BLOCK_COUNT-1 permutation).'."\n\n".
             'BLOCKS_JSON: '.$blocksJson
         ));
-
-        $parsedBlocks = $this->decodeBlocksJson($blocksJson);
-        $deterministicNarrative = $this->buildDeterministicDailyScheduleNarrative(
-            blocks: $parsedBlocks,
-            promptData: $promptData,
-            deterministicSummary: $deterministicSummary
-        );
-
-        // Always anchor summary/reasoning to the actual planned blocks to prevent
-        // the LLM from drifting (e.g. "to 20:00" when the blocks end at 19:30).
-        $summary = $deterministicNarrative['summary'];
-        $assistantNote = $deterministicNarrative['assistant_note'];
-        $reasoning = $deterministicNarrative['reasoning'];
 
         $strategyPoints = [];
         $suggestedNextSteps = [];
         $assumptions = [];
+        $framing = '';
+        $filterInterpretation = null;
+        $acknowledgment = null;
+        $reasoning = $deterministicReasoning;
+        $nextOptions = '';
+        $chipTexts = [];
+        $assistantNote = $deterministicAssistantNote;
+        $displayBlockOrder = null;
 
         try {
             $structuredResponse = $this->attemptStructured(
@@ -333,14 +351,42 @@ final class TaskAssistantHybridNarrativeService
                 $promptData,
                 $refinementSchema,
                 $maxRetries,
-                'schedule'
+                'schedule_narrative'
             );
 
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
 
-            // Summary/reasoning/assistant_note are deterministic to guarantee
-            // consistency with the "listed items" (blocks) and the actual time range.
+            $framing = $this->sanitizeFraming(
+                trim((string) ($payload['framing'] ?? '')),
+                max(1, $blockCount),
+                'schedule|'.$threadId
+            );
+
+            $ackRaw = trim((string) ($payload['acknowledgment'] ?? ''));
+            $acknowledgment = $ackRaw !== '' ? mb_substr($ackRaw, 0, 220) : null;
+
+            $fiRaw = trim((string) ($payload['filter_interpretation'] ?? ''));
+            $filterInterpretation = $fiRaw !== '' ? mb_substr($fiRaw, 0, 280) : null;
+
+            $llmReasoning = trim((string) ($payload['reasoning'] ?? ''));
+            $reasoning = $llmReasoning !== ''
+                ? TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($llmReasoning)
+                : TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning);
+
+            $nextOptions = TaskAssistantPrioritizeOutputDefaults::clampNextField(
+                $this->coerceScheduleNextOptionsPluralism(
+                    trim((string) ($payload['next_options'] ?? '')),
+                    $schedulableProposalCount
+                )
+            );
+
+            $chipsRaw = is_array($payload['next_options_chip_texts'] ?? null) ? $payload['next_options_chip_texts'] : [];
+            $chipTexts = $this->normalizeScheduleChipTexts($chipsRaw);
+
+            $anRaw = trim((string) ($payload['assistant_note'] ?? ''));
+            $assistantNote = $anRaw !== '' ? $anRaw : $deterministicAssistantNote;
+
             if (is_array($payload['strategy_points'] ?? null)) {
                 $strategyPoints = array_values(array_filter(
                     array_map(static fn (mixed $value): string => trim((string) $value), $payload['strategy_points']),
@@ -359,6 +405,10 @@ final class TaskAssistantHybridNarrativeService
                     static fn (string $value): bool => $value !== ''
                 ));
             }
+
+            if (is_array($payload['display_block_order'] ?? null)) {
+                $displayBlockOrder = $this->normalizeDisplayBlockOrder($payload['display_block_order'], $blockCount);
+            }
         } catch (\Throwable $e) {
             Log::warning('task-assistant.daily-schedule.refinement_failed', [
                 'layer' => 'llm_narrative',
@@ -366,16 +416,231 @@ final class TaskAssistantHybridNarrativeService
                 'thread_id' => $threadId,
                 'error' => $e->getMessage(),
             ]);
+
+            $fallback = $this->scheduleNarrativeFallback(
+                blockCount: max(1, $blockCount),
+                schedulableProposalCount: $schedulableProposalCount,
+                deterministicReasoning: $deterministicReasoning,
+                seed: 'fallback|'.$threadId
+            );
+            $framing = $fallback['framing'];
+            $reasoning = $fallback['reasoning'];
+            $nextOptions = $fallback['next_options'];
+            $chipTexts = $fallback['next_options_chip_texts'];
+            $filterInterpretation = null;
+            $acknowledgment = null;
+        }
+
+        if ($framing === '') {
+            $framing = $this->scheduleNarrativeFallback(
+                blockCount: max(1, $blockCount),
+                schedulableProposalCount: $schedulableProposalCount,
+                deterministicReasoning: $deterministicReasoning,
+                seed: 'empty_framing|'.$threadId
+            )['framing'];
+        }
+        if ($nextOptions === '') {
+            $nextOptions = $this->scheduleNarrativeFallback(
+                blockCount: max(1, $blockCount),
+                schedulableProposalCount: $schedulableProposalCount,
+                deterministicReasoning: $deterministicReasoning,
+                seed: 'empty_next|'.$threadId
+            )['next_options'];
+        }
+        if ($chipTexts === []) {
+            $chipTexts = $this->defaultScheduleChipTexts();
         }
 
         return [
             'summary' => $summary,
-            'assistant_note' => $assistantNote,
+            'framing' => TaskAssistantPrioritizeOutputDefaults::clampFraming($framing),
+            'filter_interpretation' => $filterInterpretation,
+            'acknowledgment' => $acknowledgment,
             'reasoning' => $reasoning,
+            'assistant_note' => $assistantNote,
             'strategy_points' => $strategyPoints,
             'suggested_next_steps' => $suggestedNextSteps,
             'assumptions' => $assumptions,
+            'next_options' => $nextOptions,
+            'next_options_chip_texts' => $chipTexts,
+            'display_block_order' => $displayBlockOrder,
         ];
+    }
+
+    /**
+     * @return array{
+     *   summary: string,
+     *   framing: string,
+     *   filter_interpretation: null,
+     *   acknowledgment: null,
+     *   reasoning: string,
+     *   assistant_note: string|null,
+     *   strategy_points: list<string>,
+     *   suggested_next_steps: list<string>,
+     *   assumptions: list<string>,
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>,
+     *   display_block_order: null
+     * }
+     */
+    private function buildEmptyPlacementScheduleNarrative(
+        string $deterministicSummary,
+        string $deterministicReasoning,
+        ?string $deterministicAssistantNote,
+    ): array {
+        $cfg = config('task-assistant.schedule.empty_placement', []);
+        $cfg = is_array($cfg) ? $cfg : [];
+
+        $summary = trim((string) ($cfg['summary'] ?? ''));
+        if ($summary === '') {
+            $summary = $deterministicSummary;
+        }
+
+        $framing = TaskAssistantPrioritizeOutputDefaults::clampFraming(trim((string) ($cfg['framing'] ?? '')));
+        if ($framing === '') {
+            $framing = TaskAssistantPrioritizeOutputDefaults::clampFraming(
+                'Nothing in this slice could be placed cleanly in open time. We can still pick a next step together.'
+            );
+        }
+
+        $reasoning = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(trim((string) ($cfg['reasoning'] ?? '')));
+        if ($reasoning === '') {
+            $reasoning = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning);
+        }
+
+        $nextOptions = TaskAssistantPrioritizeOutputDefaults::clampNextField(trim((string) ($cfg['next_options'] ?? '')));
+        if ($nextOptions === '') {
+            $nextOptions = TaskAssistantPrioritizeOutputDefaults::clampNextField(
+                'If you want, I can help you prioritize what to do first or try scheduling with a wider window.'
+            );
+        }
+
+        $chips = $cfg['next_options_chip_texts'] ?? null;
+        $chipTexts = is_array($chips) ? $this->normalizeScheduleChipTexts($chips) : [];
+        if ($chipTexts === []) {
+            $chipTexts = $this->defaultScheduleChipTexts();
+        }
+
+        return [
+            'summary' => $summary,
+            'framing' => $framing,
+            'filter_interpretation' => null,
+            'acknowledgment' => null,
+            'reasoning' => $reasoning,
+            'assistant_note' => $deterministicAssistantNote,
+            'strategy_points' => [],
+            'suggested_next_steps' => [],
+            'assumptions' => [],
+            'next_options' => $nextOptions,
+            'next_options_chip_texts' => $chipTexts,
+            'display_block_order' => null,
+        ];
+    }
+
+    /**
+     * @return array{framing: string, reasoning: string, next_options: string, next_options_chip_texts: list<string>}
+     */
+    private function scheduleNarrativeFallback(
+        int $blockCount,
+        int $schedulableProposalCount,
+        string $deterministicReasoning,
+        string $seed,
+    ): array {
+        $framing = $this->sanitizeFraming(
+            $this->firstPersonFramingFallback(max(1, $blockCount), $seed.'|schedule'),
+            max(1, $blockCount),
+            $seed
+        );
+
+        return [
+            'framing' => $framing,
+            'reasoning' => TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning),
+            'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
+                $this->coerceScheduleNextOptionsPluralism(
+                    'If you want, I can help you prioritize what to do first or adjust this time window.',
+                    $schedulableProposalCount
+                )
+            ),
+            'next_options_chip_texts' => $this->defaultScheduleChipTexts(),
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function defaultScheduleChipTexts(): array
+    {
+        return [
+            TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText((string) __('Prioritize what to do first')),
+            TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText((string) __('Try a different time window')),
+        ];
+    }
+
+    /**
+     * @param  array<int, mixed>  $raw
+     * @return list<string>
+     */
+    private function normalizeScheduleChipTexts(array $raw): array
+    {
+        $out = [];
+        foreach (array_slice($raw, 0, 3) as $line) {
+            $t = TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText(trim((string) $line));
+            if ($t !== '') {
+                $out[] = $t;
+            }
+        }
+
+        return $out;
+    }
+
+    private function coerceScheduleNextOptionsPluralism(string $next, int $schedulableProposalCount): string
+    {
+        $next = trim($next);
+        if ($next === '') {
+            return '';
+        }
+        if ($schedulableProposalCount <= 1) {
+            $next = preg_replace('/\bthese tasks\b/iu', 'this task', $next) ?? $next;
+            $next = preg_replace('/\bthose tasks\b/iu', 'that task', $next) ?? $next;
+        }
+
+        return $next;
+    }
+
+    /**
+     * @param  array<int, mixed>  $order
+     * @return list<int>|null
+     */
+    private function normalizeDisplayBlockOrder(array $order, int $blockCount): ?array
+    {
+        if ($blockCount <= 0) {
+            return null;
+        }
+
+        $normalized = [];
+        foreach ($order as $v) {
+            if (is_int($v)) {
+                $normalized[] = $v;
+            } elseif (is_float($v)) {
+                $normalized[] = (int) $v;
+            } elseif (is_string($v) && is_numeric($v)) {
+                $normalized[] = (int) $v;
+            }
+        }
+
+        if (count($normalized) !== $blockCount) {
+            return null;
+        }
+
+        $sorted = $normalized;
+        sort($sorted);
+        for ($i = 0; $i < $blockCount; $i++) {
+            if (($sorted[$i] ?? -1) !== $i) {
+                return null;
+            }
+        }
+
+        return array_map(static fn (int $i): int => $i, $normalized);
     }
 
     /**
@@ -1581,7 +1846,7 @@ TXT;
             $maxTokens = config($base.'.max_tokens');
         }
 
-        if ($generationRoute === 'prioritize_narrative') {
+        if ($generationRoute === 'prioritize_narrative' || $generationRoute === 'schedule_narrative') {
             if (! is_numeric($topP)) {
                 $topP = null;
             }

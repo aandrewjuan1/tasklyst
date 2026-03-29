@@ -421,9 +421,13 @@ class TaskAssistantMessageFormatterTest extends TestCase
     public function test_daily_schedule_message_is_time_consistent_and_free_of_nominal_headings(): void
     {
         $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is a focused plan for this window.',
             'summary' => 'A focused schedule.',
+            'filter_interpretation' => 'This slice follows your later-evening request.',
             'reasoning' => 'During your requested window, you stay focused.',
             'assistant_note' => 'When you’re ready.',
+            'next_options' => 'If you want, I can help you prioritize what to do next or schedule another time block.',
+            'next_options_chip_texts' => ['Prioritize next', 'Schedule again'],
             'blocks' => [[
                 'start_time' => '18:00',
                 'end_time' => '19:30',
@@ -439,12 +443,17 @@ class TaskAssistantMessageFormatterTest extends TestCase
 
         $this->assertStringNotContainsString('Why this schedule', $out);
         $this->assertStringNotContainsString('(task', $out);
+        $this->assertStringContainsString('Here is a focused plan for this window.', $out);
         $this->assertStringContainsString("From 6:00 PM–7:30 PM you'll work on Practice coding interview problems", $out);
         $this->assertStringNotContainsString('Scheduling strategy:', $out);
         $this->assertStringNotContainsString('Suggested next steps:', $out);
         $this->assertStringContainsString('To make this schedule work', $out);
         $this->assertStringContainsString('Next,', $out);
         $this->assertStringNotContainsString('Next steps:', $out);
+        $this->assertStringContainsString(
+            'If you want, I can help you prioritize what to do next or schedule another time block.',
+            $out
+        );
     }
 
     public function test_general_guidance_uses_next_options_as_closing_paragraph_when_present(): void

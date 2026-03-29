@@ -118,12 +118,17 @@ test('multiturn schedule can target previous prioritized selection', function ()
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Afternoon-focused plan.',
-                'assistant_note' => 'Start at 3 PM with your highest-impact item.',
+                'acknowledgment' => '',
+                'framing' => 'Here is a plan for your afternoon window.',
+                'filter_interpretation' => '',
                 'reasoning' => 'This aligns with your requested window.',
+                'next_options' => 'If you want, I can help you prioritize what is left or schedule another focused block.',
+                'next_options_chip_texts' => ['Prioritize tasks', 'Schedule more'],
                 'strategy_points' => ['Front-load important work.'],
                 'suggested_next_steps' => ['Accept proposals to apply scheduling updates.'],
                 'assumptions' => [],
+                'assistant_note' => 'Start with your highest-impact item.',
+                'display_block_order' => null,
             ])
             ->withUsage(new Usage(5, 10)),
     ]);

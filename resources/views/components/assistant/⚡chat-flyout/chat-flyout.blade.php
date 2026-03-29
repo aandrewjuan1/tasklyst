@@ -94,15 +94,18 @@
                                 $isStopped = data_get($message->metadata, 'stream.status') === 'stopped';
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
                                 $display = $isStopped ? '' : ($message->content ?: __('…'));
-                                $proposals = data_get($message->metadata, 'daily_schedule.proposals', data_get($message->metadata, 'structured.data.proposals', []));
+                                $proposals = data_get($message->metadata, 'schedule.proposals', data_get($message->metadata, 'daily_schedule.proposals', data_get($message->metadata, 'structured.data.proposals', [])));
                                 $prioritizeChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', []);
                                 $guidanceChips = data_get($message->metadata, 'general_guidance.next_options_chip_texts', []);
+                                $scheduleChips = data_get($message->metadata, 'schedule.next_options_chip_texts', []);
                                 $structuredChips = data_get($message->metadata, 'structured.data.next_options_chip_texts', []);
                                 $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
                                     ? $prioritizeChips
                                     : (is_array($guidanceChips) && count($guidanceChips) > 0
                                         ? $guidanceChips
-                                        : (is_array($structuredChips) ? $structuredChips : []));
+                                        : (is_array($scheduleChips) && count($scheduleChips) > 0
+                                            ? $scheduleChips
+                                            : (is_array($structuredChips) ? $structuredChips : [])));
                                 if (! is_array($nextOptionChips)) {
                                     $nextOptionChips = [];
                                 }

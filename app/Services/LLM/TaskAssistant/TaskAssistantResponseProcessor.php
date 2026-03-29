@@ -318,6 +318,10 @@ final class TaskAssistantResponseProcessor
 
     private function validateDailyScheduleData(array $data, array $snapshot): array
     {
+        $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
+        $maxNextOptions = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
+        $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
+
         $rules = [
             'proposals' => ['nullable', 'array', 'max:100'],
             'proposals.*.proposal_id' => ['required_with:proposals', 'string', 'max:100'],
@@ -344,9 +348,19 @@ final class TaskAssistantResponseProcessor
             'blocks.*.task_id' => ['nullable', 'integer'],
             'blocks.*.event_id' => ['nullable', 'integer'],
             'blocks.*.note' => ['nullable', 'string', 'max:300'],
-            'summary' => ['nullable', 'string', 'max:500'],
+            'schedule_variant' => ['nullable', 'string', 'in:daily,range'],
+            'schedule_empty_placement' => ['nullable', 'boolean'],
+            'summary' => ['required', 'string', 'min:3', 'max:500'],
+            'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
+            'filter_interpretation' => ['nullable', 'string', 'max:280'],
+            'acknowledgment' => ['nullable', 'string', 'max:220'],
             'assistant_note' => ['nullable', 'string', 'max:500'],
-            'reasoning' => ['nullable', 'string', 'max:1200'],
+            'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
+            'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextOptions],
+            'next_options_chip_texts' => ['required', 'array', 'min:2', 'max:3'],
+            'next_options_chip_texts.*' => ['required', 'string', 'min:2', 'max:120'],
+            'display_block_order' => ['nullable', 'array', 'max:48'],
+            'display_block_order.*' => ['integer', 'min:0', 'max:47'],
             'strategy_points' => ['nullable', 'array', 'max:6'],
             'strategy_points.*' => ['string', 'max:300'],
             'suggested_next_steps' => ['nullable', 'array', 'max:8'],
@@ -356,6 +370,64 @@ final class TaskAssistantResponseProcessor
         ];
 
         $validator = Validator::make($data, $rules);
+        $validator->after(function (ValidationValidator $validator) use ($data): void {
+            $framing = trim((string) ($data['framing'] ?? ''));
+            $reasoning = trim((string) ($data['reasoning'] ?? ''));
+            $framingNorm = trim(preg_replace('/\s+/u', ' ', $framing) ?? $framing);
+            $reasoningNorm = trim(preg_replace('/\s+/u', ' ', $reasoning) ?? $reasoning);
+            if ($framingNorm !== '' && $framingNorm === $reasoningNorm) {
+                $validator->errors()->add('reasoning', 'reasoning must not duplicate framing verbatim.');
+            }
+
+            $nextOptions = (string) ($data['next_options'] ?? '');
+            $nextLower = mb_strtolower($nextOptions);
+            $nextHasPrioritizeTheme = str_contains($nextLower, 'priorit')
+                || str_contains($nextLower, 'do first')
+                || str_contains($nextLower, 'tackle')
+                || str_contains($nextLower, 'rank');
+            $nextHasScheduleTheme = str_contains($nextLower, 'schedule')
+                || str_contains($nextLower, 'time block')
+                || str_contains($nextLower, 'block time')
+                || str_contains($nextLower, 'calendar')
+                || str_contains($nextLower, 'window');
+            if (! $nextHasPrioritizeTheme) {
+                $validator->errors()->add('next_options', 'next_options must offer a prioritize or ordering theme.');
+            }
+            if (! $nextHasScheduleTheme) {
+                $validator->errors()->add('next_options', 'next_options must offer a scheduling or time-blocking theme.');
+            }
+
+            $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+            $blockCount = count($blocks);
+            $order = $data['display_block_order'] ?? null;
+            if (is_array($order) && $order !== []) {
+                $normalized = [];
+                foreach ($order as $v) {
+                    if (is_int($v)) {
+                        $normalized[] = $v;
+                    } elseif (is_float($v)) {
+                        $normalized[] = (int) $v;
+                    } elseif (is_string($v) && is_numeric($v)) {
+                        $normalized[] = (int) $v;
+                    }
+                }
+                if (count($normalized) !== $blockCount) {
+                    $validator->errors()->add('display_block_order', 'display_block_order must be a permutation of block indices.');
+
+                    return;
+                }
+                $sorted = $normalized;
+                sort($sorted);
+                for ($i = 0; $i < $blockCount; $i++) {
+                    if (($sorted[$i] ?? -1) !== $i) {
+                        $validator->errors()->add('display_block_order', 'display_block_order must be a permutation of block indices.');
+
+                        return;
+                    }
+                }
+            }
+        });
+
         if ($validator->fails()) {
             return [
                 'valid' => false,
@@ -372,6 +444,12 @@ final class TaskAssistantResponseProcessor
 
         $allowedEventIds = collect($snapshot['events'] ?? [])
             ->map(fn (array $event): int => (int) ($event['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        $allowedProjectIds = collect($snapshot['projects'] ?? [])
+            ->map(fn (array $project): int => (int) ($project['id'] ?? 0))
             ->filter(fn (int $id): bool => $id > 0)
             ->values()
             ->all();
@@ -404,6 +482,13 @@ final class TaskAssistantResponseProcessor
             }
             if ($entityType === 'event' && $entityId !== null && ! in_array((int) $entityId, $allowedEventIds, true)) {
                 $errors[] = "proposals.$index.entity_id must exist in snapshot.events.";
+            }
+            if ($entityType === 'project') {
+                if ($entityId === null || (int) $entityId <= 0) {
+                    $errors[] = "proposals.$index.entity_id is required for project proposals.";
+                } elseif (! in_array((int) $entityId, $allowedProjectIds, true)) {
+                    $errors[] = "proposals.$index.entity_id must exist in snapshot.projects.";
+                }
             }
         }
 

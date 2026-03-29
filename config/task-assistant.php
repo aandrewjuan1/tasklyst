@@ -40,6 +40,11 @@ return [
             'max_tokens' => (int) env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_MAX_TOKENS', 900),
             'top_p' => env('TASK_ASSISTANT_PRIORITIZE_NARRATIVE_TOP_P'),
         ],
+        'schedule_narrative' => [
+            'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_TEMPERATURE', 0.38),
+            'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_MAX_TOKENS', 900),
+            'top_p' => env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_TOP_P'),
+        ],
         'general_guidance' => [
             'temperature' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TEMPERATURE', 0.35),
             'max_tokens' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_MAX_TOKENS', 500),
@@ -105,6 +110,20 @@ return [
     */
     'schedule' => [
         'max_horizon_days' => (int) env('TASK_ASSISTANT_SCHEDULE_MAX_HORIZON_DAYS', 14),
+        /**
+         * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
+         * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
+         */
+        'empty_placement' => [
+            'framing' => 'Nothing in this slice could be placed cleanly in open time—your calendar may be full, or the filters may be tight. That happens; it does not mean you are behind.',
+            'reasoning' => 'Getting one concrete item on your list is enough to start—try the thing that is due soonest or on your mind the most, then come back for a ranked order or a fresh schedule.',
+            'next_options' => 'If you want, I can help you prioritize what to do first, or we can try scheduling again with a wider window or fewer items.',
+            'next_options_chip_texts' => [
+                'Prioritize what to do first',
+                'Try scheduling again',
+            ],
+            'summary' => 'No open time matched this request well enough to place these items without conflicts.',
+        ],
     ],
 
     'tools' => [
