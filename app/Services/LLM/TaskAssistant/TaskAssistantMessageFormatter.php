@@ -2,7 +2,7 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
-use App\Support\LLM\TaskAssistantListingDefaults;
+use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 
 /**
  * Single place to turn validated structured assistant payloads into the user-visible message body.
@@ -116,11 +116,19 @@ final class TaskAssistantMessageFormatter
     }
 
     /**
-     * Prioritize body: reasoning (short intro), then numbered items, then suggested_guidance paragraph.
+     * Prioritize body (student-visible order): optional acknowledgment; when Doing tasks exist,
+     * doing_progress_coach then the in-progress title list, then framing (transition), then numbered ranked rows; otherwise framing
+     * stays up front. Then filter_interpretation, reasoning (coach/why), then next_options last.
      * Same keys as prioritize validation in TaskAssistantResponseProcessor.
      *
      * @param  array{
+     *   acknowledgment?: string,
+     *   framing?: string,
+     *   filter_interpretation?: string,
+     *   doing_progress_coach?: string,
+     *   doing_titles?: list<string>,
      *   reasoning?: string,
+     *   next_options?: string,
      *   items?: list<array<string, mixed>>,
      *   suggested_guidance?: string,
      *   limit_used?: int
@@ -131,7 +139,7 @@ final class TaskAssistantMessageFormatter
         $acknowledgment = trim((string) ($data['acknowledgment'] ?? ''));
         $framing = trim((string) ($data['framing'] ?? ''));
         if ($framing === '') {
-            $framing = TaskAssistantListingDefaults::reasoningWhenEmpty();
+            $framing = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
         }
 
         // Deduplicate when the narrative model/stress heuristics accidentally
@@ -177,14 +185,33 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($singularCoerceCount === 1) {
-            $acknowledgment = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($acknowledgment, $singularCoerceCount, $items);
-            $framing = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($framing, $singularCoerceCount, $items);
+            $acknowledgment = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative($acknowledgment, $singularCoerceCount, $items);
+            $framing = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative($framing, $singularCoerceCount, $items);
         }
 
-        $reasoning = TaskAssistantListingDefaults::stripRoboticPrioritizeReasoningTail(
+        $reasoning = TaskAssistantPrioritizeOutputDefaults::stripRoboticPrioritizeReasoningTail(
             trim((string) ($data['reasoning'] ?? ''))
         );
         $nextOptions = trim((string) ($data['next_options'] ?? ''));
+
+        $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
+        if ($filterInterpretation !== '' && $singularCoerceCount === 1) {
+            $filterInterpretation = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative(
+                $filterInterpretation,
+                $singularCoerceCount,
+                $items
+            );
+        }
+
+        $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
+        $doingTitles = is_array($data['doing_titles'] ?? null)
+            ? array_values(array_filter(
+                array_map(static fn (mixed $t): string => trim((string) $t), $data['doing_titles']),
+                static fn (string $s): bool => $s !== ''
+            ))
+            : [];
+        $doingTitleBlock = $this->formatDoingInProgressTitleLines($doingTitles);
+        $lines = $this->formatPrioritizeItemLines($items);
 
         $paragraphs = [];
 
@@ -192,40 +219,38 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $acknowledgment;
         }
 
-        $paragraphs[] = $framing;
-
-        $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
-        if ($filterInterpretation !== '') {
-            if ($singularCoerceCount === 1) {
-                $filterInterpretation = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative(
-                    $filterInterpretation,
-                    $singularCoerceCount,
-                    $items
-                );
+        $hasDoingSection = $doingProgressCoach !== '' || $doingTitleBlock !== '';
+        if ($hasDoingSection) {
+            if ($doingProgressCoach !== '') {
+                $paragraphs[] = $doingProgressCoach;
             }
-            $paragraphs[] = $filterInterpretation;
-        }
-
-        $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
-        $lines = $this->formatBrowseItemLines($items);
-        if ($doingProgressCoach !== '') {
-            $paragraphs[] = TaskAssistantListingDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
-            $paragraphs[] = $doingProgressCoach;
-            if ($lines !== []) {
-                $paragraphs[] = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach($singularCoerceCount);
+            if ($doingTitleBlock !== '') {
+                $paragraphs[] = $doingTitleBlock;
             }
+            if ($framing !== '') {
+                $paragraphs[] = $framing;
+            }
+            if ($lines !== [] && ($doingProgressCoach !== '' || $doingTitleBlock !== '')) {
+                $paragraphs[] = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeAfterDoingCoach($singularCoerceCount);
+            }
+        } else {
+            $paragraphs[] = $framing;
         }
 
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);
         }
 
+        if ($filterInterpretation !== '') {
+            $paragraphs[] = $filterInterpretation;
+        }
+
         if ($reasoning === '') {
-            $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
+            $reasoning = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
         }
 
         if ($singularCoerceCount === 1) {
-            $reasoning = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($reasoning, $singularCoerceCount, $items);
+            $reasoning = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative($reasoning, $singularCoerceCount, $items);
         }
 
         $paragraphs[] = $reasoning;
@@ -237,7 +262,7 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($singularCoerceCount === 1) {
-            $nextOptions = TaskAssistantListingDefaults::coerceSingularPrioritizeNarrative($nextOptions, $singularCoerceCount, $items);
+            $nextOptions = TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative($nextOptions, $singularCoerceCount, $items);
         }
 
         $paragraphs[] = $nextOptions;
@@ -333,10 +358,27 @@ final class TaskAssistantMessageFormatter
     }
 
     /**
+     * @param  list<string>  $titles
+     */
+    private function formatDoingInProgressTitleLines(array $titles): string
+    {
+        if ($titles === []) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($titles as $index => $title) {
+            $lines[] = ($index + 1).'. '.$title;
+        }
+
+        return __('In progress').":\n".implode("\n", $lines);
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $items
      * @return list<string>
      */
-    private function formatBrowseItemLines(array $items): array
+    private function formatPrioritizeItemLines(array $items): array
     {
         $lines = [];
         foreach ($items as $index => $item) {
@@ -365,7 +407,7 @@ final class TaskAssistantMessageFormatter
             $dueOn = trim((string) ($item['due_on'] ?? ''));
             $complexity = trim((string) ($item['complexity_label'] ?? ''));
             if ($complexity === '') {
-                $complexity = TaskAssistantListingDefaults::complexityNotSetLabel();
+                $complexity = TaskAssistantPrioritizeOutputDefaults::complexityNotSetLabel();
             }
 
             $detailParts = [];
@@ -380,8 +422,8 @@ final class TaskAssistantMessageFormatter
                 }
             } else {
                 $detailParts[] = $duePhrase !== ''
-                    ? $duePhrase.' · '.TaskAssistantListingDefaults::noDueDateLabel()
-                    : TaskAssistantListingDefaults::noDueDateLabel();
+                    ? $duePhrase.' · '.TaskAssistantPrioritizeOutputDefaults::noDueDateLabel()
+                    : TaskAssistantPrioritizeOutputDefaults::noDueDateLabel();
             }
 
             $detailParts[] = 'Complexity: '.$complexity;

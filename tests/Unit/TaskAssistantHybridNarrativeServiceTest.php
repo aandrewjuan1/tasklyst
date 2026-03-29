@@ -1,6 +1,5 @@
 <?php
 
-use App\Enums\TaskAssistantPrioritizeVariant;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use Illuminate\Support\Collection;
 use Prism\Prism\Facades\Prism;
@@ -115,7 +114,6 @@ test('refinePrioritizeListing derives focus from items order and uses suggested_
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -127,6 +125,7 @@ test('refinePrioritizeListing derives focus from items order and uses suggested_
     expect($result['focus']['main_task'])->toBe('Alpha');
     expect($result['focus']['secondary_tasks'])->toBe(['Beta']);
     expect($result['acknowledgment'])->toBeNull();
+    expect($result['doing_progress_coach'])->toBeNull();
     expect($result['framing'])->toContain('most urgent items');
     expect($result)->not->toHaveKey('suggested_next_actions');
     expect($result)->not->toHaveKey('next_actions_intro');
@@ -188,7 +187,6 @@ test('refinePrioritizeListing falls back suggested_next_actions and strips place
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -258,7 +256,6 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -328,7 +325,6 @@ test('refinePrioritizeListing includes acknowledgment when UX include flags are 
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'I\'m overwhelmed, prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -390,7 +386,6 @@ test('refinePrioritizeListing provides a single-item start guidance in reasoning
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -457,7 +452,6 @@ test('refinePrioritizeListing removes conflicting due timing from framing', func
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -520,7 +514,6 @@ test('refinePrioritizeListing replaces due soon framing with singular overdue op
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'what should I focus on today',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today (includes overdue and anything due today)',
@@ -586,7 +579,6 @@ test('refinePrioritizeListing ignores \"tomorrow\\u2019s\" in titles for due dri
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two tasks.',
         filterContextForPrompt: 'time: today',
@@ -642,7 +634,6 @@ test('refinePrioritizeListing ensures stressed prompts yield an empathetic ackno
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'im so stressed what should i do first for today?',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -699,7 +690,6 @@ test('refinePrioritizeListing strips bracketed artifacts from next_options', fun
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'i am overwhelmed, prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -777,7 +767,6 @@ test('refinePrioritizeListing sanitizes visibility overclaims and avoids bundled
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'prioritize my tasks',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Three tasks.',
         filterContextForPrompt: 'time: today',
@@ -832,7 +821,6 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'what should i do first?',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'One task.',
         filterContextForPrompt: 'time: today',
@@ -891,7 +879,6 @@ test('refinePrioritizeListing handles mixed entity types without insight field',
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'what are my top priorities today?',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Two items.',
         filterContextForPrompt: 'time: today',
@@ -951,7 +938,6 @@ test('refinePrioritizeListing does not append ordered-list boilerplate when reas
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'show next 3',
-        variant: TaskAssistantPrioritizeVariant::FollowupSlice,
         items: $items,
         deterministicSummary: 'Two items.',
         filterContextForPrompt: 'no strong filters',
@@ -960,7 +946,9 @@ test('refinePrioritizeListing does not append ordered-list boilerplate when reas
         userId: 1,
     );
 
-    expect($result['reasoning'])->toBe('You have an important essay to research, so start there.');
+    expect($result['reasoning'])->toContain('CS group project meetup');
+    expect($result['reasoning'])->not->toContain('Library research for history essay');
+    expect($result['reasoning'])->not->toContain('important essay');
     expect($result['reasoning'])->not->toContain('first on this ordered list');
     expect($result['reasoning'])->not->toContain("when you're ready");
 });
@@ -997,7 +985,6 @@ test('refinePrioritizeListing does not use connection fallbacks when the model r
     $result = $service->refinePrioritizeListing(
         promptData: $promptData,
         userMessage: 'hi bro what should i do first?',
-        variant: TaskAssistantPrioritizeVariant::Rank,
         items: $items,
         deterministicSummary: 'Found 1 task(s).',
         filterContextForPrompt: 'none',
@@ -1009,4 +996,134 @@ test('refinePrioritizeListing does not use connection fallbacks when the model r
     expect($result['framing'])->toContain('Found 1 task');
     expect($result['reasoning'])->toContain('same urgency rules');
     expect($result['reasoning'])->not->toContain('Impossible 5h study block');
+});
+
+test('refinePrioritizeListing returns doing_progress_coach when doing_context is present', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'acknowledgment' => null,
+                'framing' => 'Here is a clear next step from your ranked slice.',
+                'reasoning' => 'Alpha is first because it is due today.',
+                'doing_progress_coach' => 'Lean on what you have already started before you add new commitments—that keeps switching costs lower.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'high',
+            'due_phrase' => 'due today',
+            'due_on' => 'Mar 1, 2026',
+            'complexity_label' => 'Simple',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-01',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'doing_context' => [
+            'has_doing_tasks' => true,
+            'doing_titles' => ['Other in progress'],
+            'doing_count' => 1,
+        ],
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'One task.',
+        filterContextForPrompt: 'time: today',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['doing_progress_coach'])->toContain('switching');
+});
+
+test('refinePrioritizeListing replaces doing_progress_coach when it quotes ITEMS_JSON titles', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'acknowledgment' => null,
+                'framing' => 'Start with Alpha first.',
+                'reasoning' => 'Alpha is first because it is due today.',
+                'doing_progress_coach' => 'You already made progress on Alpha and Beta—keep going.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'high',
+            'due_phrase' => 'due today',
+            'due_on' => 'Mar 1, 2026',
+            'complexity_label' => 'Simple',
+        ],
+        [
+            'entity_type' => 'task',
+            'entity_id' => 2,
+            'title' => 'Beta',
+            'priority' => 'low',
+            'due_phrase' => '',
+            'due_on' => '—',
+            'complexity_label' => 'Simple',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-01',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'doing_context' => [
+            'has_doing_tasks' => true,
+            'doing_titles' => ['Doing task only'],
+            'doing_count' => 1,
+        ],
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'Two tasks.',
+        filterContextForPrompt: 'time: today',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['doing_progress_coach'])->not->toContain('Alpha');
+    expect($result['doing_progress_coach'])->not->toContain('Beta');
+    expect($result['framing'])->not->toContain('Alpha');
+    expect($result['framing'])->not->toContain('Beta');
 });

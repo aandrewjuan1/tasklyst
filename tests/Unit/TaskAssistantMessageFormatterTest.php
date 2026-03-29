@@ -3,7 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\LLM\TaskAssistant\TaskAssistantMessageFormatter;
-use App\Support\LLM\TaskAssistantListingDefaults;
+use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use Tests\TestCase;
 
 class TaskAssistantMessageFormatterTest extends TestCase
@@ -32,7 +32,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         );
     }
 
-    public function test_prioritize_orders_framing_then_items_then_reasoning_then_next_options(): void
+    public function test_prioritize_orders_framing_items_reasoning_then_next_options_last(): void
     {
         $ack = 'Got it.';
         $framing = 'Not everything deserves your attention—this focuses on what actually moves your goal.';
@@ -68,16 +68,16 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $posNextOptions = strpos($out, $nextOptions);
         $this->assertNotFalse($posReasoning);
         $this->assertNotFalse($posNextOptions);
-        // The output should contain both segments in the intended order.
-        // (We avoid strict strpos comparisons since substrings can overlap.)
+        $this->assertLessThan($posNextOptions, $posReasoning);
         $this->assertStringContainsString('due today (Mar 22, 2026)', $out);
     }
 
-    public function test_prioritize_places_filter_interpretation_after_framing_before_numbered_items(): void
+    public function test_prioritize_places_filter_interpretation_after_numbered_items_then_reasoning_then_next_options(): void
     {
         $framing = 'Here is your slice.';
         $filter = 'Filtered to tasks due today.';
-        $reasoning = 'This ordering matches what you asked for.';
+        $reasoning = 'Coach paragraph after filter before scheduling options.';
+        $nextOptions = 'If you want, I can schedule this for later.';
         $out = $this->formatter->format('prioritize', [
             'framing' => $framing,
             'filter_interpretation' => $filter,
@@ -94,29 +94,88 @@ class TaskAssistantMessageFormatterTest extends TestCase
                 ],
             ],
             'reasoning' => $reasoning,
-            'next_options' => 'Next.',
+            'next_options' => $nextOptions,
         ]);
 
         $posFraming = strpos($out, $framing);
         $posFilter = strpos($out, $filter);
         $posItems = strpos($out, '1. A —');
+        $posNext = strpos($out, $nextOptions);
+        $posReasoning = strpos($out, $reasoning);
         $this->assertNotFalse($posFraming);
         $this->assertNotFalse($posFilter);
         $this->assertNotFalse($posItems);
-        // PHPUnit: assertLessThan($expected, $actual) asserts $actual < $expected.
-        $this->assertLessThan($posFilter, $posFraming);
-        $this->assertLessThan($posItems, $posFilter);
+        $this->assertNotFalse($posNext);
+        $this->assertNotFalse($posReasoning);
+        $this->assertLessThan($posItems, $posFraming);
+        $this->assertLessThan($posFilter, $posItems);
+        $this->assertLessThan($posReasoning, $posFilter);
+        $this->assertLessThan($posNext, $posReasoning);
     }
 
-    public function test_prioritize_places_doing_progress_coach_after_filter_before_numbered_items(): void
+    public function test_prioritize_places_doing_coach_before_in_progress_titles_then_ranked_then_filter_then_reasoning_then_next_options(): void
     {
         $framing = 'Here is your slice.';
         $filter = 'Filtered to tasks due today.';
-        $coach = 'You already have one task in progress: X.';
-        $reasoning = 'This ordering matches what you asked for.';
+        $coach = 'Wrap up active work on X first—less switching usually beats juggling.';
+        $reasoning = 'Why row one is first and a concrete tip.';
+        $nextOptions = 'If you want, I can schedule this for later.';
         $out = $this->formatter->format('prioritize', [
             'framing' => $framing,
             'filter_interpretation' => $filter,
+            'doing_progress_coach' => $coach,
+            'doing_titles' => ['Doing task one'],
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'A',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'reasoning' => $reasoning,
+            'next_options' => $nextOptions,
+        ]);
+
+        $bridgeBefore = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
+        $bridgeAfter = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeAfterDoingCoach(1);
+
+        $posFraming = strpos($out, $framing);
+        $posFilter = strpos($out, $filter);
+        $posCoach = strpos($out, $coach);
+        $posDoingList = strpos($out, '1. Doing task one');
+        $posBridgeAfter = strpos($out, $bridgeAfter);
+        $posItems = strpos($out, '1. A —');
+        $posNext = strpos($out, $nextOptions);
+        $posReasoning = strpos($out, $reasoning);
+        $this->assertNotFalse($posFraming);
+        $this->assertNotFalse($posFilter);
+        $this->assertStringNotContainsString($bridgeBefore, $out);
+        $this->assertNotFalse($posCoach);
+        $this->assertNotFalse($posDoingList);
+        $this->assertNotFalse($posBridgeAfter);
+        $this->assertNotFalse($posItems);
+        $this->assertNotFalse($posNext);
+        $this->assertNotFalse($posReasoning);
+        $this->assertLessThan($posDoingList, $posCoach);
+        $this->assertLessThan($posBridgeAfter, $posFraming);
+        $this->assertLessThan($posItems, $posBridgeAfter);
+        $this->assertLessThan($posFraming, $posCoach);
+        $this->assertLessThan($posFilter, $posItems);
+        $this->assertLessThan($posReasoning, $posFilter);
+        $this->assertLessThan($posNext, $posReasoning);
+    }
+
+    public function test_prioritize_skips_bridge_before_doing_coach_when_coach_already_signals_in_progress(): void
+    {
+        $framing = 'Here is your slice.';
+        $coach = 'You already have one task in progress: X.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => $framing,
             'doing_progress_coach' => $coach,
             'limit_used' => 1,
             'items' => [
@@ -130,30 +189,15 @@ class TaskAssistantMessageFormatterTest extends TestCase
                     'complexity_label' => 'Simple',
                 ],
             ],
-            'reasoning' => $reasoning,
+            'reasoning' => 'Row one fits your ask.',
             'next_options' => 'Next.',
         ]);
 
-        $bridgeBefore = TaskAssistantListingDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
-        $bridgeAfter = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach(1);
-
-        $posFraming = strpos($out, $framing);
-        $posFilter = strpos($out, $filter);
-        $posBridgeBefore = strpos($out, $bridgeBefore);
-        $posCoach = strpos($out, $coach);
-        $posBridgeAfter = strpos($out, $bridgeAfter);
-        $posItems = strpos($out, '1. A —');
-        $this->assertNotFalse($posFraming);
-        $this->assertNotFalse($posFilter);
-        $this->assertNotFalse($posBridgeBefore);
-        $this->assertNotFalse($posCoach);
-        $this->assertNotFalse($posBridgeAfter);
-        $this->assertNotFalse($posItems);
-        $this->assertLessThan($posFilter, $posFraming);
-        $this->assertLessThan($posBridgeBefore, $posFilter);
-        $this->assertLessThan($posCoach, $posBridgeBefore);
-        $this->assertLessThan($posBridgeAfter, $posCoach);
-        $this->assertLessThan($posItems, $posBridgeAfter);
+        $bridgeBefore = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
+        $this->assertFalse(TaskAssistantPrioritizeOutputDefaults::shouldEmitPrioritizeFormatterBridgeBeforeDoingCoach($coach));
+        $this->assertStringContainsString($framing, $out);
+        $this->assertStringContainsString($coach, $out);
+        $this->assertStringNotContainsString($bridgeBefore, $out);
     }
 
     public function test_prioritize_due_later_bucket_uses_due_date_label_not_vague_later_phrase(): void
@@ -266,7 +310,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString($framing, $out);
     }
 
-    public function test_browse_item_lines_always_show_priority_date_and_complexity_defaults(): void
+    public function test_prioritize_item_lines_always_show_priority_date_and_complexity_defaults(): void
     {
         $out = $this->formatter->format('prioritize', [
             'framing' => 'Why.',
@@ -285,19 +329,19 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('Medium priority', $out);
-        $this->assertStringContainsString(TaskAssistantListingDefaults::noDueDateLabel(), $out);
-        $this->assertStringContainsString('Complexity: '.TaskAssistantListingDefaults::complexityNotSetLabel(), $out);
+        $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::noDueDateLabel(), $out);
+        $this->assertStringContainsString('Complexity: '.TaskAssistantPrioritizeOutputDefaults::complexityNotSetLabel(), $out);
         $this->assertStringContainsString('If you want, I can schedule this for later.', $out);
     }
 
-    public function test_browse_uses_default_framing_when_payload_omits_it(): void
+    public function test_prioritize_uses_default_framing_when_payload_omits_it(): void
     {
         $out = $this->formatter->format('prioritize', [
             'limit_used' => 0,
             'items' => [],
         ]);
 
-        $this->assertStringContainsString(TaskAssistantListingDefaults::reasoningWhenEmpty(), $out);
+        $this->assertStringContainsString(TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty(), $out);
     }
 
     public function test_prioritize_ignores_placement_blurb_fields(): void

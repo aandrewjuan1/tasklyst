@@ -289,167 +289,67 @@ test('prioritize flow replaces last_listing with prioritize results for multitur
     expect($thread->metadata['conversation_state']['last_listing']['items'] ?? [])->not->toBeEmpty();
 });
 
-test('prioritize follow-up show next 3 excludes previously shown items', function (): void {
+test('empty workspace short-circuits prioritize with deterministic valid envelope', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
-
-    Prism::fake([
-        StructuredResponseFake::make()
-            ->withStructured([
-                'framing' => 'Here are your top priorities in a simple order you can start now.',
-                'acknowledgment' => null,
-                'reasoning' => 'This ordering helps you start with the most urgent work first.',
-                'next_options' => 'If you want, I can schedule this for later, or show your next 3 priorities.',
-                'next_options_chip_texts' => ['Schedule this', 'Show next 3'],
-            ])
-            ->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()
-            ->withStructured([
-                'framing' => 'Here are the next priorities from your list.',
-                'acknowledgment' => null,
-                'reasoning' => 'These are the next highest-ranked unseen items.',
-                'next_options' => 'If you want, I can schedule time for these.',
-                'next_options_chip_texts' => ['Schedule these'],
-            ])
-            ->withUsage(new Usage(5, 10)),
-    ]);
 
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    Task::factory()->for($user)->count(6)->create([
-        'status' => TaskStatus::ToDo,
-        'priority' => TaskPriority::High,
-        'start_datetime' => null,
-        'end_datetime' => now()->addDay(),
-    ]);
-
-    $service = app(TaskAssistantService::class);
-
-    $firstUser = $thread->messages()->create([
+    $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'What should I do first?',
+        'content' => 'what should i do first',
     ]);
-    $firstAssistant = $thread->messages()->create([
+    $assistantMessage = $thread->messages()->create([
         'role' => MessageRole::Assistant,
         'content' => '',
     ]);
-    $service->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
 
-    $secondUser = $thread->messages()->create([
-        'role' => MessageRole::User,
-        'content' => 'show next 3',
-    ]);
-    $secondAssistant = $thread->messages()->create([
-        'role' => MessageRole::Assistant,
-        'content' => '',
-    ]);
-    $service->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
 
-    $firstAssistant->refresh();
-    $secondAssistant->refresh();
-    $thread->refresh();
+    $assistantMessage->refresh();
 
-    $firstItems = $firstAssistant->metadata['prioritize']['items'] ?? [];
-    $secondItems = $secondAssistant->metadata['prioritize']['items'] ?? [];
-    $firstNextOptions = (string) ($firstAssistant->metadata['prioritize']['next_options'] ?? '');
-    $secondNextOptions = (string) ($secondAssistant->metadata['prioritize']['next_options'] ?? '');
-    $firstChips = $firstAssistant->metadata['prioritize']['next_options_chip_texts'] ?? [];
-    $secondChips = $secondAssistant->metadata['prioritize']['next_options_chip_texts'] ?? [];
-
-    $firstKeys = collect($firstItems)->map(fn (array $row): string => $row['entity_type'].':'.$row['entity_id'])->values()->all();
-    $secondKeys = collect($secondItems)->map(fn (array $row): string => $row['entity_type'].':'.$row['entity_id'])->values()->all();
-
-    expect($firstAssistant->metadata['structured']['flow'] ?? null)->toBe('prioritize');
-    expect($firstItems)->toHaveCount(1);
-    expect($secondItems)->toHaveCount(3);
-    expect(array_intersect($firstKeys, $secondKeys))->toBe([]);
-    expect($thread->metadata['conversation_state']['prioritize_pagination']['shown_entity_keys'] ?? [])
-        ->toHaveCount(4);
-    expect($firstNextOptions)->toContain('schedule this task for later today, tomorrow, or this week');
-    expect($secondNextOptions)->toContain('schedule these tasks for later today, tomorrow, or this week');
-    expect($firstNextOptions)->not->toContain('task(s)');
-    expect($secondNextOptions)->not->toContain('task(s)');
-    expect($firstNextOptions)->not->toContain('show your next 3 priorities');
-    expect($secondNextOptions)->not->toContain('show your next 3 priorities');
-    expect($firstChips)->toBe(['Later today', 'Tomorrow', 'This week']);
-    expect($secondChips)->toBe(['Later today', 'Tomorrow', 'This week']);
+    expect($assistantMessage->metadata['validation_errors'] ?? [])->toBe([]);
+    expect($assistantMessage->metadata['structured']['ok'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($assistantMessage->metadata['prioritize']['workspace_empty'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['prioritize']['next_options_chip_texts'] ?? null)->toBe([]);
+    expect($assistantMessage->metadata['processed'] ?? null)->toBeTrue();
+    expect(trim((string) $assistantMessage->content))->not->toContain('Nothing matched that request yet');
+    $framing = (string) config('task-assistant.listing.empty_workspace.framing', '');
+    expect($framing)->not->toBe('');
+    expect((string) $assistantMessage->content)->toContain(mb_substr($framing, 0, 40));
 });
 
-test('prioritize follow-up show next 3 inherits task preference (does not reintroduce events)', function (): void {
-    config(['task-assistant.intent.use_llm' => false]);
-
+test('empty workspace short-circuits schedule intent with prioritize-shaped envelope', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'framing' => 'Here are your top priorities.',
-                'acknowledgment' => null,
-                'reasoning' => 'Ranked by urgency.',
-                'next_options' => 'If you want, I can schedule time for these, or show your next 3 priorities.',
-                'next_options_chip_texts' => ['Schedule these', 'Show next 3'],
+                'intent' => 'scheduling',
+                'confidence' => 0.95,
+                'rationale' => 'User asked to schedule.',
             ])
-            ->withUsage(new Usage(5, 10)),
-        StructuredResponseFake::make()
-            ->withStructured([
-                'framing' => 'Here are the next priorities from your list.',
-                'acknowledgment' => null,
-                'reasoning' => 'Next unseen items.',
-                'next_options' => 'If you want, I can schedule time for these.',
-                'next_options_chip_texts' => ['Schedule these'],
-            ])
-            ->withUsage(new Usage(5, 10)),
+            ->withUsage(new Usage(1, 2)),
     ]);
 
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    Task::factory()->for($user)->count(6)->create([
-        'status' => TaskStatus::ToDo,
-        'priority' => TaskPriority::High,
-        'start_datetime' => null,
-        'end_datetime' => now()->addDay(),
-    ]);
-
-    // Ensure at least one event exists in the candidate snapshot window.
-    \App\Models\Event::factory()->for($user)->create([
-        'start_datetime' => now()->addMinutes(30),
-        'end_datetime' => now()->addMinutes(90),
-    ]);
-
-    $service = app(TaskAssistantService::class);
-
-    $firstUser = $thread->messages()->create([
+    $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'what about the top 3 tasks that i need to do asap',
+        'content' => 'Schedule time for my tasks this afternoon',
     ]);
-    $firstAssistant = $thread->messages()->create([
+    $assistantMessage = $thread->messages()->create([
         'role' => MessageRole::Assistant,
         'content' => '',
     ]);
-    $service->processQueuedMessage($thread, $firstUser->id, $firstAssistant->id);
 
-    $secondUser = $thread->messages()->create([
-        'role' => MessageRole::User,
-        'content' => 'okay show the next 3',
-    ]);
-    $secondAssistant = $thread->messages()->create([
-        'role' => MessageRole::Assistant,
-        'content' => '',
-    ]);
-    $service->processQueuedMessage($thread, $secondUser->id, $secondAssistant->id);
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
 
-    $secondAssistant->refresh();
+    $assistantMessage->refresh();
 
-    $secondItems = $secondAssistant->metadata['prioritize']['items'] ?? [];
-    $secondTypes = collect($secondItems)->map(fn (array $row): string => (string) ($row['entity_type'] ?? ''))->values()->all();
-    $firstNextOptions = (string) ($firstAssistant->metadata['prioritize']['next_options'] ?? '');
-    $secondNextOptions = (string) ($secondAssistant->metadata['prioritize']['next_options'] ?? '');
-    $firstChips = $firstAssistant->metadata['prioritize']['next_options_chip_texts'] ?? [];
-    $secondChips = $secondAssistant->metadata['prioritize']['next_options_chip_texts'] ?? [];
-
-    expect($secondItems)->toHaveCount(3);
-    expect($secondTypes)->each->toBe('task');
-    expect($secondNextOptions)->toContain('schedule these tasks for later today, tomorrow, or this week');
-    expect($secondNextOptions)->not->toContain('task(s)');
-    expect($secondNextOptions)->not->toContain('show your next 3 priorities');
-    expect($secondChips)->toBe(['Later today', 'Tomorrow', 'This week']);
+    expect($assistantMessage->metadata['structured']['ok'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($assistantMessage->metadata['prioritize']['workspace_empty'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['prioritize']['next_options_chip_texts'] ?? null)->toBe([]);
+    expect($assistantMessage->metadata['prioritize']['workspace_empty_intended_flow'] ?? null)->toBe('schedule');
 });

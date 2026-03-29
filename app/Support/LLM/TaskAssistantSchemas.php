@@ -185,54 +185,22 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Disambiguate rank (urgency ordering) vs browse (filtered listing) when both signals appear.
-     */
-    public static function prioritizeVariantClassifierSchema(): ObjectSchema
-    {
-        return new ObjectSchema(
-            name: 'prioritize_variant_classifier',
-            description: 'Choose rank when the student mainly wants what to do first; browse when they mainly want to see their tasks in a readable list.',
-            properties: [
-                new StringSchema(
-                    name: 'prioritize_variant',
-                    description: 'Exactly one of: rank, browse.',
-                    nullable: false
-                ),
-                new NumberSchema(
-                    name: 'confidence',
-                    description: 'Confidence between 0 and 1 for the chosen variant.',
-                    nullable: false
-                ),
-                new StringSchema(
-                    name: 'rationale',
-                    description: 'One short phrase explaining the choice (student-safe wording).',
-                    nullable: true
-                ),
-            ],
-            requiredFields: [
-                'prioritize_variant',
-                'confidence',
-            ]
-        );
-    }
-
-    /**
      * Narrative fields for prioritize output: assistant voice for a prioritized list.
      */
     public static function prioritizeNarrativeSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'prioritize_narrative',
-            description: 'Supportive student coach voice for a prioritized slice: clear, warm, and practically helpful. Follow LISTED_ITEM_COUNT in the user message: if it is 1, use strictly singular grammar (this task/event/project, it)—never pluralize to tasks/priorities/they when only one row is listed. If LISTED_ITEM_COUNT > 1, plural forms are fine for the set. Across framing and reasoning, include at least one grounded coach element (encouragement or a small actionable tip tied to the rows)—see field descriptions. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
+            description: 'Role: student task coach and motivator—warm, concise, practical (not a dry narrator). Student-visible order is OUTPUT_FIELD_ORDER in the user message: intro (framing) → Doing coach when required → app-rendered ranked list → filter_interpretation → reasoning (coach/why) → next_options last. Hermes/small models: keep strings short; one main idea per field; follow field order; spread empathy and tips across fields. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
             properties: [
                 new StringSchema(
                     name: 'filter_interpretation',
-                    description: 'Optional: one short sentence on how filters or request wording shaped this slice (student-facing). Null if not needed.',
+                    description: 'Optional: one short sentence on how filters or request wording shaped this slice. The student sees this AFTER the numbered list; explain the slice briefly, not as a second intro. Null if not needed.',
                     nullable: true
                 ),
                 new ArraySchema(
                     name: 'assumptions',
-                    description: 'Optional: up to 4 short student-safe assumptions (e.g. treating "today" as calendar today). Empty or null if none.',
+                    description: 'Optional: prefer null. Only if strictly needed to interpret a filter (e.g. calendar "today"). Never meta-assumptions about the user viewing their list; no invented dates. Up to 4 short strings. Empty or null if none.',
                     items: new StringSchema(name: 'assumption', description: 'One assumption.'),
                     nullable: true
                 ),
@@ -242,13 +210,18 @@ final class TaskAssistantSchemas
                     nullable: true
                 ),
                 new StringSchema(
+                    name: 'doing_progress_coach',
+                    description: 'When DOING_COACH_REQUIRED is true: one short warm paragraph (generic motivation only—no quoted titles). Must NOT name any title from ITEMS_JSON; ranked rows are not Doing tasks. When DOING_COACH_REQUIRED is false: must be null.',
+                    nullable: true
+                ),
+                new StringSchema(
                     name: 'framing',
-                    description: 'Required: natural coach-like assistant voice (I recommend, I suggest, Let\'s, We could, here\'s what I\'d do)—vary phrasing. Usually 1–3 sentences: orient the student to this slice and how it helps them act. You may add brief encouragement or one practical tip grounded in the listed rows (not generic pep talk). Never say the student "found" or "discovered" tasks on a list you are showing—speak as recommendations (I\'d start with, here\'s what I\'d tackle first). Use "your" attention/focus, not "our". When LISTED_ITEM_COUNT is 1, never say priorities/tasks/these in the plural for that one row—use the row entity type (task, event, or project) in singular. Do not invent due dates or reorder items. Avoid brochure-style openers like "Here is your top priority in a simple order". Avoid claiming you reviewed/checked their full list (no “I reviewed your tasks”, “I took a look at your to-do list”).',
+                    description: 'Required: short intro only—natural coach voice (I recommend, I suggest, Let\'s—vary phrasing). Usually 1–3 sentences. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT name or quote any ITEMS_JSON title in framing—orient to in-progress work; top-row explanation belongs in reasoning (after filter, before next_options). Because framing appears before the app renders the numbered ITEMS_JSON list, avoid vague deixis like "starting with this/these" that implies the top-ranked row is already visible—server-side cleanup may strip it. Do not restate the same stress/quiz-prep beat as acknowledgment; keep framing a short handoff. Illegal text may be sanitized server-side. When DOING_COACH_REQUIRED is false and LISTED_ITEM_COUNT >= 1, keep framing light—save "why row #1 is first" for reasoning. One practical tip allowed here OR reserve the main micro-step for reasoning—do not repeat the same overdue/complex/status points later. Never say the student "found" or "discovered" tasks. Use "your" attention/focus, not "our". When LISTED_ITEM_COUNT is 1, singular grammar for that row where you mention it. Do not invent due dates or reorder items. Avoid brochure openers and "I reviewed your list" claims.',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'next_options',
-                    description: 'Required: 1-2 sentences offering a follow-up option (e.g., scheduling). When LISTED_ITEM_COUNT is 1, refer to scheduling "this task" (or event/project per row), not "these tasks". Keep it student-friendly. If you mention rescheduling, it must be about remaining work, not tasks already completed.',
+                    description: 'Required: 1-2 sentences offering a follow-up (e.g., scheduling). The student sees this LAST, after reasoning. Scheduling/follow-up only—do not summarize the full ranked list here. When LISTED_ITEM_COUNT is 1, refer to scheduling "this task" (or event/project per row), not "these tasks". If you mention rescheduling, it must be about remaining work, not tasks already completed.',
                     nullable: false
                 ),
                 new ArraySchema(
@@ -259,7 +232,7 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Required: explanation written directly to the student (I, You, Let\'s, or We are all fine). Do not use third-person phrasing like "the user ...", "they match ...", or "this list matches ...". Ground claims in the listed rows (titles, due_phrase, priority). Mention the exact title of the first row at least once and tie why it is first to that row\'s fields. You may add one short grounded micro-tip for tackling that item if you did not already give a tip in framing. When LISTED_ITEM_COUNT is 1, use singular nouns and it/this row only—no "they/them" for that single item. You may use multiple sentences. Do not include internal terms, stiff meta lines about "ordered list"/"first on this list", or template closers like "when you\'re ready". If you include counts, it must match LISTED_ITEM_COUNT.',
+                    description: 'Required: appears after filter_interpretation and before next_options—main coaching paragraph: motivation, empathy, why row #1 is first using ITEMS_JSON when LISTED_ITEM_COUNT >= 1, and one concrete micro-step or habit when helpful. Mention the first row\'s exact title at least once. Describe the work using words grounded in that row\'s title and fields (priority, due_phrase, complexity_label)—do not invent assignment types (e.g. "programming exercise", "lab hand-in") not supported by the title. When LISTED_ITEM_COUNT is 1 and DOING_COACH_REQUIRED is true, do not drag in other task titles from in-progress work; stay on row #1. Do not repeat the same overdue/complex/status points as framing or filter_interpretation; do not repeat scheduling lines that belong in next_options. When LISTED_ITEM_COUNT > 1, add one short phrase for row 2\'s role vs row 1 using only entity_type, titles, and due fields—no invented times. Direct address (I/You/Let\'s); no "the user". Singular grammar when LISTED_ITEM_COUNT is 1. Avoid rhetorical "Today," unless due_phrase supports calendar-today wording. No "ordered list" boilerplate.',
                     nullable: false
                 ),
             ],

@@ -2,8 +2,6 @@
 
 namespace App\Support\LLM;
 
-use App\Enums\TaskAssistantPrioritizeVariant;
-
 /**
  * User-facing prioritize copy used only when the prioritize narrative LLM request fails
  * (transport/connection after retries). Do not use when the model returns successfully.
@@ -13,7 +11,7 @@ final class PrioritizeNarrativeConnectionFallback
     /**
      * @param  list<array<string, mixed>>  $items
      */
-    public static function framing(array $items, string $userMessage, TaskAssistantPrioritizeVariant $variant): string
+    public static function framing(array $items, string $userMessage): string
     {
         $lead = self::framingLeadFromUserMessage($userMessage);
         if ($lead !== null && trim($lead) !== '') {
@@ -21,17 +19,6 @@ final class PrioritizeNarrativeConnectionFallback
         }
 
         $n = count($items);
-        if ($variant === TaskAssistantPrioritizeVariant::FollowupSlice) {
-            return $n === 1
-                ? (string) __('Here’s the next item in the same order as before.')
-                : (string) __('Here are the next items, in the same order as before.');
-        }
-
-        if ($variant === TaskAssistantPrioritizeVariant::Browse) {
-            return $n === 1
-                ? (string) __('Here’s one task that matches what you asked for.')
-                : (string) __('Here are tasks that match what you asked for, in a sensible order.');
-        }
 
         return $n === 1
             ? (string) __('Here’s the one step I’d put at the front of the line right now—by urgency and deadlines.')
@@ -41,16 +28,16 @@ final class PrioritizeNarrativeConnectionFallback
     /**
      * @param  list<array<string, mixed>>  $items
      */
-    public static function reasoning(array $items, TaskAssistantPrioritizeVariant $variant): string
+    public static function reasoning(array $items): string
     {
         $first = $items[0] ?? null;
         if (! is_array($first)) {
-            return TaskAssistantListingDefaults::reasoningWhenEmpty();
+            return TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
         }
 
         $title = trim((string) ($first['title'] ?? ''));
         if ($title === '') {
-            return TaskAssistantListingDefaults::reasoningWhenEmpty();
+            return TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
         }
 
         $count = count($items);
@@ -63,10 +50,10 @@ final class PrioritizeNarrativeConnectionFallback
             $type === 'project' => (string) __('I’d put “:title” first here—projects are ordered by urgency so you can see where to focus.', [
                 'title' => $title,
             ]),
-            default => self::reasoningFirstTaskParagraph($first, $title, $variant),
+            default => self::reasoningFirstTaskParagraph($first, $title),
         };
 
-        $tail = self::reasoningMultiItemTail($count, $variant);
+        $tail = self::reasoningMultiItemTail($count);
 
         return trim($firstParagraph.$tail);
     }
@@ -92,7 +79,7 @@ final class PrioritizeNarrativeConnectionFallback
     /**
      * @param  array<string, mixed>  $first
      */
-    private static function reasoningFirstTaskParagraph(array $first, string $title, TaskAssistantPrioritizeVariant $variant): string
+    private static function reasoningFirstTaskParagraph(array $first, string $title): string
     {
         $due = trim((string) ($first['due_phrase'] ?? ''));
         $priorityRaw = trim((string) ($first['priority'] ?? ''));
@@ -100,49 +87,39 @@ final class PrioritizeNarrativeConnectionFallback
             ? sprintf('%s %s', ucfirst(mb_strtolower($priorityRaw)), __('priority'))
             : '';
 
-        $browseNote = $variant === TaskAssistantPrioritizeVariant::Browse
-            ? ' '.__('It’s a sensible place to start in this filtered view.')
-            : '';
-
         if ($due !== '' && $due !== 'no due date' && $priorityLabel !== '') {
             return trim((string) __('I’d start with “:title” first—it’s :due and marked :priority, so it rises above the other rows here.', [
                 'title' => $title,
                 'due' => $due,
                 'priority' => $priorityLabel,
-            ]).$browseNote);
+            ]));
         }
 
         if ($due !== '' && $due !== 'no due date') {
             return trim((string) __('I’d start with “:title” first—it’s :due, so it comes before the rest on this list.', [
                 'title' => $title,
                 'due' => $due,
-            ]).$browseNote);
+            ]));
         }
 
         if ($priorityLabel !== '') {
             return trim((string) __('I’d start with “:title” first—it’s :priority, so it lands at the top of this slice.', [
                 'title' => $title,
                 'priority' => $priorityLabel,
-            ]).$browseNote);
+            ]));
         }
 
         return trim((string) __('I’d start with “:title” first on this list.', [
             'title' => $title,
-        ]).$browseNote);
+        ]));
     }
 
-    private static function reasoningMultiItemTail(int $itemCount, TaskAssistantPrioritizeVariant $variant): string
+    private static function reasoningMultiItemTail(int $itemCount): string
     {
         if ($itemCount <= 1) {
             return '';
         }
 
-        $suffix = match ($variant) {
-            TaskAssistantPrioritizeVariant::FollowupSlice => __(' The rows below continue in the same order as before—work through them top to bottom when you can.'),
-            TaskAssistantPrioritizeVariant::Browse => __(' The other rows stay in this same order for this slice so you can scan them easily.'),
-            TaskAssistantPrioritizeVariant::Rank => __(' The rows underneath follow the same urgency order—tackle them from top to bottom when you are ready.'),
-        };
-
-        return ' '.trim((string) $suffix);
+        return ' '.trim((string) __(' The rows underneath follow the same urgency order—tackle them from top to bottom when you are ready.'));
     }
 }
