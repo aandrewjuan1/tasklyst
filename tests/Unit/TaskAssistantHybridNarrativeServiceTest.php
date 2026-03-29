@@ -964,3 +964,49 @@ test('refinePrioritizeListing does not append ordered-list boilerplate when reas
     expect($result['reasoning'])->not->toContain('first on this ordered list');
     expect($result['reasoning'])->not->toContain("when you're ready");
 });
+
+test('refinePrioritizeListing does not use connection fallbacks when the model returns an empty payload but the request succeeded', function (): void {
+    Prism::fake([]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 31,
+            'title' => 'Impossible 5h study block before quiz',
+            'priority' => 'urgent',
+            'due_phrase' => 'overdue',
+            'due_on' => 'Mar 27, 2026',
+            'complexity_label' => 'Complex',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-01',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'hi bro what should i do first?',
+        variant: TaskAssistantPrioritizeVariant::Rank,
+        items: $items,
+        deterministicSummary: 'Found 1 task(s).',
+        filterContextForPrompt: 'none',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['framing'])->toContain('Found 1 task');
+    expect($result['reasoning'])->toContain('same urgency rules');
+    expect($result['reasoning'])->not->toContain('Impossible 5h study block');
+});

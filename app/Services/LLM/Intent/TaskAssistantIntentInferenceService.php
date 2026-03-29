@@ -101,6 +101,7 @@ final class TaskAssistantIntentInferenceService
                 confidence: 0.0,
                 failed: true,
                 rationale: null,
+                connectionFailed: true,
             );
         }
     }

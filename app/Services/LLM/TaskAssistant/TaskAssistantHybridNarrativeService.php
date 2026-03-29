@@ -3,6 +3,7 @@
 namespace App\Services\LLM\TaskAssistant;
 
 use App\Enums\TaskAssistantPrioritizeVariant;
+use App\Support\LLM\PrioritizeNarrativeConnectionFallback;
 use App\Support\LLM\TaskAssistantListingDefaults;
 use App\Support\LLM\TaskAssistantSchemas;
 use Illuminate\Support\Collection;
@@ -665,6 +666,8 @@ final class TaskAssistantHybridNarrativeService
         $assumptionsNormalized = null;
         $cleanItems = $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
 
+        $prioritizeNarrativeConnectionFailed = false;
+
         try {
             $structuredResponse = $this->attemptStructured(
                 $messages,
@@ -733,6 +736,7 @@ final class TaskAssistantHybridNarrativeService
                 $assumptionsNormalized = $assumptionLines === [] ? null : $assumptionLines;
             }
         } catch (\Throwable $e) {
+            $prioritizeNarrativeConnectionFailed = true;
             Log::warning('task-assistant.prioritize.narrative_failed', [
                 'layer' => 'llm_narrative',
                 'user_id' => $userId,
@@ -742,9 +746,13 @@ final class TaskAssistantHybridNarrativeService
         }
 
         if (! is_string($framing) || trim($framing) === '') {
-            $framing = trim($deterministicSummary) !== ''
-                ? trim($deterministicSummary)
-                : $this->firstPersonFramingFallback(max(1, $listedTaskCount), $userMessage.'|'.$threadId);
+            if ($prioritizeNarrativeConnectionFailed && $cleanItems !== []) {
+                $framing = PrioritizeNarrativeConnectionFallback::framing($cleanItems, $userMessage, $variant);
+            } elseif (trim($deterministicSummary) !== '') {
+                $framing = trim($deterministicSummary);
+            } else {
+                $framing = $this->firstPersonFramingFallback(max(1, $listedTaskCount), $userMessage.'|'.$threadId);
+            }
         }
         $framing = $this->sanitizeFraming((string) $framing, $listedTaskCount, $userMessage.'|'.$threadId);
 
@@ -809,7 +817,11 @@ final class TaskAssistantHybridNarrativeService
 
         // Enforce required reasoning field (schema expects non-null).
         if ($reasoning === null || trim($reasoning) === '') {
-            $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
+            if ($prioritizeNarrativeConnectionFailed && $cleanItems !== []) {
+                $reasoning = PrioritizeNarrativeConnectionFallback::reasoning($cleanItems, $variant);
+            } else {
+                $reasoning = TaskAssistantListingDefaults::reasoningWhenEmpty();
+            }
         }
 
         // Enforce student-directed POV (avoid third-person phrasing).
