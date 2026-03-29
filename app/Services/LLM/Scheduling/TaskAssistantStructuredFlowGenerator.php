@@ -58,10 +58,14 @@ final class TaskAssistantStructuredFlowGenerator
         $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
 
         $proposals = $this->generateDeterministicProposals($contextualSnapshot, $context);
-        $blocks = $this->buildLegacyBlocksFromProposals($proposals);
+        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
 
         $blocksJson = json_encode($blocks, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        $isEmptyPlacement = $this->isScheduleEmptyPlacement($proposals);
+        $schedulableProposalCount = $this->countSchedulableProposals($proposals);
 
         $narrative = $this->hybridNarrative->refineDailySchedule(
             $historyMessages,
@@ -71,17 +75,36 @@ final class TaskAssistantStructuredFlowGenerator
             $deterministicSummary,
             $thread->id,
             $user->id,
+            $isEmptyPlacement,
+            $schedulableProposalCount,
         );
+
+        $horizon = $contextualSnapshot['schedule_horizon'] ?? null;
+        $scheduleVariant = 'daily';
+        if (is_array($horizon)
+            && ($horizon['mode'] ?? '') === 'range'
+            && isset($horizon['start_date'], $horizon['end_date'])
+            && $horizon['start_date'] !== $horizon['end_date']) {
+            $scheduleVariant = 'range';
+        }
 
         $data = [
             'proposals' => $proposals,
             'blocks' => $blocks,
+            'schedule_variant' => $scheduleVariant,
             'summary' => $narrative['summary'],
+            'framing' => $narrative['framing'],
+            'filter_interpretation' => $narrative['filter_interpretation'],
+            'acknowledgment' => $narrative['acknowledgment'],
             'assistant_note' => $narrative['assistant_note'],
             'reasoning' => $narrative['reasoning'],
             'strategy_points' => $narrative['strategy_points'],
             'suggested_next_steps' => $narrative['suggested_next_steps'],
             'assumptions' => $narrative['assumptions'],
+            'next_options' => $narrative['next_options'],
+            'next_options_chip_texts' => $narrative['next_options_chip_texts'],
+            'display_block_order' => $narrative['display_block_order'],
+            'schedule_empty_placement' => $isEmptyPlacement,
         ];
 
         $horizonLog = $contextualSnapshot['schedule_horizon'] ?? null;
@@ -167,7 +190,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         if (! empty($context['priority_filters'])) {
-            $filtered = collect($snapshot['tasks'] ?? [])
+            $filtered = collect($contextualSnapshot['tasks'] ?? [])
                 ->filter(function (array $task) use ($context): bool {
                     return in_array($task['priority'] ?? 'medium', $context['priority_filters'], true);
                 })
@@ -662,8 +685,53 @@ final class TaskAssistantStructuredFlowGenerator
         }
     }
 
-    private function buildLegacyBlocksFromProposals(array $proposals): array
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     */
+    private function isScheduleEmptyPlacement(array $proposals): bool
     {
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     */
+    private function countSchedulableProposals(array $proposals): int
+    {
+        $n = 0;
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
+                continue;
+            }
+            if (($proposal['apply_payload'] ?? null) === null) {
+                continue;
+            }
+            $n++;
+        }
+
+        return $n;
+    }
+
+    private function buildLegacyBlocksFromProposals(array $proposals, string $timezoneName): array
+    {
+        try {
+            $tz = new \DateTimeZone($timezoneName !== '' ? $timezoneName : 'UTC');
+        } catch (\Throwable) {
+            $tz = new \DateTimeZone('UTC');
+        }
+
         $blocks = [];
         foreach ($proposals as $proposal) {
             if (! is_array($proposal)) {
@@ -672,8 +740,24 @@ final class TaskAssistantStructuredFlowGenerator
 
             $startAt = (string) ($proposal['start_datetime'] ?? '');
             $endAt = (string) ($proposal['end_datetime'] ?? '');
-            $start = $startAt !== '' ? (new \DateTimeImmutable($startAt))->format('H:i') : '00:00';
-            $end = $endAt !== '' ? (new \DateTimeImmutable($endAt))->format('H:i') : $start;
+            $start = '00:00';
+            $end = '00:00';
+            if ($startAt !== '') {
+                try {
+                    $start = (new \DateTimeImmutable($startAt))->setTimezone($tz)->format('H:i');
+                } catch (\Throwable) {
+                    $start = '00:00';
+                }
+            }
+            if ($endAt !== '') {
+                try {
+                    $end = (new \DateTimeImmutable($endAt))->setTimezone($tz)->format('H:i');
+                } catch (\Throwable) {
+                    $end = $start;
+                }
+            } else {
+                $end = $start;
+            }
 
             $blocks[] = [
                 'start_time' => $start,

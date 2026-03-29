@@ -66,12 +66,17 @@ test('structured intent routes to schedule when LLM selects scheduling', functio
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'Planned day overview.',
-                'assistant_note' => 'Take breaks between blocks.',
+                'acknowledgment' => '',
+                'framing' => 'Here is a simple day plan you can follow.',
+                'filter_interpretation' => '',
                 'reasoning' => 'Matches your afternoon preference.',
+                'next_options' => 'If you want, I can help you prioritize what matters most or adjust this schedule.',
+                'next_options_chip_texts' => ['Prioritize tasks', 'Adjust schedule'],
                 'strategy_points' => ['Tackle hard tasks first.'],
                 'suggested_next_steps' => ['Confirm blocks in calendar.'],
                 'assumptions' => [],
+                'assistant_note' => 'Take breaks between blocks.',
+                'display_block_order' => null,
             ])
             ->withUsage(new Usage(5, 10)),
     ]);

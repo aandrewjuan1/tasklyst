@@ -555,6 +555,7 @@ new class extends Component
     {
         $metadata = $message->metadata ?? [];
         $candidates = [
+            ['key' => 'schedule', 'items_key' => 'proposals'],
             ['key' => 'daily_schedule', 'items_key' => 'proposals'],
             ['key' => 'structured', 'items_key' => 'data.proposals'],
         ];

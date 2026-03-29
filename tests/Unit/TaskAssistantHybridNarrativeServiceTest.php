@@ -10,12 +10,16 @@ test('daily_schedule narrative summary/reasoning stay consistent with blocks tim
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'summary' => 'For best results, set aside two hours in the later evening (18:00 to 20:00) for Practice coding interview problems.',
-                'assistant_note' => 'Wrong time explanation.',
-                'reasoning' => 'This works because it runs from 18:00 to 20:00.',
-                'strategy_points' => ['a'],
-                'suggested_next_steps' => ['b'],
-                'assumptions' => ['c'],
+                'acknowledgment' => '',
+                'framing' => 'Here is a focused plan for your requested window.',
+                'filter_interpretation' => '',
+                'reasoning' => '',
+                'next_options' => 'If you want, I can help you prioritize what to do next or schedule another focused block this week.',
+                'next_options_chip_texts' => ['Prioritize next steps', 'Schedule another block'],
+                'strategy_points' => ['Set a timer and reduce distractions.'],
+                'suggested_next_steps' => ['Start with the first block.'],
+                'assumptions' => [],
+                'display_block_order' => null,
             ])
             ->withUsage(new Usage(1, 1)),
     ]);
@@ -48,14 +52,17 @@ test('daily_schedule narrative summary/reasoning stay consistent with blocks tim
         deterministicSummary: 'A focused schedule with clear blocks to structure your time',
         threadId: 1,
         userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
     );
 
     expect($result['summary'])->toContain('6:00 PM–7:30 PM');
     expect($result['summary'])->not->toContain('20:00');
     expect($result['reasoning'])->toContain('6:00 PM–7:30 PM');
     expect($result['reasoning'])->not->toContain('20:00');
-    // We override assistant_note to avoid time drift.
-    expect($result['assistant_note'])->not->toContain('Wrong time');
+    expect($result['framing'])->not->toBe('');
+    expect($result['next_options'])->toContain('prioritize');
+    expect($result['next_options_chip_texts'])->not->toBeEmpty();
 });
 
 test('refinePrioritizeListing derives focus from items order and uses suggested_next_actions', function (): void {

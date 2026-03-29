@@ -350,50 +350,90 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Narrative refinement schema for scheduling: blocks and proposals are fixed in PHP;
-     * the model may add strategy points, next steps, and assumptions (summary lines are anchored in code).
+     * Structured LLM output for schedule coaching. Proposals, ISO start/end times, and block times
+     * are computed in PHP; the model must not invent or revise clock times. Aligns with prioritize
+     * narrative roles: framing, filter_interpretation, reasoning, next_options, chips.
      */
     public static function scheduleNarrativeRefinementSchema(): ObjectSchema
     {
         return new ObjectSchema(
-            name: 'schedule_narrative_refinement',
-            description: 'Refine narrative fields for a previously proposed schedule (single- or multi-day).',
+            name: 'schedule_narrative_aligned',
+            description: 'Coach narrative for a deterministic schedule plan. Do not mention task_id/event_id/project_id, JSON, snapshot, or backend. Do not state exact clock times or dates—the app shows blocks. Optional display_block_order is a permutation of block indices for narrative sentence order only.',
             properties: [
                 new StringSchema(
-                    name: 'summary',
-                    description: 'Short narrative summary of the schedule.',
+                    name: 'acknowledgment',
+                    description: 'Optional one short sentence if the user sounded stressed or conversational.',
                     nullable: true
                 ),
                 new StringSchema(
-                    name: 'assistant_note',
-                    description: 'Optional friendly note from the assistant.',
+                    name: 'framing',
+                    description: 'Required short intro in warm coach voice before the app-rendered time blocks. Do not quote internal titles as if the user already sees the list.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'filter_interpretation',
+                    description: 'Optional one sentence after blocks: how filters or wording shaped this slice.',
                     nullable: true
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Why this schedule structure fits the user for the requested window.',
-                    nullable: true
+                    description: 'Required coaching paragraph after filter_interpretation: why this sequencing fits—without inventing times.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'next_options',
+                    description: 'Required closing offer: scheduling follow-ups or reprioritizing—seen last. Singular/plural must match how many items were scheduled when obvious.',
+                    nullable: false
+                ),
+                new ArraySchema(
+                    name: 'next_options_chip_texts',
+                    description: 'Required 2–3 short chip labels for follow-ups (no question marks).',
+                    items: new StringSchema(name: 'chip', description: 'Chip label.'),
+                    nullable: false,
+                    minItems: 2,
+                    maxItems: 3
                 ),
                 new ArraySchema(
                     name: 'strategy_points',
-                    description: '2-4 concise points describing prioritization and sequencing strategy.',
+                    description: 'Optional 2–4 practical bullets supporting the plan (no exact times).',
                     items: new StringSchema(name: 'point', description: 'Strategy point.'),
-                    nullable: true
+                    nullable: true,
+                    maxItems: 6
                 ),
                 new ArraySchema(
                     name: 'suggested_next_steps',
-                    description: '2-4 practical steps for the user to execute this schedule.',
+                    description: 'Optional 2–4 execution steps after reviewing proposals (no exact times).',
                     items: new StringSchema(name: 'step', description: 'Execution step.'),
-                    nullable: true
+                    nullable: true,
+                    maxItems: 8
                 ),
                 new ArraySchema(
                     name: 'assumptions',
-                    description: 'Optional assumptions made while planning.',
-                    items: new StringSchema(name: 'assumption', description: 'Assumption item.'),
+                    description: 'Optional short assumptions.',
+                    items: new StringSchema(name: 'assumption', description: 'Assumption.'),
+                    nullable: true,
+                    maxItems: 6
+                ),
+                new StringSchema(
+                    name: 'assistant_note',
+                    description: 'Optional friendly one-liner.',
                     nullable: true
                 ),
+                new ArraySchema(
+                    name: 'display_block_order',
+                    description: 'Optional permutation of 0-based block indices for narrative order only.',
+                    items: new NumberSchema(name: 'block_index', description: 'Index into the fixed blocks array.'),
+                    nullable: true,
+                    minItems: 1,
+                    maxItems: 48
+                ),
             ],
-            requiredFields: []
+            requiredFields: [
+                'framing',
+                'reasoning',
+                'next_options',
+                'next_options_chip_texts',
+            ]
         );
     }
 }

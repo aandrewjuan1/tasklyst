@@ -444,23 +444,46 @@ final class TaskAssistantMessageFormatter
      */
     private function formatDailyScheduleMessage(array $data): string
     {
+        $acknowledgment = trim((string) ($data['acknowledgment'] ?? ''));
+        $framing = trim((string) ($data['framing'] ?? ''));
         $summary = trim((string) ($data['summary'] ?? ''));
+        $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
         $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
+        $nextOptions = trim((string) ($data['next_options'] ?? ''));
+
         $blocks = $data['blocks'] ?? [];
+        $blocks = is_array($blocks) ? $blocks : [];
+        $order = $data['display_block_order'] ?? null;
+        if (is_array($order) && $order !== [] && $blocks !== []) {
+            $ordered = [];
+            foreach ($order as $idx) {
+                $i = is_int($idx) ? $idx : (int) $idx;
+                if (isset($blocks[$i]) && is_array($blocks[$i])) {
+                    $ordered[] = $blocks[$i];
+                }
+            }
+            if (count($ordered) === count($blocks)) {
+                $blocks = $ordered;
+            }
+        }
+
         $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
         $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
         $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
 
         $paragraphs = [];
+        if ($acknowledgment !== '') {
+            $paragraphs[] = $acknowledgment;
+        }
+        if ($framing !== '') {
+            $paragraphs[] = $framing;
+        }
         if ($summary !== '') {
             $paragraphs[] = $summary;
         }
-        if ($reasoning !== '') {
-            $paragraphs[] = $reasoning;
-        }
 
-        if (is_array($blocks) && $blocks !== []) {
+        if ($blocks !== []) {
             $sentences = [];
             foreach ($blocks as $block) {
                 if (! is_array($block)) {
@@ -471,8 +494,6 @@ final class TaskAssistantMessageFormatter
                 $label = (string) ($block['label'] ?? $block['title'] ?? 'Focus time');
                 $reason = trim((string) ($block['reason'] ?? $block['note'] ?? ''));
 
-                // The blocks are deterministic; internal scheduler notes can look
-                // noisy to end users, so we suppress them here.
                 if (stripos($reason, 'planned by strict scheduler') !== false) {
                     $reason = '';
                 }
@@ -495,6 +516,13 @@ final class TaskAssistantMessageFormatter
             if ($sentences !== []) {
                 $paragraphs[] = $this->joinSentences($sentences);
             }
+        }
+
+        if ($filterInterpretation !== '') {
+            $paragraphs[] = $filterInterpretation;
+        }
+        if ($reasoning !== '') {
+            $paragraphs[] = $reasoning;
         }
 
         $strategyPoints = $this->normalizeStringList($strategyPoints);
@@ -520,6 +548,9 @@ final class TaskAssistantMessageFormatter
         }
         if ($assistantNote !== '') {
             $paragraphs[] = $assistantNote;
+        }
+        if ($nextOptions !== '') {
+            $paragraphs[] = $nextOptions;
         }
 
         return implode("\n\n", $paragraphs);

@@ -345,4 +345,120 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertFalse($result['valid']);
         $this->assertNotEmpty($result['errors']);
     }
+
+    public function test_daily_schedule_validation_fails_when_reasoning_duplicates_framing(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+        $same = 'Start with what fits your calendar best.';
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Block',
+                'task_id' => null,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'summary' => 'A focused schedule for your window.',
+            'framing' => $same,
+            'reasoning' => $same,
+            'next_options' => 'If you want, I can help you prioritize what to do next or schedule another time block.',
+            'next_options_chip_texts' => ['Prioritize next', 'Schedule again'],
+        ], [
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
+
+    public function test_daily_schedule_validation_passes_for_well_formed_payload(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'apply_payload' => [
+                    'tool' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'summary' => 'A focused schedule for your window.',
+            'framing' => 'Here is a focused plan for this slice.',
+            'filter_interpretation' => 'This follows your request.',
+            'reasoning' => 'During your window, you can stay focused on one item at a time.',
+            'next_options' => 'If you want, I can help you prioritize what is left or schedule another block.',
+            'next_options_chip_texts' => ['Prioritize tasks', 'Schedule more'],
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+    }
+
+    public function test_daily_schedule_validation_fails_when_project_id_not_in_snapshot(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'project',
+                'entity_id' => 99,
+                'title' => 'Project X',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'apply_payload' => [
+                    'tool' => 'update_project',
+                    'arguments' => ['projectId' => 99, 'updates' => []],
+                ],
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Project X',
+                'task_id' => null,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'summary' => 'A focused schedule for your window.',
+            'framing' => 'Here is a focused plan.',
+            'reasoning' => 'Project work gets a dedicated block.',
+            'next_options' => 'If you want, I can help you prioritize tasks or schedule another window.',
+            'next_options_chip_texts' => ['Prioritize tasks', 'Schedule more'],
+        ], [
+            'tasks' => [],
+            'events' => [],
+            'projects' => [['id' => 1]],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
 }
