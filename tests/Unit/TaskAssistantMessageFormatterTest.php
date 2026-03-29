@@ -447,7 +447,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('Next steps:', $out);
     }
 
-    public function test_general_guidance_formats_prioritize_and_schedule_actions_in_one_calm_sentence(): void
+    public function test_general_guidance_uses_next_options_as_closing_paragraph_when_present(): void
     {
         $out = $this->formatter->format('general_guidance', [
             'acknowledgement' => "I didn't quite catch that yet.",
@@ -456,12 +456,13 @@ class TaskAssistantMessageFormatterTest extends TestCase
                 'Prioritize my tasks.',
                 'Schedule time blocks for my tasks.',
             ],
+            'next_options' => 'If you want, I can help you decide what to tackle first or block time for what matters most.',
         ]);
 
         $this->assertStringContainsString(
-            'Next, you can prioritize your tasks or schedule time blocks for your tasks.',
+            'If you want, I can help you decide what to tackle first or block time for what matters most.',
             $out
         );
-        $this->assertStringNotContainsString(' Or ', $out);
+        $this->assertStringNotContainsString('Next, you can prioritize your tasks or schedule time blocks', $out);
     }
 }

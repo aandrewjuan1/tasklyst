@@ -979,6 +979,10 @@ final class TaskAssistantService
                 'suggested_next_actions' => is_array($guidance['suggested_next_actions'] ?? null)
                     ? $guidance['suggested_next_actions']
                     : null,
+                'next_options' => (string) ($guidance['next_options'] ?? ''),
+                'next_options_chip_texts' => is_array($guidance['next_options_chip_texts'] ?? null)
+                    ? array_values($guidance['next_options_chip_texts'])
+                    : [],
             ],
             'errors' => [],
         ];

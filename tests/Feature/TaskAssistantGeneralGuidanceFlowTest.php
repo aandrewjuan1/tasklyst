@@ -22,6 +22,7 @@ test('vague help prompt routes to task intent guidance without pending follow-up
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to do first or schedule time for your most important work.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -66,6 +67,7 @@ test('pending guidance low-confidence retry uses latest user message instead of 
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to do first or schedule time for your most important work.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -111,6 +113,7 @@ test('gibberish guidance output uses unclear intent and stitched sections', func
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to do first or schedule time for your most important work.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -132,9 +135,9 @@ test('gibberish guidance output uses unclear intent and stitched sections', func
     $assistantMessage->refresh();
     $assistantText = (string) $assistantMessage->content;
     expect(data_get($assistantMessage->metadata, 'general_guidance.intent'))->toBe('unclear');
-    expect($assistantText)->toContain('Next,');
-    expect(mb_strtolower($assistantText))->toContain('prioritize your tasks');
-    expect(mb_strtolower($assistantText))->toContain('schedule time blocks for your tasks');
+    expect($assistantText)->toContain('If you want');
+    expect(mb_strtolower($assistantText))->toContain('priorit');
+    expect(mb_strtolower($assistantText))->toContain('schedule');
 });
 
 test('pending guidance does not hijack fresh standalone emotional off-topic prompt', function (): void {
@@ -150,6 +153,7 @@ test('pending guidance does not hijack fresh standalone emotional off-topic prom
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to do first or schedule time for your most important work.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);

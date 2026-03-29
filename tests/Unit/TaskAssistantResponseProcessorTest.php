@@ -299,4 +299,50 @@ class TaskAssistantResponseProcessorTest extends TestCase
 
         $this->assertFalse($result['valid']);
     }
+
+    public function test_general_guidance_validation_passes_for_well_formed_payload(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('general_guidance', [
+            'intent' => 'task',
+            'acknowledgement' => 'Thanks for reaching out.',
+            'message' => 'Here is some helpful guidance for your week.',
+            'suggested_next_actions' => [
+                'Prioritize my tasks.',
+                'Schedule time blocks for my tasks.',
+            ],
+            'next_options' => 'If you want, I can help you prioritize what to tackle first or block time on your calendar.',
+            'next_options_chip_texts' => [
+                'What should I do first',
+                'Schedule my most important task',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+    }
+
+    public function test_general_guidance_validation_fails_when_next_options_missing_schedule_theme(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('general_guidance', [
+            'intent' => 'task',
+            'acknowledgement' => 'Thanks for reaching out.',
+            'message' => 'Here is some helpful guidance for your week.',
+            'suggested_next_actions' => [
+                'Prioritize my tasks.',
+                'Schedule time blocks for my tasks.',
+            ],
+            'next_options' => 'If you want, I can help you decide what to tackle first.',
+            'next_options_chip_texts' => [
+                'What should I do first',
+                'Schedule my most important task',
+            ],
+        ], []);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
 }

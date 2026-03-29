@@ -273,8 +273,13 @@ final class TaskAssistantSchemas
                 ),
                 new ArraySchema(
                     name: 'suggested_next_actions',
-                    description: '2-3 short clausal (verb-led) actionable follow-ups. Must include explicit prioritize/schedule options.',
+                    description: '2-3 short clausal (verb-led) actionable follow-ups. Must include explicit prioritize/schedule options. These support routing quality; the student-visible closing line is next_options.',
                     items: new StringSchema(name: 'action', description: 'One suggested next action.'),
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'next_options',
+                    description: 'Final paragraph (one or two sentences): warm offer starting with If you want or If you would like—offer to help rank what to do first and/or schedule time for the most important work. No bullets. No chips text here.',
                     nullable: false
                 ),
             ],
@@ -283,6 +288,7 @@ final class TaskAssistantSchemas
                 'acknowledgement',
                 'message',
                 'suggested_next_actions',
+                'next_options',
             ]
         );
     }

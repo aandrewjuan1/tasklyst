@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\MessageRole;
+use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
@@ -29,6 +30,7 @@ test('low composite margin routes to general_guidance instead of clarification b
                     'Prioritize my tasks.',
                     'Schedule time blocks for my tasks.',
                 ],
+                'next_options' => 'If you want, I can help you prioritize what to do first or schedule time on your calendar for what matters most.',
             ])
             ->withUsage(new Usage(1, 2)),
     ]);
@@ -75,6 +77,7 @@ test('structured intent routes to schedule when LLM selects scheduling', functio
     ]);
 
     $user = User::factory()->create();
+    Task::factory()->for($user)->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,

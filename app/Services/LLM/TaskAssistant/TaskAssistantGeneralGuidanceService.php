@@ -3,6 +3,7 @@
 namespace App\Services\LLM\TaskAssistant;
 
 use App\Models\User;
+use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use App\Support\LLM\TaskAssistantSchemas;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
@@ -40,7 +41,9 @@ final class TaskAssistantGeneralGuidanceService
      *   intent: string,
      *   acknowledgement: string,
      *   message: string,
-     *   suggested_next_actions: list<string>
+     *   suggested_next_actions: list<string>,
+     *   next_options: string,
+     *   next_options_chip_texts: list<string>
      * }
      */
     public function generateGeneralGuidance(
@@ -73,14 +76,16 @@ final class TaskAssistantGeneralGuidanceService
         $messages = collect([
             new UserMessage(
                 'User message for guidance mode selection: '.$userMessage.$timeContext."\n\n".
-                'Generate intent + acknowledgement + message + suggested_next_actions. '.
+                'Generate intent + acknowledgement + message + suggested_next_actions + next_options. '.
                 'Keep the user prompt as the primary context anchor for every field. '.
                 'Do not output generic boilerplate if the prompt gives concrete context. '.
                 'Use concise, supportive wording grounded in the user message. '.
                 'Write natural conversational English for a student. Prefer verbal clauses over nominalized/formal phrasing. '.
                 'Do not quote or parrot the full user message. Paraphrase the meaning naturally. '.
                 'Field boundaries are strict: acknowledgement=1 short empathy sentence (no refusal/boundary), message=1-3 short sentences (for out_of_scope include a single gentle refusal/boundary here, then redirect). '.
-                'suggested_next_actions must be 2-3 short verb-led clauses (no noun labels).'
+                'suggested_next_actions must be 2-3 short verb-led clauses (no noun labels). '.
+                'next_options must be the LAST student-visible paragraph: one or two warm sentences starting with If you want or If you would like, offering to help decide what to do first or rank priorities AND to schedule or block time for important work. Do not include chip labels or bullets. '.
+                'Do not mention snapshot, JSON, backend, or database in next_options.'
             ),
         ]);
 
@@ -141,7 +146,8 @@ final class TaskAssistantGeneralGuidanceService
                         $intent,
                         $acknowledgement,
                         $message,
-                        $suggestedNextActions
+                        $suggestedNextActions,
+                        (string) ($payload['next_options'] ?? ''),
                     );
                 }
 
@@ -176,11 +182,19 @@ final class TaskAssistantGeneralGuidanceService
                     $intent
                 );
 
+                $nextOptions = $this->finalizeNextOptionsString(
+                    $this->sanitizeUserFacingLanguage(
+                        $this->normalizeGeneralGuidanceText((string) ($payload['next_options'] ?? ''))
+                    )
+                );
+
                 return [
                     'intent' => $intent,
                     'acknowledgement' => $acknowledgement,
                     'message' => $message,
                     'suggested_next_actions' => $suggestedNextActions,
+                    'next_options' => $nextOptions,
+                    'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts(),
                 ];
             } catch (\Throwable $e) {
                 if ($attempt === $maxRetries) {
@@ -197,6 +211,8 @@ final class TaskAssistantGeneralGuidanceService
                             ? "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action."
                             : 'I can help make this manageable with one clear next step.',
                         'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
+                        'next_options' => $this->finalizeNextOptionsString(''),
+                        'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts(),
                     ];
                 }
             }
@@ -209,6 +225,8 @@ final class TaskAssistantGeneralGuidanceService
                 ? "Right now, it's {$timeLabelForFallback} for you. I can help you turn this into a clear next action."
                 : 'I can help make this feel more manageable with one clear next step.',
             'suggested_next_actions' => $this->enforceSuggestedNextActions([], $resolvedIntent),
+            'next_options' => $this->finalizeNextOptionsString(''),
+            'next_options_chip_texts' => $this->deterministicGeneralGuidanceChipTexts(),
         ];
     }
 
@@ -621,6 +639,7 @@ final class TaskAssistantGeneralGuidanceService
         string $acknowledgement,
         string $message,
         ?array $suggestedNextActions,
+        string $nextOptionsForBlob = '',
     ): array {
         $intent = self::INTENT_TASK;
 
@@ -642,7 +661,7 @@ final class TaskAssistantGeneralGuidanceService
             'create a new task',
         ];
 
-        $blob = mb_strtolower($message.' '.implode(' ', $suggestedNextActions ?? []));
+        $blob = mb_strtolower($message.' '.implode(' ', $suggestedNextActions ?? [])."\n".$nextOptionsForBlob);
         $hasForbidden = false;
         foreach ($forbidden as $needle) {
             if (str_contains($blob, $needle)) {
@@ -1082,6 +1101,47 @@ final class TaskAssistantGeneralGuidanceService
         }
 
         return false;
+    }
+
+    private function finalizeNextOptionsString(string $nextOptions): string
+    {
+        $t = trim($this->normalizeGeneralGuidanceText($nextOptions));
+        if ($t === '') {
+            $t = (string) config(
+                'task-assistant.general_guidance.default_next_options',
+                'If you want, I can help you decide what to tackle first, or block time on your calendar for what matters most.'
+            );
+        }
+        $t = $this->sanitizeUserFacingLanguage($t);
+
+        return TaskAssistantPrioritizeOutputDefaults::clampNextField($t);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function deterministicGeneralGuidanceChipTexts(): array
+    {
+        $raw = config('task-assistant.general_guidance.next_options_chip_texts', []);
+        if (! is_array($raw)) {
+            $raw = [];
+        }
+        $out = [];
+        foreach (array_slice($raw, 0, 2) as $line) {
+            $s = trim((string) $line);
+            if ($s !== '') {
+                $out[] = TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText($s);
+            }
+        }
+        $fallbacks = [
+            TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('What should I do first'),
+            TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule my most important task'),
+        ];
+        while (count($out) < 2) {
+            $out[] = $fallbacks[count($out)];
+        }
+
+        return array_slice($out, 0, 2);
     }
 
     private function resolveProvider(): Provider
