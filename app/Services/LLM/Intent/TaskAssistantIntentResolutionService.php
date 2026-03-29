@@ -37,7 +37,24 @@ final class TaskAssistantIntentResolutionService
             return $this->resolveSignalOnly($thread, $signals);
         }
 
-        if ($inference === null || $inference->failed || $inference->intent === null) {
+        if ($inference === null || $inference->connectionFailed) {
+            $signalDecision = $this->resolveSignalOnly($thread, $signals);
+            $mergedCodes = array_values(array_unique(array_merge(
+                ['intent_llm_unavailable_signal_fallback'],
+                $signalDecision->reasonCodes,
+            )));
+
+            return new IntentRoutingDecision(
+                flow: $signalDecision->flow,
+                confidence: $signalDecision->confidence,
+                reasonCodes: $mergedCodes,
+                constraints: $signalDecision->constraints,
+                clarificationNeeded: $signalDecision->clarificationNeeded,
+                clarificationQuestion: $signalDecision->clarificationQuestion,
+            );
+        }
+
+        if ($inference->failed || $inference->intent === null) {
             $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_failed_fallback_general_guidance'], false);
 
             return new IntentRoutingDecision(

@@ -265,7 +265,7 @@ class TaskAssistantListingDefaultsTest extends TestCase
         $singular = TaskAssistantListingDefaults::prioritizeFormatterBridgeAfterDoingCoach(1);
 
         $this->assertStringContainsString('here are', mb_strtolower($plural));
-        $this->assertMatchesRegularExpression('/here.{1,3}s the top to do item/i', $singular);
+        $this->assertMatchesRegularExpression('/here.{1,10}the top to do row/i', $singular);
     }
 
     public function test_dedupe_prioritize_next_versus_prior_fields_replaces_echo(): void

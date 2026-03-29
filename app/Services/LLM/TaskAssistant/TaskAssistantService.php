@@ -913,14 +913,16 @@ final class TaskAssistantService
     private function buildPrioritizeListingDeterministicSummary(int $count, bool $ambiguous): string
     {
         if ($count === 0) {
-            return 'No tasks matched your request.';
+            return (string) __('Nothing matched that request yet—try widening filters or adding a task.');
         }
 
         if ($ambiguous) {
-            return 'Here are '.$count.' tasks from your list, ordered by urgency and due dates:';
+            return (string) __('Here are :count tasks from your list, ordered by urgency and due dates:', ['count' => $count]);
         }
 
-        return 'Found '.$count.' task(s).';
+        return $count === 1
+            ? (string) __('Here’s one task that fits this request—ordered by urgency.')
+            : (string) __('Here are :count tasks that fit this request—ordered by urgency.', ['count' => $count]);
     }
 
     /**

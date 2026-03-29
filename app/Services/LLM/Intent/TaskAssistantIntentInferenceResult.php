@@ -11,5 +11,6 @@ final readonly class TaskAssistantIntentInferenceResult
         public float $confidence,
         public bool $failed,
         public ?string $rationale = null,
+        public bool $connectionFailed = false,
     ) {}
 }

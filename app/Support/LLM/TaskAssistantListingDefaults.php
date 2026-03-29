@@ -93,7 +93,7 @@ final class TaskAssistantListingDefaults
      */
     public static function prioritizeFormatterBridgeBeforeDoingCoach(): string
     {
-        return (string) __('Alongside what follows, you still have tasks already in progress—worth keeping in mind before you add more.');
+        return (string) __('You’ve also got work already in progress—worth a quick look before you pile on more.');
     }
 
     /**
@@ -108,8 +108,8 @@ final class TaskAssistantListingDefaults
         }
 
         return $listedToDoCount === 1
-            ? (string) __('When you’re ready to line up what’s next, here’s the top To Do item I’d surface by urgency.')
-            : (string) __('When you’re ready to line up what’s next, here are the To Do items I’d surface in urgency order.');
+            ? (string) __('When you’re ready for the next thing to tackle, here’s the top To Do row I’d line up by urgency.')
+            : (string) __('When you’re ready for what’s next, here are the To Do rows I’d line up in urgency order.');
     }
 
     /**
@@ -540,7 +540,7 @@ final class TaskAssistantListingDefaults
 
     public static function reasoningWhenEmpty(): string
     {
-        return __('This list reflects your filters and the same ranking order used elsewhere in the assistant.');
+        return __('I couldn’t add a tailored explanation this time, but the order below still follows the same urgency rules as the rest of the assistant.');
     }
 
     /**
