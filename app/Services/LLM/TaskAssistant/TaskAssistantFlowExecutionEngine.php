@@ -77,6 +77,13 @@ final class TaskAssistantFlowExecutionEngine
 
         $snapshot = $this->snapshotService->buildForUser($thread->user);
 
+        $payload = $generationResult['data'] ?? [];
+        if ($flow === 'daily_schedule' && is_array($payload['proposals'] ?? null)) {
+            /** @var array<int, array<string, mixed>> $scheduleProposals */
+            $scheduleProposals = $payload['proposals'];
+            $snapshot = $this->snapshotService->withTasksFromProposals($thread->user, $snapshot, $scheduleProposals);
+        }
+
         $toolCalls = $generationResult['tool_calls'] ?? [];
         $toolResults = $generationResult['tool_results'] ?? [];
 
@@ -96,7 +103,6 @@ final class TaskAssistantFlowExecutionEngine
             );
         }
 
-        $payload = $generationResult['data'] ?? [];
         $generationValid = (bool) ($generationResult['valid'] ?? false);
         $generationErrors = $generationResult['errors'] ?? [];
 
@@ -204,8 +210,10 @@ final class TaskAssistantFlowExecutionEngine
         if ($flow === 'daily_schedule') {
             $proposals = $payload['proposals'] ?? [];
             $blocks = $payload['blocks'] ?? [];
+            $items = $payload['items'] ?? [];
             $summary['proposals_count'] = is_array($proposals) ? count($proposals) : 0;
             $summary['blocks_count'] = is_array($blocks) ? count($blocks) : 0;
+            $summary['items_count'] = is_array($items) ? count($items) : 0;
         }
 
         return $summary;

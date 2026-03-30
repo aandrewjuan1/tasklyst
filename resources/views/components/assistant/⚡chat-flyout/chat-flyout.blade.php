@@ -124,6 +124,36 @@
                             @endif
 
                             @if (is_array($proposals) && count($proposals) > 0)
+                                @php
+                                    $pendingSchedulableCount = 0;
+                                    foreach ($proposals as $p) {
+                                        if (! is_array($p)) {
+                                            continue;
+                                        }
+                                        if (($p['status'] ?? 'pending') !== 'pending') {
+                                            continue;
+                                        }
+                                        $ptitle = (string) ($p['title'] ?? '');
+                                        if ($ptitle === 'No schedulable items found') {
+                                            continue;
+                                        }
+                                        $ap = $p['apply_payload'] ?? null;
+                                        $hasPayload = is_array($ap) && $ap !== [];
+                                        $et = (string) ($p['entity_type'] ?? '');
+                                        $eid = (int) ($p['entity_id'] ?? 0);
+                                        $st = (string) ($p['start_datetime'] ?? '');
+                                        $en = (string) ($p['end_datetime'] ?? '');
+                                        $legacyOk = ($et === 'task' && $eid > 0 && $st !== '')
+                                            || ($et === 'event' && $eid > 0 && $st !== '' && $en !== '')
+                                            || ($et === 'project' && $eid > 0 && $st !== '');
+                                        if ($hasPayload || $legacyOk) {
+                                            $pendingSchedulableCount++;
+                                        }
+                                    }
+                                    $showAcceptAll = $isLatestAssistant
+                                        && ! $isStopped
+                                        && $pendingSchedulableCount > 0;
+                                @endphp
                                 <div class="mt-3 flex flex-col gap-2">
                                     @foreach ($proposals as $proposal)
                                         @if (is_array($proposal))
@@ -133,7 +163,6 @@
                                                 $startAt = (string) ($proposal['start_datetime'] ?? '');
                                                 $endAt = (string) ($proposal['end_datetime'] ?? '');
                                                 $title = (string) ($proposal['title'] ?? 'Scheduled item');
-                                                $isPending = $status === 'pending';
 
                                                 $start = null;
                                                 $end = null;
@@ -172,28 +201,22 @@
                                                     {{ $timeLabel }}
                                                 </flux:text>
                                                 <flux:text class="text-xs">{{ __('Status: :status', ['status' => $status]) }}</flux:text>
-                                                <div class="mt-2 flex gap-2">
-                                                    <flux:button
-                                                        size="xs"
-                                                        variant="primary"
-                                                        wire:click="acceptScheduleProposalItem({{ $message->id }}, '{{ $proposalId }}')"
-                                                        wire:loading.attr="disabled"
-                                                    >
-                                                        {{ __('Accept') }}
-                                                    </flux:button>
-                                                    <flux:button
-                                                        size="xs"
-                                                        variant="ghost"
-                                                        wire:click="declineScheduleProposalItem({{ $message->id }}, '{{ $proposalId }}')"
-                                                        wire:loading.attr="disabled"
-                                                    >
-                                                        {{ __('Decline') }}
-                                                    </flux:button>
-                                                </div>
                                             </div>
                                         @endif
                                     @endforeach
                                 </div>
+                                @if ($showAcceptAll)
+                                    <div class="mt-3">
+                                        <flux:button
+                                            variant="primary"
+                                            size="sm"
+                                            wire:click="acceptAllScheduleProposals({{ $message->id }})"
+                                            wire:loading.attr="disabled"
+                                        >
+                                            {{ __('Accept all') }}
+                                        </flux:button>
+                                    </div>
+                                @endif
                             @endif
 
                             @if (! $isStopped && $isLatestAssistant && ! $chipsDismissed && count($nextOptionChips) > 0)

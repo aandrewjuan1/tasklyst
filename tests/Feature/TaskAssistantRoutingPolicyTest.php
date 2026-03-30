@@ -82,8 +82,23 @@ test('structured intent routes to schedule when LLM selects scheduling', functio
     ]);
 
     $user = User::factory()->create();
-    Task::factory()->for($user)->create();
-    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create();
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'conversation_state' => [
+                'last_listing' => [
+                    'source_flow' => 'prioritize',
+                    'items' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => $task->id,
+                        'title' => (string) $task->title,
+                        'position' => 0,
+                    ]],
+                ],
+            ],
+        ],
+    ]);
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
         'content' => 'Schedule my day',

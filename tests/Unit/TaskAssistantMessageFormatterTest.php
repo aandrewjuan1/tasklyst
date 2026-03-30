@@ -422,12 +422,8 @@ class TaskAssistantMessageFormatterTest extends TestCase
     {
         $out = $this->formatter->format('daily_schedule', [
             'framing' => 'Here is a focused plan for this window.',
-            'summary' => 'A focused schedule.',
-            'filter_interpretation' => 'This slice follows your later-evening request.',
             'reasoning' => 'During your requested window, you stay focused.',
-            'assistant_note' => 'When you’re ready.',
-            'next_options' => 'If you want, I can help you prioritize what to do next or schedule another time block.',
-            'next_options_chip_texts' => ['Prioritize next', 'Schedule again'],
+            'confirmation' => 'Does this evening block work, or should we nudge it earlier?',
             'blocks' => [[
                 'start_time' => '18:00',
                 'end_time' => '19:30',
@@ -435,25 +431,34 @@ class TaskAssistantMessageFormatterTest extends TestCase
                 'task_id' => 29,
                 'reason' => 'Planned by strict scheduler.',
             ]],
-            'strategy_points' => ['Set a timer and reduce distractions.'],
-            'suggested_next_steps' => ['Open your resources and start the first problem.'],
-            'assumptions' => [],
-            'proposals' => [],
+            'items' => [[
+                'title' => 'Practice coding interview problems',
+                'entity_type' => 'task',
+                'entity_id' => 29,
+                'start_datetime' => '2026-03-22T18:00:00+00:00',
+                'end_datetime' => '2026-03-22T19:30:00+00:00',
+                'duration_minutes' => 90,
+            ]],
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 29,
+                'title' => 'Practice coding interview problems',
+                'start_datetime' => '2026-03-22T18:00:00+00:00',
+                'end_datetime' => '2026-03-22T19:30:00+00:00',
+                'duration_minutes' => 90,
+            ]],
         ]);
 
         $this->assertStringNotContainsString('Why this schedule', $out);
         $this->assertStringNotContainsString('(task', $out);
         $this->assertStringContainsString('Here is a focused plan for this window.', $out);
-        $this->assertStringContainsString("From 6:00 PM–7:30 PM you'll work on Practice coding interview problems", $out);
-        $this->assertStringNotContainsString('Scheduling strategy:', $out);
-        $this->assertStringNotContainsString('Suggested next steps:', $out);
-        $this->assertStringContainsString('To make this schedule work', $out);
-        $this->assertStringContainsString('Next,', $out);
-        $this->assertStringNotContainsString('Next steps:', $out);
-        $this->assertStringContainsString(
-            'If you want, I can help you prioritize what to do next or schedule another time block.',
-            $out
-        );
+        $this->assertStringContainsString('Practice coding interview problems', $out);
+        $this->assertStringContainsString('6:00 PM–7:30 PM', $out);
+        $this->assertStringContainsString('Accept all', $out);
+        $this->assertStringContainsString('say what you need in chat', $out);
+        $this->assertStringContainsString('Does this evening block work', $out);
     }
 
     public function test_general_guidance_uses_next_options_as_closing_paragraph_when_present(): void

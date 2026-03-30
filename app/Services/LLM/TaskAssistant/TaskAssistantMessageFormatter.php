@@ -444,116 +444,103 @@ final class TaskAssistantMessageFormatter
      */
     private function formatDailyScheduleMessage(array $data): string
     {
-        $acknowledgment = trim((string) ($data['acknowledgment'] ?? ''));
         $framing = trim((string) ($data['framing'] ?? ''));
-        $summary = trim((string) ($data['summary'] ?? ''));
-        $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
         $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $assistantNote = trim((string) ($data['assistant_note'] ?? ''));
-        $nextOptions = trim((string) ($data['next_options'] ?? ''));
+        $confirmation = trim((string) ($data['confirmation'] ?? ''));
 
-        $blocks = $data['blocks'] ?? [];
-        $blocks = is_array($blocks) ? $blocks : [];
-        $order = $data['display_block_order'] ?? null;
-        if (is_array($order) && $order !== [] && $blocks !== []) {
-            $ordered = [];
-            foreach ($order as $idx) {
-                $i = is_int($idx) ? $idx : (int) $idx;
-                if (isset($blocks[$i]) && is_array($blocks[$i])) {
-                    $ordered[] = $blocks[$i];
-                }
-            }
-            if (count($ordered) === count($blocks)) {
-                $blocks = $ordered;
-            }
-        }
-
-        $strategyPoints = is_array($data['strategy_points'] ?? null) ? $data['strategy_points'] : [];
-        $nextSteps = is_array($data['suggested_next_steps'] ?? null) ? $data['suggested_next_steps'] : [];
-        $assumptions = is_array($data['assumptions'] ?? null) ? $data['assumptions'] : [];
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
 
         $paragraphs = [];
-        if ($acknowledgment !== '') {
-            $paragraphs[] = $acknowledgment;
-        }
         if ($framing !== '') {
             $paragraphs[] = $framing;
         }
-        if ($summary !== '') {
-            $paragraphs[] = $summary;
-        }
 
-        if ($blocks !== []) {
-            $sentences = [];
-            foreach ($blocks as $block) {
-                if (! is_array($block)) {
+        if ($items !== []) {
+            $lines = [];
+            foreach ($items as $idx => $item) {
+                if (! is_array($item)) {
                     continue;
                 }
+                $title = trim((string) ($item['title'] ?? ''));
+                if ($title === '') {
+                    $title = 'Focus time';
+                }
+                $duration = $item['duration_minutes'] ?? null;
+                $durPart = is_numeric($duration) && (int) $duration > 0
+                    ? ' (~'.(int) $duration.' min)'
+                    : '';
+
+                $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
                 $start = (string) ($block['start_time'] ?? '');
                 $end = (string) ($block['end_time'] ?? '');
-                $label = (string) ($block['label'] ?? $block['title'] ?? 'Focus time');
-                $reason = trim((string) ($block['reason'] ?? $block['note'] ?? ''));
-
-                if (stripos($reason, 'planned by strict scheduler') !== false) {
-                    $reason = '';
-                }
-
                 $timeStart = $this->formatHhmmLabel($start);
                 $timeEnd = $this->formatHhmmLabel($end);
                 $time = ($timeStart !== '' && $timeEnd !== '') ? $timeStart.'–'.$timeEnd : '';
 
-                $sentence = $time !== ''
-                    ? 'From '.$time.' you\'ll work on '.$label
-                    : 'Work on '.$label;
-
-                if ($reason !== '') {
-                    $sentence .= ' — '.$reason;
-                }
-
-                $sentences[] = $sentence;
+                $line = $time !== ''
+                    ? '• '.$title.' — '.$time.$durPart
+                    : '• '.$title.$durPart;
+                $lines[] = $line;
             }
-
-            if ($sentences !== []) {
-                $paragraphs[] = $this->joinSentences($sentences);
+            if ($lines !== []) {
+                $paragraphs[] = implode("\n", $lines);
             }
         }
 
-        if ($filterInterpretation !== '') {
-            $paragraphs[] = $filterInterpretation;
+        $digestNote = $this->formatSchedulePlacementDigestNote($data);
+        if ($digestNote !== '') {
+            $paragraphs[] = $digestNote;
         }
+
         if ($reasoning !== '') {
             $paragraphs[] = $reasoning;
         }
-
-        $strategyPoints = $this->normalizeStringList($strategyPoints);
-        if ($strategyPoints !== []) {
-            $paragraphs[] = 'To make this schedule work, '.$this->joinSentences($strategyPoints).'.';
-        }
-
-        $nextSteps = $this->normalizeStringList($nextSteps);
-        if ($nextSteps !== []) {
-            $paragraphs[] = 'Next, '.$this->joinSentences($nextSteps).'.';
-        }
-
-        if ($assumptions !== []) {
-            $cleanAssumptions = $this->normalizeStringList($assumptions);
-            if ($cleanAssumptions !== []) {
-                $paragraphs[] = 'I assumed that '.$this->joinSentences($cleanAssumptions).'.';
-            }
+        if ($confirmation !== '') {
+            $paragraphs[] = $confirmation;
         }
 
         $proposals = $data['proposals'] ?? [];
         if (is_array($proposals) && $proposals !== []) {
-            $paragraphs[] = 'Accept or decline each proposed item to apply schedule updates.';
-        }
-        if ($assistantNote !== '') {
-            $paragraphs[] = $assistantNote;
-        }
-        if ($nextOptions !== '') {
-            $paragraphs[] = $nextOptions;
+            $paragraphs[] = 'If the times and lengths above look right, use Accept all below to save them to your tasks. If anything should move or run longer or shorter, say what you need in chat and we will adjust before you save.';
         }
 
         return implode("\n\n", $paragraphs);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function formatSchedulePlacementDigestNote(array $data): string
+    {
+        $digest = $data['placement_digest'] ?? null;
+        if (! is_array($digest)) {
+            return '';
+        }
+
+        $daysUsed = is_array($digest['days_used'] ?? null) ? $digest['days_used'] : [];
+        $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        $skipped = is_array($digest['skipped_targets'] ?? null) ? $digest['skipped_targets'] : [];
+
+        $parts = [];
+
+        if (count($daysUsed) > 1) {
+            $parts[] = 'Some work was spread across '.count($daysUsed).' days to fit your time window.';
+        }
+
+        if ($unplaced !== []) {
+            $parts[] = 'One or more segments did not fit before the planning horizon or row limit; you can ask for a wider window or fewer items.';
+        }
+
+        if ($skipped !== []) {
+            $parts[] = 'Some targeted tasks could not be scheduled (missing or already completed).';
+        }
+
+        if ($parts === []) {
+            return '';
+        }
+
+        return implode(' ', $parts);
     }
 
     private function formatHhmmLabel(string $hhmm): string

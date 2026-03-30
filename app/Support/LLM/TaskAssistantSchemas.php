@@ -350,89 +350,91 @@ final class TaskAssistantSchemas
     }
 
     /**
-     * Structured LLM output for schedule coaching. Proposals, ISO start/end times, and block times
-     * are computed in PHP; the model must not invent or revise clock times. Aligns with prioritize
-     * narrative roles: framing, filter_interpretation, reasoning, next_options, chips.
+     * Structured LLM output for schedule coaching. Proposals, ISO start/end times, block times, and
+     * server-built items are computed in PHP; the model must not invent or contradict clock times
+     * or dates. Write in first person as the planner; the app shows exact times from items/blocks.
      */
     public static function scheduleNarrativeRefinementSchema(): ObjectSchema
     {
         return new ObjectSchema(
             name: 'schedule_narrative_aligned',
-            description: 'Coach narrative for a deterministic schedule plan. Do not mention task_id/event_id/project_id, JSON, snapshot, or backend. Do not state exact clock times or dates—the app shows blocks. Optional display_block_order is a permutation of block indices for narrative sentence order only.',
+            description: 'Three-field coach narrative only. Do not mention task_id/event_id/project_id, JSON, snapshot, or backend. Do not repeat exact clock times or per-item durations—items show those; explain why the order and window fit. Confirmation must explicitly check whether times and block lengths work and invite chat-based tweaks before saving.',
             properties: [
                 new StringSchema(
-                    name: 'acknowledgment',
-                    description: 'Optional one short sentence if the user sounded stressed or conversational.',
-                    nullable: true
-                ),
-                new StringSchema(
                     name: 'framing',
-                    description: 'Required short intro in warm coach voice before the app-rendered time blocks. Do not quote internal titles as if the user already sees the list.',
+                    description: 'Required short intro in warm coach voice before the app-rendered schedule items.',
                     nullable: false
-                ),
-                new StringSchema(
-                    name: 'filter_interpretation',
-                    description: 'Optional one sentence after blocks: how filters or wording shaped this slice.',
-                    nullable: true
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Required coaching paragraph after filter_interpretation: why this sequencing fits—without inventing times.',
+                    description: 'Required: why this schedule fits the student’s goals and constraints—without stating exact times or dates.',
                     nullable: false
                 ),
                 new StringSchema(
-                    name: 'next_options',
-                    description: 'Required closing offer: scheduling follow-ups or reprioritizing—seen last. Singular/plural must match how many items were scheduled when obvious.',
+                    name: 'confirmation',
+                    description: 'Required closing check-in: ask if these times and durations feel right; invite the student to say what to change in chat (earlier/later/longer/shorter/reorder). 1–3 sentences. Do not mention approval buttons.',
                     nullable: false
-                ),
-                new ArraySchema(
-                    name: 'next_options_chip_texts',
-                    description: 'Required 2–3 short chip labels for follow-ups (no question marks).',
-                    items: new StringSchema(name: 'chip', description: 'Chip label.'),
-                    nullable: false,
-                    minItems: 2,
-                    maxItems: 3
-                ),
-                new ArraySchema(
-                    name: 'strategy_points',
-                    description: 'Optional 2–4 practical bullets supporting the plan (no exact times).',
-                    items: new StringSchema(name: 'point', description: 'Strategy point.'),
-                    nullable: true,
-                    maxItems: 6
-                ),
-                new ArraySchema(
-                    name: 'suggested_next_steps',
-                    description: 'Optional 2–4 execution steps after reviewing proposals (no exact times).',
-                    items: new StringSchema(name: 'step', description: 'Execution step.'),
-                    nullable: true,
-                    maxItems: 8
-                ),
-                new ArraySchema(
-                    name: 'assumptions',
-                    description: 'Optional short assumptions.',
-                    items: new StringSchema(name: 'assumption', description: 'Assumption.'),
-                    nullable: true,
-                    maxItems: 6
-                ),
-                new StringSchema(
-                    name: 'assistant_note',
-                    description: 'Optional friendly one-liner.',
-                    nullable: true
-                ),
-                new ArraySchema(
-                    name: 'display_block_order',
-                    description: 'Optional permutation of 0-based block indices for narrative order only.',
-                    items: new NumberSchema(name: 'block_index', description: 'Index into the fixed blocks array.'),
-                    nullable: true,
-                    minItems: 1,
-                    maxItems: 48
                 ),
             ],
             requiredFields: [
                 'framing',
                 'reasoning',
-                'next_options',
-                'next_options_chip_texts',
+                'confirmation',
+            ]
+        );
+    }
+
+    /**
+     * Multiturn schedule refinement: structured edit ops only (indices are 0-based proposal rows).
+     */
+    public static function scheduleRefinementOperationsSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'schedule_refinement_ops',
+            description: 'Map the user request to at most one primary edit on an existing draft schedule. Use proposal_index 0 for the first listed item, 1 for second, etc. Do not invent new tasks.',
+            properties: [
+                new ArraySchema(
+                    name: 'operations',
+                    description: 'Ordered operations to apply. Prefer a single operation unless the user clearly asked for two.',
+                    items: new ObjectSchema(
+                        name: 'schedule_refinement_op',
+                        description: 'One edit operation.',
+                        properties: [
+                            new StringSchema(
+                                name: 'op',
+                                description: 'One of: shift_minutes, set_duration_minutes, set_local_time_hhmm, none.',
+                                nullable: false
+                            ),
+                            new NumberSchema(
+                                name: 'proposal_index',
+                                description: '0-based index of the proposal row to change.',
+                                nullable: true
+                            ),
+                            new NumberSchema(
+                                name: 'delta_minutes',
+                                description: 'For shift_minutes: signed minutes to move start (and end for tasks).',
+                                nullable: true
+                            ),
+                            new NumberSchema(
+                                name: 'duration_minutes',
+                                description: 'For set_duration_minutes: new duration in minutes (tasks).',
+                                nullable: true
+                            ),
+                            new StringSchema(
+                                name: 'local_time_hhmm',
+                                description: 'For set_local_time_hhmm: local time as HH:MM (24h), same calendar day as current start.',
+                                nullable: true
+                            ),
+                        ],
+                        requiredFields: [
+                            'op',
+                        ]
+                    ),
+                    nullable: false
+                ),
+            ],
+            requiredFields: [
+                'operations',
             ]
         );
     }

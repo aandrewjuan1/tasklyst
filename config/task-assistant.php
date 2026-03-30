@@ -45,6 +45,16 @@ return [
             'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_MAX_TOKENS', 900),
             'top_p' => env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_TOP_P'),
         ],
+        'schedule_narrative_followup' => [
+            'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_TEMPERATURE', 0.45),
+            'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_MAX_TOKENS', 900),
+            'top_p' => env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_TOP_P'),
+        ],
+        'schedule_refinement_ops' => [
+            'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_TEMPERATURE', 0.12),
+            'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_MAX_TOKENS', 400),
+            'top_p' => env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_TOP_P'),
+        ],
         'general_guidance' => [
             'temperature' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_TEMPERATURE', 0.35),
             'max_tokens' => env('TASK_ASSISTANT_GENERAL_GUIDANCE_MAX_TOKENS', 500),
@@ -111,18 +121,21 @@ return [
     'schedule' => [
         'max_horizon_days' => (int) env('TASK_ASSISTANT_SCHEDULE_MAX_HORIZON_DAYS', 14),
         /**
+         * Long tasks are split into ordered focus chunks before greedy placement.
+         */
+        'chunking' => [
+            'max_focus_minutes' => (int) env('TASK_ASSIST_SCHED_MAX_FOCUS_MINUTES', 90),
+            'min_chunk_minutes' => (int) env('TASK_ASSIST_SCHED_MIN_CHUNK_MINUTES', 15),
+            'preferred_chunk_sizes' => [90, 60, 45, 30, 25],
+        ],
+        /**
          * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
          * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
          */
         'empty_placement' => [
             'framing' => 'Nothing in this slice could be placed cleanly in open time—your calendar may be full, or the filters may be tight. That happens; it does not mean you are behind.',
             'reasoning' => 'Getting one concrete item on your list is enough to start—try the thing that is due soonest or on your mind the most, then come back for a ranked order or a fresh schedule.',
-            'next_options' => 'If you want, I can help you prioritize what to do first, or we can try scheduling again with a wider window or fewer items.',
-            'next_options_chip_texts' => [
-                'Prioritize what to do first',
-                'Try scheduling again',
-            ],
-            'summary' => 'No open time matched this request well enough to place these items without conflicts.',
+            'confirmation' => 'Want to widen the window, prioritize what to tackle first, or tell me a time that usually works better for you?',
         ],
     ],
 
@@ -312,6 +325,15 @@ TXT,
             'What should I do first',
             'Schedule my most important task',
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Schedule refinement (multiturn draft edits)
+    |--------------------------------------------------------------------------
+    */
+    'schedule_refinement' => [
+        'use_llm' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_USE_LLM', true),
     ],
 
     /*

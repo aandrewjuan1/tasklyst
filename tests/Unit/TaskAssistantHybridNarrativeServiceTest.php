@@ -6,20 +6,13 @@ use Prism\Prism\Facades\Prism;
 use Prism\Prism\Testing\StructuredResponseFake;
 use Prism\Prism\ValueObjects\Usage;
 
-test('daily_schedule narrative summary/reasoning stay consistent with blocks times', function (): void {
+test('daily_schedule narrative keeps deterministic reasoning times when model returns empty reasoning', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'acknowledgment' => '',
                 'framing' => 'Here is a focused plan for your requested window.',
-                'filter_interpretation' => '',
                 'reasoning' => '',
-                'next_options' => 'If you want, I can help you prioritize what to do next or schedule another focused block this week.',
-                'next_options_chip_texts' => ['Prioritize next steps', 'Schedule another block'],
-                'strategy_points' => ['Set a timer and reduce distractions.'],
-                'suggested_next_steps' => ['Start with the first block.'],
-                'assumptions' => [],
-                'display_block_order' => null,
+                'confirmation' => 'Does this evening block feel doable, or should we slide it earlier?',
             ])
             ->withUsage(new Usage(1, 1)),
     ]);
@@ -36,6 +29,16 @@ test('daily_schedule narrative summary/reasoning stay consistent with blocks tim
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-23',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
         'schedule_horizon' => [
             'mode' => 'single_day',
             'start_date' => '2026-03-23',
@@ -56,13 +59,11 @@ test('daily_schedule narrative summary/reasoning stay consistent with blocks tim
         schedulableProposalCount: 1,
     );
 
-    expect($result['summary'])->toContain('6:00 PM–7:30 PM');
-    expect($result['summary'])->not->toContain('20:00');
     expect($result['reasoning'])->toContain('6:00 PM–7:30 PM');
     expect($result['reasoning'])->not->toContain('20:00');
     expect($result['framing'])->not->toBe('');
-    expect($result['next_options'])->toContain('prioritize');
-    expect($result['next_options_chip_texts'])->not->toBeEmpty();
+    expect($result['confirmation'])->not->toBe('');
+    expect($result['confirmation'])->toContain('earlier');
 });
 
 test('refinePrioritizeListing derives focus from items order and uses suggested_next_actions', function (): void {

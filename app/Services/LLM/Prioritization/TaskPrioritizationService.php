@@ -792,16 +792,13 @@ final class TaskPrioritizationService
     }
 
     /**
-     * Apply time-based filtering.
+     * Apply time-based filtering for prioritize/listing context.
      */
     private function applyTimeConstraintFilter(Collection $tasks, string $constraint, \DateTimeImmutable $now): Collection
     {
         $today = $now;
 
         return match ($constraint) {
-            // "Today" workload: overdue (deadline before today) and due today, so prioritization
-            // matches how students phrase "what I need to do today" without silently falling back
-            // to unrelated future-dated tasks when nothing is due strictly calendar-today.
             'today' => $tasks->filter(function (array $task) use ($today) {
                 if (! isset($task['ends_at']) || $task['ends_at'] === null) {
                     return false;

@@ -118,17 +118,9 @@ test('multiturn schedule can target previous prioritized selection', function ()
             ->withUsage(new Usage(1, 2)),
         StructuredResponseFake::make()
             ->withStructured([
-                'acknowledgment' => '',
                 'framing' => 'Here is a plan for your afternoon window.',
-                'filter_interpretation' => '',
-                'reasoning' => 'This aligns with your requested window.',
-                'next_options' => 'If you want, I can help you prioritize what is left or schedule another focused block.',
-                'next_options_chip_texts' => ['Prioritize tasks', 'Schedule more'],
-                'strategy_points' => ['Front-load important work.'],
-                'suggested_next_steps' => ['Accept proposals to apply scheduling updates.'],
-                'assumptions' => [],
-                'assistant_note' => 'Start with your highest-impact item.',
-                'display_block_order' => null,
+                'reasoning' => 'This aligns with your requested window and the gaps on your calendar.',
+                'confirmation' => 'Do these times work, or should we try a different part of the day?',
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -150,6 +142,54 @@ test('multiturn schedule can target previous prioritized selection', function ()
 
     expect($secondAssistant->metadata['structured']['flow'] ?? null)->toBe('schedule');
     expect($secondAssistant->metadata['schedule']['proposals'] ?? null)->toBeArray();
+});
+
+test('fresh-thread schedule intent reroutes to prioritize when there is no listing context', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->count(4)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+        'duration' => 45,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'scheduling',
+                'confidence' => 0.97,
+                'rationale' => 'User asked to schedule.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Start with the most urgent item first, then move down the list.',
+                'acknowledgment' => null,
+                'reasoning' => 'These tasks matched the filters and score highest by urgency.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Schedule top 1 for later afternoon',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($assistantMessage->metadata['prioritize']['items'] ?? null)->toBeArray();
 });
 
 test('processQueuedMessage clears task assistant container bindings after run', function (): void {

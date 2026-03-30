@@ -319,8 +319,8 @@ final class TaskAssistantResponseProcessor
     private function validateDailyScheduleData(array $data, array $snapshot): array
     {
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
-        $maxNextOptions = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
+        $maxConfirmation = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
 
         $rules = [
             'proposals' => ['nullable', 'array', 'max:100'],
@@ -336,11 +336,22 @@ final class TaskAssistantResponseProcessor
             'proposals.*.conflict_notes' => ['nullable', 'array', 'max:10'],
             'proposals.*.conflict_notes.*' => ['string', 'max:300'],
             'proposals.*.apply_payload' => ['nullable', 'array'],
-            'proposals.*.apply_payload.tool' => ['required_with:proposals.*.apply_payload', 'string', 'max:64'],
+            'proposals.*.apply_payload.tool' => ['required_with:proposals.*.apply_payload', 'string', 'max:64', 'in:update_task,update_event,update_project,create_event'],
             'proposals.*.apply_payload.arguments' => ['nullable', 'array'],
+            'proposals.*.apply_payload.arguments.title' => ['nullable', 'string', 'max:200'],
+            'proposals.*.apply_payload.arguments.description' => ['nullable', 'string', 'max:2000'],
+            'proposals.*.apply_payload.arguments.startDatetime' => ['nullable', 'string', 'max:64'],
+            'proposals.*.apply_payload.arguments.endDatetime' => ['nullable', 'string', 'max:64'],
             'proposals.*.apply_payload.arguments.updates' => ['nullable', 'array', 'max:10'],
             'proposals.*.apply_payload.arguments.updates.*.property' => ['required_with:proposals.*.apply_payload.arguments.updates', 'string', 'max:64'],
             'proposals.*.apply_payload.arguments.updates.*.value' => ['required_with:proposals.*.apply_payload.arguments.updates'],
+            'items' => ['required', 'array', 'max:100'],
+            'items.*.title' => ['required', 'string', 'max:200'],
+            'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
+            'items.*.entity_id' => ['nullable', 'integer'],
+            'items.*.start_datetime' => ['required', 'date'],
+            'items.*.end_datetime' => ['nullable', 'date'],
+            'items.*.duration_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
             'blocks' => ['required', 'array', 'min:1', 'max:48'],
             'blocks.*.start_time' => ['required', 'string', 'max:20'],
             'blocks.*.end_time' => ['required', 'string', 'max:20'],
@@ -350,80 +361,119 @@ final class TaskAssistantResponseProcessor
             'blocks.*.note' => ['nullable', 'string', 'max:300'],
             'schedule_variant' => ['nullable', 'string', 'in:daily,range'],
             'schedule_empty_placement' => ['nullable', 'boolean'],
-            'summary' => ['required', 'string', 'min:3', 'max:500'],
+            'placement_digest' => ['nullable', 'array'],
+            'placement_digest.summary' => ['nullable', 'string', 'max:2000'],
+            'placement_digest.placement_dates' => ['nullable', 'array', 'max:400'],
+            'placement_digest.placement_dates.*' => ['string', 'max:32'],
+            'placement_digest.days_used' => ['nullable', 'array', 'max:400'],
+            'placement_digest.days_used.*' => ['string', 'max:32'],
+            'placement_digest.skipped_targets' => ['nullable', 'array', 'max:200'],
+            'placement_digest.unplaced_units' => ['nullable', 'array', 'max:200'],
             'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
-            'filter_interpretation' => ['nullable', 'string', 'max:280'],
-            'acknowledgment' => ['nullable', 'string', 'max:220'],
-            'assistant_note' => ['nullable', 'string', 'max:500'],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
-            'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextOptions],
-            'next_options_chip_texts' => ['required', 'array', 'min:2', 'max:3'],
-            'next_options_chip_texts.*' => ['required', 'string', 'min:2', 'max:120'],
-            'display_block_order' => ['nullable', 'array', 'max:48'],
-            'display_block_order.*' => ['integer', 'min:0', 'max:47'],
-            'strategy_points' => ['nullable', 'array', 'max:6'],
-            'strategy_points.*' => ['string', 'max:300'],
-            'suggested_next_steps' => ['nullable', 'array', 'max:8'],
-            'suggested_next_steps.*' => ['string', 'max:300'],
-            'assumptions' => ['nullable', 'array', 'max:6'],
-            'assumptions.*' => ['string', 'max:300'],
+            'confirmation' => ['required', 'string', 'min:5', 'max:'.$maxConfirmation],
         ];
 
         $validator = Validator::make($data, $rules);
         $validator->after(function (ValidationValidator $validator) use ($data): void {
             $framing = trim((string) ($data['framing'] ?? ''));
             $reasoning = trim((string) ($data['reasoning'] ?? ''));
+            $confirmation = trim((string) ($data['confirmation'] ?? ''));
             $framingNorm = trim(preg_replace('/\s+/u', ' ', $framing) ?? $framing);
             $reasoningNorm = trim(preg_replace('/\s+/u', ' ', $reasoning) ?? $reasoning);
             if ($framingNorm !== '' && $framingNorm === $reasoningNorm) {
                 $validator->errors()->add('reasoning', 'reasoning must not duplicate framing verbatim.');
             }
 
-            $nextOptions = (string) ($data['next_options'] ?? '');
-            $nextLower = mb_strtolower($nextOptions);
-            $nextHasPrioritizeTheme = str_contains($nextLower, 'priorit')
-                || str_contains($nextLower, 'do first')
-                || str_contains($nextLower, 'tackle')
-                || str_contains($nextLower, 'rank');
-            $nextHasScheduleTheme = str_contains($nextLower, 'schedule')
-                || str_contains($nextLower, 'time block')
-                || str_contains($nextLower, 'block time')
-                || str_contains($nextLower, 'calendar')
-                || str_contains($nextLower, 'window');
-            if (! $nextHasPrioritizeTheme) {
-                $validator->errors()->add('next_options', 'next_options must offer a prioritize or ordering theme.');
-            }
-            if (! $nextHasScheduleTheme) {
-                $validator->errors()->add('next_options', 'next_options must offer a scheduling or time-blocking theme.');
+            $confirmNorm = trim(preg_replace('/\s+/u', ' ', $confirmation) ?? $confirmation);
+            if ($framingNorm !== '' && $framingNorm === $confirmNorm) {
+                $validator->errors()->add('confirmation', 'confirmation must not duplicate framing verbatim.');
             }
 
+            $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
             $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
-            $blockCount = count($blocks);
-            $order = $data['display_block_order'] ?? null;
-            if (is_array($order) && $order !== []) {
-                $normalized = [];
-                foreach ($order as $v) {
-                    if (is_int($v)) {
-                        $normalized[] = $v;
-                    } elseif (is_float($v)) {
-                        $normalized[] = (int) $v;
-                    } elseif (is_string($v) && is_numeric($v)) {
-                        $normalized[] = (int) $v;
-                    }
+
+            if (count($items) !== count($proposals)) {
+                $validator->errors()->add('items', 'items must have the same length as proposals.');
+
+                return;
+            }
+            if (count($blocks) !== count($proposals)) {
+                $validator->errors()->add('blocks', 'blocks must have the same length as proposals.');
+
+                return;
+            }
+
+            foreach ($proposals as $i => $proposal) {
+                if (! is_array($proposal) || ! isset($items[$i]) || ! is_array($items[$i])) {
+                    continue;
                 }
-                if (count($normalized) !== $blockCount) {
-                    $validator->errors()->add('display_block_order', 'display_block_order must be a permutation of block indices.');
+                $item = $items[$i];
+                $pTitle = (string) ($proposal['title'] ?? '');
+                $iTitle = (string) ($item['title'] ?? '');
+                if ($pTitle !== $iTitle) {
+                    $validator->errors()->add("items.$i.title", 'item title must match the corresponding proposal title.');
 
                     return;
                 }
-                $sorted = $normalized;
-                sort($sorted);
-                for ($i = 0; $i < $blockCount; $i++) {
-                    if (($sorted[$i] ?? -1) !== $i) {
-                        $validator->errors()->add('display_block_order', 'display_block_order must be a permutation of block indices.');
+                $pType = (string) ($proposal['entity_type'] ?? '');
+                $iType = (string) ($item['entity_type'] ?? '');
+                if ($pType !== $iType) {
+                    $validator->errors()->add("items.$i.entity_type", 'item entity_type must match the proposal.');
 
-                        return;
-                    }
+                    return;
+                }
+                $pEid = $proposal['entity_id'] ?? null;
+                $iEid = $item['entity_id'] ?? null;
+                $pEidNorm = $pEid !== null && $pEid !== '' ? (int) $pEid : null;
+                $iEidNorm = $iEid !== null && $iEid !== '' ? (int) $iEid : null;
+                if ($pEidNorm !== $iEidNorm) {
+                    $validator->errors()->add("items.$i.entity_id", 'item entity_id must match the proposal.');
+
+                    return;
+                }
+                $pStart = (string) ($proposal['start_datetime'] ?? '');
+                $iStart = (string) ($item['start_datetime'] ?? '');
+                if ($pStart !== $iStart) {
+                    $validator->errors()->add("items.$i.start_datetime", 'item start_datetime must match the proposal.');
+
+                    return;
+                }
+                $pEnd = $proposal['end_datetime'] ?? null;
+                $iEnd = $item['end_datetime'] ?? null;
+                $pEndStr = $pEnd !== null && $pEnd !== '' ? (string) $pEnd : null;
+                $iEndStr = $iEnd !== null && $iEnd !== '' ? (string) $iEnd : null;
+                if ($pEndStr !== $iEndStr) {
+                    $validator->errors()->add("items.$i.end_datetime", 'item end_datetime must match the proposal.');
+
+                    return;
+                }
+                $pDur = $proposal['duration_minutes'] ?? null;
+                $iDur = $item['duration_minutes'] ?? null;
+                $pDurNorm = $pDur !== null && $pDur !== '' ? (int) $pDur : null;
+                $iDurNorm = $iDur !== null && $iDur !== '' ? (int) $iDur : null;
+                if ($pDurNorm !== $iDurNorm) {
+                    $validator->errors()->add("items.$i.duration_minutes", 'item duration_minutes must match the proposal.');
+
+                    return;
+                }
+            }
+
+            foreach ($proposals as $i => $proposal) {
+                if (! is_array($proposal)) {
+                    continue;
+                }
+                $ap = $proposal['apply_payload'] ?? null;
+                if (! is_array($ap) || ($ap['tool'] ?? '') !== 'create_event') {
+                    continue;
+                }
+                $args = is_array($ap['arguments'] ?? null) ? $ap['arguments'] : [];
+                $title = trim((string) ($args['title'] ?? ''));
+                $start = trim((string) ($args['startDatetime'] ?? ''));
+                $end = trim((string) ($args['endDatetime'] ?? ''));
+                if ($title === '' || $start === '' || $end === '') {
+                    $validator->errors()->add("proposals.$i.apply_payload", 'create_event apply_payload requires title, startDatetime, and endDatetime.');
                 }
             }
         });

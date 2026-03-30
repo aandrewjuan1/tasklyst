@@ -90,4 +90,68 @@ class TaskAssistantSnapshotService
             'projects' => $projects,
         ];
     }
+
+    /**
+     * Append any task rows referenced by schedule proposals but missing from the snapshot
+     * so {@see TaskAssistantResponseProcessor::validateDailyScheduleData} can authorize entity IDs.
+     *
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @return array<string, mixed>
+     */
+    public function withTasksFromProposals(User $user, array $snapshot, array $proposals): array
+    {
+        $existingIds = collect($snapshot['tasks'] ?? [])
+            ->map(fn (array $task): int => (int) ($task['id'] ?? 0))
+            ->filter(fn (int $id): bool => $id > 0)
+            ->all();
+        $have = array_flip($existingIds);
+
+        $needed = [];
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if (($proposal['entity_type'] ?? '') !== 'task') {
+                continue;
+            }
+            $id = (int) ($proposal['entity_id'] ?? 0);
+            if ($id > 0 && ! isset($have[$id])) {
+                $needed[$id] = true;
+            }
+        }
+
+        if ($needed === []) {
+            return $snapshot;
+        }
+
+        $fetched = Task::query()
+            ->with(['tags', 'recurringTask'])
+            ->forUser($user->id)
+            ->whereIn('id', array_keys($needed))
+            ->get();
+
+        $appended = $snapshot['tasks'] ?? [];
+        foreach ($fetched as $task) {
+            $appended[] = [
+                'id' => $task->id,
+                'title' => Str::limit((string) $task->title, 160),
+                'subject_name' => $task->subject_name,
+                'teacher_name' => $task->teacher_name,
+                'tags' => $task->tags->pluck('name')->values()->all(),
+                'status' => $task->status?->value,
+                'priority' => $task->priority?->value,
+                'complexity' => $task->complexity?->value,
+                'ends_at' => $task->end_datetime?->toIso8601String(),
+                'project_id' => $task->project_id,
+                'event_id' => $task->event_id,
+                'duration_minutes' => $task->duration,
+                'is_recurring' => $task->recurringTask !== null,
+            ];
+        }
+
+        $snapshot['tasks'] = array_values($appended);
+
+        return $snapshot;
+    }
 }

@@ -131,39 +131,7 @@ test('chat flyout submits list message and dispatches job', function () {
     Bus::assertDispatched(BroadcastTaskAssistantStreamJob::class);
 });
 
-test('chat flyout can decline a schedule proposal item', function () {
-    $user = User::factory()->create();
-    $this->actingAs($user);
-
-    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
-    session(['task_assistant.current_thread_id' => $thread->id]);
-
-    $assistantMessage = $thread->messages()->create([
-        'role' => \App\Enums\MessageRole::Assistant,
-        'content' => 'Proposed schedule',
-        'metadata' => [
-            'daily_schedule' => [
-                'proposals' => [[
-                    'proposal_id' => 'proposal-1',
-                    'status' => 'pending',
-                    'entity_type' => 'task',
-                    'entity_id' => null,
-                    'title' => 'Focus block',
-                    'start_datetime' => now()->toIso8601String(),
-                    'duration_minutes' => 30,
-                ]],
-            ],
-        ],
-    ]);
-
-    Livewire::test('assistant.chat-flyout')
-        ->call('declineScheduleProposalItem', $assistantMessage->id, 'proposal-1');
-
-    $assistantMessage->refresh();
-    expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.0.status'))->toBe('declined');
-});
-
-test('chat flyout can accept a task schedule proposal item and apply updates', function () {
+test('chat flyout can accept all schedule proposals and apply updates', function () {
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -197,7 +165,7 @@ test('chat flyout can accept a task schedule proposal item and apply updates', f
     ]);
 
     Livewire::test('assistant.chat-flyout')
-        ->call('acceptScheduleProposalItem', $assistantMessage->id, 'proposal-task-1');
+        ->call('acceptAllScheduleProposals', $assistantMessage->id);
 
     $assistantMessage->refresh();
     $task->refresh();
@@ -205,6 +173,116 @@ test('chat flyout can accept a task schedule proposal item and apply updates', f
     expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.0.status'))->toBe('accepted');
     expect($task->duration)->toBe(90);
     expect($task->start_datetime?->toIso8601String())->toContain($startAt->format('Y-m-d\TH'));
+});
+
+test('chat flyout accept all applies multiple pending task proposals', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $taskA = Task::factory()->for($user)->create([
+        'title' => 'Task A',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $taskB = Task::factory()->for($user)->create([
+        'title' => 'Task B',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $startA = now()->addHours(2)->startOfHour();
+    $startB = now()->addHours(4)->startOfHour();
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [
+                    [
+                        'proposal_id' => 'pa',
+                        'status' => 'pending',
+                        'entity_type' => 'task',
+                        'entity_id' => $taskA->id,
+                        'title' => $taskA->title,
+                        'start_datetime' => $startA->toIso8601String(),
+                        'end_datetime' => $startA->copy()->addMinutes(60)->toIso8601String(),
+                        'duration_minutes' => 60,
+                    ],
+                    [
+                        'proposal_id' => 'pb',
+                        'status' => 'pending',
+                        'entity_type' => 'task',
+                        'entity_id' => $taskB->id,
+                        'title' => $taskB->title,
+                        'start_datetime' => $startB->toIso8601String(),
+                        'end_datetime' => $startB->copy()->addMinutes(45)->toIso8601String(),
+                        'duration_minutes' => 45,
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $taskA->refresh();
+    $taskB->refresh();
+
+    expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.0.status'))->toBe('accepted');
+    expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.1.status'))->toBe('accepted');
+    expect($taskA->duration)->toBe(60);
+    expect($taskB->duration)->toBe(45);
+});
+
+test('chat flyout does not accept all on stale schedule card when a newer assistant message exists', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $task = Task::factory()->for($user)->create([
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+    ]);
+    $startAt = now()->addHour();
+
+    $olderAssistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Older schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'old',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => $task->id,
+                    'title' => 'T',
+                    'start_datetime' => $startAt->toIso8601String(),
+                    'duration_minutes' => 30,
+                ]],
+            ],
+        ],
+    ]);
+
+    $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Newer reply',
+        'metadata' => [],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $olderAssistant->id);
+
+    $olderAssistant->refresh();
+    expect(data_get($olderAssistant->metadata, 'daily_schedule.proposals.0.status'))->toBe('pending');
 });
 
 test('chat flyout restores streaming state from persisted thread metadata after reload', function () {

@@ -4,6 +4,7 @@ use App\Enums\MessageRole;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Tools\LLM\TaskAssistant\CreateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateProjectTool;
 use App\Tools\LLM\TaskAssistant\UpdateTaskTool;
@@ -370,47 +371,16 @@ new class extends Component
 
     }
 
-    public function acceptScheduleProposalItem(int $assistantMessageId, string $proposalId): void
+    /**
+     * Apply every pending schedulable proposal on the latest assistant schedule card (stop on first failure).
+     */
+    public function acceptAllScheduleProposals(int $assistantMessageId): void
     {
         if (! $this->thread) {
             return;
         }
 
-        /** @var TaskAssistantMessage|null $message */
-        /** @var TaskAssistantMessage|null $message */
-        $message = $this->thread->messages()
-            ->where('id', $assistantMessageId)
-            ->where('role', MessageRole::Assistant)
-            ->first();
-
-        if (! $message) {
-            return;
-        }
-
-        [$proposal, $index, $path] = $this->findProposal($message, $proposalId);
-        if ($proposal === null || $index === null || $path === null) {
-            return;
-        }
-
-        try {
-            $this->applyScheduleProposal($proposal);
-            $this->setProposalStatus($message, $path, $index, 'accepted');
-        } catch (\Throwable $e) {
-            Log::warning('task-assistant.proposal.accept_failed', [
-                'layer' => 'ui',
-                'message_id' => $assistantMessageId,
-                'proposal_id' => $proposalId,
-                'error' => $e->getMessage(),
-            ]);
-            $this->setProposalStatus($message, $path, $index, 'failed');
-        }
-
-        $this->refreshMessages();
-    }
-
-    public function declineScheduleProposalItem(int $assistantMessageId, string $proposalId): void
-    {
-        if (! $this->thread) {
+        if ($this->latestAssistantMessageId === null || $assistantMessageId !== $this->latestAssistantMessageId) {
             return;
         }
 
@@ -423,12 +393,39 @@ new class extends Component
             return;
         }
 
-        [, $index, $path] = $this->findProposal($message, $proposalId);
-        if ($index === null || $path === null) {
+        $resolved = $this->resolveScheduleProposalsBucket($message);
+        if ($resolved === null) {
             return;
         }
 
-        $this->setProposalStatus($message, $path, $index, 'declined');
+        [$fullPath, $count] = $resolved;
+
+        for ($index = 0; $index < $count; $index++) {
+            $message->refresh();
+            $proposal = $this->proposalAtIndex($message, $fullPath, $index);
+            if ($proposal === null || ! $this->isSchedulablePendingProposal($proposal)) {
+                continue;
+            }
+
+            try {
+                $this->applyScheduleProposal($proposal);
+                $message->refresh();
+                $this->setProposalStatus($message, $fullPath, $index, 'accepted');
+            } catch (\Throwable $e) {
+                Log::warning('task-assistant.proposal.accept_all_failed', [
+                    'layer' => 'ui',
+                    'message_id' => $assistantMessageId,
+                    'proposal_index' => $index,
+                    'proposal_id' => $proposal['proposal_id'] ?? null,
+                    'error' => $e->getMessage(),
+                ]);
+                $message->refresh();
+                $this->setProposalStatus($message, $fullPath, $index, 'failed');
+
+                break;
+            }
+        }
+
         $this->refreshMessages();
     }
 
@@ -485,6 +482,19 @@ new class extends Component
         $toolName = (string) ($applyPayload['tool'] ?? '');
         $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
         $updates = is_array($arguments['updates'] ?? null) ? $arguments['updates'] : [];
+
+        if ($toolName === 'create_event') {
+            /** @var CreateEventTool $tool */
+            $tool = app()->make(CreateEventTool::class, ['user' => $user]);
+            $tool([
+                'title' => (string) ($arguments['title'] ?? ''),
+                'description' => isset($arguments['description']) ? (string) $arguments['description'] : null,
+                'startDatetime' => $arguments['startDatetime'] ?? null,
+                'endDatetime' => $arguments['endDatetime'] ?? null,
+            ]);
+
+            return;
+        }
 
         if ($toolName === 'update_task') {
             $taskId = (int) ($arguments['taskId'] ?? 0);
@@ -551,7 +561,10 @@ new class extends Component
         }
     }
 
-    private function findProposal(TaskAssistantMessage $message, string $proposalId): array
+    /**
+     * @return array{0: string, 1: int}|null  [dot path to proposals array, item count]
+     */
+    private function resolveScheduleProposalsBucket(TaskAssistantMessage $message): ?array
     {
         $metadata = $message->metadata ?? [];
         $candidates = [
@@ -561,23 +574,61 @@ new class extends Component
         ];
 
         foreach ($candidates as $candidate) {
-            $path = $candidate['items_key'];
-            $items = data_get($metadata[$candidate['key']] ?? null, $path, []);
-            if (! is_array($items)) {
+            $items = data_get($metadata[$candidate['key']] ?? null, $candidate['items_key'], []);
+            if (! is_array($items) || $items === []) {
                 continue;
             }
 
-            foreach ($items as $index => $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-                if ((string) ($item['proposal_id'] ?? '') === $proposalId) {
-                    return [$item, $index, $candidate['key'].'.'.$path];
-                }
-            }
+            $fullPath = $candidate['key'].'.'.$candidate['items_key'];
+
+            return [$fullPath, count($items)];
         }
 
-        return [null, null, null];
+        return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function proposalAtIndex(TaskAssistantMessage $message, string $fullPath, int $index): ?array
+    {
+        $items = data_get($message->metadata ?? [], $fullPath, []);
+        if (! is_array($items) || ! isset($items[$index]) || ! is_array($items[$index])) {
+            return null;
+        }
+
+        return $items[$index];
+    }
+
+    /**
+     * @param  array<string, mixed>  $proposal
+     */
+    private function isSchedulablePendingProposal(array $proposal): bool
+    {
+        if (($proposal['status'] ?? 'pending') !== 'pending') {
+            return false;
+        }
+        if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
+            return false;
+        }
+        $payload = $proposal['apply_payload'] ?? null;
+        if (is_array($payload) && $payload !== []) {
+            return true;
+        }
+
+        $entityType = (string) ($proposal['entity_type'] ?? '');
+        $entityId = (int) ($proposal['entity_id'] ?? 0);
+        $start = (string) ($proposal['start_datetime'] ?? '');
+        $end = (string) ($proposal['end_datetime'] ?? '');
+
+        if ($entityType === 'task' && $entityId > 0 && $start !== '') {
+            return true;
+        }
+        if ($entityType === 'event' && $entityId > 0 && $start !== '' && $end !== '') {
+            return true;
+        }
+
+        return $entityType === 'project' && $entityId > 0 && $start !== '';
     }
 
     private function setProposalStatus(TaskAssistantMessage $message, string $path, int $index, string $status): void

@@ -82,6 +82,12 @@ FLOW BEHAVIOR:
 - Mutating: Use tools to make changes
 - Structured: Follow the specific schema for your flow
 
+DAILY SCHEDULE NARRATIVE (when the schema is framing / reasoning / confirmation):
+- Exact start, end, and duration appear in the app list; framing and reasoning should not repeat those clock details.
+- Reasoning explains why the order and window make sense (focus, deadlines, calendar load).
+- Confirmation must clearly ask whether the times and block lengths feel workable and invite the student to describe changes in chat before anything is saved.
+- When the user message for schedule refinement includes PLACEMENT_DIGEST_JSON from the server, treat it as authoritative for multi-day spill, unplaced segments, and proposal limits; reference it plainly without inventing times beyond the block list.
+
 TASK PRIORITIZATION RULES:
 1. DEADLINE AWARENESS:
    - Tasks due TODAY or OVERDUE have highest priority

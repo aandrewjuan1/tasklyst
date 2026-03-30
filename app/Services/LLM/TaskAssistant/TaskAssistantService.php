@@ -11,6 +11,8 @@ use App\Models\TaskAssistantThread;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\LLM\Scheduling\ScheduleDraftMutationService;
+use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use Carbon\CarbonImmutable;
@@ -44,6 +46,8 @@ final class TaskAssistantService
         private readonly TaskAssistantGeneralGuidanceService $generalGuidanceService,
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
+        private readonly ScheduleDraftMutationService $scheduleDraftMutationService,
+        private readonly ScheduleRefinementIntentResolver $scheduleRefinementIntentResolver,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -171,6 +175,7 @@ final class TaskAssistantService
                         countLimit: $forcedCountLimit,
                         generationProfile: $forcedFlow,
                     );
+                    $forcedPlan = $this->maybeRemapScheduleToPrioritize($thread, $forcedPlan);
 
                     $this->logRoutingDecision($thread, $assistantMessage, $forcedPlan);
 
@@ -198,6 +203,8 @@ final class TaskAssistantService
             }
 
             $plan = $this->buildExecutionPlan($thread, $content);
+            $plan = $this->maybeRemapScheduleToPrioritize($thread, $plan);
+            $plan = $this->maybeRewritePlanForScheduleRefinement($thread, $plan, $assistantMessage->id);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
 
             if (in_array($plan->flow, ['prioritize', 'schedule'], true)) {
@@ -221,6 +228,12 @@ final class TaskAssistantService
 
             if ($plan->flow === 'prioritize') {
                 $this->runPrioritizeFlow($thread, $assistantMessage, $content, $plan);
+
+                return;
+            }
+
+            if ($plan->flow === 'schedule_refinement') {
+                $this->runScheduleRefinementFlow($thread, $userMessage, $assistantMessage, $content, $plan);
 
                 return;
             }
@@ -273,6 +286,18 @@ final class TaskAssistantService
             'assistant_message_id' => $assistantMessageId,
             'intended_flow' => $intendedFlow,
         ]);
+    }
+
+    /**
+     * When schedule was remapped to prioritize (no listing), preserve the user's scheduling intent for empty-workspace telemetry.
+     */
+    private function workspaceEmptyOriginalIntentFlow(ExecutionPlan $plan): string
+    {
+        if (in_array('schedule_rerouted_no_listing_context', $plan->reasonCodes, true)) {
+            return 'schedule';
+        }
+
+        return $plan->flow;
     }
 
     /**
@@ -331,7 +356,7 @@ final class TaskAssistantService
             'filter_interpretation' => null,
             'assumptions' => null,
             'workspace_empty' => true,
-            'workspace_empty_intended_flow' => $plan->flow,
+            'workspace_empty_intended_flow' => $this->workspaceEmptyOriginalIntentFlow($plan),
             'workspace_empty_reason_codes' => $reasonCodes,
         ];
 
@@ -855,6 +880,265 @@ final class TaskAssistantService
         ];
     }
 
+    private function maybeRewritePlanForScheduleRefinement(
+        TaskAssistantThread $thread,
+        ExecutionPlan $plan,
+        int $currentAssistantMessageId,
+    ): ExecutionPlan {
+        if ($plan->flow === 'prioritize') {
+            return $plan;
+        }
+        if ($plan->flow === 'schedule' && $plan->targetEntities !== []) {
+            return $plan;
+        }
+
+        $draftSource = $this->findPendingScheduleDraftSourceMessage($thread, $currentAssistantMessageId);
+        if ($draftSource === null) {
+            return $plan;
+        }
+
+        $reasonCodes = array_values(array_unique(array_merge(
+            $plan->reasonCodes,
+            ['schedule_refinement_turn']
+        )));
+
+        return new ExecutionPlan(
+            flow: 'schedule_refinement',
+            confidence: $plan->confidence,
+            clarificationNeeded: $plan->clarificationNeeded,
+            clarificationQuestion: $plan->clarificationQuestion,
+            reasonCodes: $reasonCodes,
+            constraints: array_merge($plan->constraints, [
+                'schedule_refinement_draft_message_id' => $draftSource->id,
+            ]),
+            targetEntities: $plan->targetEntities,
+            timeWindowHint: $plan->timeWindowHint,
+            countLimit: $plan->countLimit,
+            generationProfile: 'schedule',
+        );
+    }
+
+    private function findPendingScheduleDraftSourceMessage(TaskAssistantThread $thread, int $excludeAssistantMessageId): ?TaskAssistantMessage
+    {
+        return $thread->messages()
+            ->where('role', MessageRole::Assistant)
+            ->where('id', '!=', $excludeAssistantMessageId)
+            ->orderByDesc('id')
+            ->get()
+            ->first(fn (TaskAssistantMessage $m): bool => $this->assistantMessageHasPendingSchedulableProposals($m));
+    }
+
+    private function assistantMessageHasPendingSchedulableProposals(TaskAssistantMessage $message): bool
+    {
+        $proposals = $this->extractScheduleProposalsFromMessage($message);
+        if ($proposals === null) {
+            return false;
+        }
+        foreach ($proposals as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            if (($p['status'] ?? 'pending') !== 'pending') {
+                continue;
+            }
+            if (trim((string) ($p['title'] ?? '')) === 'No schedulable items found') {
+                continue;
+            }
+            $ap = $p['apply_payload'] ?? null;
+            if (is_array($ap) && $ap !== []) {
+                return true;
+            }
+            $entityType = (string) ($p['entity_type'] ?? '');
+            $entityId = (int) ($p['entity_id'] ?? 0);
+            $start = (string) ($p['start_datetime'] ?? '');
+            $end = (string) ($p['end_datetime'] ?? '');
+            if ($entityType === 'task' && $entityId > 0 && $start !== '') {
+                return true;
+            }
+            if ($entityType === 'event' && $entityId > 0 && $start !== '' && $end !== '') {
+                return true;
+            }
+            if ($entityType === 'project' && $entityId > 0 && $start !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return list<array<string, mixed>>|null
+     */
+    private function extractScheduleProposalsFromMessage(TaskAssistantMessage $message): ?array
+    {
+        $metadata = $message->metadata ?? [];
+        $candidates = [
+            ['key' => 'schedule', 'items_key' => 'proposals'],
+            ['key' => 'daily_schedule', 'items_key' => 'proposals'],
+            ['key' => 'structured', 'items_key' => 'data.proposals'],
+        ];
+        foreach ($candidates as $candidate) {
+            $items = data_get($metadata[$candidate['key']] ?? null, $candidate['items_key'], []);
+            if (is_array($items) && $items !== []) {
+                return $items;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function extractPlacementDigestFromMessage(TaskAssistantMessage $message): ?array
+    {
+        $metadata = $message->metadata ?? [];
+        foreach (['schedule', 'daily_schedule'] as $key) {
+            $digest = data_get($metadata[$key] ?? null, 'placement_digest');
+            if (is_array($digest)) {
+                return $digest;
+            }
+        }
+
+        $digest = data_get($metadata['structured'] ?? null, 'data.placement_digest');
+        if (is_array($digest)) {
+            return $digest;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @return array<int, array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function targetEntitiesFromScheduleProposals(array $proposals): array
+    {
+        $targets = [];
+        foreach ($proposals as $p) {
+            if (! is_array($p)) {
+                continue;
+            }
+            $id = (int) ($p['entity_id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $type = (string) ($p['entity_type'] ?? '');
+            if ($type === '') {
+                continue;
+            }
+            $targets[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => (string) ($p['title'] ?? ''),
+            ];
+        }
+
+        return $targets;
+    }
+
+    private function runScheduleRefinementFlow(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $userMessage,
+        TaskAssistantMessage $assistantMessage,
+        string $content,
+        ExecutionPlan $plan,
+    ): void {
+        $draftMessageId = (int) ($plan->constraints['schedule_refinement_draft_message_id'] ?? 0);
+        $sourceMessage = $draftMessageId > 0
+            ? TaskAssistantMessage::query()->where('thread_id', $thread->id)->find($draftMessageId)
+            : null;
+
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'schedule_refinement',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'draft_source_message_id' => $draftMessageId,
+        ]);
+
+        if (! $sourceMessage) {
+            $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
+
+            return;
+        }
+
+        $sourceProposals = $this->extractScheduleProposalsFromMessage($sourceMessage);
+        if ($sourceProposals === null) {
+            $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
+
+            return;
+        }
+
+        $encoded = json_encode($sourceProposals);
+        /** @var array<int, array<string, mixed>> $workingProposals */
+        $workingProposals = is_string($encoded) ? json_decode($encoded, true) : [];
+        if (! is_array($workingProposals)) {
+            $workingProposals = $sourceProposals;
+        }
+
+        $snapshot = $this->snapshotService->buildForUser($thread->user);
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+
+        $operations = $this->scheduleRefinementIntentResolver->resolve($content, $workingProposals, $timezone);
+        $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
+
+        $finalProposals = $mutation['ok'] ? $mutation['proposals'] : $workingProposals;
+
+        $narrativeUserContent = $content;
+        if (! $mutation['ok'] && is_string($mutation['error']) && $mutation['error'] !== '') {
+            $narrativeUserContent .= "\n\n(Planning note: times were not changed because ".$mutation['error'].')';
+        }
+
+        $targets = $this->targetEntitiesFromScheduleProposals($finalProposals);
+        $scheduleOptions = [
+            'target_entities' => $targets,
+            'time_window_hint' => $plan->timeWindowHint,
+        ];
+
+        [$context, $contextualSnapshot] = $this->structuredFlowGenerator->buildSchedulePromptContext(
+            $snapshot,
+            $content,
+            $scheduleOptions
+        );
+
+        $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
+
+        $digest = $this->extractPlacementDigestFromMessage($sourceMessage);
+        $digestJson = $digest !== null
+            ? (json_encode($digest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}')
+            : null;
+
+        $result = $this->structuredFlowGenerator->composeDailyScheduleFromProposals(
+            thread: $thread,
+            historyMessages: $historyMessages,
+            userMessageContent: $narrativeUserContent,
+            proposals: $finalProposals,
+            context: $context,
+            contextualSnapshot: $contextualSnapshot,
+            narrativeGenerationRoute: 'schedule_narrative_followup',
+            placementDigestJson: $digestJson,
+        );
+
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
+            flow: 'daily_schedule',
+            metadataKey: 'schedule',
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            generationResult: $result,
+            assistantFallbackContent: 'I had trouble updating that schedule. Please try rephrasing the change.'
+        );
+
+        $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint);
+        $this->streamFlowEnvelope(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            flow: 'schedule',
+            execution: $execution
+        );
+    }
+
     private function runScheduleFlow(
         TaskAssistantThread $thread,
         TaskAssistantMessage $userMessage,
@@ -883,6 +1167,8 @@ final class TaskAssistantService
             options: [
                 'target_entities' => $scheduleTargets,
                 'time_window_hint' => $timeWindowHint,
+                'count_limit' => $plan->countLimit,
+                'schedule_user_id' => $thread->user_id,
             ]
         );
 
@@ -901,6 +1187,40 @@ final class TaskAssistantService
             assistantMessage: $assistantMessage,
             flow: 'schedule',
             execution: $execution
+        );
+    }
+
+    /**
+     * When the user asks to schedule but there is no multiturn listing and no resolved targets, run a ranked list first.
+     */
+    private function maybeRemapScheduleToPrioritize(TaskAssistantThread $thread, ExecutionPlan $plan): ExecutionPlan
+    {
+        if ($plan->flow !== 'schedule') {
+            return $plan;
+        }
+        if ($plan->targetEntities !== []) {
+            return $plan;
+        }
+        if ($this->conversationState->lastListing($thread) !== null) {
+            return $plan;
+        }
+
+        $reasonCodes = array_values(array_unique(array_merge(
+            $plan->reasonCodes,
+            ['schedule_rerouted_no_listing_context']
+        )));
+
+        return new ExecutionPlan(
+            flow: 'prioritize',
+            confidence: $plan->confidence,
+            clarificationNeeded: $plan->clarificationNeeded,
+            clarificationQuestion: $plan->clarificationQuestion,
+            reasonCodes: $reasonCodes,
+            constraints: $plan->constraints,
+            targetEntities: $plan->targetEntities,
+            timeWindowHint: $plan->timeWindowHint,
+            countLimit: $plan->countLimit,
+            generationProfile: 'prioritize',
         );
     }
 
