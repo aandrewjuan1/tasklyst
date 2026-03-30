@@ -344,7 +344,6 @@ final class TaskAssistantService
         $prioritizeData = [
             'items' => [],
             'limit_used' => 0,
-            'doing_titles' => [],
             'doing_progress_coach' => null,
             'focus' => [
                 'main_task' => $focusMain,
@@ -511,11 +510,11 @@ final class TaskAssistantService
             $prioritizeData = [
                 'items' => $narrative['items'],
                 'limit_used' => 0,
-                'doing_titles' => $doingTitlesForPayload,
-                'doing_progress_coach' => $narrative['doing_progress_coach'] ?? TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoachMotivationFallback($doingMeta['count']),
+                'doing_progress_coach' => $narrative['doing_progress_coach']
+                    ?? TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach($doingTitlesForPayload, $doingMeta['count']),
                 'focus' => $narrative['focus'],
                 'acknowledgment' => $narrative['acknowledgment'] ?? null,
-                'framing' => (string) ($narrative['framing'] ?? ''),
+                'framing' => $narrative['framing'] ?? null,
                 'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty()),
                 'next_options' => $next['next_options'],
                 'next_options_chip_texts' => $next['next_options_chip_texts'],
@@ -531,7 +530,6 @@ final class TaskAssistantService
             $prioritizeData = [
                 'items' => [],
                 'limit_used' => 0,
-                'doing_titles' => [],
                 'doing_progress_coach' => null,
                 'focus' => [
                     'main_task' => 'No matching items found',
@@ -570,13 +568,13 @@ final class TaskAssistantService
             $prioritizeData = [
                 'items' => $narrative['items'],
                 'limit_used' => count($narrative['items']),
-                'doing_titles' => $doingMeta['count'] > 0 ? $doingTitlesForPayload : [],
                 'doing_progress_coach' => $doingMeta['count'] > 0
-                    ? ($narrative['doing_progress_coach'] ?? TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoachMotivationFallback($doingMeta['count']))
+                    ? ($narrative['doing_progress_coach']
+                        ?? TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach($doingTitlesForPayload, $doingMeta['count']))
                     : null,
                 'focus' => $narrative['focus'],
                 'acknowledgment' => $narrative['acknowledgment'] ?? null,
-                'framing' => (string) ($narrative['framing'] ?? ''),
+                'framing' => $narrative['framing'] ?? null,
                 'reasoning' => (string) ($narrative['reasoning'] ?? TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty()),
                 'next_options' => $next['next_options'],
                 'next_options_chip_texts' => $next['next_options_chip_texts'],

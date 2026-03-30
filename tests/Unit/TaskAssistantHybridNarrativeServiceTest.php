@@ -1186,6 +1186,5 @@ test('refinePrioritizeListing replaces doing_progress_coach when it quotes ITEMS
 
     expect($result['doing_progress_coach'])->not->toContain('Alpha');
     expect($result['doing_progress_coach'])->not->toContain('Beta');
-    expect($result['framing'])->not->toContain('Alpha');
-    expect($result['framing'])->not->toContain('Beta');
+    expect($result['framing'])->toBeNull();
 });

@@ -253,7 +253,7 @@ final class TaskAssistantResponseProcessor
             'focus.main_task' => ['required', 'string', 'min:1', 'max:'.$maxFocusTitle],
             'focus.secondary_tasks' => ['present', 'array', 'max:49'],
             'focus.secondary_tasks.*' => ['string', 'max:'.$maxFocusTitle],
-            'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
+            'framing' => ['nullable', 'string', 'max:'.$maxFraming],
             'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNextField],
             // Empty array is allowed (e.g. deterministic empty-workspace reply has no follow-up chips).
             'next_options_chip_texts' => ['present', 'array', 'max:3'],
@@ -272,8 +272,6 @@ final class TaskAssistantResponseProcessor
             'assumptions' => ['nullable', 'array', 'max:4'],
             'assumptions.*' => ['string', 'max:240'],
             'prioritize_variant' => ['nullable', 'string', 'in:rank'],
-            'doing_titles' => ['nullable', 'array', 'max:20'],
-            'doing_titles.*' => ['string', 'max:200'],
             'doing_progress_coach' => ['nullable', 'string', 'max:'.$maxDoingCoach],
         ];
 
@@ -287,17 +285,19 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('reasoning', 'reasoning must not duplicate framing verbatim.');
             }
 
-            $doingTitles = is_array($data['doing_titles'] ?? null) ? $data['doing_titles'] : [];
-            $doingTitles = array_values(array_filter(
-                array_map(static fn (mixed $t): string => trim((string) $t), $doingTitles),
-                static fn (string $s): bool => $s !== ''
-            ));
             $coach = trim((string) ($data['doing_progress_coach'] ?? ''));
-            if ($doingTitles !== [] && $coach === '') {
-                $validator->errors()->add('doing_progress_coach', 'doing_progress_coach is required when doing_titles is non-empty.');
-            }
-            if ($doingTitles === [] && $coach !== '') {
-                $validator->errors()->add('doing_progress_coach', 'doing_progress_coach must be empty when doing_titles is empty.');
+            $hasDoingCoach = $coach !== '';
+
+            if ($hasDoingCoach) {
+                // When doing exists, we unify in-progress coaching and omit framing.
+                if ($framing !== '') {
+                    $validator->errors()->add('framing', 'framing must be omitted/empty when doing_progress_coach is present.');
+                }
+            } else {
+                // When there is no doing coaching, framing becomes required.
+                if ($framing === '' || mb_strlen($framing) < 3) {
+                    $validator->errors()->add('framing', 'framing is required when doing_progress_coach is empty or null.');
+                }
             }
         });
 

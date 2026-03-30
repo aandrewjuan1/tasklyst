@@ -74,7 +74,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertSame([], $result['errors']);
     }
 
-    public function test_prioritize_validation_fails_when_doing_titles_without_coach(): void
+    public function test_prioritize_validation_fails_when_framing_present_with_doing_progress_coach(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
 
@@ -101,15 +101,14 @@ class TaskAssistantResponseProcessorTest extends TestCase
             'next_options_chip_texts' => [
                 'Schedule these for later',
             ],
-            'doing_titles' => ['In progress task'],
-            'doing_progress_coach' => '',
+            'doing_progress_coach' => 'Some doing coach text.',
         ], []);
 
         $this->assertFalse($result['valid']);
         $this->assertNotEmpty($result['errors']);
     }
 
-    public function test_prioritize_validation_fails_when_doing_progress_coach_without_doing_titles(): void
+    public function test_prioritize_validation_fails_when_framing_missing_and_doing_progress_coach_empty(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
 
@@ -130,14 +129,13 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'main_task' => 'A task',
                 'secondary_tasks' => [],
             ],
-            'framing' => 'Start with what is due soon so you can make real progress.',
+            'framing' => '',
             'reasoning' => 'This ordering matches what you asked for.',
             'next_options' => 'If you want, I can schedule these steps for later.',
             'next_options_chip_texts' => [
                 'Schedule these for later',
             ],
-            'doing_titles' => [],
-            'doing_progress_coach' => 'Some coach text without titles.',
+            'doing_progress_coach' => '',
         ], []);
 
         $this->assertFalse($result['valid']);
@@ -165,19 +163,18 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'main_task' => 'A task',
                 'secondary_tasks' => [],
             ],
-            'framing' => 'Start with what is due soon so you can make real progress.',
+            'framing' => null,
             'reasoning' => 'This ordering matches what you asked for.',
             'next_options' => 'If you want, I can schedule these steps for later.',
             'next_options_chip_texts' => [
                 'Schedule these for later',
             ],
-            'doing_titles' => ['Other task'],
-            'doing_progress_coach' => 'Finishing what you already started before adding something new usually means less mental switching.',
+            'doing_progress_coach' => 'Finishing Other task before adding something new usually means less mental switching.',
         ], []);
 
         $this->assertTrue($result['valid']);
         $this->assertSame([], $result['errors']);
-        $this->assertStringContainsString('In progress', $result['formatted_content']);
+        $this->assertStringContainsString('Other task', $result['formatted_content']);
     }
 
     public function test_prioritize_validation_passes_with_optional_narrative_and_variant_fields(): void
@@ -231,7 +228,6 @@ class TaskAssistantResponseProcessorTest extends TestCase
             'reasoning' => 'One concrete task is enough so I can sort urgency and suggest time blocks next.',
             'next_options' => 'Add a task, then ask what to do first or when to work on it.',
             'next_options_chip_texts' => [],
-            'doing_titles' => [],
         ], []);
 
         $this->assertTrue($result['valid']);

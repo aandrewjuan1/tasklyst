@@ -126,7 +126,6 @@ final class TaskAssistantMessageFormatter
      *   framing?: string,
      *   filter_interpretation?: string,
      *   doing_progress_coach?: string,
-     *   doing_titles?: list<string>,
      *   reasoning?: string,
      *   next_options?: string,
      *   items?: list<array<string, mixed>>,
@@ -138,9 +137,6 @@ final class TaskAssistantMessageFormatter
     {
         $acknowledgment = trim((string) ($data['acknowledgment'] ?? ''));
         $framing = trim((string) ($data['framing'] ?? ''));
-        if ($framing === '') {
-            $framing = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
-        }
 
         // Deduplicate when the narrative model/stress heuristics accidentally
         // produce overlapping acknowledgment + framing paragraphs.
@@ -204,13 +200,7 @@ final class TaskAssistantMessageFormatter
         }
 
         $doingProgressCoach = trim((string) ($data['doing_progress_coach'] ?? ''));
-        $doingTitles = is_array($data['doing_titles'] ?? null)
-            ? array_values(array_filter(
-                array_map(static fn (mixed $t): string => trim((string) $t), $data['doing_titles']),
-                static fn (string $s): bool => $s !== ''
-            ))
-            : [];
-        $doingTitleBlock = $this->formatDoingInProgressTitleLines($doingTitles);
+        $hasDoingSection = $doingProgressCoach !== '';
         $lines = $this->formatPrioritizeItemLines($items);
 
         $paragraphs = [];
@@ -219,21 +209,15 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $acknowledgment;
         }
 
-        $hasDoingSection = $doingProgressCoach !== '' || $doingTitleBlock !== '';
         if ($hasDoingSection) {
-            if ($doingProgressCoach !== '') {
-                $paragraphs[] = $doingProgressCoach;
-            }
-            if ($doingTitleBlock !== '') {
-                $paragraphs[] = $doingTitleBlock;
-            }
-            if ($framing !== '') {
-                $paragraphs[] = $framing;
-            }
-            if ($lines !== [] && ($doingProgressCoach !== '' || $doingTitleBlock !== '')) {
+            $paragraphs[] = $doingProgressCoach;
+            if ($lines !== []) {
                 $paragraphs[] = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeAfterDoingCoach($singularCoerceCount);
             }
         } else {
+            if ($framing === '') {
+                $framing = TaskAssistantPrioritizeOutputDefaults::reasoningWhenEmpty();
+            }
             $paragraphs[] = $framing;
         }
 
@@ -366,6 +350,8 @@ final class TaskAssistantMessageFormatter
      */
     private function formatDoingInProgressTitleLines(array $titles): string
     {
+        // Deprecated: kept for backwards compatibility if other flows still call it.
+        // Prefer formatDoingInProgressSummaryParagraph() for prioritize UX.
         if ($titles === []) {
             return '';
         }
@@ -376,6 +362,66 @@ final class TaskAssistantMessageFormatter
         }
 
         return __('In progress').":\n".implode("\n", $lines);
+    }
+
+    /**
+     * @param  list<string>  $titles
+     */
+    private function formatDoingInProgressSummaryParagraph(array $titles): string
+    {
+        $titles = array_values(array_filter(
+            array_map(static fn (string $t): string => trim($t), $titles),
+            static fn (string $t): bool => $t !== ''
+        ));
+
+        if ($titles === []) {
+            return '';
+        }
+
+        if (count($titles) === 1) {
+            return __('I see you already have something in progress: :title. If you can, finishing what you’re already doing first helps you stay steady and avoid feeling overwhelmed.', [
+                'title' => $titles[0],
+            ]);
+        }
+
+        $firstTwo = array_slice($titles, 0, 2);
+        $more = count($titles) - count($firstTwo);
+        $list = $this->joinSentences($firstTwo);
+
+        if ($more > 0) {
+            return __('I see you already have a few tasks in progress: :list, and :more more. Finishing what you’ve got underway first helps you move forward without juggling too much.', [
+                'list' => $list,
+                'more' => (string) $more,
+            ]);
+        }
+
+        return __('I see you already have tasks in progress: :list. Finishing what you’ve got underway first helps you stay focused.', [
+            'list' => $list,
+        ]);
+    }
+
+    private function stripDoingTopPriorityLanguageFromFraming(string $framing): string
+    {
+        $framing = trim($framing);
+        if ($framing === '') {
+            return '';
+        }
+
+        // Remove “top priority first / top priorities first” and “ranked the next steps below”
+        // phrasing when Doing exists. The ranked list will appear right after anyway.
+        $patterns = [
+            "/(?:Let's|Let’s)\\s+tackle\\s+your\\s+top\\s+priorit(?:y|ies)\\s+first[^.?!]*[.?!]?/iu",
+            "/(?:I['’]ve|I have)\\s+ranked\\s+the\\s+next\\s+steps\\s+below[^.?!]*[.?!]?/iu",
+            '/ranked\\s+the\\s+next\\s+steps\\s+below[^.?!]*[.?!]?/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $framing = (string) preg_replace($pattern, '', $framing);
+        }
+
+        $framing = trim(preg_replace('/\\s+/u', ' ', $framing) ?? $framing);
+
+        return $framing;
     }
 
     /**

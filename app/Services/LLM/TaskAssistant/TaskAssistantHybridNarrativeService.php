@@ -682,7 +682,7 @@ final class TaskAssistantHybridNarrativeService
      *   items: list<array<string, mixed>>,
      *   focus: array{main_task: string, secondary_tasks: list<string>},
      *   acknowledgment: string|null,
-     *   framing: string,
+     *   framing: string|null,
      *   reasoning: string,
      *   next_options: string,
      *   next_options_chip_texts: list<string>,
@@ -742,7 +742,7 @@ final class TaskAssistantHybridNarrativeService
         $outputFieldOrder = <<<'TXT'
 OUTPUT_FIELD_ORDER (student-visible; the app assembles the final message in this order—write each field for its slot):
 1. acknowledgment (optional) — brief empathy when required
-2. When DOING_COACH_REQUIRED: doing_progress_coach first, then the in-progress titles (from Doing status; rendered by the app), then framing, then a short bridge, then the numbered ITEMS_JSON list—do NOT tell the student to “start with” the top ranked row in framing when Doing exists; orient to what is already in motion, then hand off to the ranked list. ITEMS_JSON rows are not Doing; never say the student has “started” or is “already working on” the top ranked item in framing (that falsely implies in-progress status).
+2. When DOING_COACH_REQUIRED: doing_progress_coach first (include the in-progress titles inside the paragraph), then a short bridge, then the numbered ITEMS_JSON list—do NOT tell the student to “start with” the top ranked row when Doing exists; orient to what is already in motion, then hand off to the ranked list. ITEMS_JSON rows are not Doing; never say the student has “started” or is “already working on” the top ranked item in the in-progress paragraph (that falsely implies in-progress status).
 3. When DOING_COACH_REQUIRED is false: framing (short intro) before the numbered list.
 4. numbered list from ITEMS_JSON (rendered by the app; do not paste it as a second enumerated list in other fields)
 5. filter_interpretation — optional; appears after that list
@@ -786,22 +786,22 @@ TXT;
         $doingProgressPromptBlock = '';
         if ($hasDoingContext) {
             $doingProgressPromptBlock = $emptyRankedSlice
-                ? "\n\nDOING_PROGRESS_CONTEXT: The student has {$doingCountForPrompt} task(s) marked in progress (Doing). DOING_TITLES_FOR_UI (the app shows these as a separate numbered list—reference only): {$titleBlob}. CRITICAL: doing_progress_coach must NOT name, quote, or paraphrase any title from ITEMS_JSON (there are no ranked rows here—still do not invent slice titles). Use generic language only (e.g. what you have in motion, what you already started). If you cannot comply, output one short generic motivational sentence with zero task or event titles. framing and reasoning should address the empty ranked slice and/or focusing on what is already underway; do not claim a first ranked row exists in ITEMS_JSON.\n"
-                : "\n\nDOING_PROGRESS_CONTEXT: The student has {$doingCountForPrompt} task(s) marked in progress (Doing). DOING_TITLES_FOR_UI (shown separately in the UI—reference only): {$titleBlob}. CRITICAL: doing_progress_coach must NOT name, quote, or paraphrase any title that appears in ITEMS_JSON (ranked slice). Those rows are not Doing status—only DOING_TITLES_FOR_UI are in-progress tasks. Motivation must be generic (in motion, already underway, what you started) or pronouns—no quoted task/event titles. CRITICAL: doing_progress_coach must NOT borrow subjects from ITEMS_JSON (no quizzes, exams, lecture notes, readings, responses, homework, problem sets, or “overdue notes”) unless that exact word already appears inside DOING_TITLES_FOR_UI when you join them case-insensitively—this field is only about momentum on what they already started, not about ranked next steps. If you cannot comply, output one short generic sentence with zero titles. In reasoning, anchor only to the first row in ITEMS_JSON when LISTED_ITEM_COUNT >= 1. Do not argue that a Doing task should outrank ITEMS_JSON row #1. Do not repeat the Doing title list in acknowledgment, framing, filter_interpretation, or reasoning as an enumerated list.\n";
+                ? "\n\nDOING_PROGRESS_CONTEXT: The student has {$doingCountForPrompt} task(s) marked in progress (Doing). DOING_TITLES_FOR_UI (the app shows these as a separate numbered list): {$titleBlob}. CRITICAL: doing_progress_coach must ONLY reference titles that appear inside DOING_TITLES_FOR_UI; it must NOT invent any Doing titles. CRITICAL: doing_progress_coach must NOT name, quote, or paraphrase any title from ITEMS_JSON (there are no ranked rows here—still do not invent slice titles). Use warm coaching language; include a short mention of 1–2 of the Doing titles inside doing_progress_coach. If you cannot comply, output one short generic motivational sentence with zero titles. framing must be omitted/nullable when doing_progress_coach exists; reasoning should address the empty ranked slice and/or focusing on what is already underway.\n"
+                : "\n\nDOING_PROGRESS_CONTEXT: The student has {$doingCountForPrompt} task(s) marked in progress (Doing). DOING_TITLES_FOR_UI (shown separately in the UI): {$titleBlob}. CRITICAL: doing_progress_coach must ONLY reference titles that appear inside DOING_TITLES_FOR_UI; it must NOT invent any Doing titles. CRITICAL: doing_progress_coach must NOT name, quote, or paraphrase any title that appears in ITEMS_JSON (ranked slice). Those rows are To Do status—only DOING_TITLES_FOR_UI are in-progress tasks. Include a short mention of 1–2 of the Doing titles inside doing_progress_coach. CRITICAL: doing_progress_coach must NOT borrow subjects from ITEMS_JSON (no quizzes, exams, lecture notes, readings, responses, homework, problem sets, or “overdue notes”) unless that exact word already appears inside DOING_TITLES_FOR_UI when you join them case-insensitively—this field is only about momentum on what they already started, not about ranked next steps. If you cannot comply, output one short generic sentence with zero titles. In reasoning, anchor only to the first row in ITEMS_JSON when LISTED_ITEM_COUNT >= 1. Do not argue that a Doing task should outrank ITEMS_JSON row #1. Do not repeat the Doing title list as an enumerated list in acknowledgment, filter_interpretation, or reasoning.\n";
         }
 
         $narrativeFieldRoles = $emptyRankedSlice
             ? 'NARRATIVE_FIELD_ROLES (each field has ONE job; do not reuse the same sentences or stock phrases across fields): '.
             'acknowledgment = brief empathy only when required; no task titles or list summary. '.
-            'doing_progress_coach = REQUIRED when DOING_COACH_REQUIRED is true: motivation only—no Doing task title list (titles appear separately). '.
-            'framing = intro only: orient for empty ranked slice and/or leaning on in-progress work; 1–3 sentences. When DOING_COACH_REQUIRED and LISTED_ITEM_COUNT >= 1, do NOT name any ITEMS_JSON title in framing (enforced server-side)—hand off to in-progress, then ranked list appears below. '.
+            'doing_progress_coach = REQUIRED when DOING_COACH_REQUIRED is true: include a short mention of 1–2 Doing titles inside the paragraph (from DOING_TITLES_FOR_UI) and keep it warm and practical. '.
+            'framing = omitted/nullable when doing_progress_coach exists; do not write a separate intro paragraph. '.
             'filter_interpretation = the student sees this after the list area; filters/wording only; use null if it would repeat framing. '.
             'reasoning = before next_options (not last): why the empty slice still makes sense to address in-progress work first, or how to widen filters—do NOT reference a first row in ITEMS_JSON (there is none). '.
             'next_options = LAST in the message; scheduling or widening filters only; do not invent ranked tasks. '
             : 'NARRATIVE_FIELD_ROLES (each field has ONE job; do not reuse the same sentences or stock phrases across fields): '.
             'acknowledgment = brief empathy only when required; no task titles or list summary. '.
-            'doing_progress_coach = REQUIRED when DOING_COACH_REQUIRED is true: motivation only—no Doing task title list (titles appear separately). '.
-            'framing = intro only—1–3 sentences; when DOING_COACH_REQUIRED, orient toward what is already in motion; do NOT name any ITEMS_JSON title or paraphrase the top ranked row (that belongs in reasoning before next_options; server-side enforcement strips leaks). Framing prints before the numbered ranked list appears—avoid "starting with this/these" for a row the student has not seen yet; do not recycle the same stress/quiz-prep lines as acknowledgment. When there is no Doing, keep framing light—save the top-row urgency story for reasoning. You may include light encouragement or one short tip here if it fits. '.
+            'doing_progress_coach = REQUIRED when DOING_COACH_REQUIRED is true: include a short mention of 1–2 Doing titles inside the paragraph (from DOING_TITLES_FOR_UI) and keep it warm and practical. '.
+            'framing = omitted/nullable when doing_progress_coach exists; do not write a separate intro paragraph. '.
             'filter_interpretation = the student sees this after the numbered list; filters/wording only; use null if not helpful or if it would repeat framing. '.
             'reasoning = before next_options: why the first ITEMS_JSON row is first when LISTED_ITEM_COUNT >= 1; include that row\'s exact title once; add empathy, motivation, or a grounded micro-tip when helpful. Describe work types using words from row #1\'s title (not a different task\'s course or lab). When LISTED_ITEM_COUNT is 1 and DOING_COACH_REQUIRED is true, do NOT reference Doing-only task titles or course codes from DOING_TITLES_FOR_UI—those are not ITEMS_JSON. When LISTED_ITEM_COUNT > 1, do NOT mention row 2+ titles or their distinctive topics (for example lecture notes, a reading response) and do NOT invent worksheets, practice/problem sets, or mock exams—only describe work using words grounded in row #1\'s title plus its priority and due fields. Do not repeat overdue/complex boilerplate already covered in framing or filter_interpretation. '.
             'next_options = LAST in the message; scheduling/follow-up only; do not re-summarize the full list or repeat the coaching paragraph. '.
@@ -994,7 +994,10 @@ TXT;
         if (! $doingCoachRequired) {
             $doingProgressCoachNarrative = null;
         } elseif ($doingProgressCoachNarrative === null || trim((string) $doingProgressCoachNarrative) === '') {
-            $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoachMotivationFallback($doingCountForPrompt);
+            $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach(
+                $doingTitlesSanitize,
+                $doingCountForPrompt
+            );
         }
 
         if ($doingCoachRequired && is_string($doingProgressCoachNarrative) && trim($doingProgressCoachNarrative) !== ''
@@ -1005,7 +1008,10 @@ TXT;
                 'user_id' => $userId,
                 'thread_id' => $threadId,
             ]);
-            $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoachMotivationFallback($doingCountForPrompt);
+            $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach(
+                $doingTitlesSanitize,
+                $doingCountForPrompt
+            );
         }
 
         if ($doingCoachRequired && is_string($doingProgressCoachNarrative) && trim($doingProgressCoachNarrative) !== '' && $cleanItems !== []) {
@@ -1026,7 +1032,10 @@ TXT;
                     'user_id' => $userId,
                     'thread_id' => $threadId,
                 ]);
-                $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoachMotivationFallback($doingCountForPrompt);
+                $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach(
+                    $doingTitlesSanitize,
+                    $doingCountForPrompt
+                );
             } else {
                 $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::clampDoingProgressCoach($strippedCoach);
             }
@@ -1079,9 +1088,11 @@ TXT;
             ]);
         }
 
+        // When framing is omitted (Doing exists), avoid accidentally dropping filter interpretation
+        // because it's similar to a hidden framing paragraph.
         $filterInterpretation = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeFilterVersusFraming(
             $filterInterpretation,
-            (string) $framing
+            $doingCoachRequired ? '' : (string) $framing
         );
 
         // Safety net for due-time drift in next options and chip texts.
@@ -1178,7 +1189,7 @@ TXT;
         $reasoning = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeReasoningVersusPriorFields(
             (string) $reasoning,
             $acknowledgment,
-            (string) $framing,
+            $doingCoachRequired ? '' : (string) $framing,
             $filterInterpretation,
             $cleanItems,
             null,
@@ -1200,7 +1211,7 @@ TXT;
 
         $nextOptions = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeNextVersusPriorFields(
             (string) $nextOptions,
-            (string) $framing,
+            $doingCoachRequired ? '' : (string) $framing,
             (string) $reasoning,
             is_array($cleanItems) ? count($cleanItems) : 0
         );
@@ -1240,9 +1251,11 @@ TXT;
                     TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative((string) $acknowledgment, $singularCoerceCount, $cleanItems)
                 )
                 : null,
-            'framing' => TaskAssistantPrioritizeOutputDefaults::clampFraming(
-                TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative((string) $framing, $singularCoerceCount, $cleanItems)
-            ),
+            'framing' => $doingCoachRequired
+                ? null
+                : TaskAssistantPrioritizeOutputDefaults::clampFraming(
+                    TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative((string) $framing, $singularCoerceCount, $cleanItems)
+                ),
             'reasoning' => TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning(
                 TaskAssistantPrioritizeOutputDefaults::coerceSingularPrioritizeNarrative((string) $reasoning, $singularCoerceCount, $cleanItems)
             ),

@@ -117,14 +117,13 @@ class TaskAssistantMessageFormatterTest extends TestCase
     {
         $framing = 'Here is your slice.';
         $filter = 'Filtered to tasks due today.';
-        $coach = 'Wrap up active work on X first—less switching usually beats juggling.';
+        $coach = 'Wrap up active work on Doing task one first—less switching usually beats juggling.';
         $reasoning = 'Why row one is first and a concrete tip.';
         $nextOptions = 'If you want, I can schedule this for later.';
         $out = $this->formatter->format('prioritize', [
             'framing' => $framing,
             'filter_interpretation' => $filter,
             'doing_progress_coach' => $coach,
-            'doing_titles' => ['Doing task one'],
             'limit_used' => 1,
             'items' => [
                 [
@@ -147,27 +146,23 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $posFraming = strpos($out, $framing);
         $posFilter = strpos($out, $filter);
         $posCoach = strpos($out, $coach);
-        $posDoingList = strpos($out, '1. Doing task one');
         $posBridgeAfter = strpos($out, $bridgeAfter);
         $posItems = strpos($out, '1. A —');
         $posNext = strpos($out, $nextOptions);
         $posReasoning = strpos($out, $reasoning);
-        $this->assertNotFalse($posFraming);
+        $this->assertFalse($posFraming);
         $this->assertNotFalse($posFilter);
         $this->assertStringNotContainsString($bridgeBefore, $out);
         $this->assertNotFalse($posCoach);
-        $this->assertNotFalse($posDoingList);
         $this->assertNotFalse($posBridgeAfter);
         $this->assertNotFalse($posItems);
         $this->assertNotFalse($posNext);
         $this->assertNotFalse($posReasoning);
-        $this->assertLessThan($posDoingList, $posCoach);
-        $this->assertLessThan($posBridgeAfter, $posFraming);
-        $this->assertLessThan($posItems, $posBridgeAfter);
-        $this->assertLessThan($posFraming, $posCoach);
-        $this->assertLessThan($posFilter, $posItems);
-        $this->assertLessThan($posReasoning, $posFilter);
-        $this->assertLessThan($posNext, $posReasoning);
+        $this->assertLessThan($posBridgeAfter, $posCoach); // coach before bridge
+        $this->assertLessThan($posItems, $posBridgeAfter); // bridge before ranked list
+        $this->assertLessThan($posFilter, $posItems); // ranked list before filter
+        $this->assertLessThan($posReasoning, $posFilter); // filter before reasoning
+        $this->assertLessThan($posNext, $posReasoning); // reasoning before next_options
     }
 
     public function test_prioritize_skips_bridge_before_doing_coach_when_coach_already_signals_in_progress(): void
@@ -195,7 +190,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
 
         $bridgeBefore = TaskAssistantPrioritizeOutputDefaults::prioritizeFormatterBridgeBeforeDoingCoach();
         $this->assertFalse(TaskAssistantPrioritizeOutputDefaults::shouldEmitPrioritizeFormatterBridgeBeforeDoingCoach($coach));
-        $this->assertStringContainsString($framing, $out);
+        $this->assertStringNotContainsString($framing, $out);
         $this->assertStringContainsString($coach, $out);
         $this->assertStringNotContainsString($bridgeBefore, $out);
     }

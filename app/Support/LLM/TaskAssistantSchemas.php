@@ -211,13 +211,13 @@ final class TaskAssistantSchemas
                 ),
                 new StringSchema(
                     name: 'doing_progress_coach',
-                    description: 'When DOING_COACH_REQUIRED is true: one short warm paragraph (generic motivation only—no quoted titles). Must NOT name any title from ITEMS_JSON; ranked rows are not Doing tasks. When DOING_COACH_REQUIRED is false: must be null.',
+                    description: 'When DOING_COACH_REQUIRED is true: one short warm paragraph for in-progress momentum that may reference the in-progress titles shown in the UI (DOING_TITLES_FOR_UI). Must NOT name or quote any title from ITEMS_JSON (ranked To Do rows). When DOING_COACH_REQUIRED is false: must be null.',
                     nullable: true
                 ),
                 new StringSchema(
                     name: 'framing',
-                    description: 'Required: short intro only—natural coach voice (I recommend, I suggest, Let\'s—vary phrasing). Usually 1–3 sentences. When DOING_COACH_REQUIRED is true and LISTED_ITEM_COUNT >= 1, do NOT name or quote any ITEMS_JSON title in framing—orient to in-progress work; top-row explanation belongs in reasoning (after filter, before next_options). Because framing appears before the app renders the numbered ITEMS_JSON list, avoid vague deixis like "starting with this/these" that implies the top-ranked row is already visible—server-side cleanup may strip it. Do not restate the same stress/quiz-prep beat as acknowledgment; keep framing a short handoff. Illegal text may be sanitized server-side. When DOING_COACH_REQUIRED is false and LISTED_ITEM_COUNT >= 1, keep framing light—save "why row #1 is first" for reasoning. One practical tip allowed here OR reserve the main micro-step for reasoning—do not repeat the same overdue/complex/status points later. Never say the student "found" or "discovered" tasks. Use "your" attention/focus, not "our". When LISTED_ITEM_COUNT is 1, singular grammar for that row where you mention it. Do not invent due dates or reorder items. Avoid brochure openers and "I reviewed your list" claims.',
-                    nullable: false
+                    description: 'Optional (nullable): short intro only—natural coach voice (I recommend, I suggest, Let\'s—vary phrasing). Usually 1–3 sentences. When DOING_COACH_REQUIRED is true, framing should be omitted/nullable because the unified doing_progress_coach paragraph is the first in the message. When DOING_COACH_REQUIRED is false and LISTED_ITEM_COUNT >= 1, keep framing light—save "why row #1 is first" for reasoning. Do not invent due dates or reorder items.',
+                    nullable: true
                 ),
                 new StringSchema(
                     name: 'next_options',
@@ -237,7 +237,6 @@ final class TaskAssistantSchemas
                 ),
             ],
             requiredFields: [
-                'framing',
                 'next_options',
                 'next_options_chip_texts',
                 'reasoning',
