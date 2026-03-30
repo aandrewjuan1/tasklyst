@@ -34,7 +34,7 @@ it('seeds brightspace tasks chores extra tasks and events for the demo user', fu
     $brightspaceTasks->each(function (Task $task): void {
         expect($task->source_type)->toBe(TaskSourceType::Brightspace);
         expect($task->calendar_feed_id)->toBeNull();
-        expect($task->source_url)->toBeNull();
+        expect($task->source_url)->toBe(StudentLifeSampleSeeder::BRIGHTSPACE_PLACEHOLDER_SOURCE_URL);
     });
 
     $recurringChoreTasks = Task::query()
