@@ -26,6 +26,8 @@ class StudentLifeSampleSeeder extends Seeder
 
     private const DUE_DATE_FLOOR = '2026-04-10';
 
+    public const BRIGHTSPACE_PLACEHOLDER_SOURCE_URL = 'https://eac.brightspace.com/d2l/lms/dropbox/user/folder_submit_files.d2l?db=220208&grpid=0&isprv=0&bp=0&ou=112348';
+
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -591,7 +593,7 @@ class StudentLifeSampleSeeder extends Seeder
                 'complexity' => TaskComplexity::from($spec['complexity']),
                 'source_type' => TaskSourceType::Brightspace,
                 'source_id' => $spec['source_id'],
-                'source_url' => null,
+                'source_url' => self::BRIGHTSPACE_PLACEHOLDER_SOURCE_URL,
                 'duration' => $spec['duration'],
                 'start_datetime' => $start,
                 'end_datetime' => $end,

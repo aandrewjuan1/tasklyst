@@ -99,6 +99,15 @@
     $canEditRecurrence = $currentUserIsOwner && $canEdit;
     $canEditDates = $currentUserIsOwner && $canEdit;
     $canEditTags = $currentUserIsOwner && $canEdit;
+
+    $subjectDisplay = trim((string) ($item->subject_name ?? ''));
+    $teacherDisplay = trim((string) ($item->teacher_name ?? ''));
+    $showCourseContextPill = $subjectDisplay !== '' || $teacherDisplay !== '';
+    $courseContextTooltip = collect([$subjectDisplay, $teacherDisplay])
+        ->filter(fn (string $v): bool => $v !== '')
+        ->implode(' · ');
+    $courseContextPillCompactLine = \App\Support\CourseContextPillFormatter::compactLine($subjectDisplay, $teacherDisplay)
+        ?? '';
 @endphp
 
 <div
@@ -838,7 +847,22 @@
     @endunless
 </div>
 
-@unless(($layout ?? 'list') === 'kanban')
+<div class="flex flex-wrap items-center gap-2">
+    @if($showCourseContextPill)
+        <flux:tooltip content="{{ $courseContextTooltip }}" position="top" align="start">
+            <span
+                tabindex="0"
+                class="inline-flex cursor-default items-start gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+                <flux:icon name="book-open" class="size-3 shrink-0 mt-0.5" />
+                <span class="max-w-[220px] truncate text-[10px] font-semibold uppercase leading-tight">
+                    {{ $courseContextPillCompactLine }}
+                </span>
+            </span>
+        </flux:tooltip>
+    @endif
+
+    @unless(($layout ?? 'list') === 'kanban')
     @if($canEdit)
         <x-workspace.project-parent-popover
             :task-id="$item->id"
@@ -924,7 +948,8 @@
             </span>
         </span>
     @endif
-@endunless
+    @endunless
+</div>
 
 @php
     $sourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
