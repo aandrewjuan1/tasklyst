@@ -2,7 +2,9 @@
 
 use App\Models\Task;
 use App\Models\User;
+use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
+use Carbon\CarbonImmutable;
 
 it('applies priority filters within target_entities task slice', function (): void {
     $generator = app(TaskAssistantStructuredFlowGenerator::class);
@@ -118,7 +120,7 @@ it('merges missing target task ids from the database into the contextual snapsho
     expect($ids)->toContain($missing->id);
 });
 
-it('chunks a long task and spills remaining units to the next day inside the evening band', function (): void {
+it('schedules a task atomically when duration fits the window', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 5,
         'task-assistant.schedule.chunking' => [
@@ -147,7 +149,7 @@ it('chunks a long task and spills remaining units to the next day inside the eve
                 'id' => 42,
                 'title' => 'Deep work project',
                 'priority' => 'medium',
-                'duration_minutes' => 300,
+                'duration_minutes' => 240,
                 'ends_at' => null,
                 'is_recurring' => false,
             ],
@@ -163,11 +165,12 @@ it('chunks a long task and spills remaining units to the next day inside the eve
 
     [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
 
-    expect(count($proposals))->toBe(4);
-    expect(count($digest['days_used'] ?? []))->toBe(2);
+    expect(count($proposals))->toBe(1);
+    expect(count($digest['days_used'] ?? []))->toBe(1);
     expect($proposals[0]['schedule_apply_as'] ?? null)->toBe('update_task');
-    expect($proposals[1]['schedule_apply_as'] ?? null)->toBe('create_event');
-    expect(($proposals[1]['apply_payload']['tool'] ?? ''))->toBe('create_event');
+    expect((int) ($proposals[0]['duration_minutes'] ?? 0))->toBe(240);
+    expect((string) ($proposals[0]['title'] ?? ''))->not->toContain('(part');
+    expect(is_array($digest['unplaced_units'] ?? null) ? count($digest['unplaced_units']) : 0)->toBe(0);
 });
 
 it('records unplaced units when proposal count_limit is reached', function (): void {
@@ -197,9 +200,25 @@ it('records unplaced units when proposal count_limit is reached', function (): v
         'tasks' => [
             [
                 'id' => 7,
-                'title' => 'Huge task',
+                'title' => 'Task 1',
                 'priority' => 'high',
-                'duration_minutes' => 400,
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 8,
+                'title' => 'Task 2',
+                'priority' => 'high',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 9,
+                'title' => 'Task 3',
+                'priority' => 'high',
+                'duration_minutes' => 60,
                 'ends_at' => null,
                 'is_recurring' => false,
             ],
@@ -284,4 +303,151 @@ it('still subtracts calendar busy from events_for_busy for task-only targets', f
     expect($proposals)->not->toBe([]);
     $firstStart = (string) ($proposals[0]['start_datetime'] ?? '');
     expect($firstStart)->toContain('2026-03-31');
+});
+
+it('orders scheduling candidates by prioritizeFocus ranking', function (): void {
+    CarbonImmutable::setTestNow('2026-03-30T10:00:00+00:00');
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $prioritization = app(TaskPrioritizationService::class);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '00:00', 'end' => '23:59:59'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Overdue task',
+                'priority' => 'medium',
+                'duration_minutes' => 30,
+                'ends_at' => '2026-03-29T12:00:00+00:00',
+                'is_recurring' => false,
+                'status' => null,
+            ],
+            [
+                'id' => 2,
+                'title' => 'Due later (urgent)',
+                'priority' => 'urgent',
+                'duration_minutes' => 30,
+                'ends_at' => '2026-03-30T20:00:00+00:00',
+                'is_recurring' => false,
+                'status' => null,
+            ],
+            [
+                'id' => 3,
+                'title' => 'No due date (low)',
+                'priority' => 'low',
+                'duration_minutes' => 30,
+                'ends_at' => null,
+                'is_recurring' => false,
+                'status' => null,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = [
+        'intent_type' => 'general',
+        'priority_filters' => [],
+        'task_keywords' => [],
+        'time_constraint' => 'none',
+        'comparison_focus' => null,
+        'recurring_requested' => false,
+        'domain_focus' => null,
+        'entity_type_preference' => 'task',
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+    ];
+
+    $ranked = $prioritization->prioritizeFocus($snapshot, $context);
+    $expectedTopId = (int) ($ranked[0]['id'] ?? 0);
+    expect($expectedTopId)->toBeGreaterThan(0);
+
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 10);
+
+    $proposals = $out[0];
+    expect($proposals)->not->toBe([]);
+    expect($proposals[0]['entity_type'] ?? null)->toBe('task');
+    expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe($expectedTopId);
+});
+
+it('reserves proportional gaps between placed blocks (no trailing gap after count_limit)', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 3,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '00:00', 'end' => '23:59:59'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Task A',
+                'priority' => 'medium',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 2,
+                'title' => 'Task B',
+                'priority' => 'medium',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 3,
+                'title' => 'Task C',
+                'priority' => 'medium',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 3);
+
+    $proposals = $out[0];
+    expect(count($proposals))->toBe(3);
+
+    $gapMinutes = 15; // <=60 minutes => 15 minutes (per generator mapping)
+
+    $end0 = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
+    $start1 = new DateTimeImmutable((string) ($proposals[1]['start_datetime'] ?? ''));
+    expect($start1->getTimestamp())->toBe($end0->getTimestamp() + ($gapMinutes * 60));
+
+    $end1 = new DateTimeImmutable((string) ($proposals[1]['end_datetime'] ?? ''));
+    $start2 = new DateTimeImmutable((string) ($proposals[2]['start_datetime'] ?? ''));
+    expect($start2->getTimestamp())->toBe($end1->getTimestamp() + ($gapMinutes * 60));
 });

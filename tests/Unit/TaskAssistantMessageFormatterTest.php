@@ -455,10 +455,57 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('(task', $out);
         $this->assertStringContainsString('Here is a focused plan for this window.', $out);
         $this->assertStringContainsString('Practice coding interview problems', $out);
-        $this->assertStringContainsString('6:00 PM–7:30 PM', $out);
+        $this->assertStringContainsString('Mar 22, 2026 · 6:00 PM–7:30 PM', $out);
         $this->assertStringContainsString('Accept all', $out);
         $this->assertStringContainsString('say what you need in chat', $out);
         $this->assertStringContainsString('Does this evening block work', $out);
+    }
+
+    public function test_daily_schedule_digest_note_mentions_count_limit_reason_instead_of_planning_horizon(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is what I scheduled.',
+            'reasoning' => 'Because these were the best-fitting blocks.',
+            'confirmation' => 'Does this look okay to you?',
+            'blocks' => [],
+            'items' => [],
+            'proposals' => [
+                [
+                    'proposal_id' => 'p1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 29,
+                    'title' => 'Some task',
+                    'start_datetime' => '2026-03-22T18:00:00+00:00',
+                    'end_datetime' => '2026-03-22T19:00:00+00:00',
+                    'duration_minutes' => 60,
+                ],
+            ],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => false,
+            'placement_digest' => [
+                'placement_dates' => ['2026-03-22'],
+                'days_used' => ['2026-03-22'],
+                'skipped_targets' => [],
+                'unplaced_units' => [
+                    [
+                        'entity_type' => 'task',
+                        'entity_id' => 99,
+                        'title' => 'Unplaced',
+                        'minutes' => 30,
+                        'reason' => 'count_limit',
+                    ],
+                ],
+                'summary' => 'placed_proposals=1 days_used=1 unplaced_units=1',
+            ],
+        ]);
+
+        $this->assertStringContainsString(
+            'I scheduled only up to the maximum number of items for this step',
+            $out
+        );
+        $this->assertStringNotContainsString('planning horizon or row limit', $out);
+        $this->assertStringNotContainsString('planning horizon', $out);
     }
 
     public function test_general_guidance_uses_next_options_as_closing_paragraph_when_present(): void

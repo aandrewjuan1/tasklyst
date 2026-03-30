@@ -212,7 +212,9 @@ test('policy routing resolves multiturn target entities and constraints', functi
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those 2 in the afternoon');
 
-    expect($decision->constraints['count_limit'])->toBe(2);
+    // If fewer targets exist than requested, we align how many items we schedule
+    // with the resolved target entities set (count_limit never exceeds target_entities length).
+    expect($decision->constraints['count_limit'])->toBe(1);
     expect($decision->constraints['time_window_hint'])->toBe('later_afternoon');
     expect($decision->constraints['target_entities'])->toHaveCount(1);
 });
@@ -305,4 +307,59 @@ test('after schedule, those/them resolve against last_schedule target_entities',
     expect($decision->constraints['target_entities'])->toHaveCount(2);
     expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(200);
     expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(201);
+});
+
+test('schedule those in the afternoon schedules all resolved targets by default', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 101, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 102, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 103, 'title' => 'C'],
+            ['entity_type' => 'task', 'entity_id' => 104, 'title' => 'D'],
+            ['entity_type' => 'task', 'entity_id' => 105, 'title' => 'E'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those in the afternoon');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['time_window_hint'])->toBe('later_afternoon');
+    expect($decision->constraints['target_entities'])->toHaveCount(5);
+    expect($decision->constraints['count_limit'])->toBe(5);
+});
+
+test('schedule 1 and 2 for later afternoon resolves numeric index targets', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 201, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 202, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 203, 'title' => 'C'],
+            ['entity_type' => 'task', 'entity_id' => 204, 'title' => 'D'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule 1 and 2 for later afternoon');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['time_window_hint'])->toBe('later_afternoon');
+    expect($decision->constraints['target_entities'])->toHaveCount(2);
+    expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(201);
+    expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(202);
+    expect($decision->constraints['count_limit'])->toBe(2);
 });

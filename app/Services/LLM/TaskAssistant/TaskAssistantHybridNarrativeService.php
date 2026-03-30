@@ -555,6 +555,36 @@ final class TaskAssistantHybridNarrativeService
 
         $durationPart = $durationMinutes !== null ? ' for '.$durationMinutes.' minutes' : '';
 
+        // UX heuristic: if the first planned block dominates the total planned minutes,
+        // explain that it’s the "main chunk" of the window. Avoid mentioning exact minutes/times.
+        $firstBlockMinutes = null;
+        foreach ($blocks as $b) {
+            $startTime = trim((string) ($b['start_time'] ?? ''));
+            $endTime = trim((string) ($b['end_time'] ?? ''));
+            if ($startTime === '' || $endTime === '') {
+                continue;
+            }
+
+            $startM = $this->timeToMinutes($startTime);
+            $endM = $this->timeToMinutes($endTime);
+            if ($startM === null || $endM === null) {
+                continue;
+            }
+
+            $endAdj = $endM >= $startM ? $endM : $endM + 1440;
+            $firstBlockMinutes = max(0, $endAdj - $startM);
+            break;
+        }
+
+        $longFirstBlockNote = '';
+        if (count($blocks) >= 2
+            && $firstBlockMinutes !== null
+            && $sumMinutes > 0
+            && $firstBlockMinutes >= (int) ceil($sumMinutes * 0.65)
+        ) {
+            $longFirstBlockNote = ' Since your first planned block is the main chunk of the window, it helps you focus first and then keep the later blocks smaller and easier to start.';
+        }
+
         $summary = $deterministicSummary;
         if ($timeRange !== '') {
             $summary = "For best results, set aside{$durationPart} in the {$windowPhrase} ({$timeRange}) for {$taskLabel}.";
@@ -563,6 +593,8 @@ final class TaskAssistantHybridNarrativeService
         $reasoning = $timeRange !== ''
             ? "During your {$windowPhrase}, the plan schedules {$taskLabel} in the {$timeRange} block so you can stay focused without bouncing between tasks."
             : 'This schedule sets aside focused time for your selected task so it fits your requested window.';
+
+        $reasoning .= $longFirstBlockNote;
 
         $assistantNote = $timeRange !== ''
             ? "When you're ready, start with the first planned block and keep distractions low."
@@ -784,7 +816,7 @@ TXT;
 
         $dueTimeSafetyBlock = $emptyRankedSlice
             ? 'DUE-TIME SAFETY: If ITEMS_JSON is empty, do not claim due dates for ranked tasks. '
-            : 'DUE-TIME SAFETY: Do not paraphrase due-time. If you mention "due today", "due tomorrow", "overdue", or "due this week", it MUST match the exact wording present in at least one items[].due_phrase. Never mention due-time phrasing that is not present in items due_phrase values. ';
+            : 'DUE-TIME SAFETY: Do not paraphrase due-time. If you mention "due today", "due tomorrow", "overdue", "due this week", or "due later", it MUST match the exact wording present in at least one items[].due_phrase. Never mention due-time phrasing that is not present in items due_phrase values. ';
 
         $listingIntro = $emptyRankedSlice
             ? 'ITEMS_JSON may be empty. There are no ranked rows to reorder. Write the user-facing narrative fields (including doing_progress_coach when required). '
@@ -1005,6 +1037,11 @@ TXT;
 
         // Safety net against LLM due-date drift (e.g. "tomorrow" vs items[].due_phrase="due today").
         $allowedDuePhrases = $this->extractTaskDuePhrases($cleanItems);
+        // Also enforce the due-time safety on reasoning so we don't end up with generic "due later" copy
+        // after the model sees a concrete due date in items[].due_phrase/due_on.
+        if ($reasoning !== null && trim((string) $reasoning) !== '' && $this->hasConflictingDueTiming((string) $reasoning, $allowedDuePhrases)) {
+            $reasoning = PrioritizeNarrativeConnectionFallback::reasoning($cleanItems);
+        }
         $framing = $this->rewriteFramingWhenDueSoonConflictsWithOverdue((string) $framing, $cleanItems);
         $framingConflict = $this->hasConflictingDueTiming((string) $framing, $allowedDuePhrases);
         if ($framingConflict) {
@@ -1333,6 +1370,7 @@ TXT;
             'due today',
             'due yesterday',
             'due this week',
+            'due later',
             'overdue',
         ];
 

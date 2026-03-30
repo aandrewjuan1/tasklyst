@@ -27,6 +27,8 @@ final class TaskAssistantScheduleContextBuilder
      *   priority_filters: list<string>,
      *   task_keywords: list<string>,
      *   time_constraint: string,
+     *   domain_focus: 'school'|'chores'|null,
+     *   entity_type_preference: 'task'|'event'|'project'|'mixed',
      *   comparison_focus: string|null,
      *   recurring_requested: bool,
      *   schedule_horizon: array{
@@ -65,6 +67,8 @@ final class TaskAssistantScheduleContextBuilder
      *   priority_filters: list<string>,
      *   task_keywords: list<string>,
      *   time_constraint: string,
+     *   domain_focus: 'school'|'chores'|null,
+     *   entity_type_preference: 'task'|'event'|'project'|'mixed',
      *   comparison_focus: string|null,
      *   recurring_requested: bool
      * }
@@ -91,11 +95,19 @@ final class TaskAssistantScheduleContextBuilder
             $timeConstraint = 'this_week';
         }
 
+        $domainFocus = $extracted['domain_focus'] ?? null;
+        $entityTypePreference = (string) ($extracted['entity_type_preference'] ?? 'mixed');
+        if (! in_array($entityTypePreference, ['task', 'event', 'project', 'mixed'], true)) {
+            $entityTypePreference = 'mixed';
+        }
+
         return [
             'intent_type' => $intentType,
             'priority_filters' => array_values(array_unique($extracted['priority_filters'] ?? [])),
             'task_keywords' => array_values(array_unique($extracted['task_keywords'] ?? [])),
             'time_constraint' => $timeConstraint,
+            'domain_focus' => is_string($domainFocus) ? $domainFocus : null,
+            'entity_type_preference' => $entityTypePreference,
             'comparison_focus' => $comparisonFocus,
             'recurring_requested' => (bool) ($extracted['recurring_requested'] ?? false),
         ];

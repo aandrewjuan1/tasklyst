@@ -4,9 +4,9 @@ namespace App\Services\LLM\Scheduling;
 
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
-use App\Services\LLM\TaskAssistant\TaskAssistantSnapshotService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -16,8 +16,9 @@ final class TaskAssistantStructuredFlowGenerator
 {
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
-        private readonly TaskAssistantSnapshotService $snapshotService,
+        private readonly TaskAssistantScheduleDbContextBuilder $dbContextBuilder,
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
+        private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
         private readonly ScheduleTaskChunkingService $chunkingService,
     ) {}
@@ -37,7 +38,9 @@ final class TaskAssistantStructuredFlowGenerator
         $runId = app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null;
 
         $promptData = $this->promptData->forUser($user);
-        $snapshot = $this->snapshotService->buildForUser($user);
+        $built = $this->dbContextBuilder->buildForUser($user, $userMessageContent, $options);
+        $context = $built['context'];
+        $snapshot = $built['snapshot'];
 
         Log::info('task-assistant.snapshot', [
             'layer' => 'structured_generation',
@@ -50,8 +53,6 @@ final class TaskAssistantStructuredFlowGenerator
             'user_message_length' => mb_strlen($userMessageContent),
             'history_messages_count' => $historyMessages->count(),
         ]);
-
-        $context = $this->scheduleContextBuilder->build($userMessageContent, $snapshot);
 
         $contextualSnapshot = $this->applyContextToSnapshot($snapshot, $context, $options);
         $promptData['snapshot'] = $contextualSnapshot;
@@ -547,11 +548,6 @@ final class TaskAssistantStructuredFlowGenerator
         return $contextualSnapshot;
     }
 
-    /**
-     * Chunk long tasks, respect calendar busy, spill across days inside the placement horizon.
-     *
-     * @return array{0: array<int, array<string, mixed>>, 1: array<string, mixed>}
-     */
     private function generateProposalsChunkedSpill(array $snapshot, array $context, int $countLimit): array
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
@@ -569,7 +565,7 @@ final class TaskAssistantStructuredFlowGenerator
             $windowsByDay[$day] = $this->buildFreeWindows($busyRanges, $dayStart, $dayEnd);
         }
 
-        $candidates = $this->buildSchedulingCandidates($snapshot);
+        $candidates = $this->buildSchedulingCandidates($snapshot, $context);
         usort($candidates, fn (array $a, array $b): int => ($b['score'] <=> $a['score']));
 
         $units = $this->expandCandidatesToSchedulingUnits($candidates);
@@ -586,21 +582,22 @@ final class TaskAssistantStructuredFlowGenerator
         ];
 
         $proposals = [];
+        $totalUnits = count($units);
         /** @var array<int, int> $taskPlacedChunks */
         $taskPlacedChunks = [];
 
         $anchorDay = $placementDates[0] ?? (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $anchorStart = new \DateTimeImmutable($anchorDay.' '.$windowStart, $timezone);
 
-        foreach ($units as $unit) {
+        foreach ($units as $unitIndex => $unit) {
             if (count($proposals) >= $countLimit) {
                 $digest['unplaced_units'][] = [
                     'entity_type' => $unit['entity_type'],
                     'entity_id' => $unit['entity_id'],
                     'title' => $unit['title'],
                     'minutes' => $unit['minutes'],
-                    'chunk_index' => $unit['chunk_index'],
-                    'chunk_total' => $unit['chunk_total'],
+                    'chunk_index' => $unit['chunk_index'] ?? null,
+                    'chunk_total' => $unit['chunk_total'] ?? null,
                     'reason' => 'count_limit',
                 ];
 
@@ -610,19 +607,31 @@ final class TaskAssistantStructuredFlowGenerator
             $placed = false;
             foreach ($placementDates as $day) {
                 $freeWindows = $windowsByDay[$day] ?? [];
-                $fitted = $this->findFirstFittingWindow($freeWindows, $unit['minutes']);
+                $blockMinutes = max(1, (int) ($unit['minutes'] ?? 30));
+                $proposalsCountAfterPlacement = count($proposals) + 1;
+                // If we still need to place more items after this one, reserve a gap
+                // so the next block doesn't feel back-to-back.
+                $hasMoreUnitsAfterThis = $unitIndex < ($totalUnits - 1);
+                $gapMinutes = $hasMoreUnitsAfterThis
+                    && $proposalsCountAfterPlacement < $countLimit
+                    ? $this->computeBetweenBlockGapMinutes($blockMinutes)
+                    : 0;
+                $requiredMinutes = $blockMinutes + $gapMinutes;
+
+                $fitted = $this->findFirstFittingWindow($freeWindows, $requiredMinutes);
                 if ($fitted === null) {
                     continue;
                 }
 
                 [$windowIndex, $startAt] = $fitted;
-                $endAt = $startAt->modify("+{$unit['minutes']} minutes");
+                $blockEndAt = $startAt->modify("+{$blockMinutes} minutes");
+                $consumeEndAt = $gapMinutes > 0 ? $blockEndAt->modify("+{$gapMinutes} minutes") : $blockEndAt;
                 $candidate = [
                     'entity_type' => $unit['entity_type'],
                     'entity_id' => $unit['entity_id'],
                     'title' => $unit['title'],
                     'score' => $unit['score'],
-                    'duration_minutes' => $unit['minutes'],
+                    'duration_minutes' => $blockMinutes,
                     'chunk_index' => $unit['chunk_index'],
                     'chunk_total' => $unit['chunk_total'],
                 ];
@@ -634,8 +643,8 @@ final class TaskAssistantStructuredFlowGenerator
                     $taskPlacedChunks[$tid] = $prior + 1;
                 }
 
-                $proposals[] = $this->makeProposal($candidate, $startAt, $endAt, $unit['minutes']);
-                $windowsByDay[$day] = $this->consumeWindow($freeWindows, $windowIndex, $startAt, $endAt);
+                $proposals[] = $this->makeProposal($candidate, $startAt, $blockEndAt, $blockMinutes);
+                $windowsByDay[$day] = $this->consumeWindow($freeWindows, $windowIndex, $startAt, $consumeEndAt);
 
                 if (! in_array($day, $digest['days_used'], true)) {
                     $digest['days_used'][] = $day;
@@ -651,8 +660,8 @@ final class TaskAssistantStructuredFlowGenerator
                     'entity_id' => $unit['entity_id'],
                     'title' => $unit['title'],
                     'minutes' => $unit['minutes'],
-                    'chunk_index' => $unit['chunk_index'],
-                    'chunk_total' => $unit['chunk_total'],
+                    'chunk_index' => $unit['chunk_index'] ?? null,
+                    'chunk_total' => $unit['chunk_total'] ?? null,
                     'reason' => 'horizon_exhausted',
                 ];
             }
@@ -710,36 +719,24 @@ final class TaskAssistantStructuredFlowGenerator
         return $out !== [] ? $out : [$fallbackDay];
     }
 
-    /**
-     * @param  array<int, array<string, mixed>>  $candidates
-     * @return list<array<string, mixed>>
-     */
     private function expandCandidatesToSchedulingUnits(array $candidates): array
     {
         $units = [];
         foreach ($candidates as $order => $candidate) {
             if (($candidate['entity_type'] ?? '') === 'task') {
-                $chunks = $this->chunkingService->chunkTaskMinutes((int) ($candidate['duration_minutes'] ?? 60));
-                if ($chunks === []) {
-                    continue;
-                }
-                $total = count($chunks);
-                foreach ($chunks as $ci => $mins) {
-                    $title = (string) ($candidate['title'] ?? 'Task');
-                    if ($total > 1) {
-                        $title .= ' (part '.($ci + 1).'/'.$total.')';
-                    }
-                    $units[] = [
-                        'entity_type' => 'task',
-                        'entity_id' => (int) ($candidate['entity_id'] ?? 0),
-                        'title' => $title,
-                        'score' => (int) ($candidate['score'] ?? 0),
-                        'minutes' => $mins,
-                        'candidate_order' => $order,
-                        'chunk_index' => $ci,
-                        'chunk_total' => $total,
-                    ];
-                }
+                // Atomic scheduling: respect the chosen duration as a single block.
+                $mins = max(1, (int) ($candidate['duration_minutes'] ?? 60));
+                $units[] = [
+                    'entity_type' => 'task',
+                    'entity_id' => (int) ($candidate['entity_id'] ?? 0),
+                    'title' => (string) ($candidate['title'] ?? 'Task'),
+                    'score' => (int) ($candidate['score'] ?? 0),
+                    'minutes' => $mins,
+                    'candidate_order' => $order,
+                    // Non-meaningful after atomic scheduling; kept for stable schema/validation.
+                    'chunk_index' => null,
+                    'chunk_total' => null,
+                ];
 
                 continue;
             }
@@ -751,8 +748,9 @@ final class TaskAssistantStructuredFlowGenerator
                 'score' => (int) ($candidate['score'] ?? 0),
                 'minutes' => max(1, (int) ($candidate['duration_minutes'] ?? 30)),
                 'candidate_order' => $order,
-                'chunk_index' => 0,
-                'chunk_total' => 1,
+                // Non-task items are also atomic units in terms of placement.
+                'chunk_index' => null,
+                'chunk_total' => null,
             ];
         }
 
@@ -987,77 +985,124 @@ final class TaskAssistantStructuredFlowGenerator
         return $d > 0 ? $d : 60;
     }
 
-    private function buildSchedulingCandidates(array $snapshot): array
+    private function buildSchedulingCandidates(array $snapshot, array $context): array
     {
-        $priorityScore = ['urgent' => 100, 'high' => 70, 'medium' => 40, 'low' => 15];
+        $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
         $candidates = [];
 
-        foreach (($snapshot['tasks'] ?? []) as $task) {
-            if (! is_array($task) || ! isset($task['id'])) {
-                continue;
-            }
-            if (trim((string) ($task['title'] ?? '')) === '') {
-                continue;
-            }
-
-            $score = $priorityScore[strtolower((string) ($task['priority'] ?? 'medium'))] ?? 30;
-            if (is_string($task['ends_at'] ?? null) && $task['ends_at'] !== '') {
-                $score += 20;
-            }
-
-            $candidates[] = [
-                'entity_type' => 'task',
-                'entity_id' => (int) $task['id'],
-                'title' => (string) ($task['title'] ?? 'Task'),
-                'duration_minutes' => $this->resolveCandidateDurationMinutes($task),
-                'score' => $score,
-            ];
+        if ($ranked === []) {
+            return $candidates;
         }
 
-        foreach (($snapshot['events'] ?? []) as $event) {
-            if (! is_array($event) || ! isset($event['id'])) {
+        $includedIndex = 0;
+        $rankedCount = count($ranked);
+
+        foreach ($ranked as $rankedCandidate) {
+            if (! is_array($rankedCandidate)) {
                 continue;
             }
 
-            if (! empty($event['starts_at']) && ! empty($event['ends_at'])) {
+            $type = (string) ($rankedCandidate['type'] ?? '');
+            $id = (int) ($rankedCandidate['id'] ?? 0);
+            $title = (string) ($rankedCandidate['title'] ?? '');
+
+            if ($id <= 0 || trim($title) === '') {
                 continue;
             }
 
-            $candidates[] = [
-                'entity_type' => 'event',
-                'entity_id' => (int) $event['id'],
-                'title' => (string) ($event['title'] ?? 'Event'),
-                'duration_minutes' => 60,
-                'score' => 50,
-            ];
-        }
+            $score = (int) max(1, $rankedCount - $includedIndex);
 
-        foreach (($snapshot['projects'] ?? []) as $project) {
-            if (! is_array($project) || ! isset($project['id'])) {
+            if ($type === 'task') {
+                $raw = is_array($rankedCandidate['raw'] ?? null) ? $rankedCandidate['raw'] : [];
+                $candidates[] = [
+                    'entity_type' => 'task',
+                    'entity_id' => $id,
+                    'title' => $title,
+                    'duration_minutes' => $this->resolveCandidateDurationMinutes($raw),
+                    'score' => $score,
+                ];
+
+                $includedIndex++;
+
                 continue;
             }
 
-            if (! empty($project['start_at'])) {
+            if ($type === 'event') {
+                $raw = is_array($rankedCandidate['raw'] ?? null) ? $rankedCandidate['raw'] : [];
+                $startsAt = $raw['starts_at'] ?? null;
+                $endsAt = $raw['ends_at'] ?? null;
+
+                // Preserve scheduler membership rule:
+                // - events are schedulable only when they are not already fully timed.
+                if (! empty($startsAt) && ! empty($endsAt)) {
+                    continue;
+                }
+
+                $candidates[] = [
+                    'entity_type' => 'event',
+                    'entity_id' => $id,
+                    'title' => $title,
+                    'duration_minutes' => 60,
+                    'score' => $score,
+                ];
+
+                $includedIndex++;
+
                 continue;
             }
 
-            $candidates[] = [
-                'entity_type' => 'project',
-                'entity_id' => (int) $project['id'],
-                'title' => (string) ($project['name'] ?? 'Project'),
-                'duration_minutes' => 30,
-                'score' => 25,
-            ];
+            if ($type === 'project') {
+                $raw = is_array($rankedCandidate['raw'] ?? null) ? $rankedCandidate['raw'] : [];
+                $startAt = $raw['start_at'] ?? null;
+
+                // Preserve scheduler membership rule:
+                // - projects are schedulable only when they haven't started yet.
+                if (! empty($startAt)) {
+                    continue;
+                }
+
+                $candidates[] = [
+                    'entity_type' => 'project',
+                    'entity_id' => $id,
+                    'title' => $title,
+                    'duration_minutes' => 30,
+                    'score' => $score,
+                ];
+
+                $includedIndex++;
+
+                continue;
+            }
         }
 
         return $candidates;
     }
 
-    private function findFirstFittingWindow(array $windows, int $minutes): ?array
+    private function computeBetweenBlockGapMinutes(int $blockMinutes): int
+    {
+        // Mapping chosen to keep things consistent for the student:
+        // - <=60 min => 15 min
+        // - >=120 min => 30 min
+        // - linear interpolation between 60..120, rounded to nearest integer
+        if ($blockMinutes <= 60) {
+            return 15;
+        }
+
+        if ($blockMinutes >= 120) {
+            return 30;
+        }
+
+        $t = ($blockMinutes - 60) / 60; // 0..1
+        $gap = 15 + ($t * 15); // 15..30
+
+        return max(15, min(30, (int) round($gap)));
+    }
+
+    private function findFirstFittingWindow(array $windows, int $requiredMinutes): ?array
     {
         foreach ($windows as $index => $window) {
             $diff = (int) (($window['end']->getTimestamp() - $window['start']->getTimestamp()) / 60);
-            if ($diff >= $minutes) {
+            if ($diff >= $requiredMinutes) {
                 return [$index, $window['start']];
             }
         }

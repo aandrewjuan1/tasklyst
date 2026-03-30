@@ -13,6 +13,7 @@ use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\Scheduling\ScheduleDraftMutationService;
 use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
+use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use Carbon\CarbonImmutable;
@@ -36,6 +37,7 @@ final class TaskAssistantService
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
         private readonly TaskAssistantSnapshotService $snapshotService,
+        private readonly TaskAssistantScheduleDbContextBuilder $scheduleDbContextBuilder,
         private readonly TaskAssistantStructuredFlowGenerator $structuredFlowGenerator,
         private readonly TaskAssistantFlowExecutionEngine $flowExecutionEngine,
         private readonly TaskAssistantStreamingBroadcaster $streamingBroadcaster,
@@ -852,7 +854,8 @@ final class TaskAssistantService
                 'due_today' => 'due today',
                 'due_tomorrow' => 'due tomorrow',
                 'due_this_week' => 'due this week',
-                'due_later' => 'due later',
+                // UX: be specific so the narrative doesn't fall back to vague "due later".
+                'due_later' => 'due on '.$dueOn,
                 default => 'scheduled',
             };
         }
@@ -1078,8 +1081,7 @@ final class TaskAssistantService
             $workingProposals = $sourceProposals;
         }
 
-        $snapshot = $this->snapshotService->buildForUser($thread->user);
-        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezone = (string) config('app.timezone', 'UTC');
 
         $operations = $this->scheduleRefinementIntentResolver->resolve($content, $workingProposals, $timezone);
         $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
@@ -1095,7 +1097,15 @@ final class TaskAssistantService
         $scheduleOptions = [
             'target_entities' => $targets,
             'time_window_hint' => $plan->timeWindowHint,
+            'schedule_user_id' => $thread->user_id,
         ];
+
+        $dbBuilt = $this->scheduleDbContextBuilder->buildForUser(
+            user: $thread->user,
+            userMessageContent: $content,
+            options: $scheduleOptions,
+        );
+        $snapshot = $dbBuilt['snapshot'];
 
         [$context, $contextualSnapshot] = $this->structuredFlowGenerator->buildSchedulePromptContext(
             $snapshot,

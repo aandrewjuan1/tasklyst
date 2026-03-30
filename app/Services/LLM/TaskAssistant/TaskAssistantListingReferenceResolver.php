@@ -58,6 +58,11 @@ final class TaskAssistantListingReferenceResolver
             return $this->toTargetEntities($items);
         }
 
+        $numericIndices = $this->matchNumericIndices($normalizedMessage, $count);
+        if ($numericIndices !== null) {
+            return $this->sliceEntitiesByIndices($items, $numericIndices);
+        }
+
         return [];
     }
 
@@ -120,5 +125,86 @@ final class TaskAssistantListingReferenceResolver
         }
 
         return null;
+    }
+
+    /**
+     * Interpret explicit numeric index selections (1-based) like:
+     * - "schedule 1 and 2 for later afternoon"
+     * - "schedule #1, #3 for tomorrow"
+     *
+     * Guardrails:
+     * - Avoid interpreting "3pm"/times as indices by requiring an "and"/","/ "or" separator between numbers.
+     * - Requires at least 2 indices to reduce false positives.
+     *
+     * @return list<int>|null
+     */
+    private function matchNumericIndices(string $normalized, int $count): ?array
+    {
+        if ($count < 1) {
+            return null;
+        }
+
+        // Require a separator ("and/or", comma) between numbers to avoid grabbing times.
+        if (preg_match('/(?:#\s*)?\d+\s*(?:,|and|or)\s*(?:#\s*)?\d+/i', $normalized) !== 1) {
+            return null;
+        }
+
+        if (! preg_match('/\b(schedule|task|tasks)\b/i', $normalized) && ! preg_match('/\bfor\b/i', $normalized)) {
+            return null;
+        }
+
+        if (! preg_match_all('/(?:#\s*)?(\d+)\b/', $normalized, $matches)) {
+            return null;
+        }
+
+        $raw = [];
+        foreach ($matches[1] as $m) {
+            $n = (int) $m;
+            if ($n < 1 || $n > $count) {
+                continue;
+            }
+            $raw[] = $n;
+        }
+
+        if ($raw === []) {
+            return null;
+        }
+
+        $unique = [];
+        foreach ($raw as $n) {
+            if (! in_array($n, $unique, true)) {
+                $unique[] = $n;
+            }
+        }
+
+        return count($unique) >= 2 ? $unique : null;
+    }
+
+    /**
+     * Slice listing items by 1-based positions.
+     *
+     * @param  list<array{entity_type: string, entity_id: int, title: string, position: int}>  $items
+     * @param  list<int>  $indices  1-based positions
+     * @return array<int, array{entity_type: string, entity_id: int, title: string}>
+     */
+    private function sliceEntitiesByIndices(array $items, array $indices): array
+    {
+        $out = [];
+
+        foreach ($indices as $index) {
+            $pos = (int) $index - 1;
+            $item = $items[$pos] ?? null;
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $out[] = [
+                'entity_type' => (string) ($item['entity_type'] ?? ''),
+                'entity_id' => (int) ($item['entity_id'] ?? 0),
+                'title' => (string) ($item['title'] ?? ''),
+            ];
+        }
+
+        return $out;
     }
 }

@@ -478,9 +478,22 @@ final class TaskAssistantMessageFormatter
                 $timeEnd = $this->formatHhmmLabel($end);
                 $time = ($timeStart !== '' && $timeEnd !== '') ? $timeStart.'–'.$timeEnd : '';
 
-                $line = $time !== ''
-                    ? '• '.$title.' — '.$time.$durPart
-                    : '• '.$title.$durPart;
+                $startDatetime = (string) ($item['start_datetime'] ?? '');
+                $endDatetime = (string) ($item['end_datetime'] ?? '');
+                $dateLabel = $this->formatDateLabel($startDatetime);
+                if ($dateLabel === '' && $endDatetime !== '') {
+                    $dateLabel = $this->formatDateLabel($endDatetime);
+                }
+
+                if ($dateLabel !== '' && $time !== '') {
+                    $line = '• '.$title.' — '.$dateLabel.' · '.$time.$durPart;
+                } elseif ($time !== '') {
+                    $line = '• '.$title.' — '.$time.$durPart;
+                } elseif ($dateLabel !== '') {
+                    $line = '• '.$title.' — '.$dateLabel.$durPart;
+                } else {
+                    $line = '• '.$title.$durPart;
+                }
                 $lines[] = $line;
             }
             if ($lines !== []) {
@@ -529,7 +542,29 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($unplaced !== []) {
-            $parts[] = 'One or more segments did not fit before the planning horizon or row limit; you can ask for a wider window or fewer items.';
+            $reasons = [];
+            foreach ($unplaced as $u) {
+                if (! is_array($u)) {
+                    continue;
+                }
+                $r = (string) ($u['reason'] ?? '');
+                if ($r !== '') {
+                    $reasons[] = $r;
+                }
+            }
+            $reasons = array_values(array_unique($reasons));
+
+            $hasCountLimit = in_array('count_limit', $reasons, true);
+            $hasHorizonExhausted = in_array('horizon_exhausted', $reasons, true);
+
+            if ($hasCountLimit && ! $hasHorizonExhausted) {
+                $parts[] = 'I scheduled only up to the maximum number of items for this step; ask me to schedule the remaining ones too.';
+            } else {
+                if ($hasCountLimit) {
+                    $parts[] = 'I scheduled only up to the maximum number of items for this step.';
+                }
+                $parts[] = 'One or more segments did not fit before the planning horizon; you can ask for a wider window or fewer items.';
+            }
         }
 
         if ($skipped !== []) {
@@ -541,6 +576,20 @@ final class TaskAssistantMessageFormatter
         }
 
         return implode(' ', $parts);
+    }
+
+    private function formatDateLabel(string $datetime): string
+    {
+        $value = trim($datetime);
+        if ($value === '') {
+            return '';
+        }
+
+        try {
+            return (new \DateTimeImmutable($value))->format('M j, Y');
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     private function formatHhmmLabel(string $hhmm): string

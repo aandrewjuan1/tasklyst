@@ -471,6 +471,60 @@ test('refinePrioritizeListing removes conflicting due timing from framing', func
     expect($result['framing'])->not->toContain('tomorrow');
 });
 
+test('refinePrioritizeListing removes conflicting due timing from reasoning', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your slice.',
+                'acknowledgment' => null,
+                'reasoning' => 'The notes are due later, so you can take your time.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Reading',
+            'priority' => 'medium',
+            'due_phrase' => 'due on Apr 10, 2026',
+            'due_on' => 'Apr 10, 2026',
+            'complexity_label' => 'Simple',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-30',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'One task.',
+        filterContextForPrompt: 'no strong filters',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['reasoning'])->not->toContain('due later');
+    expect($result['reasoning'])->toContain('due on Apr 10, 2026');
+});
+
 test('refinePrioritizeListing replaces due soon framing with singular overdue opener when one task is overdue', function (): void {
     Prism::fake([
         StructuredResponseFake::make()

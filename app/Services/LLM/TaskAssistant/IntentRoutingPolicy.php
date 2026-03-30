@@ -224,8 +224,16 @@ final class IntentRoutingPolicy
             $targetEntities = $selected;
         }
 
+        $countLimit = $this->extractCountLimit($normalized);
+        // If we resolved explicit schedule targets from the user's last ordered listing
+        // ("those/the above"/sliced subsets), align how many we schedule with that resolved set.
+        // This prevents unintentionally truncating the user's requested batch size.
+        if ($resolvedFlow === 'schedule' && $targetEntities !== []) {
+            $countLimit = max(1, count($targetEntities));
+        }
+
         return [
-            'count_limit' => $this->extractCountLimit($normalized),
+            'count_limit' => $countLimit,
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
             'target_entities' => $targetEntities,
         ];

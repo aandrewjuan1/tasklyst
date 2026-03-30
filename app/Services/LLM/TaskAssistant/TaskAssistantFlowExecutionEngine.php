@@ -2,8 +2,12 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Task;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Models\User;
 use Illuminate\Support\Facades\Log;
 
 final class TaskAssistantFlowExecutionEngine
@@ -75,13 +79,10 @@ final class TaskAssistantFlowExecutionEngine
             ];
         }
 
-        $snapshot = $this->snapshotService->buildForUser($thread->user);
-
         $payload = $generationResult['data'] ?? [];
+        $snapshot = $this->buildSnapshotForFlow($flow, $thread->user, $payload);
         if ($flow === 'daily_schedule' && is_array($payload['proposals'] ?? null)) {
-            /** @var array<int, array<string, mixed>> $scheduleProposals */
-            $scheduleProposals = $payload['proposals'];
-            $snapshot = $this->snapshotService->withTasksFromProposals($thread->user, $snapshot, $scheduleProposals);
+            // Snapshot is already built for validation in buildSnapshotForFlow().
         }
 
         $toolCalls = $generationResult['tool_calls'] ?? [];
@@ -175,6 +176,100 @@ final class TaskAssistantFlowExecutionEngine
             'merged_errors' => $mergedErrors,
             'processed_valid' => $processedValid,
             'processed_errors' => $processedResponse['errors'] ?? [],
+        ];
+    }
+
+    /**
+     * Build the validation snapshot used by TaskAssistantResponseProcessor.
+     *
+     * For `daily_schedule` we must not rely on a limited assistant snapshot payload.
+     * Instead we build allowed-ID lists directly from the proposals and verify
+     * existence via DB queries.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function buildSnapshotForFlow(string $flow, User $user, array $payload): array
+    {
+        if ($flow !== 'daily_schedule') {
+            return $this->snapshotService->buildForUser($user);
+        }
+
+        $proposals = is_array($payload['proposals'] ?? null) ? $payload['proposals'] : [];
+        if ($proposals === []) {
+            return $this->snapshotService->buildForUser($user);
+        }
+
+        $taskIds = [];
+        $eventIds = [];
+        $projectIds = [];
+
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $entityType = (string) ($proposal['entity_type'] ?? '');
+            $entityId = $proposal['entity_id'] ?? null;
+            $id = is_numeric($entityId) ? (int) $entityId : 0;
+            if ($id <= 0) {
+                continue;
+            }
+
+            if ($entityType === 'task') {
+                $taskIds[$id] = true;
+
+                continue;
+            }
+            if ($entityType === 'event') {
+                $eventIds[$id] = true;
+
+                continue;
+            }
+            if ($entityType === 'project') {
+                $projectIds[$id] = true;
+            }
+        }
+
+        $timezone = (string) config('app.timezone', 'UTC');
+        $now = now()->setTimezone($timezone);
+
+        $tasks = $taskIds === []
+            ? []
+            : Task::query()
+                ->forUser($user->id)
+                ->whereIn('id', array_keys($taskIds))
+                ->get(['id'])
+                ->map(static fn (Task $task): array => ['id' => (int) $task->id])
+                ->values()
+                ->all();
+
+        $events = $eventIds === []
+            ? []
+            : Event::query()
+                ->forUser($user->id)
+                ->whereIn('id', array_keys($eventIds))
+                ->get(['id'])
+                ->map(static fn (Event $event): array => ['id' => (int) $event->id])
+                ->values()
+                ->all();
+
+        $projects = $projectIds === []
+            ? []
+            : Project::query()
+                ->forUser($user->id)
+                ->whereIn('id', array_keys($projectIds))
+                ->get(['id'])
+                ->map(static fn (Project $project): array => ['id' => (int) $project->id])
+                ->values()
+                ->all();
+
+        return [
+            'today' => $now->toDateString(),
+            'timezone' => $timezone,
+            'tasks' => $tasks,
+            'events' => $events,
+            'projects' => $projects,
         ];
     }
 
