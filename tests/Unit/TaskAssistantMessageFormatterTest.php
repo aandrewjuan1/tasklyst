@@ -113,6 +113,46 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertLessThan($posNext, $posReasoning);
     }
 
+    public function test_prioritize_places_count_mismatch_explanation_after_items_before_filter_and_reasoning(): void
+    {
+        $framing = 'Here is your slice.';
+        $countMismatch = 'You asked for 2, and I found 1 strong match for this focus.';
+        $filter = 'Filtered to tasks due today.';
+        $reasoning = 'Coach paragraph after mismatch note.';
+        $nextOptions = 'If you want, I can schedule this for later.';
+        $out = $this->formatter->format('prioritize', [
+            'framing' => $framing,
+            'count_mismatch_explanation' => $countMismatch,
+            'filter_interpretation' => $filter,
+            'limit_used' => 1,
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'A',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'reasoning' => $reasoning,
+            'next_options' => $nextOptions,
+        ]);
+
+        $posItems = strpos($out, '1. A —');
+        $posMismatch = strpos($out, $countMismatch);
+        $posFilter = strpos($out, $filter);
+        $posReasoning = strpos($out, $reasoning);
+        $this->assertNotFalse($posItems);
+        $this->assertNotFalse($posMismatch);
+        $this->assertNotFalse($posFilter);
+        $this->assertNotFalse($posReasoning);
+        $this->assertLessThan($posMismatch, $posItems);
+        $this->assertLessThan($posFilter, $posMismatch);
+        $this->assertLessThan($posReasoning, $posFilter);
+    }
+
     public function test_prioritize_places_doing_coach_before_in_progress_titles_then_ranked_then_filter_then_reasoning_then_next_options(): void
     {
         $framing = 'Here is your slice.';

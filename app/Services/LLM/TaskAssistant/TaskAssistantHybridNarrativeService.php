@@ -742,6 +742,7 @@ final class TaskAssistantHybridNarrativeService
      *
      * @param  array<string, mixed>  $promptData
      * @param  list<array<string, mixed>>  $items
+     * @param  array{requested_count:int, actual_count:int, has_count_mismatch:bool}  $countMismatchContext
      * @return array{
      *   items: list<array<string, mixed>>,
      *   focus: array{main_task: string, secondary_tasks: list<string>},
@@ -752,7 +753,8 @@ final class TaskAssistantHybridNarrativeService
      *   next_options_chip_texts: list<string>,
      *   filter_interpretation: string|null,
      *   assumptions: list<string>|null,
-     *   doing_progress_coach: string|null
+     *   doing_progress_coach: string|null,
+     *   count_mismatch_explanation: string|null
      * }
      */
     public function refinePrioritizeListing(
@@ -764,6 +766,7 @@ final class TaskAssistantHybridNarrativeService
         bool $ambiguous,
         int $threadId,
         int $userId,
+        array $countMismatchContext = ['requested_count' => 1, 'actual_count' => 1, 'has_count_mismatch' => false],
     ): array {
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
         $refinementSchema = TaskAssistantSchemas::prioritizeNarrativeSchema();
@@ -790,6 +793,9 @@ final class TaskAssistantHybridNarrativeService
 
         $doingCoachRequired = $hasDoingContext;
         $emptyRankedSlice = $listedTaskCount === 0;
+        $requestedCount = max(1, (int) ($countMismatchContext['requested_count'] ?? 1));
+        $actualCount = max(0, (int) ($countMismatchContext['actual_count'] ?? $listedTaskCount));
+        $hasCountMismatch = (bool) ($countMismatchContext['has_count_mismatch'] ?? false);
 
         $doingTitleLines = is_array($doingContext) && is_array($doingContext['doing_titles'] ?? null)
             ? $doingContext['doing_titles']
@@ -809,9 +815,10 @@ OUTPUT_FIELD_ORDER (student-visible; the app assembles the final message in this
 2. When DOING_COACH_REQUIRED: doing_progress_coach first (include the in-progress titles inside the paragraph), then a short bridge, then the numbered ITEMS_JSON list—do NOT tell the student to “start with” the top ranked row when Doing exists; orient to what is already in motion, then hand off to the ranked list. ITEMS_JSON rows are not Doing; never say the student has “started” or is “already working on” the top ranked item in the in-progress paragraph (that falsely implies in-progress status).
 3. When DOING_COACH_REQUIRED is false: framing (short intro) before the numbered list.
 4. numbered list from ITEMS_JSON (rendered by the app; do not paste it as a second enumerated list in other fields)
-5. filter_interpretation — optional; appears after that list
-6. reasoning — coach paragraph before scheduling: why row #1 is first when LISTED_ITEM_COUNT >= 1; only describe the task using words grounded in that row’s title (and fields)—never invent a subject/domain (e.g. “web design”) that the title does not support
-7. next_options — LAST paragraph only: scheduling / follow-up offers (keep coaching light here)
+5. count_mismatch_explanation — optional; only when COUNT_MISMATCH_REQUIRED is true; appears after that list and explains why fewer rows are shown than requested
+6. filter_interpretation — optional; appears after that list
+7. reasoning — coach paragraph before scheduling: why row #1 is first when LISTED_ITEM_COUNT >= 1; only describe the task using words grounded in that row’s title (and fields)—never invent a subject/domain (e.g. “web design”) that the title does not support
+8. next_options — LAST paragraph only: scheduling / follow-up offers (keep coaching light here)
 
 NARRATIVE_COACH_DISTRIBUTION: Spread motivation, empathy, and tips across acknowledgment (optional), framing, doing_progress_coach, filter_interpretation, and reasoning—do not save all warmth for a single field. next_options must be last and is mainly scheduling/chips setup, not the main coaching beat.
 
@@ -859,6 +866,7 @@ TXT;
             'acknowledgment = brief empathy only when required; no task titles or list summary. '.
             'doing_progress_coach = REQUIRED when DOING_COACH_REQUIRED is true: include a short mention of 1–2 Doing titles inside the paragraph (from DOING_TITLES_FOR_UI) and keep it warm and practical. '.
             'framing = omitted/nullable when doing_progress_coach exists; do not write a separate intro paragraph. '.
+            'count_mismatch_explanation = nullable and should usually be null for empty-ranked slices. '.
             'filter_interpretation = the student sees this after the list area; filters/wording only; use null if it would repeat framing. '.
             'reasoning = before next_options (not last): why the empty slice still makes sense to address in-progress work first, or how to widen filters—do NOT reference a first row in ITEMS_JSON (there is none). '.
             'next_options = LAST in the message; scheduling or widening filters only; do not invent ranked tasks. '
@@ -866,6 +874,7 @@ TXT;
             'acknowledgment = brief empathy only when required; no task titles or list summary. '.
             'doing_progress_coach = REQUIRED when DOING_COACH_REQUIRED is true: include a short mention of 1–2 Doing titles inside the paragraph (from DOING_TITLES_FOR_UI) and keep it warm and practical. '.
             'framing = omitted/nullable when doing_progress_coach exists; do not write a separate intro paragraph. '.
+            'count_mismatch_explanation = when COUNT_MISMATCH_REQUIRED is true: one short supportive sentence that states the user asked for REQUESTED_COUNT but only ACTUAL_COUNT are shown, and that focus quality is prioritized over padding with weaker matches. Must be null when COUNT_MISMATCH_REQUIRED is false. '.
             'filter_interpretation = the student sees this after the numbered list; filters/wording only; use null if not helpful or if it would repeat framing. '.
             'reasoning = before next_options: why the first ITEMS_JSON row is first when LISTED_ITEM_COUNT >= 1; include that row\'s exact title once; add empathy, motivation, or a grounded micro-tip when helpful. Describe work types using words from row #1\'s title (not a different task\'s course or lab). When LISTED_ITEM_COUNT is 1 and DOING_COACH_REQUIRED is true, do NOT reference Doing-only task titles or course codes from DOING_TITLES_FOR_UI—those are not ITEMS_JSON. When LISTED_ITEM_COUNT > 1, do NOT mention row 2+ titles or their distinctive topics (for example lecture notes, a reading response) and do NOT invent worksheets, practice/problem sets, or mock exams—only describe work using words grounded in row #1\'s title plus its priority and due fields. Do not repeat overdue/complex boilerplate already covered in framing or filter_interpretation. '.
             'next_options = LAST in the message; scheduling/follow-up only; do not re-summarize the full list or repeat the coaching paragraph. '.
@@ -913,9 +922,16 @@ TXT;
                 $firstRowReasoningRule.
                 'next_options is REQUIRED: 1-2 sentences; the student sees this LAST after reasoning. Offer follow-up (e.g., scheduling, widening filters when the slice is empty). Keep it scheduling-focused—main empathy and coaching belong earlier. Do not re-summarize the ranked list here. Do not suggest rescheduling tasks that were already completed; if you mention rescheduling, it should be about the remaining tasks. '.
                 'next_options_chip_texts is REQUIRED: array of 1-2 short chip strings to let the student trigger that follow-up (no question marks). '.
+                'count_mismatch_explanation is OPTIONAL and nullable. When COUNT_MISMATCH_REQUIRED is true, it is REQUIRED and must be one short supportive sentence grounded in REQUESTED_COUNT and ACTUAL_COUNT. When COUNT_MISMATCH_REQUIRED is false, it MUST be null. '.
                 'UX_INCLUDE_ACK: '.($includeAcknowledgment ? 'true' : 'false').
                 "\n".
                 'DOING_COACH_REQUIRED: '.($doingCoachRequired ? 'true' : 'false').
+                "\n".
+                'COUNT_MISMATCH_REQUIRED: '.($hasCountMismatch ? 'true' : 'false').
+                "\n".
+                'REQUESTED_COUNT: '.$requestedCount.
+                "\n".
+                'ACTUAL_COUNT: '.$actualCount.
                 "\n".
                 $dueTimeSafetyBlock.
                 'Do not invent items, deadlines, durations, or priorities. '.
@@ -934,6 +950,7 @@ TXT;
         $filterInterpretation = null;
         $assumptionsNormalized = null;
         $doingProgressCoachNarrative = null;
+        $countMismatchExplanation = null;
         $cleanItems = $this->copyPrioritizeItemsWithoutPlacementBlurbs($items);
 
         $prioritizeNarrativeConnectionFailed = false;
@@ -1012,6 +1029,12 @@ TXT;
                     $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::clampDoingProgressCoach($dpc);
                 }
             }
+
+            if (isset($payload['count_mismatch_explanation']) && is_string($payload['count_mismatch_explanation'])) {
+                $countMismatchExplanation = trim($payload['count_mismatch_explanation']) !== ''
+                    ? mb_substr(trim($payload['count_mismatch_explanation']), 0, 280)
+                    : null;
+            }
         } catch (\Throwable $e) {
             $prioritizeNarrativeConnectionFailed = true;
             Log::warning('task-assistant.prioritize.narrative_failed', [
@@ -1062,6 +1085,10 @@ TXT;
                 $doingTitlesSanitize,
                 $doingCountForPrompt
             );
+        }
+
+        if (! $hasCountMismatch) {
+            $countMismatchExplanation = null;
         }
 
         if ($doingCoachRequired && is_string($doingProgressCoachNarrative) && trim($doingProgressCoachNarrative) !== ''
@@ -1348,6 +1375,7 @@ TXT;
             'filter_interpretation' => $filterInterpretation,
             'assumptions' => TaskAssistantPrioritizeOutputDefaults::filterPrioritizeAssumptions($assumptionsNormalized),
             'doing_progress_coach' => $doingProgressCoachNarrative,
+            'count_mismatch_explanation' => $countMismatchExplanation,
         ];
     }
 

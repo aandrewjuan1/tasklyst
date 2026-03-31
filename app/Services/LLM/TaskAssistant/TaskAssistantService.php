@@ -473,6 +473,13 @@ final class TaskAssistantService
         $limit = max(1, min($plan->countLimit, 10));
         $items = array_values(array_slice($allItems, 0, $limit));
         $hasMoreUnseen = count($allItems) > count($items);
+        $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
+        $countMismatchContext = [
+            'requested_count' => $limit,
+            'actual_count' => count($items),
+            'has_count_mismatch' => count($items) > 0 && count($items) < $limit,
+            'explicit_requested_count' => $explicitRequestedCount,
+        ];
 
         $promptData = $this->promptData->forUser($thread->user);
         $promptData['snapshot'] = $snapshot;
@@ -500,6 +507,7 @@ final class TaskAssistantService
                 $ambiguous,
                 $thread->id,
                 $thread->user_id,
+                $countMismatchContext
             );
 
             $next = $this->buildDeterministicPrioritizeNextOptions(
@@ -520,6 +528,7 @@ final class TaskAssistantService
                 'next_options_chip_texts' => $next['next_options_chip_texts'],
                 'filter_interpretation' => $narrative['filter_interpretation'] ?? null,
                 'assumptions' => $narrative['assumptions'] ?? null,
+                'count_mismatch_explanation' => null,
             ];
         } elseif ($items === []) {
             $framingText = trim((string) $deterministicSummary);
@@ -547,6 +556,7 @@ final class TaskAssistantService
                 ],
                 'filter_interpretation' => null,
                 'assumptions' => null,
+                'count_mismatch_explanation' => null,
             ];
         } else {
             $narrative = $this->hybridNarrative->refinePrioritizeListing(
@@ -558,6 +568,14 @@ final class TaskAssistantService
                 $ambiguous,
                 $thread->id,
                 $thread->user_id,
+                $countMismatchContext
+            );
+
+            $narrativeItems = is_array($narrative['items'] ?? null) ? $narrative['items'] : [];
+            $countMismatchExplanation = $this->resolvePrioritizeCountMismatchExplanation(
+                $countMismatchContext,
+                count($narrativeItems),
+                $narrative['count_mismatch_explanation'] ?? null
             );
 
             $next = $this->buildDeterministicPrioritizeNextOptions(
@@ -580,6 +598,7 @@ final class TaskAssistantService
                 'next_options_chip_texts' => $next['next_options_chip_texts'],
                 'filter_interpretation' => $narrative['filter_interpretation'] ?? null,
                 'assumptions' => $narrative['assumptions'] ?? null,
+                'count_mismatch_explanation' => $countMismatchExplanation,
             ];
         }
 
@@ -628,6 +647,95 @@ final class TaskAssistantService
     private function attachPrioritizeOrchestrationMetadata(array &$prioritizeData): void
     {
         $prioritizeData['prioritize_variant'] = TaskAssistantPrioritizeVariant::Rank->value;
+    }
+
+    /**
+     * @param  array{requested_count:int, actual_count:int, has_count_mismatch:bool, explicit_requested_count:int|null}  $countMismatchContext
+     */
+    private function resolvePrioritizeCountMismatchExplanation(array $countMismatchContext, int $actualCount, mixed $narrativeExplanation): ?string
+    {
+        $requestedCount = max(1, (int) ($countMismatchContext['requested_count'] ?? 1));
+        $explicitRequestedCount = $countMismatchContext['explicit_requested_count'] ?? null;
+        $explicitRequestedCount = is_int($explicitRequestedCount) && $explicitRequestedCount > 0 ? $explicitRequestedCount : null;
+        if ($actualCount <= 0 || $actualCount >= $requestedCount) {
+            return null;
+        }
+
+        if (is_string($narrativeExplanation)) {
+            $normalized = trim($narrativeExplanation);
+            $hasInvalidCountReference = $explicitRequestedCount === null
+                && preg_match('/\b(you asked for|asked for\s+\d+)/i', $normalized) === 1;
+            if ($normalized !== '' && ! $this->hasInvalidMismatchExplanationClaims($normalized) && ! $hasInvalidCountReference) {
+                $safe = $this->truncateAtSentenceBoundary($normalized, 280);
+                if ($safe !== '') {
+                    return $safe;
+                }
+            }
+        }
+
+        $itemWord = $actualCount === 1 ? 'item' : 'items';
+        if ($explicitRequestedCount !== null) {
+            return TaskAssistantPrioritizeOutputDefaults::clampNextField(
+                (string) __('You asked for :requested, and I found :actual strong :itemWord for this focus. I’d rather keep you on the clearest next move than pad the list with lower-fit options.', [
+                    'requested' => $explicitRequestedCount,
+                    'actual' => $actualCount,
+                    'itemWord' => $itemWord,
+                ])
+            );
+        }
+
+        return TaskAssistantPrioritizeOutputDefaults::clampNextField(
+            (string) __('I found :actual strong :itemWord for this focus right now, so I’m keeping the list tight to what looks most actionable first.', [
+                'actual' => $actualCount,
+                'itemWord' => $itemWord,
+            ])
+        );
+    }
+
+    private function hasInvalidMismatchExplanationClaims(string $text): bool
+    {
+        return preg_match('/\b(already started|already working on|in progress|what you(?:\'|’)ve started)\b/i', $text) === 1;
+    }
+
+    private function truncateAtSentenceBoundary(string $text, int $maxChars): string
+    {
+        $trimmed = trim($text);
+        if ($trimmed === '') {
+            return '';
+        }
+
+        if (mb_strlen($trimmed) <= $maxChars) {
+            return $trimmed;
+        }
+
+        $slice = trim(mb_substr($trimmed, 0, $maxChars));
+        if ($slice === '') {
+            return '';
+        }
+
+        if (preg_match('/^(.+[.!?])(?:\s|$)/u', $slice, $matches) === 1) {
+            return trim((string) ($matches[1] ?? $slice));
+        }
+
+        $lastSpace = mb_strrpos($slice, ' ');
+        if ($lastSpace !== false && $lastSpace > 40) {
+            return rtrim(mb_substr($slice, 0, $lastSpace)).'…';
+        }
+
+        return rtrim($slice).'…';
+    }
+
+    private function extractExplicitRequestedCount(string $content): ?int
+    {
+        $normalized = mb_strtolower($content);
+        if (preg_match('/\btop\s+(\d{1,2})\b/u', $normalized, $matches) === 1) {
+            return max(1, min((int) ($matches[1] ?? 1), 10));
+        }
+        if (preg_match('/\b(\d{1,2})\s+(tasks?|items?|priorities)\b/u', $normalized, $matches) === 1) {
+            return max(1, min((int) ($matches[1] ?? 1), 10));
+        }
+
+        return null;
     }
 
     /**

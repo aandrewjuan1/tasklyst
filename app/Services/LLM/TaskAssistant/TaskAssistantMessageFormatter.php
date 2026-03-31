@@ -128,6 +128,7 @@ final class TaskAssistantMessageFormatter
      *   doing_progress_coach?: string,
      *   reasoning?: string,
      *   next_options?: string,
+     *   count_mismatch_explanation?: string|null,
      *   items?: list<array<string, mixed>>,
      *   suggested_guidance?: string,
      *   limit_used?: int
@@ -189,6 +190,9 @@ final class TaskAssistantMessageFormatter
             trim((string) ($data['reasoning'] ?? ''))
         );
         $nextOptions = trim((string) ($data['next_options'] ?? ''));
+        $countMismatchExplanation = is_string($data['count_mismatch_explanation'] ?? null)
+            ? trim((string) $data['count_mismatch_explanation'])
+            : '';
 
         $filterInterpretation = trim((string) ($data['filter_interpretation'] ?? ''));
         if ($filterInterpretation !== '' && $singularCoerceCount === 1) {
@@ -223,6 +227,10 @@ final class TaskAssistantMessageFormatter
 
         if ($lines !== []) {
             $paragraphs[] = implode("\n", $lines);
+        }
+
+        if ($countMismatchExplanation !== '') {
+            $paragraphs[] = $countMismatchExplanation;
         }
 
         if ($filterInterpretation !== '') {

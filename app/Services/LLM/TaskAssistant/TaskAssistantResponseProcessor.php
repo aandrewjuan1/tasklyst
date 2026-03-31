@@ -269,6 +269,7 @@ final class TaskAssistantResponseProcessor
             'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
             'filter_interpretation' => ['nullable', 'string', 'max:280'],
+            'count_mismatch_explanation' => ['nullable', 'string', 'max:280'],
             'assumptions' => ['nullable', 'array', 'max:4'],
             'assumptions.*' => ['string', 'max:240'],
             'prioritize_variant' => ['nullable', 'string', 'in:rank'],

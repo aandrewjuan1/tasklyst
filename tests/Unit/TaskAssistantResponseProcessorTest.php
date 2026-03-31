@@ -205,12 +205,47 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'Schedule these for later',
             ],
             'filter_interpretation' => 'This slice follows your today filter.',
+            'count_mismatch_explanation' => 'You asked for 2, and I found 1 strong match for this focus.',
             'assumptions' => ['Treating today as your local calendar date.'],
             'prioritize_variant' => 'rank',
         ], []);
 
         $this->assertTrue($result['valid']);
         $this->assertSame([], $result['errors']);
+    }
+
+    public function test_prioritize_validation_fails_when_count_mismatch_explanation_is_not_a_string(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('prioritize', [
+            'items' => [
+                [
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'A task',
+                    'priority' => 'high',
+                    'due_phrase' => 'due today',
+                    'due_on' => 'Mar 22, 2026',
+                    'complexity_label' => 'Simple',
+                ],
+            ],
+            'limit_used' => 1,
+            'focus' => [
+                'main_task' => 'A task',
+                'secondary_tasks' => [],
+            ],
+            'framing' => 'Start with what is due soon so you can make real progress.',
+            'reasoning' => 'This ordering matches what you asked for.',
+            'next_options' => 'If you want, I can schedule these steps for later.',
+            'next_options_chip_texts' => [
+                'Schedule these for later',
+            ],
+            'count_mismatch_explanation' => ['bad type'],
+        ], []);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
     }
 
     public function test_prioritize_validation_passes_with_empty_items_slice(): void

@@ -224,6 +224,11 @@ final class TaskAssistantSchemas
                     description: 'Required: 1-2 sentences offering a follow-up (e.g., scheduling). The student sees this LAST, after reasoning. Scheduling/follow-up only—do not summarize the full ranked list here. When LISTED_ITEM_COUNT is 1, refer to scheduling "this task" (or event/project per row), not "these tasks". If you mention rescheduling, it must be about remaining work, not tasks already completed.',
                     nullable: false
                 ),
+                new StringSchema(
+                    name: 'count_mismatch_explanation',
+                    description: 'Optional: nullable short explanation shown after the ranked list only when fewer rows are shown than requested (e.g., asked for top 2, showing 1 strong match). Keep supportive and factual; null when there is no count mismatch.',
+                    nullable: true
+                ),
                 new ArraySchema(
                     name: 'next_options_chip_texts',
                     description: 'Required: array of 1-3 short chip strings that a student can click to trigger the follow-up (e.g., scheduling windows). No question marks. No bullets.',
