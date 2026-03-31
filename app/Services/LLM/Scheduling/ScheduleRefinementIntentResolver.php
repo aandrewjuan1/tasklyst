@@ -27,7 +27,7 @@ final class ScheduleRefinementIntentResolver
             return [];
         }
 
-        $heuristic = $this->heuristicOperations($normalized, $count);
+        $heuristic = $this->heuristicOperations($normalized, $count, $proposals);
         if ($heuristic !== []) {
             return $heuristic;
         }
@@ -46,7 +46,7 @@ final class ScheduleRefinementIntentResolver
     /**
      * @return list<array<string, mixed>>
      */
-    private function heuristicOperations(string $msg, int $count): array
+    private function heuristicOperations(string $msg, int $count, array $proposals): array
     {
         $idx = $this->ordinalIndex($msg, $count);
 
@@ -65,6 +65,11 @@ final class ScheduleRefinementIntentResolver
             return [['op' => 'set_duration_minutes', 'proposal_index' => $idx, 'duration_minutes' => $dur]];
         }
 
+        if (preg_match('/\b(?:on|to)\s+(\d{4}-\d{2}-\d{2})\b/i', $msg, $m)
+            || preg_match('/\b(\d{4}-\d{2}-\d{2})\b/i', $msg, $m)) {
+            return [['op' => 'set_local_date_ymd', 'proposal_index' => $idx, 'local_date_ymd' => (string) $m[1]]];
+        }
+
         if (preg_match('/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i', $msg, $m)) {
             $hhmm = $this->twelveHourToHhmm((int) $m[1], isset($m[2]) ? (int) $m[2] : 0, strtolower((string) $m[3]));
 
@@ -72,11 +77,54 @@ final class ScheduleRefinementIntentResolver
         }
 
         if (preg_match('/\bat\s+(\d{1,2}):(\d{2})\b/i', $msg, $m)) {
-            $h = (int) $m[1];
+            $hInput = (int) $m[1];
             $min = (int) $m[2];
-            if ($h >= 0 && $h <= 23 && $min >= 0 && $min <= 59) {
-                return [['op' => 'set_local_time_hhmm', 'proposal_index' => $idx, 'local_time_hhmm' => sprintf('%02d:%02d', $h, $min)]];
+            if ($hInput < 0 || $hInput > 23 || $min < 0 || $min > 59) {
+                return [];
             }
+
+            // If AM/PM is omitted (e.g. "at 9:30"), infer 12-hour clock meaning from
+            // the existing block’s time-of-day. This avoids interpreting "9:30"
+            // as 09:30 AM when the user actually meant the evening.
+            if ($hInput <= 12) {
+                $priorStart = null;
+                if (isset($proposals[$idx]) && is_array($proposals[$idx])) {
+                    $startRaw = (string) ($proposals[$idx]['start_datetime'] ?? '');
+                    if (trim($startRaw) !== '') {
+                        try {
+                            $priorStart = new \DateTimeImmutable($startRaw);
+                        } catch (\Throwable) {
+                            $priorStart = null;
+                        }
+                    }
+                }
+
+                if ($priorStart !== null) {
+                    $priorHour24 = (int) $priorStart->format('H');
+                    $priorIsPm = $priorHour24 >= 12;
+
+                    if ($hInput === 12) {
+                        $hour24 = $priorIsPm ? 12 : 0;
+                    } elseif ($hInput === 0) {
+                        $hour24 = 0;
+                    } else {
+                        $hour24 = $priorIsPm ? $hInput + 12 : $hInput;
+                    }
+
+                    return [[
+                        'op' => 'set_local_time_hhmm',
+                        'proposal_index' => $idx,
+                        'local_time_hhmm' => sprintf('%02d:%02d', $hour24, $min),
+                    ]];
+                }
+            }
+
+            // Fallback: treat as 24-hour clock if >12, or if we cannot infer.
+            return [[
+                'op' => 'set_local_time_hhmm',
+                'proposal_index' => $idx,
+                'local_time_hhmm' => sprintf('%02d:%02d', $hInput, $min),
+            ]];
         }
 
         return [];
@@ -160,6 +208,7 @@ final class ScheduleRefinementIntentResolver
                     'delta_minutes' => isset($row['delta_minutes']) ? (int) $row['delta_minutes'] : null,
                     'duration_minutes' => isset($row['duration_minutes']) ? (int) $row['duration_minutes'] : null,
                     'local_time_hhmm' => isset($row['local_time_hhmm']) ? (string) $row['local_time_hhmm'] : null,
+                    'local_date_ymd' => isset($row['local_date_ymd']) ? (string) $row['local_date_ymd'] : null,
                 ];
             }
 

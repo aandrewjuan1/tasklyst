@@ -406,7 +406,7 @@ final class TaskAssistantSchemas
                         properties: [
                             new StringSchema(
                                 name: 'op',
-                                description: 'One of: shift_minutes, set_duration_minutes, set_local_time_hhmm, none.',
+                                description: 'One of: shift_minutes, set_duration_minutes, set_local_time_hhmm, set_local_date_ymd, none.',
                                 nullable: false
                             ),
                             new NumberSchema(
@@ -427,6 +427,11 @@ final class TaskAssistantSchemas
                             new StringSchema(
                                 name: 'local_time_hhmm',
                                 description: 'For set_local_time_hhmm: local time as HH:MM (24h), same calendar day as current start.',
+                                nullable: true
+                            ),
+                            new StringSchema(
+                                name: 'local_date_ymd',
+                                description: 'For set_local_date_ymd: local date as YYYY-MM-DD, keeping the same local time-of-day as current start.',
                                 nullable: true
                             ),
                         ],

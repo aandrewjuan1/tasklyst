@@ -58,6 +58,7 @@ final class ScheduleDraftMutationService
                 'shift_minutes' => $this->applyShiftMinutes($row, (int) ($op['delta_minutes'] ?? 0)),
                 'set_duration_minutes' => $this->applyDurationMinutes($row, (int) ($op['duration_minutes'] ?? 0)),
                 'set_local_time_hhmm' => $this->applyLocalTimeHhmm($row, (string) ($op['local_time_hhmm'] ?? ''), $tz),
+                'set_local_date_ymd' => $this->applyLocalDateYmd($row, (string) ($op['local_date_ymd'] ?? ''), $tz),
                 default => false,
             };
 
@@ -180,14 +181,13 @@ final class ScheduleDraftMutationService
             return false;
         }
         try {
-            $priorStartUtc = new \DateTimeImmutable((string) $row['start_datetime']);
+            $priorStart = new \DateTimeImmutable((string) $row['start_datetime']);
         } catch (\Throwable) {
             return false;
         }
-        $local = $priorStartUtc->setTimezone($timezone);
+        $local = $priorStart->setTimezone($timezone);
         $datePart = $local->format('Y-m-d');
         $newLocal = new \DateTimeImmutable($datePart.sprintf(' %02d:%02d:00', $h, $min), $timezone);
-        $startUtc = $newLocal->setTimezone(new \DateTimeZone('UTC'));
 
         $entityType = (string) ($row['entity_type'] ?? '');
         if ($entityType === 'event') {
@@ -200,20 +200,74 @@ final class ScheduleDraftMutationService
             } catch (\Throwable) {
                 return false;
             }
-            $spanSec = max(0, $oldEndUtc->getTimestamp() - $priorStartUtc->getTimestamp());
+            $spanSec = max(0, $oldEndUtc->getTimestamp() - $priorStart->getTimestamp());
             if ($spanSec === 0) {
                 return false;
             }
-            $row['start_datetime'] = $startUtc->format(\DateTimeInterface::ATOM);
-            $row['end_datetime'] = $startUtc->modify('+'.(string) $spanSec.' seconds')->format(\DateTimeInterface::ATOM);
+            $row['start_datetime'] = $newLocal->format(\DateTimeInterface::ATOM);
+            $row['end_datetime'] = $newLocal->modify('+'.(string) $spanSec.' seconds')->format(\DateTimeInterface::ATOM);
 
             return true;
         }
 
-        $row['start_datetime'] = $startUtc->format(\DateTimeInterface::ATOM);
+        $row['start_datetime'] = $newLocal->format(\DateTimeInterface::ATOM);
         if ($entityType === 'task') {
             $dur = max(1, (int) ($row['duration_minutes'] ?? 30));
-            $row['end_datetime'] = $startUtc->modify("+{$dur} minutes")->format(\DateTimeInterface::ATOM);
+            $row['end_datetime'] = $newLocal->modify("+{$dur} minutes")->format(\DateTimeInterface::ATOM);
+        }
+
+        return true;
+    }
+
+    /**
+     * Change the local calendar date, keeping the same local time-of-day.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function applyLocalDateYmd(array &$row, string $ymd, \DateTimeZone $timezone): bool
+    {
+        $ymd = trim($ymd);
+        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
+            return false;
+        }
+        try {
+            $priorStart = new \DateTimeImmutable((string) $row['start_datetime']);
+        } catch (\Throwable) {
+            return false;
+        }
+        $local = $priorStart->setTimezone($timezone);
+        $timePart = $local->format('H:i:s');
+        try {
+            $newLocal = new \DateTimeImmutable($ymd.' '.$timePart, $timezone);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $entityType = (string) ($row['entity_type'] ?? '');
+        if ($entityType === 'event') {
+            $endRaw = (string) ($row['end_datetime'] ?? '');
+            if ($endRaw === '') {
+                return false;
+            }
+            try {
+                $oldEndUtc = new \DateTimeImmutable($endRaw);
+            } catch (\Throwable) {
+                return false;
+            }
+            $spanSec = max(0, $oldEndUtc->getTimestamp() - $priorStart->getTimestamp());
+            if ($spanSec === 0) {
+                return false;
+            }
+            $row['start_datetime'] = $newLocal->format(\DateTimeInterface::ATOM);
+            $row['end_datetime'] = $newLocal->modify('+'.(string) $spanSec.' seconds')->format(\DateTimeInterface::ATOM);
+
+            return true;
+        }
+
+        $row['start_datetime'] = $newLocal->format(\DateTimeInterface::ATOM);
+        if ($entityType === 'task') {
+            $dur = max(1, (int) ($row['duration_minutes'] ?? 30));
+            $row['end_datetime'] = $newLocal->modify("+{$dur} minutes")->format(\DateTimeInterface::ATOM);
         }
 
         return true;
