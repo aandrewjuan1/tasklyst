@@ -491,8 +491,36 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Here is a focused plan for this window.', $out);
         $this->assertStringContainsString('Practice coding interview problems', $out);
         $this->assertStringContainsString('Mar 22, 2026 · 6:00 PM–7:30 PM', $out);
+        $this->assertStringContainsString('(~1 hr 30 min)', $out);
         $this->assertStringNotContainsString('Accept all', $out);
         $this->assertStringContainsString('Does this evening block work', $out);
+    }
+
+    public function test_daily_schedule_message_formats_long_duration_using_hours(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your schedule.',
+            'reasoning' => 'This block helps you focus first.',
+            'confirmation' => 'Does this feel workable?',
+            'blocks' => [[
+                'start_time' => '13:00',
+                'end_time' => '18:00',
+                'label' => 'Impossible 5h study block before quiz',
+                'task_id' => 31,
+                'reason' => 'Planned by strict scheduler.',
+            ]],
+            'items' => [[
+                'title' => 'Impossible 5h study block before quiz',
+                'entity_type' => 'task',
+                'entity_id' => 31,
+                'start_datetime' => '2026-03-31T13:00:00+08:00',
+                'end_datetime' => '2026-03-31T18:00:00+08:00',
+                'duration_minutes' => 300,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('(~5 hrs)', $out);
+        $this->assertStringNotContainsString('(~300 min)', $out);
     }
 
     public function test_daily_schedule_digest_note_mentions_count_limit_reason_instead_of_planning_horizon(): void

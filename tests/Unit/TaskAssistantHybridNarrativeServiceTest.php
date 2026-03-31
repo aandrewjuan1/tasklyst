@@ -124,6 +124,120 @@ test('daily_schedule narrative sanitizes mismatched explicit confirmation time a
     expect($result['confirmation'])->not->toContain('3 PM');
 });
 
+test('daily_schedule narrative sanitizes contradictory relative date wording against explicit date', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I suggest we start now.',
+                'reasoning' => "It's urgent due tomorrow (Mar 30, 2026), so let's begin.",
+                'confirmation' => 'Do these times and block lengths feel workable?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '13:00',
+            'end_time' => '14:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-31',
+            'end_date' => '2026-03-31',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule them for later',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    expect($result['reasoning'])->toContain('due on Mar 30, 2026');
+    expect($result['reasoning'])->not->toContain('due tomorrow (Mar 30, 2026)');
+});
+
+test('daily_schedule narrative strips internal placement jargon from model output', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your plan.',
+                'reasoning' => 'This order works well. It also keeps us within our default placement window.',
+                'confirmation' => 'Do these times feel workable?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '13:00',
+            'end_time' => '14:00',
+            'label' => 'Study block',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-31',
+            'end_date' => '2026-03-31',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule for later',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('placement window');
+    expect((string) $result['reasoning'])->not->toContain('default_today');
+});
+
 test('refinePrioritizeListing derives focus from items order and uses suggested_next_actions', function (): void {
     Prism::fake([
         StructuredResponseFake::make()

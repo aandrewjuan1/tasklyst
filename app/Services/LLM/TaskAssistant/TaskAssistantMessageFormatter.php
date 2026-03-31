@@ -3,6 +3,7 @@
 namespace App\Services\LLM\TaskAssistant;
 
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
+use App\Support\LLM\TaskAssistantScheduleNarrativeSanitizer;
 
 /**
  * Single place to turn validated structured assistant payloads into the user-visible message body.
@@ -498,9 +499,9 @@ final class TaskAssistantMessageFormatter
      */
     private function formatDailyScheduleMessage(array $data): string
     {
-        $framing = trim((string) ($data['framing'] ?? ''));
-        $reasoning = trim((string) ($data['reasoning'] ?? ''));
-        $confirmation = trim((string) ($data['confirmation'] ?? ''));
+        $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
+        $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
+        $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
 
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
@@ -522,7 +523,7 @@ final class TaskAssistantMessageFormatter
                 }
                 $duration = $item['duration_minutes'] ?? null;
                 $durPart = is_numeric($duration) && (int) $duration > 0
-                    ? ' (~'.(int) $duration.' min)'
+                    ? ' ('.$this->formatScheduleDurationLabel((int) $duration).')'
                     : '';
 
                 $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
@@ -568,6 +569,28 @@ final class TaskAssistantMessageFormatter
         }
 
         return implode("\n\n", $paragraphs);
+    }
+
+    private function formatScheduleDurationLabel(int $minutes): string
+    {
+        if ($minutes <= 0) {
+            return '';
+        }
+
+        // Keep short blocks compact in minutes; switch to hour-based wording for longer blocks.
+        if ($minutes <= 60) {
+            return '~'.$minutes.' min';
+        }
+
+        $hours = intdiv($minutes, 60);
+        $remainingMinutes = $minutes % 60;
+        $hourLabel = $hours === 1 ? 'hr' : 'hrs';
+
+        if ($remainingMinutes === 0) {
+            return '~'.$hours.' '.$hourLabel;
+        }
+
+        return '~'.$hours.' '.$hourLabel.' '.$remainingMinutes.' min';
     }
 
     /**

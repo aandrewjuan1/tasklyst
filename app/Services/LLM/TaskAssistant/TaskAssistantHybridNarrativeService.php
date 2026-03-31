@@ -4,7 +4,9 @@ namespace App\Services\LLM\TaskAssistant;
 
 use App\Support\LLM\PrioritizeNarrativeConnectionFallback;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
+use App\Support\LLM\TaskAssistantScheduleNarrativeSanitizer;
 use App\Support\LLM\TaskAssistantSchemas;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\Provider;
@@ -298,33 +300,40 @@ final class TaskAssistantHybridNarrativeService
         $deterministicReasoning = $deterministicNarrative['reasoning'];
 
         if ($isEmptyPlacement) {
-            return $this->buildEmptyPlacementScheduleNarrative(
+            $empty = $this->buildEmptyPlacementScheduleNarrative(
                 deterministicReasoning: $deterministicReasoning,
             );
+
+            return [
+                'framing' => TaskAssistantPrioritizeOutputDefaults::clampFraming(
+                    TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy((string) $empty['framing'])
+                ),
+                'reasoning' => TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy((string) $empty['reasoning']),
+                'confirmation' => TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy((string) $empty['confirmation']),
+            ];
         }
 
-        $horizonHint = '';
-        $h = $promptData['schedule_horizon'] ?? null;
-        if (is_array($h) && isset($h['start_date'], $h['end_date'], $h['label'])) {
-            $horizonHint = ' The placement window is '.$h['label'].' ('.$h['start_date'].' to '.$h['end_date'].'). ';
-        }
+        $horizonHint = TaskAssistantScheduleNarrativeSanitizer::horizonContextLineForPrompt(
+            is_array($promptData['schedule_horizon'] ?? null) ? $promptData['schedule_horizon'] : null
+        );
 
         $digestBlock = '';
         $trimDigest = $placementDigestJson !== null ? trim($placementDigestJson) : '';
         if ($trimDigest !== '' && $trimDigest !== '{}') {
-            $digestBlock = "\n\nPLACEMENT_DIGEST_JSON (server truth for multi-day spill, proposal limit, or unplaced segments—reference plainly if relevant; do not invent times beyond BLOCKS_JSON):\n".$trimDigest;
+            $digestBlock = "\n\nOptional planning notes (only use if helpful; never quote this heading or say digest/JSON; explain in plain English if a starter block or spill matters):\n".$trimDigest;
         }
 
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
-            'BLOCKS_JSON is the authoritative schedule (order and implied timing) computed server-side. The app shows each row with exact start, end, and duration right after your framing.'.$horizonHint."\n\n".
+            'The schedule below is fixed and correct. The student will see each row with exact start, end, and duration right after your framing.'.$horizonHint."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
-            '- framing: 1–2 sentence hand-off to the list. Do not repeat per-item clock times or lengths (the UI prints them next).'."\n".
-            '- reasoning: why this order and window fit the student (focus, deadlines, calendar pressure)—without quoting specific times or durations that duplicate the list. If PLACEMENT_DIGEST_JSON shows partial placement (e.g. placed_minutes < requested_minutes), explain that this is a starter block and suggest using a Pomodoro-style chunking approach to keep making progress.'."\n".
+            '- framing: 1–2 sentence hand-off to the list. Do not repeat per-item clock times or lengths (the app shows them next).'."\n".
+            '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, explain in plain English that it is a starter chunk and suggest Pomodoro-style follow-up; do not use technical words.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
-            'Do not invent times other than BLOCKS_JSON implies. No task IDs, JSON, snapshot, or backend terms.'."\n\n".
-            'BLOCKS_JSON: '.$blocksJson.$digestBlock
+            'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today.'."\n".
+            'Do not invent times beyond what the schedule data implies.'."\n\n".
+            'Schedule data: '.$blocksJson.$digestBlock
         ));
 
         $framing = '';
@@ -393,13 +402,123 @@ final class TaskAssistantHybridNarrativeService
                 seed: 'empty_confirmation|'.$threadId
             )['confirmation'];
         }
+        $framing = $this->sanitizeScheduleRelativeDateClaims($framing, $promptData);
+        $reasoning = $this->sanitizeScheduleRelativeDateClaims($reasoning, $promptData);
         $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
+
+        $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy($framing);
+        $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy($reasoning);
+        $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy($confirmation);
 
         return [
             'framing' => TaskAssistantPrioritizeOutputDefaults::clampFraming($framing),
             'reasoning' => $reasoning,
             'confirmation' => $confirmation,
         ];
+    }
+
+    /**
+     * Prevent contradictions like "tomorrow (Mar 30, 2026)" when the explicit date
+     * does not match the claimed relative word in the user's local schedule context.
+     *
+     * @param  array<string, mixed>  $promptData
+     */
+    private function sanitizeScheduleRelativeDateClaims(string $text, array $promptData): string
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return $normalized;
+        }
+
+        $timezone = trim((string) data_get($promptData, 'snapshot.timezone', ''));
+        if ($timezone === '') {
+            $timezone = trim((string) data_get($promptData, 'userContext.timezone', ''));
+        }
+        if ($timezone === '') {
+            $timezone = (string) config('app.timezone', 'UTC');
+        }
+
+        $referenceDate = trim((string) data_get($promptData, 'snapshot.today', ''));
+        $reference = null;
+        if ($referenceDate !== '') {
+            try {
+                $reference = CarbonImmutable::parse($referenceDate, $timezone)->startOfDay();
+            } catch (\Throwable) {
+                $reference = null;
+            }
+        }
+        if ($reference === null) {
+            $reference = CarbonImmutable::now($timezone)->startOfDay();
+        }
+
+        $didCorrect = false;
+        $patterns = [
+            '/\b(?:(due)\s+)?(today|tomorrow|yesterday)\s*\(([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4})\)/iu',
+            '/\b(?:(due)\s+)?(today|tomorrow|yesterday)\s*,\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4})/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $normalized = (string) preg_replace_callback(
+                $pattern,
+                function (array $matches) use ($reference, $timezone, &$didCorrect): string {
+                    $hasDuePrefix = trim((string) ($matches[1] ?? '')) !== '';
+                    $claimedRelative = mb_strtolower(trim((string) ($matches[2] ?? '')));
+                    $dateLabel = trim((string) ($matches[3] ?? ''));
+
+                    $explicitDate = $this->parseHumanDateLabel($dateLabel, $timezone);
+                    if ($explicitDate === null) {
+                        return (string) ($matches[0] ?? '');
+                    }
+
+                    $expectedRelative = match (true) {
+                        $explicitDate->isSameDay($reference) => 'today',
+                        $explicitDate->isSameDay($reference->addDay()) => 'tomorrow',
+                        $explicitDate->isSameDay($reference->subDay()) => 'yesterday',
+                        default => null,
+                    };
+
+                    if ($expectedRelative === $claimedRelative) {
+                        return (string) ($matches[0] ?? '');
+                    }
+
+                    $didCorrect = true;
+
+                    return $hasDuePrefix
+                        ? 'due on '.$dateLabel
+                        : 'on '.$dateLabel;
+                },
+                $normalized
+            ) ?? $normalized;
+        }
+
+        if ($didCorrect) {
+            Log::debug('task-assistant.schedule.narrative.relative_date_claim_sanitized', [
+                'layer' => 'llm_narrative',
+            ]);
+        }
+
+        return $normalized;
+    }
+
+    private function parseHumanDateLabel(string $dateLabel, string $timezone): ?CarbonImmutable
+    {
+        $formats = ['M j, Y', 'F j, Y'];
+        foreach ($formats as $format) {
+            try {
+                $parsed = CarbonImmutable::createFromFormat($format, $dateLabel, $timezone);
+                if ($parsed !== false) {
+                    return $parsed->startOfDay();
+                }
+            } catch (\Throwable) {
+                // Ignore parse failures and try the next known format.
+            }
+        }
+
+        try {
+            return CarbonImmutable::parse($dateLabel, $timezone)->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -476,7 +595,7 @@ final class TaskAssistantHybridNarrativeService
         $framing = TaskAssistantPrioritizeOutputDefaults::clampFraming(trim((string) ($cfg['framing'] ?? '')));
         if ($framing === '') {
             $framing = TaskAssistantPrioritizeOutputDefaults::clampFraming(
-                'Nothing in this slice could be placed cleanly in open time. We can still pick a next step together.'
+                'Nothing here could fit cleanly into your free time right now. We can still pick a next step together.'
             );
         }
 
@@ -646,7 +765,7 @@ final class TaskAssistantHybridNarrativeService
             && $sumMinutes > 0
             && $firstBlockMinutes >= (int) ceil($sumMinutes * 0.65)
         ) {
-            $longFirstBlockNote = ' Since your first planned block is the main chunk of the window, it helps you focus first and then keep the later blocks smaller and easier to start.';
+            $longFirstBlockNote = ' Since your first planned block is the main chunk of your schedule, it helps you focus first and then keep the later blocks smaller and easier to start.';
         }
 
         $summary = $deterministicSummary;
@@ -656,7 +775,7 @@ final class TaskAssistantHybridNarrativeService
 
         $reasoning = $timeRange !== ''
             ? "During your {$windowPhrase}, the plan schedules {$taskLabel} in the {$timeRange} block so you can stay focused without bouncing between tasks."
-            : 'This schedule sets aside focused time for your selected task so it fits your requested window.';
+            : 'This schedule sets aside focused time for your selected task so it fits the time you have available.';
 
         $reasoning .= $longFirstBlockNote;
 
@@ -713,13 +832,13 @@ final class TaskAssistantHybridNarrativeService
     private function windowPhraseFromBlocks(?string $startTime, ?string $endTime): string
     {
         if ($startTime === null || $endTime === null) {
-            return 'requested window';
+            return 'available time';
         }
 
         $startM = $this->timeToMinutes($startTime);
         $endM = $this->timeToMinutes($endTime);
         if ($startM === null || $endM === null) {
-            return 'requested window';
+            return 'available time';
         }
 
         if ($startM >= 18 * 60) {
@@ -734,7 +853,7 @@ final class TaskAssistantHybridNarrativeService
             return 'morning';
         }
 
-        return 'requested window';
+        return 'available time';
     }
 
     /**
