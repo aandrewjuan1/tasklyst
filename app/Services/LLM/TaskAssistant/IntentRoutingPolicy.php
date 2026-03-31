@@ -235,6 +235,7 @@ final class IntentRoutingPolicy
         return [
             'count_limit' => $countLimit,
             'time_window_hint' => $this->extractTimeWindowHint($normalized),
+            'strict_window' => $this->extractStrictWindowFlag($normalized),
             'target_entities' => $targetEntities,
         ];
     }
@@ -312,17 +313,56 @@ final class IntentRoutingPolicy
 
     private function extractTimeWindowHint(string $normalized): ?string
     {
-        if (str_contains($normalized, 'later afternoon') || str_contains($normalized, 'afternoon')) {
-            return 'later_afternoon';
+        $hasOnwards = preg_match('/\bonward(s)?\b/u', $normalized) === 1;
+        $hasAfterMeal = preg_match('/\bafter\s+(lunch|dinner)\b/u', $normalized) === 1;
+        $hasExplicitTimeAnchor = preg_match('/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/u', $normalized) === 1;
+        $hasAfternoon = str_contains($normalized, 'afternoon');
+        $hasEvening = str_contains($normalized, 'evening') || str_contains($normalized, 'night');
+        $hasMorning = str_contains($normalized, 'morning');
+
+        if ($hasAfternoon && $hasEvening) {
+            return 'afternoon_evening';
         }
-        if (str_contains($normalized, 'morning')) {
-            return 'morning';
+        if ($hasMorning && $hasAfternoon) {
+            return 'morning_afternoon';
         }
-        if (str_contains($normalized, 'evening') || str_contains($normalized, 'night')) {
+        if ($hasMorning && $hasEvening) {
+            return 'morning_evening';
+        }
+
+        if ($hasEvening) {
             return 'evening';
         }
 
+        if ($hasAfternoon) {
+            if ($hasOnwards) {
+                return 'afternoon_onwards';
+            }
+
+            return 'later_afternoon';
+        }
+
+        if ($hasMorning) {
+            if ($hasOnwards) {
+                return 'morning_onwards';
+            }
+
+            return 'morning';
+        }
+
+        if (str_contains($normalized, 'later') || $hasOnwards) {
+            return 'later';
+        }
+        if ($hasAfterMeal || $hasExplicitTimeAnchor) {
+            return 'later';
+        }
+
         return null;
+    }
+
+    private function extractStrictWindowFlag(string $normalized): bool
+    {
+        return preg_match('/\bonly\b/u', $normalized) === 1;
     }
 
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool

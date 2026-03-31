@@ -369,6 +369,7 @@ final class TaskAssistantResponseProcessor
             'placement_digest.days_used.*' => ['string', 'max:32'],
             'placement_digest.skipped_targets' => ['nullable', 'array', 'max:200'],
             'placement_digest.unplaced_units' => ['nullable', 'array', 'max:200'],
+            'placement_digest.partial_units' => ['nullable', 'array', 'max:200'],
             'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
             'confirmation' => ['required', 'string', 'min:5', 'max:'.$maxConfirmation],

@@ -321,7 +321,7 @@ final class TaskAssistantHybridNarrativeService
             'BLOCKS_JSON is the authoritative schedule (order and implied timing) computed server-side. The app shows each row with exact start, end, and duration right after your framing.'.$horizonHint."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
             '- framing: 1–2 sentence hand-off to the list. Do not repeat per-item clock times or lengths (the UI prints them next).'."\n".
-            '- reasoning: why this order and window fit the student (focus, deadlines, calendar pressure)—without quoting specific times or durations that duplicate the list.'."\n".
+            '- reasoning: why this order and window fit the student (focus, deadlines, calendar pressure)—without quoting specific times or durations that duplicate the list. If PLACEMENT_DIGEST_JSON shows partial placement (e.g. placed_minutes < requested_minutes), explain that this is a starter block and suggest using a Pomodoro-style chunking approach to keep making progress.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
             'Do not invent times other than BLOCKS_JSON implies. No task IDs, JSON, snapshot, or backend terms.'."\n\n".
             'BLOCKS_JSON: '.$blocksJson.$digestBlock
@@ -357,6 +357,7 @@ final class TaskAssistantHybridNarrativeService
             $confirmation = TaskAssistantPrioritizeOutputDefaults::clampNextField(
                 trim((string) ($payload['confirmation'] ?? ''))
             );
+            $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
         } catch (\Throwable $e) {
             Log::warning('task-assistant.daily-schedule.refinement_failed', [
                 'layer' => 'llm_narrative',
@@ -392,12 +393,75 @@ final class TaskAssistantHybridNarrativeService
                 seed: 'empty_confirmation|'.$threadId
             )['confirmation'];
         }
+        $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
 
         return [
             'framing' => TaskAssistantPrioritizeOutputDefaults::clampFraming($framing),
             'reasoning' => $reasoning,
             'confirmation' => $confirmation,
         ];
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     */
+    private function sanitizeScheduleConfirmation(string $confirmation, array $blocks): string
+    {
+        $text = trim($confirmation);
+        if ($text === '') {
+            return $text;
+        }
+
+        $explicitTimeLikeClaim = preg_match(
+            '/\b(\d{1,2}(:\d{2})?\s*(am|pm)|\d+\s*-\s*\d+\s*|(?:\d+\s*(hour|hr|minute|min)s?))\b/iu',
+            $text
+        ) === 1;
+
+        if (! $explicitTimeLikeClaim) {
+            return $text;
+        }
+
+        $validTokens = [];
+        foreach ($blocks as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+            $start = trim((string) ($block['start_time'] ?? ''));
+            $end = trim((string) ($block['end_time'] ?? ''));
+            $startLabel = $this->formatHhmmLabel($start);
+            $endLabel = $this->formatHhmmLabel($end);
+            if ($startLabel !== '') {
+                $validTokens[] = mb_strtolower($startLabel);
+            }
+            if ($endLabel !== '') {
+                $validTokens[] = mb_strtolower($endLabel);
+            }
+            if ($startLabel !== '' && $endLabel !== '') {
+                $validTokens[] = mb_strtolower($startLabel.'-'.$endLabel);
+                $validTokens[] = mb_strtolower($startLabel.'–'.$endLabel);
+            }
+
+            $startMin = $this->timeToMinutes($start);
+            $endMin = $this->timeToMinutes($end);
+            if ($startMin !== null && $endMin !== null) {
+                $endAdj = $endMin >= $startMin ? $endMin : $endMin + 1440;
+                $mins = max(0, $endAdj - $startMin);
+                if ($mins > 0) {
+                    $validTokens[] = $mins.' min';
+                    $validTokens[] = $mins.' mins';
+                    $validTokens[] = $mins.' minutes';
+                }
+            }
+        }
+
+        $normalized = mb_strtolower($text);
+        foreach ($validTokens as $token) {
+            if ($token !== '' && str_contains($normalized, $token)) {
+                return $text;
+            }
+        }
+
+        return 'Do these times and block lengths feel workable? Tell me in chat if you want anything moved, shortened, extended, or reordered before you save.';
     }
 
     /**

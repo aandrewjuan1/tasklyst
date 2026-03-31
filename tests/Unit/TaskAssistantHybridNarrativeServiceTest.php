@@ -66,6 +66,64 @@ test('daily_schedule narrative keeps deterministic reasoning times when model re
     expect($result['confirmation'])->toContain('earlier');
 });
 
+test('daily_schedule narrative sanitizes mismatched explicit confirmation time and duration claims', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is a focused plan.',
+                'reasoning' => 'This order keeps momentum.',
+                'confirmation' => "Does this afternoon schedule feel workable? I've planned a 1-hour study block starting at 3 PM.",
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '18:00',
+            'end_time' => '21:00',
+            'label' => 'Long focus block',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-23',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-23',
+            'end_date' => '2026-03-23',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule this for later evening',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    expect($result['confirmation'])->toContain('block lengths feel workable');
+    expect($result['confirmation'])->not->toContain('1-hour');
+    expect($result['confirmation'])->not->toContain('3 PM');
+});
+
 test('refinePrioritizeListing derives focus from items order and uses suggested_next_actions', function (): void {
     Prism::fake([
         StructuredResponseFake::make()

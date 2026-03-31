@@ -239,6 +239,93 @@ it('records unplaced units when proposal count_limit is reached', function (): v
     expect($unplacedReasons)->toContain('count_limit');
 });
 
+it('does not truncate too far when the available same-day window is too small', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 2,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '18:00', 'end' => '19:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 99,
+                'title' => 'Too long task',
+                'priority' => 'urgent',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
+
+    expect((string) ($proposals[0]['title'] ?? ''))->toBe('No schedulable items found');
+    expect(is_array($digest['partial_units'] ?? null) ? count($digest['partial_units']) : 0)->toBe(0);
+    expect(is_array($digest['unplaced_units'] ?? null) ? count($digest['unplaced_units']) : 0)->toBeGreaterThan(0);
+});
+
+it('truncates same-day task duration when enough time remains within the window', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 2,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '15:00', 'end' => '18:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 100,
+                'title' => 'Long task',
+                'priority' => 'urgent',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
+
+    expect((bool) ($proposals[0]['partial'] ?? false))->toBeTrue();
+    expect((int) ($proposals[0]['requested_minutes'] ?? 0))->toBe(300);
+    expect((int) ($proposals[0]['placed_minutes'] ?? 0))->toBe(180);
+    expect(is_array($digest['partial_units'] ?? null) ? count($digest['partial_units']) : 0)->toBe(1);
+});
+
 it('still subtracts calendar busy from events_for_busy for task-only targets', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 2,
@@ -301,8 +388,9 @@ it('still subtracts calendar busy from events_for_busy for task-only targets', f
     expect($ctxSnap['events_for_busy'] ?? [])->not->toHaveCount(0);
 
     expect($proposals)->not->toBe([]);
+    expect((string) ($proposals[0]['title'] ?? ''))->toBe('No schedulable items found');
     $firstStart = (string) ($proposals[0]['start_datetime'] ?? '');
-    expect($firstStart)->toContain('2026-03-31');
+    expect($firstStart)->toContain('2026-03-30');
 });
 
 it('orders scheduling candidates by prioritizeFocus ranking', function (): void {

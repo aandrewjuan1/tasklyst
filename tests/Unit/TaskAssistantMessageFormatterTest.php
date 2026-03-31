@@ -451,8 +451,7 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringContainsString('Here is a focused plan for this window.', $out);
         $this->assertStringContainsString('Practice coding interview problems', $out);
         $this->assertStringContainsString('Mar 22, 2026 · 6:00 PM–7:30 PM', $out);
-        $this->assertStringContainsString('Accept all', $out);
-        $this->assertStringContainsString('say what you need in chat', $out);
+        $this->assertStringNotContainsString('Accept all', $out);
         $this->assertStringContainsString('Does this evening block work', $out);
     }
 

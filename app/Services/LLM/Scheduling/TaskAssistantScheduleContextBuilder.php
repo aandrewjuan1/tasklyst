@@ -18,6 +18,7 @@ final class TaskAssistantScheduleContextBuilder
     public function __construct(
         private readonly TaskAssistantTaskChoiceConstraintsExtractor $constraintsExtractor,
         private readonly TaskAssistantScheduleHorizonResolver $horizonResolver,
+        private readonly SchedulingIntentInterpreter $intentInterpreter,
     ) {}
 
     /**
@@ -46,8 +47,25 @@ final class TaskAssistantScheduleContextBuilder
 
         $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
         $todayStr = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
-        $now = CarbonImmutable::parse($todayStr.' 12:00:00', $timezone);
+        $nowRaw = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
+        if ($nowRaw !== '') {
+            try {
+                $now = CarbonImmutable::parse($nowRaw, $timezone);
+            } catch (\Throwable) {
+                $now = CarbonImmutable::parse($todayStr.' 12:00:00', $timezone);
+            }
+        } else {
+            $now = CarbonImmutable::now($timezone);
+        }
         $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
+
+        $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
+        $normalized['time_window'] = $intent['time_window'] ?? null;
+        $normalized['time_window_strict'] = (bool) ($intent['strict_window'] ?? false);
+        $normalized['schedule_intent_flags'] = is_array($intent['intent_flags'] ?? null)
+            ? $intent['intent_flags']
+            : [];
+        $normalized['schedule_intent_reason_codes'] = $intent['reason_codes'] ?? [];
 
         Log::info('task-assistant.schedule_context_deterministic', [
             'layer' => 'structured_generation',

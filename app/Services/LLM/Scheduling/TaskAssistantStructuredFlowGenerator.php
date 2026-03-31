@@ -445,13 +445,37 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
-        $timeWindowHint = $options['time_window_hint'] ?? null;
-        if ($timeWindowHint === 'later_afternoon') {
-            $contextualSnapshot['time_window'] = ['start' => '15:00', 'end' => '18:00'];
-        } elseif ($timeWindowHint === 'morning') {
-            $contextualSnapshot['time_window'] = ['start' => '08:00', 'end' => '12:00'];
-        } elseif ($timeWindowHint === 'evening') {
-            $contextualSnapshot['time_window'] = ['start' => '18:00', 'end' => '22:00'];
+        $ctxWindow = $context['time_window'] ?? null;
+        if (is_array($ctxWindow) && isset($ctxWindow['start'], $ctxWindow['end'])) {
+            $start = trim((string) $ctxWindow['start']);
+            $end = trim((string) $ctxWindow['end']);
+            if ($start !== '' && $end !== '') {
+                $contextualSnapshot['time_window'] = ['start' => $start, 'end' => $end];
+            }
+        }
+
+        // Backwards-compatible fallback: accept legacy time_window_hint.
+        if (! isset($contextualSnapshot['time_window'])) {
+            $timeWindowHint = $options['time_window_hint'] ?? null;
+            if ($timeWindowHint === 'later_afternoon') {
+                $contextualSnapshot['time_window'] = ['start' => '15:00', 'end' => '18:00'];
+            } elseif ($timeWindowHint === 'afternoon_onwards') {
+                $contextualSnapshot['time_window'] = ['start' => '15:00', 'end' => '22:00'];
+            } elseif ($timeWindowHint === 'afternoon_evening') {
+                $contextualSnapshot['time_window'] = ['start' => '15:00', 'end' => '22:00'];
+            } elseif ($timeWindowHint === 'morning') {
+                $contextualSnapshot['time_window'] = ['start' => '08:00', 'end' => '12:00'];
+            } elseif ($timeWindowHint === 'morning_onwards') {
+                $contextualSnapshot['time_window'] = ['start' => '08:00', 'end' => '22:00'];
+            } elseif ($timeWindowHint === 'morning_afternoon') {
+                $contextualSnapshot['time_window'] = ['start' => '08:00', 'end' => '18:00'];
+            } elseif ($timeWindowHint === 'morning_evening') {
+                $contextualSnapshot['time_window'] = ['start' => '08:00', 'end' => '22:00'];
+            } elseif ($timeWindowHint === 'evening') {
+                $contextualSnapshot['time_window'] = ['start' => '18:00', 'end' => '22:00'];
+            } elseif ($timeWindowHint === 'later') {
+                $contextualSnapshot['time_window'] = ['start' => '13:00', 'end' => '22:00'];
+            }
         }
 
         $horizon = $context['schedule_horizon'] ?? null;
@@ -551,7 +575,7 @@ final class TaskAssistantStructuredFlowGenerator
     private function generateProposalsChunkedSpill(array $snapshot, array $context, int $countLimit): array
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
-        $placementDates = $this->resolvePlacementDates($snapshot, $timezone);
+        $placementDates = array_slice($this->resolvePlacementDates($snapshot, $timezone), 0, 1);
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
         $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
@@ -578,6 +602,7 @@ final class TaskAssistantStructuredFlowGenerator
                 ? $snapshot['schedule_target_skips']
                 : [],
             'unplaced_units' => [],
+            'partial_units' => [],
             'summary' => '',
         ];
 
@@ -655,15 +680,38 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             if (! $placed) {
-                $digest['unplaced_units'][] = [
-                    'entity_type' => $unit['entity_type'],
-                    'entity_id' => $unit['entity_id'],
-                    'title' => $unit['title'],
-                    'minutes' => $unit['minutes'],
-                    'chunk_index' => $unit['chunk_index'] ?? null,
-                    'chunk_total' => $unit['chunk_total'] ?? null,
-                    'reason' => 'horizon_exhausted',
-                ];
+                // Partial placement fallback for tasks: if we can't fit the full duration,
+                // still schedule a starter block so the top-ranked work is represented.
+                if (($unit['entity_type'] ?? '') === 'task') {
+                    $partial = $this->placePartialTaskUnit(
+                        unit: $unit,
+                        placementDates: $placementDates,
+                        windowsByDay: $windowsByDay,
+                        timezone: $timezone,
+                        proposals: $proposals,
+                        countLimit: $countLimit,
+                        taskPlacedChunks: $taskPlacedChunks,
+                        digest: $digest,
+                    );
+                    if ($partial['placed'] ?? false) {
+                        $proposals = $partial['proposals'];
+                        $windowsByDay = $partial['windowsByDay'];
+                        $digest = $partial['digest'];
+                        $placed = true;
+                    }
+                }
+
+                if (! $placed) {
+                    $digest['unplaced_units'][] = [
+                        'entity_type' => $unit['entity_type'],
+                        'entity_id' => $unit['entity_id'],
+                        'title' => $unit['title'],
+                        'minutes' => $unit['minutes'],
+                        'chunk_index' => $unit['chunk_index'] ?? null,
+                        'chunk_total' => $unit['chunk_total'] ?? null,
+                        'reason' => 'horizon_exhausted',
+                    ];
+                }
             }
         }
 
@@ -679,6 +727,113 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return [$proposals, $digest];
+    }
+
+    /**
+     * Attempt to schedule a partial focus block for a too-long task unit.
+     *
+     * @param  array<string, mixed>  $unit
+     * @param  list<string>  $placementDates
+     * @param  array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>>  $windowsByDay
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<int, int>  $taskPlacedChunks
+     * @param  array<string, mixed>  $digest
+     * @return array{placed: bool, proposals: array<int, array<string, mixed>>, windowsByDay: array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>>, digest: array<string, mixed>}
+     */
+    private function placePartialTaskUnit(
+        array $unit,
+        array $placementDates,
+        array $windowsByDay,
+        \DateTimeZone $timezone,
+        array $proposals,
+        int $countLimit,
+        array $taskPlacedChunks,
+        array $digest,
+    ): array {
+        if (count($proposals) >= $countLimit) {
+            return ['placed' => false, 'proposals' => $proposals, 'windowsByDay' => $windowsByDay, 'digest' => $digest];
+        }
+
+        $requestedMinutes = max(1, (int) ($unit['minutes'] ?? 30));
+        $minimumPartialRatio = 0.60;
+        $minimumAbsolutePartialMinutes = 30;
+        $minPartialMinutes = max($minimumAbsolutePartialMinutes, (int) ceil($requestedMinutes * $minimumPartialRatio));
+        $best = null;
+
+        foreach ($placementDates as $day) {
+            $freeWindows = $windowsByDay[$day] ?? [];
+            foreach ($freeWindows as $wIndex => $w) {
+                $diff = (int) (($w['end']->getTimestamp() - $w['start']->getTimestamp()) / 60);
+                if ($diff < $minPartialMinutes) {
+                    continue;
+                }
+                if ($best === null || $diff > $best['maxMinutes']) {
+                    $best = [
+                        'day' => $day,
+                        'window_index' => $wIndex,
+                        'startAt' => $w['start'],
+                        'maxMinutes' => $diff,
+                    ];
+                }
+            }
+        }
+
+        if ($best === null) {
+            return ['placed' => false, 'proposals' => $proposals, 'windowsByDay' => $windowsByDay, 'digest' => $digest];
+        }
+
+        $placedMinutes = min($requestedMinutes, (int) $best['maxMinutes']);
+        if ($placedMinutes < $minPartialMinutes) {
+            return ['placed' => false, 'proposals' => $proposals, 'windowsByDay' => $windowsByDay, 'digest' => $digest];
+        }
+
+        $startAt = $best['startAt'];
+        $endAt = $startAt->modify("+{$placedMinutes} minutes");
+
+        $candidate = [
+            'entity_type' => 'task',
+            'entity_id' => $unit['entity_id'],
+            'title' => $unit['title'],
+            'score' => $unit['score'],
+            'duration_minutes' => $placedMinutes,
+            'chunk_index' => $unit['chunk_index'],
+            'chunk_total' => $unit['chunk_total'],
+        ];
+
+        $tid = (int) $unit['entity_id'];
+        $prior = $taskPlacedChunks[$tid] ?? 0;
+        $candidate['schedule_apply_as'] = $prior === 0 ? 'update_task' : 'create_event';
+
+        $proposal = $this->makeProposal($candidate, $startAt, $endAt, $placedMinutes);
+        $proposal['partial'] = true;
+        $proposal['requested_minutes'] = $requestedMinutes;
+        $proposal['placed_minutes'] = $placedMinutes;
+        $proposal['placement_reason'] = 'partial_fit';
+
+        $proposals[] = $proposal;
+
+        $freeWindows = $windowsByDay[$best['day']] ?? [];
+        $windowsByDay[$best['day']] = $this->consumeWindow($freeWindows, (int) $best['window_index'], $startAt, $endAt);
+
+        if (! in_array($best['day'], $digest['days_used'], true)) {
+            $digest['days_used'][] = $best['day'];
+        }
+
+        $digest['partial_units'][] = [
+            'entity_type' => 'task',
+            'entity_id' => $unit['entity_id'],
+            'title' => $unit['title'],
+            'requested_minutes' => $requestedMinutes,
+            'placed_minutes' => $placedMinutes,
+            'reason' => 'partial_fit',
+        ];
+
+        return [
+            'placed' => true,
+            'proposals' => $proposals,
+            'windowsByDay' => $windowsByDay,
+            'digest' => $digest,
+        ];
     }
 
     /**
@@ -926,6 +1081,17 @@ final class TaskAssistantStructuredFlowGenerator
     private function buildBusyRanges(array $snapshot, \DateTimeImmutable $dayStart, \DateTimeImmutable $dayEnd, \DateTimeZone $timezone): array
     {
         $ranges = [];
+
+        // Built-in lunch break (product default): 12:00–13:00 local time.
+        // Represented as a busy range so it naturally subtracts from free windows.
+        $lunchStart = new \DateTimeImmutable($dayStart->format('Y-m-d').' 12:00:00', $timezone);
+        $lunchEnd = new \DateTimeImmutable($dayStart->format('Y-m-d').' 13:00:00', $timezone);
+        if ($lunchEnd > $lunchStart && $lunchEnd > $dayStart && $lunchStart < $dayEnd) {
+            $ranges[] = [
+                'start' => $lunchStart < $dayStart ? $dayStart : $lunchStart,
+                'end' => $lunchEnd > $dayEnd ? $dayEnd : $lunchEnd,
+            ];
+        }
 
         $eventSource = $snapshot['events_for_busy'] ?? $snapshot['events'] ?? [];
         foreach ($eventSource as $event) {

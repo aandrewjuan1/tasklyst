@@ -363,3 +363,70 @@ test('schedule 1 and 2 for later afternoon resolves numeric index targets', func
     expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(202);
     expect($decision->constraints['count_limit'])->toBe(2);
 });
+
+test('schedule phrase with onwards maps to afternoon_onwards and strict only flag', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 301, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 302, 'title' => 'B'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those for later afternoon onwards only');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['time_window_hint'])->toBe('afternoon_onwards');
+    expect((bool) ($decision->constraints['strict_window'] ?? false))->toBeTrue();
+});
+
+test('schedule phrase after lunch keeps scheduling time hint as later', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 401, 'title' => 'A'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule those after lunch');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['time_window_hint'])->toBe('later');
+});
+
+test('schedule phrase with afternoon and evening maps to combined hint', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 501, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 502, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 503, 'title' => 'C'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule those three for later afternoon and evening');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['time_window_hint'])->toBe('afternoon_evening');
+});

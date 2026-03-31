@@ -559,11 +559,6 @@ final class TaskAssistantMessageFormatter
             $paragraphs[] = $confirmation;
         }
 
-        $proposals = $data['proposals'] ?? [];
-        if (is_array($proposals) && $proposals !== []) {
-            $paragraphs[] = 'If the times and lengths above look right, use Accept all below to save them to your tasks. If anything should move or run longer or shorter, say what you need in chat and we will adjust before you save.';
-        }
-
         return implode("\n\n", $paragraphs);
     }
 
@@ -580,6 +575,7 @@ final class TaskAssistantMessageFormatter
         $daysUsed = is_array($digest['days_used'] ?? null) ? $digest['days_used'] : [];
         $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
         $skipped = is_array($digest['skipped_targets'] ?? null) ? $digest['skipped_targets'] : [];
+        $partial = is_array($digest['partial_units'] ?? null) ? $digest['partial_units'] : [];
 
         $parts = [];
 
@@ -611,6 +607,10 @@ final class TaskAssistantMessageFormatter
                 }
                 $parts[] = 'One or more segments did not fit before the planning horizon; you can ask for a wider window or fewer items.';
             }
+        }
+
+        if ($partial !== []) {
+            $parts[] = 'One or more tasks did not fully fit in the available window, so I scheduled a starter block to help you make progress. If you want, we can chunk it further Pomodoro-style or widen the window.';
         }
 
         if ($skipped !== []) {

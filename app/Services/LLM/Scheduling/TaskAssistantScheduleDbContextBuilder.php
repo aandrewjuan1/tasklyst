@@ -46,7 +46,7 @@ final class TaskAssistantScheduleDbContextBuilder
         // Deterministically resolve placement horizon from the user's message.
         $context = $this->scheduleContextBuilder->build(
             $userMessageContent,
-            ['timezone' => $timezone, 'today' => $today]
+            ['timezone' => $timezone, 'today' => $today, 'now' => $now->toIso8601String()]
         );
 
         $horizon = $context['schedule_horizon'] ?? null;
