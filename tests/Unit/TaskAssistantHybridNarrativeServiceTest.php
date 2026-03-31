@@ -590,6 +590,61 @@ test('refinePrioritizeListing replaces due soon framing with singular overdue op
     expect($result['reasoning'])->not->toContain("These 'Alpha' tasks are");
 });
 
+test('refinePrioritizeListing strips overdue duration units in reasoning', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your slice.',
+                'acknowledgment' => null,
+                'reasoning' => 'This complex task has been overdue for over a month, so tackle it first.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'high',
+            'due_phrase' => 'overdue',
+            'due_on' => 'Mar 30, 2026',
+            'complexity_label' => 'Simple',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'One task.',
+        filterContextForPrompt: 'time: today (includes overdue and anything due today)',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['reasoning'])->toContain('overdue');
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('month');
+    expect(mb_strtolower((string) $result['reasoning']))->toMatch('/task\s+(is|has\s+been)\s+overdue/iu');
+});
+
 test('refinePrioritizeListing ignores \"tomorrow\\u2019s\" in titles for due drift detection', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -1187,4 +1242,195 @@ test('refinePrioritizeListing replaces doing_progress_coach when it quotes ITEMS
     expect($result['doing_progress_coach'])->not->toContain('Alpha');
     expect($result['doing_progress_coach'])->not->toContain('Beta');
     expect($result['framing'])->toBeNull();
+});
+
+test('refinePrioritizeListing grounds generic reasoning with first row due_phrase', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your slice.',
+                'acknowledgment' => 'You can handle this.',
+                'reasoning' => 'This complex task will help you prepare for your upcoming quiz on Mar 30th.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+                'doing_progress_coach' => 'Wrap up what you started before adding more.',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'urgent',
+            'due_phrase' => 'overdue',
+            'due_on' => 'Mar 30, 2026',
+            'complexity_label' => 'Complex',
+        ],
+        [
+            'entity_type' => 'task',
+            'entity_id' => 2,
+            'title' => 'Beta',
+            'priority' => 'medium',
+            'due_phrase' => 'due later',
+            'due_on' => 'Apr 10, 2026',
+            'complexity_label' => 'Simple',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'doing_context' => [
+            'has_doing_tasks' => true,
+            'doing_titles' => ['Doing task only'],
+            'doing_count' => 1,
+        ],
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'Two tasks.',
+        filterContextForPrompt: 'time: today (includes overdue and anything due today)',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['reasoning'])->toContain('Alpha');
+    expect($result['reasoning'])->toContain('overdue');
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('upcoming quiz');
+    expect((string) $result['reasoning'])->toMatch('/\btackle\b/iu');
+});
+
+test('refinePrioritizeListing appends coaching tone tail for single-item generic reasoning', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your slice.',
+                'acknowledgment' => 'You can handle this.',
+                'reasoning' => 'This complex task will help you prepare for your upcoming quiz on Mar 30th.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+                'doing_progress_coach' => 'Wrap up what you started before adding more.',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'urgent',
+            'due_phrase' => 'overdue',
+            'due_on' => 'Mar 30, 2026',
+            'complexity_label' => 'Complex',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'doing_context' => [
+            'has_doing_tasks' => true,
+            'doing_titles' => ['Doing task only'],
+            'doing_count' => 1,
+        ],
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'One task.',
+        filterContextForPrompt: 'time: today (includes overdue and anything due today)',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['reasoning'])->toContain('overdue');
+    expect((string) $result['reasoning'])->toMatch('/\btackle\b/iu');
+});
+
+test('refinePrioritizeListing does not append coaching tone tail when reasoning already has motivation', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is your slice.',
+                'acknowledgment' => null,
+                'reasoning' => 'I’d tackle Alpha first because it is overdue. This urgent priority helps you build momentum and feel caught up, so you can focus your study time without rushing or spiraling.',
+                'next_options' => 'If you want, I can schedule these steps for later.',
+                'next_options_chip_texts' => ['Schedule these for later'],
+                'doing_progress_coach' => null,
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = app(TaskAssistantHybridNarrativeService::class);
+    $items = [
+        [
+            'entity_type' => 'task',
+            'entity_id' => 1,
+            'title' => 'Alpha',
+            'priority' => 'urgent',
+            'due_phrase' => 'overdue',
+            'due_on' => 'Mar 30, 2026',
+            'complexity_label' => 'Complex',
+        ],
+    ];
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'doing_context' => [
+            'has_doing_tasks' => false,
+            'doing_titles' => [],
+            'doing_count' => 0,
+        ],
+    ];
+
+    $result = $service->refinePrioritizeListing(
+        promptData: $promptData,
+        userMessage: 'prioritize my tasks',
+        items: $items,
+        deterministicSummary: 'One task.',
+        filterContextForPrompt: 'time: today (includes overdue and anything due today)',
+        ambiguous: false,
+        threadId: 1,
+        userId: 1,
+    );
+
+    expect($result['reasoning'])->toContain('momentum');
+    expect((string) $result['reasoning'])->not->toContain('overdue work first');
 });

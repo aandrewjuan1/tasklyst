@@ -1041,6 +1041,16 @@ TXT;
             }
         }
 
+        // UX/Truth enforcement: when there are more than 2 Doing tasks in total,
+        // do NOT let the model prose omit the remaining count. We also keep the
+        // Doing titles list capped to 2 in the paragraph and express the rest via "N more".
+        if ($doingCoachRequired && $doingCountForPrompt > 2) {
+            $doingProgressCoachNarrative = TaskAssistantPrioritizeOutputDefaults::buildDoingProgressCoach(
+                $doingTitlesSanitize,
+                $doingCountForPrompt
+            );
+        }
+
         // Remove redundancy between acknowledgment and framing for stress prompts.
         $framing = $this->dedupeAcknowledgmentAndFraming($acknowledgment, (string) $framing, $cleanItems, $doingCoachRequired);
 
@@ -1208,6 +1218,9 @@ TXT;
         // Ensure reasoning stays anchored to the ranked list (especially item #1)—after cross-field dedupe.
         $reasoning = $this->enforceReasoningAnchorsTopItem((string) $reasoning, $cleanItems);
         $reasoning = $this->normalizeReasoningOverdueGrammar((string) $reasoning, $cleanItems);
+        $reasoning = $this->stripOverdueDurationAgeClaimsWhenDuePhraseIsOverdue((string) $reasoning, $cleanItems);
+        $reasoning = $this->enforceReasoningIncludesFirstRowDuePhraseWhenMissing((string) $reasoning, $cleanItems);
+        $reasoning = $this->ensurePrioritizeReasoningHasCoachingTone((string) $reasoning, $cleanItems, $doingCoachRequired);
 
         $nextOptions = TaskAssistantPrioritizeOutputDefaults::dedupePrioritizeNextVersusPriorFields(
             (string) $nextOptions,
@@ -1317,6 +1330,184 @@ TXT;
         }
 
         return $this->softReasoningAnchorWhenTopTitleMissing($title, $text);
+    }
+
+    /**
+     * When the model gives generic reasoning (e.g. "prepare for your quiz") but does
+     * not ground timing, replace it with a deterministic, first-row-based coaching sentence.
+     *
+     * This applies to both single-item and multi-item prioritize outputs.
+     *
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function enforceReasoningIncludesFirstRowDuePhraseWhenMissing(string $reasoning, array $items): string
+    {
+        if ($items === []) {
+            return $reasoning;
+        }
+
+        $first = is_array($items[0] ?? null) ? $items[0] : null;
+        if (! is_array($first)) {
+            return $reasoning;
+        }
+
+        $textLower = mb_strtolower(trim($reasoning));
+        $duePhrase = trim((string) ($first['due_phrase'] ?? ''));
+        $title = trim((string) ($first['title'] ?? ''));
+
+        // Only enforce when we have a real due_phrase token to ground on.
+        if ($duePhrase === '' || $duePhrase === 'no due date') {
+            return $reasoning;
+        }
+
+        $hasDuePhrase = mb_stripos($textLower, mb_strtolower($duePhrase)) !== false;
+        $hasTitle = $title !== '' ? mb_stripos($textLower, mb_strtolower($title)) !== false : false;
+
+        // If due phrase is present, keep the model's reasoning even if it doesn't mention title;
+        // other post-processors already handle anchoring when text is too short.
+        if ($hasDuePhrase) {
+            return $reasoning;
+        }
+
+        // If the model still explicitly mentions the top title, keep it; the slice ordering
+        // and other validators protect correctness enough here.
+        if ($hasTitle) {
+            return $reasoning;
+        }
+
+        // If reasoning includes generic but meaningful grounding words (e.g. "urgency rules"),
+        // do not override it.
+        $hasMeaningfulGrounding = (bool) preg_match(
+            '/\b(urgency|priority|due|deadline|time[-\s]?sensitive)\b/iu',
+            $textLower
+        );
+        if ($hasMeaningfulGrounding) {
+            return $reasoning;
+        }
+
+        // Build a grounded fallback anchored to the first row.
+        $priorityRaw = trim((string) ($first['priority'] ?? ''));
+        $priorityLabel = $priorityRaw !== '' ? mb_strtolower($priorityRaw) : '';
+        if ($priorityLabel === '') {
+            $priorityLabel = null;
+        }
+
+        $complexityLabel = trim((string) ($first['complexity_label'] ?? ''));
+
+        $complexityPart = '';
+        if ($complexityLabel !== '' && $complexityLabel !== 'Not set') {
+            $lc = mb_strtolower($complexityLabel);
+            $complexityPart = $lc !== '' ? ' and it is '.$lc : '';
+        }
+
+        if ($title !== '') {
+            $titleQuoted = '“'.$title.'”';
+            $priorityPart = $priorityLabel !== null ? ' with '.$priorityLabel.' priority' : '';
+
+            return self::clampReasoningForFirstRowFallback(
+                $titleQuoted,
+                $duePhrase,
+                $priorityPart,
+                $complexityPart
+            );
+        }
+
+        // Last resort: no title present, but due phrase missing.
+        $priorityPart = $priorityLabel !== null ? ' with '.$priorityLabel.' priority' : '';
+
+        return self::clampReasoningForFirstRowFallback(
+            'this task',
+            $duePhrase,
+            $priorityPart,
+            $complexityPart
+        );
+    }
+
+    private static function clampReasoningForFirstRowFallback(
+        string $titleQuoted,
+        string $duePhrase,
+        string $priorityPart,
+        string $complexityPart,
+    ): string {
+        $dueLower = mb_strtolower(trim($duePhrase));
+
+        $coachTail = match ($dueLower) {
+            'overdue' => 'so you can feel caught up and less stressed',
+            'due today' => 'so you can build momentum for today',
+            'due tomorrow' => 'so tomorrow feels lighter',
+            'due this week' => 'so it is handled within the week',
+            default => 'so it moves forward',
+        };
+
+        // Keep it short but specific; rely on existing clamp at the caller boundary.
+        $base = "I’d tackle {$titleQuoted} first because it is {$duePhrase}{$priorityPart}{$complexityPart} — {$coachTail}.";
+
+        return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($base);
+    }
+
+    /**
+     * If the model reasoning is too generic/too short, append a deterministic
+     * 1-sentence coaching tail based on the first row due_phrase.
+     *
+     * This keeps reasoning consistent across both single-item and multi-item slices.
+     */
+    private function ensurePrioritizeReasoningHasCoachingTone(
+        string $reasoning,
+        array $items,
+        bool $doingCoachRequired,
+    ): string {
+        if ($items === []) {
+            return $reasoning;
+        }
+
+        $trimmed = trim($reasoning);
+        if ($trimmed === '') {
+            return $reasoning;
+        }
+
+        // Keep this guard tight: we only patch when the model output is short
+        // OR it lacks motivational language that makes the student feel guided.
+        $tooShort = mb_strlen($trimmed) < (int) config('task-assistant.listing.prioritize_reasoning_min_len_for_coaching_tail', 120);
+
+        $lower = mb_strtolower($trimmed);
+        $hasMotivation = (bool) preg_match('/\b(momentum|caught up|less stressed|feel lighter|ready|progress)\b/iu', $lower);
+        $hasActionCoach = (bool) preg_match('/\b(let\'s|lets|start with|tackle|focus|work on|break down|break|chunk|plan|next step)\b/iu', $lower);
+
+        if (! $tooShort && $hasMotivation && $hasActionCoach) {
+            return $trimmed;
+        }
+
+        $first = is_array($items[0] ?? null) ? $items[0] : null;
+        if (! is_array($first)) {
+            return $trimmed;
+        }
+
+        $duePhrase = trim((string) ($first['due_phrase'] ?? ''));
+        $dueLower = mb_strtolower($duePhrase);
+
+        if ($dueLower === '' || $dueLower === 'no due date') {
+            $tail = __('Let’s tackle the next step so it moves forward.');
+
+            return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($trimmed.' '.$tail);
+        }
+
+        $tail = match ($dueLower) {
+            'overdue' => __('Let’s tackle this overdue work first so you can feel caught up and less stressed.'),
+            'due today' => __('Let’s start with this now so you can build momentum for today.'),
+            'due tomorrow' => __('Let’s tackle a quick chunk now so tomorrow feels lighter.'),
+            'due this week' => __('Let’s focus a solid session on this so it is handled within the week.'),
+            default => str_contains($dueLower, 'due on ')
+                ? __('Let’s break this into a small step now so it is ready for your time window.')
+                : __('Let’s tackle this next step now so it is ready when the window opens.'),
+        };
+
+        // If there is already a doing coach block, this reasoning tail should stay short
+        // and not duplicate in-progress wording.
+        if ($doingCoachRequired) {
+            $tail = str_replace('caught up and less stressed', 'steady and moving forward', $tail);
+        }
+
+        return TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($trimmed.' '.$tail);
     }
 
     /**
@@ -1494,6 +1685,42 @@ TXT;
         }
 
         return $text;
+    }
+
+    /**
+     * Clamp duration/age claims inside reasoning when the item is only "overdue".
+     *
+     * Your item due-time representation is boolean-ish (due_phrase = overdue/due today/etc),
+     * so the model may hallucinate specific ages like "over a month". That is not grounded
+     * in the current snapshot, so we strip duration units and leave the safe due_phrase token.
+     */
+    private function stripOverdueDurationAgeClaimsWhenDuePhraseIsOverdue(string $reasoning, array $items): string
+    {
+        // If nothing is overdue in the slice, do not touch.
+        if ($this->countTaskRowsWithOverdueDuePhrase($items) <= 0) {
+            return $reasoning;
+        }
+
+        if (mb_stripos($reasoning, 'overdue') === false) {
+            return $reasoning;
+        }
+
+        // Replace any "overdue ... (month|week|day|year)" duration claim with "overdue".
+        // Example: "has been overdue for over a month" -> "has been overdue".
+        $out = preg_replace(
+            '/\boverdue\b[^.]{0,140}\b(?:month|months|week|weeks|day|days|year|years)\b/iu',
+            'overdue',
+            $reasoning
+        );
+
+        $out = is_string($out) ? $out : $reasoning;
+
+        // If the model produced a broken fragment like "This complex and overdue."
+        // normalize it back into a grammatical sentence.
+        $out = preg_replace('/\bThis\s+([\p{L}]+)\s+and\s+overdue\b/iu', 'This $1 task is overdue', $out);
+        $out = preg_replace('/\bThis\s+and\s+overdue\b/iu', 'This task is overdue', $out);
+
+        return $out;
     }
 
     /**

@@ -224,8 +224,8 @@ class TaskAssistantPrioritizeOutputDefaultsTest extends TestCase
         $this->assertIsString($out);
         $this->assertStringContainsString('One', (string) $out);
         $this->assertStringContainsString('Two', (string) $out);
-        $this->assertStringContainsString('Three', (string) $out);
-        $this->assertStringContainsString('2 more', (string) $out);
+        $this->assertStringNotContainsString('Three', (string) $out);
+        $this->assertStringContainsString('3 more', (string) $out);
     }
 
     public function test_dedupe_prioritize_filter_versus_framing_drops_near_duplicate(): void

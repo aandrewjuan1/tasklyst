@@ -58,7 +58,8 @@ final class TaskAssistantPrioritizeOutputDefaults
             return null;
         }
 
-        $maxSample = 3;
+        // UX: mention only 1-2 Doing titles in prose; if there are more, include "N more".
+        $maxSample = 2;
         $sample = array_slice($clean, 0, $maxSample);
         $more = max(0, $totalCount - count($sample));
         $list = implode(', ', $sample);
