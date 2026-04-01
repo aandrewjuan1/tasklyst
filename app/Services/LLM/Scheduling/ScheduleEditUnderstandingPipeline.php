@@ -12,6 +12,15 @@ final class ScheduleEditUnderstandingPipeline
 
     /**
      * @param  array<int, array<string, mixed>>  $proposals
+     */
+    public function wouldReorder(string $normalizedMessage, array $proposals): bool
+    {
+        return $this->resolveReorderOperation($normalizedMessage, $proposals) !== null;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  list<string>  $lastReferencedProposalUuids
      * @return array{
      *   operations: list<array<string, mixed>>,
      *   clarification_required: bool,
@@ -19,14 +28,22 @@ final class ScheduleEditUnderstandingPipeline
      *   reasons: list<string>
      * }
      */
-    public function resolve(string $userMessage, array $proposals, string $timezone): array
-    {
+    public function resolve(
+        string $userMessage,
+        array $proposals,
+        string $timezone,
+        array $lastReferencedProposalUuids = [],
+    ): array {
         $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $userMessage) ?? $userMessage));
         if ($normalized === '') {
             return $this->clarify('Please describe the schedule change you want to make.');
         }
 
-        $target = $this->targetResolver->resolvePrimaryTarget($normalized, $proposals);
+        $target = $this->targetResolver->resolvePrimaryTarget(
+            $normalized,
+            $proposals,
+            $lastReferencedProposalUuids,
+        );
         $wantsReorder = $this->lexicon->looksLikeReorder($normalized);
 
         if (($target['ambiguous'] ?? true) && ! $wantsReorder) {
@@ -56,6 +73,11 @@ final class ScheduleEditUnderstandingPipeline
         $time = $this->temporalParser->parseLocalTime($normalized);
         if ($time !== null) {
             $ops[] = ['op' => 'set_local_time_hhmm', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_time_hhmm' => $time];
+        } else {
+            $partOfDay = $this->temporalParser->parsePartOfDayAnchorHhmm($normalized);
+            if ($partOfDay !== null) {
+                $ops[] = ['op' => 'set_local_time_hhmm', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_time_hhmm' => $partOfDay];
+            }
         }
 
         $date = $this->temporalParser->parseLocalDateYmd($normalized, $timezone);

@@ -28,8 +28,15 @@ final class ScheduleRefinementIntentResolver
      *   reasons: list<string>
      * }
      */
-    public function resolveDetailed(string $userMessage, array $proposals, string $userTimezone): array
-    {
-        return $this->pipeline->resolve($userMessage, $proposals, $userTimezone);
+    /**
+     * @param  list<string>  $lastReferencedProposalUuids
+     */
+    public function resolveDetailed(
+        string $userMessage,
+        array $proposals,
+        string $userTimezone,
+        array $lastReferencedProposalUuids = [],
+    ): array {
+        return $this->pipeline->resolve($userMessage, $proposals, $userTimezone, $lastReferencedProposalUuids);
     }
 }

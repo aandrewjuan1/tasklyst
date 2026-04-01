@@ -17,11 +17,35 @@ final class ScheduleEditTargetResolver
      *   candidate_titles: list<string>
      * }
      */
-    public function resolvePrimaryTarget(string $normalizedMessage, array $proposals): array
-    {
+    /**
+     * @param  list<string>  $lastReferencedProposalUuids
+     */
+    public function resolvePrimaryTarget(
+        string $normalizedMessage,
+        array $proposals,
+        array $lastReferencedProposalUuids = [],
+    ): array {
         $count = count($proposals);
         if ($count < 1) {
             return ['index' => null, 'proposal_uuid' => null, 'ambiguous' => true, 'reason' => 'There are no editable schedule items yet.', 'confidence' => 'low', 'candidate_titles' => []];
+        }
+
+        $uniqueLastUuids = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $u): string => trim((string) $u), $lastReferencedProposalUuids),
+            static fn (string $u): bool => $u !== ''
+        )));
+
+        if ($this->lexicon->hasAmbiguousPronoun($normalizedMessage) && count($uniqueLastUuids) === 1) {
+            $needle = $uniqueLastUuids[0];
+            foreach ($proposals as $i => $proposal) {
+                if (! is_array($proposal)) {
+                    continue;
+                }
+                $rowUuid = trim((string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? ''));
+                if ($rowUuid !== '' && $rowUuid === $needle) {
+                    return $this->resultFromIndex($proposals, (int) $i, false, null, 'high');
+                }
+            }
         }
 
         if (preg_match('/\bitem\s*#?(\d+)\b/u', $normalizedMessage, $m) === 1) {

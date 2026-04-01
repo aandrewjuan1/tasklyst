@@ -15,3 +15,20 @@ it('returns low confidence ambiguity for pronoun-only refinements', function ():
     expect($result['confidence'])->toBe('low');
     expect($result['candidate_titles'])->toHaveCount(2);
 });
+
+it('resolves pronoun when last referenced proposal uuid matches one draft row', function (): void {
+    $resolver = new ScheduleEditTargetResolver(new ScheduleEditLexicon);
+
+    $result = $resolver->resolvePrimaryTarget(
+        'move it to evening instead',
+        [
+            ['proposal_uuid' => 'keep-a', 'title' => 'Write report'],
+            ['proposal_uuid' => 'keep-b', 'title' => 'Review backlog'],
+        ],
+        ['keep-b'],
+    );
+
+    expect($result['ambiguous'])->toBeFalse();
+    expect($result['index'])->toBe(1);
+    expect($result['confidence'])->toBe('high');
+});

@@ -4,6 +4,7 @@ namespace App\Services\LLM\Scheduling;
 
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
+use App\Models\User;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\TaskAssistant\TaskAssistantHybridNarrativeService;
 use App\Services\LLM\TaskAssistant\TaskAssistantPromptData;
@@ -586,6 +587,15 @@ final class TaskAssistantStructuredFlowGenerator
 
     private function generateProposalsChunkedSpill(array $snapshot, array $context, int $countLimit): array
     {
+        return $this->generateProposalsChunkedSpillCore($snapshot, $context, $countLimit, null);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>|null  $unitsOverride  When set, skips candidate building and places only these units (refinement / tests).
+     * @return array{0: array<int, array<string, mixed>>, 1: array<string, mixed>}
+     */
+    private function generateProposalsChunkedSpillCore(array $snapshot, array $context, int $countLimit, ?array $unitsOverride): array
+    {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
         $placementDates = array_slice($this->resolvePlacementDates($snapshot, $timezone), 0, 1);
@@ -602,11 +612,16 @@ final class TaskAssistantStructuredFlowGenerator
             $windowsByDay[$day] = $this->buildFreeWindows($busyRanges, $dayStart, $dayEnd);
         }
 
-        $candidates = $this->buildSchedulingCandidates($snapshot, $context);
-        usort($candidates, fn (array $a, array $b): int => ($b['score'] <=> $a['score']));
+        if ($unitsOverride !== null) {
+            $units = array_values($unitsOverride);
+            usort($units, fn (array $a, array $b): int => $this->compareSchedulingUnits($a, $b));
+        } else {
+            $candidates = $this->buildSchedulingCandidates($snapshot, $context);
+            usort($candidates, fn (array $a, array $b): int => ($b['score'] <=> $a['score']));
 
-        $units = $this->expandCandidatesToSchedulingUnits($candidates);
-        usort($units, fn (array $a, array $b): int => $this->compareSchedulingUnits($a, $b));
+            $units = $this->expandCandidatesToSchedulingUnits($candidates);
+            usort($units, fn (array $a, array $b): int => $this->compareSchedulingUnits($a, $b));
+        }
 
         $digest = [
             'placement_dates' => $placementDates,
@@ -626,7 +641,9 @@ final class TaskAssistantStructuredFlowGenerator
         $anchorDay = $placementDates[0] ?? (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $anchorStart = new \DateTimeImmutable($anchorDay.' '.$windowStart, $timezone);
 
-        if ($units !== [] && count($proposals) < $countLimit) {
+        $skipMorning = (bool) ($context['_refinement_skip_morning_shortcut'] ?? false)
+            || $this->shouldSkipMorningShortcutForSnapshot($snapshot);
+        if (! $skipMorning && $units !== [] && count($proposals) < $countLimit) {
             $topUnit = $units[0];
             if (($topUnit['entity_type'] ?? '') === 'task') {
                 $morningPlacement = $this->tryPlaceTopTaskInMorning(
@@ -649,6 +666,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         $totalUnits = count($units);
+        $disablePartial = (bool) ($context['_refinement_disable_partial_fit'] ?? false);
 
         foreach ($units as $unitIndex => $unit) {
             if (count($proposals) >= $countLimit) {
@@ -697,8 +715,15 @@ final class TaskAssistantStructuredFlowGenerator
                 if ($unit['entity_type'] === 'task') {
                     $tid = (int) $unit['entity_id'];
                     $prior = $taskPlacedChunks[$tid] ?? 0;
-                    $candidate['schedule_apply_as'] = $prior === 0 ? 'update_task' : 'create_event';
+                    $applyAs = $unit['_refinement_schedule_apply_as'] ?? null;
+                    if (is_string($applyAs) && $applyAs !== '') {
+                        $candidate['schedule_apply_as'] = $applyAs;
+                    } else {
+                        $candidate['schedule_apply_as'] = $prior === 0 ? 'update_task' : 'create_event';
+                    }
                     $taskPlacedChunks[$tid] = $prior + 1;
+                } elseif (isset($unit['_refinement_schedule_apply_as']) && is_string($unit['_refinement_schedule_apply_as'])) {
+                    $candidate['schedule_apply_as'] = $unit['_refinement_schedule_apply_as'];
                 }
 
                 $proposals[] = $this->makeProposal($candidate, $startAt, $blockEndAt, $blockMinutes);
@@ -713,9 +738,7 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             if (! $placed) {
-                // Partial placement fallback for tasks: if we can't fit the full duration,
-                // still schedule a starter block so the top-ranked work is represented.
-                if (($unit['entity_type'] ?? '') === 'task') {
+                if (! $disablePartial && ($unit['entity_type'] ?? '') === 'task') {
                     $partial = $this->placePartialTaskUnit(
                         unit: $unit,
                         placementDates: $placementDates,
@@ -754,7 +777,8 @@ final class TaskAssistantStructuredFlowGenerator
         );
 
         if ($proposals === []) {
-            if (! $adaptiveAttempted && $this->shouldAttemptAdaptiveFallback($snapshot, $context, $digest, $timezone)) {
+            $skipAdaptive = (bool) ($context['_refinement_skip_adaptive_fallback'] ?? false);
+            if (! $skipAdaptive && ! $adaptiveAttempted && $this->shouldAttemptAdaptiveFallback($snapshot, $context, $digest, $timezone)) {
                 $adaptiveContext = $context;
                 $adaptiveContext['_adaptive_fallback_attempted'] = true;
                 $adaptiveSnapshot = $this->buildAdaptiveFallbackSnapshot($snapshot, $timezone);
@@ -765,6 +789,10 @@ final class TaskAssistantStructuredFlowGenerator
 
                     return [$retryProposals, $retryDigest];
                 }
+            }
+
+            if ($context['_refinement_mode'] ?? false) {
+                return [[], $digest];
             }
 
             $empty = $this->emptyPlaceholderProposal($anchorStart, $anchorStart, count($placementDates) > 1);
@@ -829,6 +857,242 @@ final class TaskAssistantStructuredFlowGenerator
         ];
 
         return $adaptive;
+    }
+
+    /**
+     * Re-place one draft proposal using the same spill engine as initial scheduling (calendar busy + siblings + time window).
+     *
+     * @param  array<int, array<string, mixed>>  $workingProposals
+     * @return array{
+     *   ok: bool,
+     *   merged_proposals: array<int, array<string, mixed>>,
+     *   digest?: array<string, mixed>,
+     *   error?: string
+     * }
+     */
+    public function placeRefinementProposalViaSpill(
+        User $user,
+        string $userMessage,
+        array $workingProposals,
+        int $targetIndex,
+        int $scheduleUserId,
+    ): array {
+        if ($targetIndex < 0 || $targetIndex >= count($workingProposals)) {
+            return ['ok' => false, 'merged_proposals' => $workingProposals, 'error' => 'invalid_target_index'];
+        }
+
+        $targetRow = $workingProposals[$targetIndex];
+        if (! is_array($targetRow)) {
+            return ['ok' => false, 'merged_proposals' => $workingProposals, 'error' => 'invalid_target_row'];
+        }
+
+        $unit = $this->refinementSchedulingUnitFromProposal($targetRow);
+        if ($unit === null) {
+            return ['ok' => false, 'merged_proposals' => $workingProposals, 'error' => 'invalid_scheduling_unit'];
+        }
+
+        $entityType = (string) ($targetRow['entity_type'] ?? '');
+        $entityId = (int) ($targetRow['entity_id'] ?? 0);
+        $targetEntities = [[
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'title' => (string) ($targetRow['title'] ?? ''),
+        ]];
+
+        $options = [
+            'target_entities' => $targetEntities,
+            'schedule_user_id' => $scheduleUserId,
+        ];
+
+        $built = $this->dbContextBuilder->buildForUser($user, $userMessage, $options);
+        $contextualSnapshot = $this->applyContextToSnapshot($built['snapshot'], $built['context'], $options);
+        $context = $built['context'];
+        $context['_refinement_mode'] = true;
+        $context['_refinement_disable_partial_fit'] = true;
+        $context['_refinement_skip_adaptive_fallback'] = true;
+        $context['_refinement_skip_morning_shortcut'] = true;
+
+        $contextualSnapshot = $this->mergeDraftSiblingBusyIntoSnapshot(
+            $contextualSnapshot,
+            $workingProposals,
+            $targetIndex,
+        );
+
+        [$spillProposals, $digest] = $this->generateProposalsChunkedSpillCore(
+            $contextualSnapshot,
+            $context,
+            1,
+            [$unit],
+        );
+
+        if ($spillProposals === [] || $this->isOnlyEmptyPlaceholderProposal($spillProposals)) {
+            return [
+                'ok' => false,
+                'merged_proposals' => $workingProposals,
+                'digest' => $digest,
+                'error' => 'no_fit',
+            ];
+        }
+
+        $placed = $spillProposals[0];
+        if (! is_array($placed)) {
+            return ['ok' => false, 'merged_proposals' => $workingProposals, 'digest' => $digest, 'error' => 'placement_invalid'];
+        }
+
+        if ((string) ($placed['entity_type'] ?? '') !== $entityType || (int) ($placed['entity_id'] ?? 0) !== $entityId) {
+            return ['ok' => false, 'merged_proposals' => $workingProposals, 'digest' => $digest, 'error' => 'placement_mismatch'];
+        }
+
+        $merged = $workingProposals;
+        $merged[$targetIndex] = $this->mergePlacedTimesIntoDraftRow($targetRow, $placed);
+
+        Log::info('task-assistant.refinement_spill', [
+            'layer' => 'structured_generation',
+            'user_id' => $user->id,
+            'target_index' => $targetIndex,
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'digest_summary' => $digest['summary'] ?? null,
+        ]);
+
+        return ['ok' => true, 'merged_proposals' => $merged, 'digest' => $digest];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function shouldSkipMorningShortcutForSnapshot(array $snapshot): bool
+    {
+        $tw = $snapshot['time_window'] ?? null;
+        if (! is_array($tw)) {
+            return false;
+        }
+
+        $start = trim((string) ($tw['start'] ?? ''));
+
+        return $start !== '' && $start >= '12:00';
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<int, array<string, mixed>>  $draftProposals
+     * @return array<string, mixed>
+     */
+    private function mergeDraftSiblingBusyIntoSnapshot(array $snapshot, array $draftProposals, int $excludeIndex): array
+    {
+        $busy = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
+        if (! is_array($busy)) {
+            $busy = [];
+        }
+
+        $nextSyntheticId = -1;
+        foreach ($busy as $ev) {
+            if (! is_array($ev)) {
+                continue;
+            }
+            $id = $ev['id'] ?? null;
+            if (is_int($id) && $id <= $nextSyntheticId) {
+                $nextSyntheticId = $id - 1;
+            }
+        }
+
+        foreach ($draftProposals as $i => $p) {
+            if ($i === $excludeIndex || ! is_array($p)) {
+                continue;
+            }
+            if ((string) ($p['status'] ?? 'pending') !== 'pending') {
+                continue;
+            }
+            $title = trim((string) ($p['title'] ?? ''));
+            if ($title === 'No schedulable items found') {
+                continue;
+            }
+            $startRaw = (string) ($p['start_datetime'] ?? '');
+            $endRaw = (string) ($p['end_datetime'] ?? '');
+            if ($startRaw === '' || $endRaw === '') {
+                continue;
+            }
+
+            $busy[] = [
+                'id' => $nextSyntheticId,
+                'title' => 'draft_sibling: '.($title !== '' ? $title : 'block'),
+                'starts_at' => $startRaw,
+                'ends_at' => $endRaw,
+            ];
+            $nextSyntheticId--;
+        }
+
+        $snapshot['events'] = is_array($snapshot['events'] ?? null) ? $snapshot['events'] : [];
+        $snapshot['events_for_busy'] = $busy;
+
+        return $snapshot;
+    }
+
+    /**
+     * @param  array<string, mixed>  $draftRow
+     * @param  array<string, mixed>  $placedProposal
+     * @return array<string, mixed>
+     */
+    private function mergePlacedTimesIntoDraftRow(array $draftRow, array $placedProposal): array
+    {
+        $merged = $draftRow;
+        $merged['start_datetime'] = $placedProposal['start_datetime'] ?? $draftRow['start_datetime'] ?? '';
+        $merged['end_datetime'] = $placedProposal['end_datetime'] ?? $draftRow['end_datetime'] ?? '';
+        if (array_key_exists('duration_minutes', $placedProposal)) {
+            $merged['duration_minutes'] = $placedProposal['duration_minutes'];
+        }
+        if (isset($placedProposal['reason_score'])) {
+            $merged['reason_score'] = $placedProposal['reason_score'];
+        }
+
+        unset($merged['apply_payload']);
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>|null
+     */
+    private function refinementSchedulingUnitFromProposal(array $row): ?array
+    {
+        $entityType = (string) ($row['entity_type'] ?? '');
+        $entityId = (int) ($row['entity_id'] ?? 0);
+        if ($entityId <= 0 || ! in_array($entityType, ['task', 'event', 'project'], true)) {
+            return null;
+        }
+
+        $title = (string) ($row['title'] ?? '');
+        $minutes = max(1, (int) ($row['duration_minutes'] ?? 30));
+        if ($entityType === 'event') {
+            $startRaw = (string) ($row['start_datetime'] ?? '');
+            $endRaw = (string) ($row['end_datetime'] ?? '');
+            if ($startRaw !== '' && $endRaw !== '') {
+                try {
+                    $s = new \DateTimeImmutable($startRaw);
+                    $e = new \DateTimeImmutable($endRaw);
+                    $minutes = max(1, (int) (($e->getTimestamp() - $s->getTimestamp()) / 60));
+                } catch (\Throwable) {
+                    // keep draft duration
+                }
+            }
+        }
+
+        $applyAs = $row['schedule_apply_as'] ?? null;
+        $unit = [
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'title' => $title !== '' ? $title : 'Item',
+            'score' => 999_999,
+            'minutes' => $minutes,
+            'candidate_order' => 0,
+            'priority_rank' => (int) ($row['priority_rank'] ?? 1),
+        ];
+        if (is_string($applyAs) && $applyAs !== '') {
+            $unit['_refinement_schedule_apply_as'] = $applyAs;
+        }
+
+        return $unit;
     }
 
     /**

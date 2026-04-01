@@ -152,6 +152,27 @@ final class TaskAssistantConversationStateService
     }
 
     /**
+     * @return list<string>
+     */
+    public function lastScheduleReferencedProposalUuids(TaskAssistantThread $thread): array
+    {
+        $state = $this->get($thread);
+        $schedule = $state['last_schedule'] ?? null;
+        if (! is_array($schedule)) {
+            return [];
+        }
+        $uuids = $schedule['last_referenced_proposal_uuids'] ?? [];
+        if (! is_array($uuids)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            static fn (mixed $uuid): string => trim((string) $uuid),
+            $uuids
+        ), static fn (string $uuid): bool => $uuid !== ''));
+    }
+
+    /**
      * Store pending general-guidance state for a follow-up reply.
      */
     public function rememberPendingGeneralGuidance(

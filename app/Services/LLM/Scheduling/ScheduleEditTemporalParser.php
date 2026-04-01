@@ -64,4 +64,34 @@ final class ScheduleEditTemporalParser
 
         return null;
     }
+
+    /**
+     * Map colloquial day parts to a single local start time for schedule edits.
+     *
+     * Anchors align with {@see SchedulingIntentInterpreter} named-window starts
+     * (morning 08:00, afternoon 15:00, evening 18:00) so refinement moves match
+     * initial scheduling semantics.
+     */
+    public function parsePartOfDayAnchorHhmm(string $message): ?string
+    {
+        $lower = mb_strtolower($message);
+
+        if (preg_match('/\b(evening|tonight|night)\b/u', $lower) === 1) {
+            return '18:00';
+        }
+
+        if (preg_match('/\bafternoon\b/u', $lower) === 1) {
+            return '15:00';
+        }
+
+        if (preg_match('/\bmorning\b/u', $lower) === 1) {
+            return '08:00';
+        }
+
+        if (preg_match('/\b(noon|midday|mid-day)\b/u', $lower) === 1) {
+            return '12:00';
+        }
+
+        return null;
+    }
 }
