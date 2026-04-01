@@ -130,7 +130,6 @@ return [
             'confirmation' => 'Want to widen the window, prioritize what to tackle first, or tell me a time that usually works better for you?',
         ],
     ],
-
     'tools' => [
         'routes' => [
             'listing' => [],
@@ -326,6 +325,10 @@ TXT,
     */
     'schedule_refinement' => [
         'use_llm' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_USE_LLM', true),
+        'parser' => env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_PARSER', 'rules_only'),
+        'ambiguity_policy' => env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_AMBIGUITY_POLICY', 'clarify'),
+        'relative_dates' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_RELATIVE_DATES', true),
+        'strict_target_required' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_STRICT_TARGET_REQUIRED', true),
     ],
 
     /*

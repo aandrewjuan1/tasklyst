@@ -28,6 +28,7 @@ class ScheduleDraftMutationServiceTest extends TestCase
         ]], 'UTC');
 
         $this->assertTrue($result['ok']);
+        $this->assertSame(1, $result['applied_ops_count']);
         $this->assertSame('2026-03-30T14:30:00+00:00', $result['proposals'][0]['start_datetime']);
         $this->assertSame('2026-03-30T15:30:00+00:00', $result['proposals'][0]['end_datetime']);
     }
@@ -111,5 +112,43 @@ class ScheduleDraftMutationServiceTest extends TestCase
         $this->assertTrue($result['ok']);
         $this->assertSame('2026-03-31T21:30:00+08:00', $result['proposals'][0]['start_datetime']);
         $this->assertSame('2026-03-31T22:10:00+08:00', $result['proposals'][0]['end_datetime']);
+    }
+
+    public function test_move_to_position_reorders_proposals(): void
+    {
+        $service = new ScheduleDraftMutationService;
+        $proposals = [
+            [
+                'proposal_id' => 'a',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A',
+                'start_datetime' => '2026-03-30T14:00:00+00:00',
+                'end_datetime' => '2026-03-30T15:00:00+00:00',
+                'duration_minutes' => 60,
+            ],
+            [
+                'proposal_id' => 'b',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 2,
+                'title' => 'B',
+                'start_datetime' => '2026-03-30T15:00:00+00:00',
+                'end_datetime' => '2026-03-30T16:00:00+00:00',
+                'duration_minutes' => 60,
+            ],
+        ];
+
+        $result = $service->applyOperations($proposals, [[
+            'op' => 'move_to_position',
+            'proposal_index' => 1,
+            'target_index' => 0,
+        ]], 'UTC');
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('b', $result['proposals'][0]['proposal_id']);
+        $this->assertSame(1, $result['applied_ops_count']);
+        $this->assertNotEmpty($result['changed_proposal_ids']);
     }
 }

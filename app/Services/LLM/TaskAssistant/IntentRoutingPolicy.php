@@ -111,6 +111,34 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->hasPendingScheduleDraftContext($thread) && $this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'schedule');
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'schedule_refinement_context_shortcircuit',
+                'flow' => 'schedule',
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'schedule',
+                confidence: 1.0,
+                reasonCodes: ['schedule_refinement_context_shortcircuit'],
+                constraints: $constraints,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyGeneralAssistancePrompt($normalized)) {
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -372,6 +400,39 @@ final class IntentRoutingPolicy
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool
     {
         return TaskAssistantWhatToDoFirstIntent::matches($normalized);
+    }
+
+    private function hasPendingScheduleDraftContext(TaskAssistantThread $thread): bool
+    {
+        $state = $this->conversationState->get($thread);
+        $lastFlow = (string) ($state['last_flow'] ?? '');
+        $targets = data_get($state, 'last_schedule.target_entities', []);
+
+        return $lastFlow === 'schedule' && is_array($targets) && $targets !== [];
+    }
+
+    private function isLikelyScheduleRefinementEditPrompt(string $normalized): bool
+    {
+        $looksLikeFreshPrioritize = preg_match(
+            '/\b(top|priorit(?:y|ize)|what should i do|what are my top|rank|list)\b/u',
+            $normalized
+        ) === 1;
+        if ($looksLikeFreshPrioritize) {
+            return false;
+        }
+
+        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust)\b/u', $normalized) === 1;
+        $hasScheduleCue = preg_match(
+            '/\b(first|second|third|last|item|one|it|this|that|before|after|later|earlier|tomorrow|today|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
+            $normalized
+        ) === 1;
+
+        $hasStandaloneReorderShape = preg_match(
+            '/\b(move|put|swap)\b[^.]*\b(first|second|third|last|item\s*#?\d+)\b[^.]*\b(to|before|after)\b[^.]*\b(first|second|third|last|item\s*#?\d+)\b/u',
+            $normalized
+        ) === 1;
+
+        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape;
     }
 
     private function isLikelyPureGreeting(string $normalized): bool

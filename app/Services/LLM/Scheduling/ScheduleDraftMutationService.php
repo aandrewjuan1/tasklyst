@@ -10,7 +10,15 @@ final class ScheduleDraftMutationService
     /**
      * @param  array<int, array<string, mixed>>  $proposals
      * @param  array<int, array<string, mixed>>  $operations
-     * @return array{ok: bool, proposals: array<int, array<string, mixed>>, error: ?string}
+     * @return array{
+     *   ok: bool,
+     *   proposals: array<int, array<string, mixed>>,
+     *   error: ?string,
+     *   applied_ops_count: int,
+     *   changed_proposal_ids: array<int, string>,
+     *   no_effect_ops: array<int, string>,
+     *   clarification_required: bool
+     * }
      */
     public function applyOperations(array $proposals, array $operations, string $timezoneName): array
     {
@@ -20,6 +28,8 @@ final class ScheduleDraftMutationService
         if (! is_array($copy)) {
             $copy = $proposals;
         }
+        $appliedOpsCount = 0;
+        $noEffectOps = [];
 
         foreach ($operations as $op) {
             if (! is_array($op)) {
@@ -36,15 +46,10 @@ final class ScheduleDraftMutationService
                     'ok' => false,
                     'proposals' => $proposals,
                     'error' => 'That list position is not valid for this schedule.',
-                ];
-            }
-
-            $row = &$copy[$idx];
-            if (! $this->isMutableProposalRow($row)) {
-                return [
-                    'ok' => false,
-                    'proposals' => $proposals,
-                    'error' => 'That item cannot be edited.',
+                    'applied_ops_count' => 0,
+                    'changed_proposal_ids' => [],
+                    'no_effect_ops' => [],
+                    'clarification_required' => false,
                 ];
             }
 
@@ -54,21 +59,59 @@ final class ScheduleDraftMutationService
                 $tz = new \DateTimeZone('UTC');
             }
 
-            $applied = match ($type) {
-                'shift_minutes' => $this->applyShiftMinutes($row, (int) ($op['delta_minutes'] ?? 0)),
-                'set_duration_minutes' => $this->applyDurationMinutes($row, (int) ($op['duration_minutes'] ?? 0)),
-                'set_local_time_hhmm' => $this->applyLocalTimeHhmm($row, (string) ($op['local_time_hhmm'] ?? ''), $tz),
-                'set_local_date_ymd' => $this->applyLocalDateYmd($row, (string) ($op['local_date_ymd'] ?? ''), $tz),
-                default => false,
-            };
+            if (in_array($type, ['reorder_before', 'reorder_after', 'move_to_position'], true)) {
+                $applied = $this->applyReorderOperation($copy, $op);
+                if ($applied) {
+                    $appliedOpsCount++;
+                }
+            } else {
+                $row = &$copy[$idx];
+                if (! $this->isMutableProposalRow($row)) {
+                    return [
+                        'ok' => false,
+                        'proposals' => $proposals,
+                        'error' => 'That item cannot be edited.',
+                        'applied_ops_count' => 0,
+                        'changed_proposal_ids' => [],
+                        'no_effect_ops' => [],
+                        'clarification_required' => false,
+                    ];
+                }
 
-            unset($row);
+                $beforeStart = (string) ($row['start_datetime'] ?? '');
+                $beforeEnd = (string) ($row['end_datetime'] ?? '');
+                $beforeDuration = (int) ($row['duration_minutes'] ?? 0);
+
+                $applied = match ($type) {
+                    'shift_minutes' => $this->applyShiftMinutes($row, (int) ($op['delta_minutes'] ?? 0)),
+                    'set_duration_minutes' => $this->applyDurationMinutes($row, (int) ($op['duration_minutes'] ?? 0)),
+                    'set_local_time_hhmm' => $this->applyLocalTimeHhmm($row, (string) ($op['local_time_hhmm'] ?? ''), $tz),
+                    'set_local_date_ymd' => $this->applyLocalDateYmd($row, (string) ($op['local_date_ymd'] ?? ''), $tz),
+                    default => false,
+                };
+
+                if ($applied) {
+                    $afterStart = (string) ($row['start_datetime'] ?? '');
+                    $afterEnd = (string) ($row['end_datetime'] ?? '');
+                    $afterDuration = (int) ($row['duration_minutes'] ?? 0);
+                    if ($beforeStart === $afterStart && $beforeEnd === $afterEnd && $beforeDuration === $afterDuration) {
+                        $noEffectOps[] = $type;
+                    } else {
+                        $appliedOpsCount++;
+                    }
+                }
+                unset($row);
+            }
 
             if (! $applied) {
                 return [
                     'ok' => false,
                     'proposals' => $proposals,
                     'error' => 'I could not apply that change. Try stating the time or duration differently.',
+                    'applied_ops_count' => 0,
+                    'changed_proposal_ids' => [],
+                    'no_effect_ops' => [],
+                    'clarification_required' => false,
                 ];
             }
         }
@@ -78,14 +121,94 @@ final class ScheduleDraftMutationService
                 'ok' => false,
                 'proposals' => $proposals,
                 'error' => 'Those times would overlap with another block in this draft.',
+                'applied_ops_count' => 0,
+                'changed_proposal_ids' => [],
+                'no_effect_ops' => [],
+                'clarification_required' => false,
             ];
         }
+
+        $changedIds = $this->changedProposalIds($proposals, $copy);
 
         return [
             'ok' => true,
             'proposals' => $copy,
             'error' => null,
+            'applied_ops_count' => $appliedOpsCount,
+            'changed_proposal_ids' => $changedIds,
+            'no_effect_ops' => $noEffectOps,
+            'clarification_required' => false,
         ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<int, array<string, mixed>>  $updated
+     * @return array<int, string>
+     */
+    private function changedProposalIds(array $proposals, array $updated): array
+    {
+        $changed = [];
+        foreach ($updated as $i => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $before = $proposals[$i] ?? null;
+            if (! is_array($before)) {
+                $changed[] = (string) ($row['proposal_id'] ?? 'idx:'.$i);
+
+                continue;
+            }
+            if (json_encode($before) !== json_encode($row)) {
+                $changed[] = (string) ($row['proposal_id'] ?? 'idx:'.$i);
+            }
+        }
+
+        return $changed;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<string, mixed>  $op
+     */
+    private function applyReorderOperation(array &$rows, array $op): bool
+    {
+        $originalCount = count($rows);
+        $source = (int) ($op['proposal_index'] ?? -1);
+        if ($source < 0 || $source >= $originalCount) {
+            return false;
+        }
+
+        $type = strtolower(trim((string) ($op['op'] ?? '')));
+        $target = -1;
+        if ($type === 'move_to_position') {
+            $target = (int) ($op['target_index'] ?? -1);
+        } elseif (in_array($type, ['reorder_before', 'reorder_after'], true)) {
+            $anchor = (int) ($op['anchor_index'] ?? -1);
+            if ($anchor < 0 || $anchor >= $originalCount) {
+                return false;
+            }
+            if ($type === 'reorder_before') {
+                $target = $source < $anchor ? $anchor - 1 : $anchor;
+            } else {
+                $target = $source < $anchor ? $anchor : $anchor + 1;
+            }
+        }
+
+        if ($target < 0) {
+            return false;
+        }
+        $target = min($target, $originalCount - 1);
+        if ($source === $target) {
+            return true;
+        }
+
+        $item = $rows[$source];
+        array_splice($rows, $source, 1);
+        $target = max(0, min($target, count($rows)));
+        array_splice($rows, $target, 0, [$item]);
+
+        return true;
     }
 
     /**

@@ -456,3 +456,24 @@ test('schedule phrase with afternoon and evening maps to combined hint', functio
     expect($decision->flow)->toBe('schedule');
     expect($decision->constraints['time_window_hint'])->toBe('afternoon_evening');
 });
+
+test('pending schedule context plus edit-like prompt shortcircuits to schedule', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 701, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 702, 'title' => 'B'],
+        ],
+        null
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'move the first one to last');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->reasonCodes)->toContain('schedule_refinement_context_shortcircuit');
+});

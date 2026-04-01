@@ -9,9 +9,7 @@ class ScheduleRefinementIntentResolverTest extends TestCase
 {
     public function test_heuristic_detects_shift_later_for_first_row(): void
     {
-        config(['task-assistant.schedule_refinement.use_llm' => false]);
-
-        $resolver = new ScheduleRefinementIntentResolver;
+        $resolver = app(ScheduleRefinementIntentResolver::class);
         $proposals = [
             ['title' => 'A', 'start_datetime' => '2026-01-01T10:00:00+00:00'],
             ['title' => 'B', 'start_datetime' => '2026-01-01T11:00:00+00:00'],
@@ -26,9 +24,7 @@ class ScheduleRefinementIntentResolverTest extends TestCase
 
     public function test_heuristic_detects_set_local_date_for_second_row(): void
     {
-        config(['task-assistant.schedule_refinement.use_llm' => false]);
-
-        $resolver = new ScheduleRefinementIntentResolver;
+        $resolver = app(ScheduleRefinementIntentResolver::class);
         $proposals = [
             ['title' => 'A', 'start_datetime' => '2026-01-01T10:00:00+00:00'],
             ['title' => 'B', 'start_datetime' => '2026-01-01T11:00:00+00:00'],
@@ -41,21 +37,49 @@ class ScheduleRefinementIntentResolverTest extends TestCase
         $this->assertSame('2026-01-05', $ops[0]['local_date_ymd'] ?? null);
     }
 
-    public function test_heuristic_infers_pm_when_am_pm_omitted_for_row_time_context(): void
+    public function test_resolver_handles_natural_language_time_without_at_keyword(): void
     {
-        config(['task-assistant.schedule_refinement.use_llm' => false]);
-
-        $resolver = new ScheduleRefinementIntentResolver;
+        $resolver = app(ScheduleRefinementIntentResolver::class);
         $proposals = [
-            ['title' => 'A', 'start_datetime' => '2026-03-31T19:00:00+08:00'],
-            ['title' => 'B', 'start_datetime' => '2026-03-31T20:00:00+08:00'],
-            ['title' => 'C', 'start_datetime' => '2026-03-31T21:00:00+08:00'],
+            ['title' => 'Quiz block', 'start_datetime' => '2026-03-31T19:00:00+08:00'],
+            ['title' => 'Essay draft', 'start_datetime' => '2026-03-31T20:00:00+08:00'],
+            ['title' => 'Lecture notes', 'start_datetime' => '2026-03-31T21:00:00+08:00'],
         ];
 
-        $ops = $resolver->resolve('move the third one at 9:30 instead', $proposals, 'UTC');
+        $ops = $resolver->resolve('move the third one later 8 pm instead', $proposals, 'UTC');
 
         $this->assertSame('set_local_time_hhmm', $ops[0]['op'] ?? null);
         $this->assertSame(2, $ops[0]['proposal_index'] ?? null);
-        $this->assertSame('21:30', $ops[0]['local_time_hhmm'] ?? null);
+        $this->assertSame('20:00', $ops[0]['local_time_hhmm'] ?? null);
+    }
+
+    public function test_resolver_requires_clarification_for_ambiguous_pronoun_target(): void
+    {
+        $resolver = app(ScheduleRefinementIntentResolver::class);
+        $proposals = [
+            ['title' => 'Quiz block', 'start_datetime' => '2026-03-31T19:00:00+08:00'],
+            ['title' => 'Essay draft', 'start_datetime' => '2026-03-31T20:00:00+08:00'],
+        ];
+
+        $resolved = $resolver->resolveDetailed('edit it i wanna do it later 8 pm', $proposals, 'Asia/Singapore');
+
+        $this->assertTrue($resolved['clarification_required']);
+        $this->assertSame([], $resolved['operations']);
+    }
+
+    public function test_resolver_supports_reorder_with_optional_the_and_one_tokens(): void
+    {
+        $resolver = app(ScheduleRefinementIntentResolver::class);
+        $proposals = [
+            ['title' => 'Quiz block', 'start_datetime' => '2026-03-31T19:00:00+08:00'],
+            ['title' => 'Essay draft', 'start_datetime' => '2026-03-31T20:00:00+08:00'],
+            ['title' => 'Lecture notes', 'start_datetime' => '2026-03-31T21:00:00+08:00'],
+        ];
+
+        $ops = $resolver->resolve('move the first one to last', $proposals, 'Asia/Singapore');
+
+        $this->assertSame('move_to_position', $ops[0]['op'] ?? null);
+        $this->assertSame(0, $ops[0]['proposal_index'] ?? null);
+        $this->assertSame(2, $ops[0]['target_index'] ?? null);
     }
 }

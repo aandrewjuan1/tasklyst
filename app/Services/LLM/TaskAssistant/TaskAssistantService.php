@@ -206,7 +206,7 @@ final class TaskAssistantService
 
             $plan = $this->buildExecutionPlan($thread, $content);
             $plan = $this->maybeRemapScheduleToPrioritize($thread, $plan);
-            $plan = $this->maybeRewritePlanForScheduleRefinement($thread, $plan, $assistantMessage->id);
+            $plan = $this->maybeRewritePlanForScheduleRefinement($thread, $plan, $assistantMessage->id, $content);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
 
             if (in_array($plan->flow, ['prioritize', 'schedule'], true)) {
@@ -999,9 +999,12 @@ final class TaskAssistantService
         TaskAssistantThread $thread,
         ExecutionPlan $plan,
         int $currentAssistantMessageId,
+        string $content,
     ): ExecutionPlan {
         if ($plan->flow === 'prioritize') {
-            return $plan;
+            if (! $this->isLikelyScheduleRefinementEditPrompt($content)) {
+                return $plan;
+            }
         }
         if ($plan->flow === 'schedule' && $plan->targetEntities !== []) {
             return $plan;
@@ -1031,6 +1034,36 @@ final class TaskAssistantService
             countLimit: $plan->countLimit,
             generationProfile: 'schedule',
         );
+    }
+
+    private function isLikelyScheduleRefinementEditPrompt(string $content): bool
+    {
+        $normalized = mb_strtolower(trim($content));
+        if ($normalized === '') {
+            return false;
+        }
+
+        // Preserve explicit fresh-prioritize asks even when a draft schedule exists.
+        $looksLikeFreshPrioritize = preg_match(
+            '/\b(top|priorit(?:y|ize)|what should i do|what are my top|rank|list)\b/u',
+            $normalized
+        ) === 1;
+        if ($looksLikeFreshPrioritize) {
+            return false;
+        }
+
+        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust)\b/u', $normalized) === 1;
+        $hasScheduleCue = preg_match(
+            '/\b(first|second|third|last|item|one|it|this|that|before|after|later|earlier|tomorrow|today|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
+            $normalized
+        ) === 1;
+
+        $hasStandaloneReorderShape = preg_match(
+            '/\b(move|put|swap)\b[^.]*\b(first|second|third|last|item\s*#?\d+)\b[^.]*\b(to|before|after)\b[^.]*\b(first|second|third|last|item\s*#?\d+)\b/u',
+            $normalized
+        ) === 1;
+
+        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape;
     }
 
     private function findPendingScheduleDraftSourceMessage(TaskAssistantThread $thread, int $excludeAssistantMessageId): ?TaskAssistantMessage
@@ -1195,14 +1228,35 @@ final class TaskAssistantService
 
         $timezone = (string) config('app.timezone', 'UTC');
 
-        $operations = $this->scheduleRefinementIntentResolver->resolve($content, $workingProposals, $timezone);
-        $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
+        $resolution = $this->scheduleRefinementIntentResolver->resolveDetailed($content, $workingProposals, $timezone);
+        if ((bool) ($resolution['clarification_required'] ?? false)) {
+            $clarification = (string) ($resolution['clarification_message'] ?? 'Please tell me which item to edit and the exact change.');
+            $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
+            $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
+            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint);
 
-        $finalProposals = $mutation['ok'] ? $mutation['proposals'] : $workingProposals;
+            return;
+        }
+
+        $operations = is_array($resolution['operations'] ?? null) ? $resolution['operations'] : [];
+        $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
+        if (! (bool) ($mutation['ok'] ?? false)) {
+            $error = trim((string) ($mutation['error'] ?? ''));
+            $clarification = $error !== ''
+                ? 'I could not apply that change because '.$error
+                : 'I could not apply that change yet.';
+            $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
+            $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
+            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint);
+
+            return;
+        }
+
+        $finalProposals = $mutation['proposals'];
 
         $narrativeUserContent = $content;
-        if (! $mutation['ok'] && is_string($mutation['error']) && $mutation['error'] !== '') {
-            $narrativeUserContent .= "\n\n(Planning note: times were not changed because ".$mutation['error'].')';
+        if ((bool) ($mutation['ok'] ?? false) && count((array) ($mutation['changed_proposal_ids'] ?? [])) === 0) {
+            $narrativeUserContent .= "\n\n(Planning note: no schedule change was applied yet. Ask a clarifying question instead of claiming a new time.)";
         }
 
         $targets = $this->targetEntitiesFromScheduleProposals($finalProposals);
@@ -1242,6 +1296,7 @@ final class TaskAssistantService
             narrativeGenerationRoute: 'schedule_narrative_followup',
             placementDigestJson: $digestJson,
         );
+        $result = $this->enforceRefinementNarrativeConsistency($result, $workingProposals, $finalProposals);
 
         $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'daily_schedule',
@@ -1542,6 +1597,124 @@ final class TaskAssistantService
         }
 
         return $raw;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     */
+    private function publishScheduleClarificationResponse(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $assistantMessage,
+        array $proposals,
+        string $clarification
+    ): void {
+        $blocks = [];
+        $items = [];
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $start = (string) ($proposal['start_datetime'] ?? '');
+            $end = (string) ($proposal['end_datetime'] ?? '');
+            $title = (string) ($proposal['title'] ?? 'Item');
+
+            $items[] = [
+                'title' => $title,
+                'entity_type' => (string) ($proposal['entity_type'] ?? ''),
+                'entity_id' => (int) ($proposal['entity_id'] ?? 0),
+                'start_datetime' => $start,
+                'end_datetime' => $end,
+                'duration_minutes' => (int) ($proposal['duration_minutes'] ?? 0),
+            ];
+
+            $startTime = '';
+            $endTime = '';
+            try {
+                if ($start !== '') {
+                    $startTime = (new \DateTimeImmutable($start))->format('H:i');
+                }
+                if ($end !== '') {
+                    $endTime = (new \DateTimeImmutable($end))->format('H:i');
+                }
+            } catch (\Throwable) {
+                $startTime = '';
+                $endTime = '';
+            }
+
+            if ($startTime !== '' && $endTime !== '') {
+                $blocks[] = [
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
+                    'task_id' => ((string) ($proposal['entity_type'] ?? '') === 'task') ? (int) ($proposal['entity_id'] ?? 0) : null,
+                    'event_id' => ((string) ($proposal['entity_type'] ?? '') === 'event') ? (int) ($proposal['entity_id'] ?? 0) : null,
+                    'label' => $title,
+                    'note' => 'Draft block preserved while awaiting clarification.',
+                ];
+            }
+        }
+
+        $content = trim($clarification).' For example: "move second to 8 pm" or "move quiz task to tomorrow 8 pm".';
+        $data = [
+            'proposals' => $proposals,
+            'blocks' => $blocks,
+            'items' => $items,
+            'schedule_variant' => 'daily',
+            'framing' => $content,
+            'reasoning' => null,
+            'confirmation' => 'Tell me the exact item and change, and I will update it.',
+            'schedule_empty_placement' => false,
+            'placement_digest' => [],
+        ];
+
+        $assistantMessage->update([
+            'content' => $content,
+            'metadata' => array_merge(
+                is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [],
+                [
+                    'schedule' => $data,
+                    'structured' => ['data' => $data],
+                ]
+            ),
+        ]);
+
+        $this->streamFinalAssistantJson(
+            $thread->user_id,
+            $assistantMessage,
+            $this->buildJsonEnvelope(
+                flow: 'schedule',
+                data: $data,
+                threadId: $thread->id,
+                assistantMessageId: $assistantMessage->id,
+                ok: true,
+            )
+        );
+    }
+
+    /**
+     * @param  array{valid: bool, data: array<string, mixed>, errors: array<int, string>}  $result
+     * @param  array<int, array<string, mixed>>  $beforeProposals
+     * @param  array<int, array<string, mixed>>  $afterProposals
+     * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
+     */
+    private function enforceRefinementNarrativeConsistency(array $result, array $beforeProposals, array $afterProposals): array
+    {
+        $beforeEncoded = json_encode($beforeProposals);
+        $afterEncoded = json_encode($afterProposals);
+        $changed = is_string($beforeEncoded) && is_string($afterEncoded)
+            ? $beforeEncoded !== $afterEncoded
+            : $beforeProposals !== $afterProposals;
+
+        if ($changed) {
+            return $result;
+        }
+
+        $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $data['framing'] = 'I kept your current schedule draft unchanged.';
+        $data['reasoning'] = 'I need a more specific edit target before changing times.';
+        $data['confirmation'] = 'Tell me exactly which item to edit (first, second, last, or title) and the new time/date/duration.';
+        $result['data'] = $data;
+
+        return $result;
     }
 
     private function buildJsonEnvelope(string $flow, array $data, int $threadId, int $assistantMessageId, bool $ok = true): array
