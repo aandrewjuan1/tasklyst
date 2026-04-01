@@ -783,35 +783,41 @@ final class TaskAssistantService
         $rows = is_array($items) ? array_values(array_filter($items, static fn (mixed $r): bool => is_array($r))) : [];
         $count = count($rows);
 
-        $windowChips = [
-            'Later today',
-            'Tomorrow',
-            'This week',
-        ];
+        if ($count <= 1) {
+            return [
+                'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField(
+                    'If you want, I can schedule it for later today, tomorrow, or later this week.'
+                ),
+                'next_options_chip_texts' => [
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule it for later today'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule it for tomorrow'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule it later this week'),
+                ],
+            ];
+        }
 
         if (! $hasMoreUnseen) {
-            $nextOptions = 'That covers the top items for this request. If you want, I can schedule these tasks for later today, tomorrow, or this week.';
+            $nextOptions = 'That covers the top items for this request. If you want, I can schedule the top task for later today, schedule all of them for tomorrow, or schedule them later this week.';
 
             return [
                 'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
-                'next_options_chip_texts' => $windowChips,
+                'next_options_chip_texts' => [
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule the top task for later today'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all of them for tomorrow'),
+                    TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule them later this week'),
+                ],
             ];
         }
 
-        if ($count <= 1) {
-            $nextOptions = 'If you want, I can schedule this task for later today, tomorrow, or this week.';
-
-            return [
-                'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
-                'next_options_chip_texts' => $windowChips,
-            ];
-        }
-
-        $nextOptions = 'If you want, I can schedule these tasks for later today, tomorrow, or this week.';
+        $nextOptions = 'If you want, I can schedule the top task for later today, schedule all of them for tomorrow, or schedule them later this week.';
 
         return [
             'next_options' => TaskAssistantPrioritizeOutputDefaults::clampNextField($nextOptions),
-            'next_options_chip_texts' => $windowChips,
+            'next_options_chip_texts' => [
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule the top task for later today'),
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule all of them for tomorrow'),
+                TaskAssistantPrioritizeOutputDefaults::clampNextOptionChipText('Schedule them later this week'),
+            ],
         ];
     }
 

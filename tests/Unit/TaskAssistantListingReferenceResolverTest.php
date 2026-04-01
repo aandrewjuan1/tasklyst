@@ -36,6 +36,16 @@ test('schedule first N is equivalent to top N', function (): void {
     expect($targets[0]['entity_id'])->toBe(10);
 });
 
+test('schedule top task resolves first listing item', function (): void {
+    $resolver = new TaskAssistantListingReferenceResolver;
+    $listing = sampleLastListing();
+
+    $targets = $resolver->resolveForSchedule('schedule the top task for later today', $listing, 'schedule');
+
+    expect($targets)->toHaveCount(1);
+    expect($targets[0]['entity_id'])->toBe(10);
+});
+
 test('schedule last N takes trailing items', function (): void {
     $resolver = new TaskAssistantListingReferenceResolver;
     $listing = sampleLastListing();

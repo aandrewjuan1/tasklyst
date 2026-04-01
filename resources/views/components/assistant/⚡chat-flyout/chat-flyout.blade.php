@@ -221,11 +221,11 @@
 
                             @if (! $isStopped && $isLatestAssistant && ! $chipsDismissed && count($nextOptionChips) > 0)
                                 <div class="mt-3 flex flex-wrap gap-2">
-                                    @foreach ($nextOptionChips as $chipText)
+                                    @foreach ($nextOptionChips as $chipIndex => $chipText)
                                         <flux:button
                                             size="xs"
                                             variant="ghost"
-                                            wire:click="submitNextOptionChip({{ $message->id }}, @js($chipText))"
+                                            wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
                                             wire:loading.attr="disabled"
                                             wire:target="submitNextOptionChip,submitMessage"
                                         >

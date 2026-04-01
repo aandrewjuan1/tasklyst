@@ -320,7 +320,7 @@ final class TaskAssistantHybridNarrativeService
         $digestBlock = '';
         $trimDigest = $placementDigestJson !== null ? trim($placementDigestJson) : '';
         if ($trimDigest !== '' && $trimDigest !== '{}') {
-            $digestBlock = "\n\nOptional planning notes (only use if helpful; never quote this heading or say digest/JSON; explain in plain English if a starter block or spill matters):\n".$trimDigest;
+            $digestBlock = "\n\nOptional planning notes (only use if helpful; never quote this heading or say digest/JSON; explain in plain English if a partial placement or spill matters):\n".$trimDigest;
         }
 
         $messages = $historyMessages->values();
@@ -329,9 +329,10 @@ final class TaskAssistantHybridNarrativeService
             'The schedule below is fixed and correct. The student will see each row with exact start, end, and duration right after your framing.'.$horizonHint."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
             '- framing: 1–2 sentence hand-off to the list. Do not repeat per-item clock times or lengths (the app shows them next).'."\n".
-            '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, explain in plain English that it is a starter chunk and suggest Pomodoro-style follow-up; do not use technical words.'."\n".
+            '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, explain plainly what fit and what did not, and offer a neutral next step (wider window or another block) without mentioning Pomodoro or chunking terms.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
             'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today.'."\n".
+            'Use singular language when exactly one schedule row is present. Do not mention meals (lunch/dinner) unless the user explicitly used those words.'."\n".
             'Do not invent times beyond what the schedule data implies.'."\n\n".
             'Schedule data: '.$blocksJson.$digestBlock
         ));
@@ -739,7 +740,7 @@ final class TaskAssistantHybridNarrativeService
         $durationPart = $durationMinutes !== null ? ' for '.$durationMinutes.' minutes' : '';
 
         // UX heuristic: if the first planned block dominates the total planned minutes,
-        // explain that it’s the "main chunk" of the window. Avoid mentioning exact minutes/times.
+        // explain that it’s the "main block" of the window. Avoid mentioning exact minutes/times.
         $firstBlockMinutes = null;
         foreach ($blocks as $b) {
             $startTime = trim((string) ($b['start_time'] ?? ''));
@@ -765,7 +766,7 @@ final class TaskAssistantHybridNarrativeService
             && $sumMinutes > 0
             && $firstBlockMinutes >= (int) ceil($sumMinutes * 0.65)
         ) {
-            $longFirstBlockNote = ' Since your first planned block is the main chunk of your schedule, it helps you focus first and then keep the later blocks smaller and easier to start.';
+            $longFirstBlockNote = ' Since your first planned block is the main block of your schedule, it helps you focus first and then keep the later blocks smaller and easier to start.';
         }
 
         $summary = $deterministicSummary;

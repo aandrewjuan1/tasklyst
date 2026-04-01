@@ -115,6 +115,10 @@ final class TaskAssistantListingReferenceResolver
             return max(1, min((int) ($matches[2] ?? 3), 10));
         }
 
+        if (preg_match('/\b(top|first)\s+(task|item)\b/i', $normalized) === 1) {
+            return 1;
+        }
+
         return null;
     }
 

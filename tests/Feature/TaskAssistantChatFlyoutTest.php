@@ -563,7 +563,7 @@ test('chat flyout chip click auto-submits next option and dispatches job', funct
     Livewire::test('assistant.chat-flyout')
         ->assertSet('isStreaming', false)
         ->assertSee('Show next 3')
-        ->call('submitNextOptionChip', $assistant->id, 'Show next 3')
+        ->call('submitNextOptionChip', $assistant->id, 0)
         ->assertSet('newMessage', '')
         ->assertSet('isStreaming', true);
 

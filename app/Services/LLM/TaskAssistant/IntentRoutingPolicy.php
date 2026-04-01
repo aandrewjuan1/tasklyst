@@ -289,6 +289,10 @@ final class IntentRoutingPolicy
 
     private function extractCountLimit(string $normalized): int
     {
+        if (preg_match('/\b(top|first)\s+(task|item)\b/u', $normalized) === 1) {
+            return 1;
+        }
+
         if (preg_match('/\b(those|them)\s+(\d+)\b/', $normalized, $matches) === 1) {
             return max(1, min((int) ($matches[2] ?? 3), 10));
         }

@@ -588,4 +588,38 @@ class TaskAssistantMessageFormatterTest extends TestCase
         );
         $this->assertStringNotContainsString('Next, you can prioritize your tasks or schedule time blocks', $out);
     }
+
+    public function test_daily_schedule_partial_digest_note_is_singular_and_avoids_chunking_terms(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your updated schedule.',
+            'reasoning' => 'This fits your available window for now.',
+            'confirmation' => 'Would you like any changes before saving?',
+            'blocks' => [],
+            'items' => [],
+            'proposals' => [],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => false,
+            'placement_digest' => [
+                'placement_dates' => ['2026-03-22'],
+                'days_used' => ['2026-03-22'],
+                'skipped_targets' => [],
+                'unplaced_units' => [],
+                'partial_units' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 31,
+                    'title' => 'Impossible 5h study block before quiz',
+                    'requested_minutes' => 300,
+                    'placed_minutes' => 255,
+                    'reason' => 'partial_fit',
+                ]],
+                'summary' => 'placed_proposals=1 days_used=1 unplaced_units=0',
+            ],
+        ]);
+
+        $this->assertStringContainsString('I scheduled Impossible 5h study block before quiz', $out);
+        $this->assertStringNotContainsString('One or more tasks did not fully fit', $out);
+        $this->assertStringNotContainsString('Pomodoro', $out);
+        $this->assertStringNotContainsString('chunk', mb_strtolower($out));
+    }
 }

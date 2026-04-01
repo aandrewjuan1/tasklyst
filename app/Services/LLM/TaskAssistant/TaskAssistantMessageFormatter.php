@@ -641,7 +641,21 @@ final class TaskAssistantMessageFormatter
         }
 
         if ($partial !== []) {
-            $parts[] = 'One or more tasks did not fully fit in the available window, so I scheduled a starter block to help you make progress. If you want, we can chunk it further Pomodoro-style or widen the window.';
+            if (count($partial) === 1) {
+                $single = is_array($partial[0] ?? null) ? $partial[0] : [];
+                $title = trim((string) ($single['title'] ?? 'this task'));
+                $requested = (int) ($single['requested_minutes'] ?? 0);
+                $placed = (int) ($single['placed_minutes'] ?? 0);
+
+                $detail = '';
+                if ($requested > 0 && $placed > 0 && $placed < $requested) {
+                    $detail = " ({$this->formatScheduleDurationLabel($placed)} scheduled of {$this->formatScheduleDurationLabel($requested)} requested)";
+                }
+
+                $parts[] = "I scheduled {$title}{$detail} within your available time window. If you want, I can adjust the time window or schedule another block.";
+            } else {
+                $parts[] = 'Some tasks did not fully fit in the available time window, so I scheduled what could fit first. If you want, I can widen the window or add follow-up blocks.';
+            }
         }
 
         if ($skipped !== []) {

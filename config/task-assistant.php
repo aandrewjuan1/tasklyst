@@ -121,14 +121,6 @@ return [
     'schedule' => [
         'max_horizon_days' => (int) env('TASK_ASSISTANT_SCHEDULE_MAX_HORIZON_DAYS', 14),
         /**
-         * Long tasks are split into ordered focus chunks before greedy placement.
-         */
-        'chunking' => [
-            'max_focus_minutes' => (int) env('TASK_ASSIST_SCHED_MAX_FOCUS_MINUTES', 90),
-            'min_chunk_minutes' => (int) env('TASK_ASSIST_SCHED_MIN_CHUNK_MINUTES', 15),
-            'preferred_chunk_sizes' => [90, 60, 45, 30, 25],
-        ],
-        /**
          * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
          * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
          */

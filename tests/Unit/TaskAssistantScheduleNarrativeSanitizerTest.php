@@ -36,3 +36,14 @@ test('sanitizeStudentFacingCopy replaces BLOCKS_JSON token', function (): void {
     expect($out)->not->toContain('BLOCKS_JSON');
     expect($out)->toContain('planned blocks');
 });
+
+test('sanitizeStudentFacingCopy removes meal and chunk phrasing', function (): void {
+    $out = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(
+        'Let us do this right after dinner as your main chunk and keep a focused chunk tonight.'
+    );
+
+    expect(mb_strtolower($out))->not->toContain('dinner');
+    expect(mb_strtolower($out))->not->toContain('chunk');
+    expect($out)->toContain('time window');
+    expect($out)->toContain('block');
+});

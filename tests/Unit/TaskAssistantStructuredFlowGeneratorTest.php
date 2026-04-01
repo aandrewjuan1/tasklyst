@@ -123,11 +123,6 @@ it('merges missing target task ids from the database into the contextual snapsho
 it('schedules a task atomically when duration fits the window', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 5,
-        'task-assistant.schedule.chunking' => [
-            'max_focus_minutes' => 90,
-            'min_chunk_minutes' => 15,
-            'preferred_chunk_sizes' => [90, 60, 45, 30],
-        ],
     ]);
 
     $generator = app(TaskAssistantStructuredFlowGenerator::class);
@@ -176,11 +171,6 @@ it('schedules a task atomically when duration fits the window', function (): voi
 it('records unplaced units when proposal count_limit is reached', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 3,
-        'task-assistant.schedule.chunking' => [
-            'max_focus_minutes' => 90,
-            'min_chunk_minutes' => 15,
-            'preferred_chunk_sizes' => [90, 60],
-        ],
     ]);
 
     $generator = app(TaskAssistantStructuredFlowGenerator::class);
@@ -329,11 +319,6 @@ it('truncates same-day task duration when enough time remains within the window'
 it('still subtracts calendar busy from events_for_busy for task-only targets', function (): void {
     config([
         'task-assistant.schedule.max_horizon_days' => 2,
-        'task-assistant.schedule.chunking' => [
-            'max_focus_minutes' => 90,
-            'min_chunk_minutes' => 15,
-            'preferred_chunk_sizes' => [60, 45],
-        ],
     ]);
 
     $generator = app(TaskAssistantStructuredFlowGenerator::class);

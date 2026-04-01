@@ -74,6 +74,10 @@ final class TaskAssistantScheduleNarrativeSanitizer
             '/\bsnapshot\s+data\b/iu' => 'task data',
             '/\bsnapshot\b/iu' => 'task list',
             '/\brequested\s+window\b/iu' => 'the time you asked for',
+            '/\bright\s+after\s+(lunch|dinner)\b/iu' => 'in this time window',
+            '/\bafter\s+(lunch|dinner)\b/iu' => 'in this time window',
+            '/\bmain\s+chunk\b/iu' => 'main block',
+            '/\bfocused\s+chunk\b/iu' => 'focused block',
         ];
 
         foreach ($patterns as $pattern => $replacement) {

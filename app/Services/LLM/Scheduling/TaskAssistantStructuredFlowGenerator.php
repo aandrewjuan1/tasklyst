@@ -20,7 +20,6 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
-        private readonly ScheduleTaskChunkingService $chunkingService,
     ) {}
 
     /**
@@ -327,8 +326,6 @@ final class TaskAssistantStructuredFlowGenerator
                 'entity_id' => (int) ($copy['entity_id'] ?? 0),
                 'title' => (string) ($copy['title'] ?? ''),
                 'duration_minutes' => $minutes,
-                'chunk_index' => $copy['chunk_index'] ?? null,
-                'chunk_total' => $copy['chunk_total'] ?? null,
                 'schedule_apply_as' => $copy['schedule_apply_as'] ?? null,
             ];
             $copy['apply_payload'] = $this->buildApplyPayload($candidate, $startAt, $endAt, $minutes);
@@ -621,8 +618,6 @@ final class TaskAssistantStructuredFlowGenerator
                     'entity_id' => $unit['entity_id'],
                     'title' => $unit['title'],
                     'minutes' => $unit['minutes'],
-                    'chunk_index' => $unit['chunk_index'] ?? null,
-                    'chunk_total' => $unit['chunk_total'] ?? null,
                     'reason' => 'count_limit',
                 ];
 
@@ -657,8 +652,6 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => $unit['title'],
                     'score' => $unit['score'],
                     'duration_minutes' => $blockMinutes,
-                    'chunk_index' => $unit['chunk_index'],
-                    'chunk_total' => $unit['chunk_total'],
                 ];
 
                 if ($unit['entity_type'] === 'task') {
@@ -707,8 +700,6 @@ final class TaskAssistantStructuredFlowGenerator
                         'entity_id' => $unit['entity_id'],
                         'title' => $unit['title'],
                         'minutes' => $unit['minutes'],
-                        'chunk_index' => $unit['chunk_index'] ?? null,
-                        'chunk_total' => $unit['chunk_total'] ?? null,
                         'reason' => 'horizon_exhausted',
                     ];
                 }
@@ -796,8 +787,6 @@ final class TaskAssistantStructuredFlowGenerator
             'title' => $unit['title'],
             'score' => $unit['score'],
             'duration_minutes' => $placedMinutes,
-            'chunk_index' => $unit['chunk_index'],
-            'chunk_total' => $unit['chunk_total'],
         ];
 
         $tid = (int) $unit['entity_id'];
@@ -888,9 +877,6 @@ final class TaskAssistantStructuredFlowGenerator
                     'score' => (int) ($candidate['score'] ?? 0),
                     'minutes' => $mins,
                     'candidate_order' => $order,
-                    // Non-meaningful after atomic scheduling; kept for stable schema/validation.
-                    'chunk_index' => null,
-                    'chunk_total' => null,
                 ];
 
                 continue;
@@ -903,9 +889,6 @@ final class TaskAssistantStructuredFlowGenerator
                 'score' => (int) ($candidate['score'] ?? 0),
                 'minutes' => max(1, (int) ($candidate['duration_minutes'] ?? 30)),
                 'candidate_order' => $order,
-                // Non-task items are also atomic units in terms of placement.
-                'chunk_index' => null,
-                'chunk_total' => null,
             ];
         }
 
@@ -927,7 +910,7 @@ final class TaskAssistantStructuredFlowGenerator
             return $orderCmp;
         }
 
-        return ($a['chunk_index'] ?? 0) <=> ($b['chunk_index'] ?? 0);
+        return 0;
     }
 
     /**
@@ -946,8 +929,6 @@ final class TaskAssistantStructuredFlowGenerator
             'end_datetime' => $candidate['entity_type'] === 'project' ? null : $endAt->format(\DateTimeInterface::ATOM),
             'duration_minutes' => $candidate['entity_type'] === 'event' ? null : $minutes,
             'conflict_notes' => [],
-            'chunk_index' => $candidate['chunk_index'] ?? null,
-            'chunk_total' => $candidate['chunk_total'] ?? null,
             'schedule_apply_as' => $candidate['schedule_apply_as'] ?? null,
             'apply_payload' => $this->buildApplyPayload($candidate, $startAt, $endAt, $minutes),
         ];

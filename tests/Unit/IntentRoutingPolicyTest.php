@@ -219,6 +219,32 @@ test('policy routing resolves multiturn target entities and constraints', functi
     expect($decision->constraints['target_entities'])->toHaveCount(1);
 });
 
+test('schedule top task resolves single target and count limit one', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'scheduling',
+                'confidence' => 0.9,
+                'rationale' => 'Scheduling follow-up.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberPrioritizedItems($thread, [
+        ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'Task A'],
+        ['entity_type' => 'task', 'entity_id' => 20, 'title' => 'Task B'],
+    ], 2);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule the top task for later today');
+
+    expect($decision->constraints['count_limit'])->toBe(1);
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe(10);
+});
+
 test('schedule flow resolves top N against last_listing', function (): void {
     Prism::fake([
         StructuredResponseFake::make()

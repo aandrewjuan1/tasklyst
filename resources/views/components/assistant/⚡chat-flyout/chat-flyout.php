@@ -226,7 +226,7 @@ new class extends Component
         )->onQueue((string) config('task-assistant.queue', 'task-assistant'));
     }
 
-    public function submitNextOptionChip(int $assistantMessageId, string $chipText): void
+    public function submitNextOptionChip(int $assistantMessageId, int $chipIndex): void
     {
         if ($this->isStreaming || ! $this->thread) {
             return;
@@ -245,7 +245,12 @@ new class extends Component
             return;
         }
 
-        $content = trim($chipText);
+        $nextOptionChips = $this->resolveNextOptionChipsForMessage($assistantMessage);
+        if (! array_key_exists($chipIndex, $nextOptionChips)) {
+            return;
+        }
+
+        $content = trim((string) $nextOptionChips[$chipIndex]);
         if ($content === '') {
             return;
         }
@@ -253,6 +258,30 @@ new class extends Component
         $this->dismissedNextOptionChipsByMessage[$assistantMessageId] = true;
         $this->newMessage = $content;
         $this->submitMessage();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function resolveNextOptionChipsForMessage(TaskAssistantMessage $assistantMessage): array
+    {
+        $prioritizeChips = data_get($assistantMessage->metadata, 'prioritize.next_options_chip_texts', []);
+        $guidanceChips = data_get($assistantMessage->metadata, 'general_guidance.next_options_chip_texts', []);
+        $scheduleChips = data_get($assistantMessage->metadata, 'schedule.next_options_chip_texts', []);
+        $structuredChips = data_get($assistantMessage->metadata, 'structured.data.next_options_chip_texts', []);
+
+        $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
+            ? $prioritizeChips
+            : (is_array($guidanceChips) && count($guidanceChips) > 0
+                ? $guidanceChips
+                : (is_array($scheduleChips) && count($scheduleChips) > 0
+                    ? $scheduleChips
+                    : (is_array($structuredChips) ? $structuredChips : [])));
+
+        return array_values(array_filter(
+            array_map(static fn (mixed $chip): string => trim((string) $chip), is_array($nextOptionChips) ? $nextOptionChips : []),
+            static fn (string $chip): bool => $chip !== ''
+        ));
     }
 
     public function requestStopStreaming(): void
