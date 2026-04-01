@@ -362,6 +362,39 @@ test('schedule those in the afternoon schedules all resolved targets by default'
     expect($decision->constraints['count_limit'])->toBe(5);
 });
 
+test('schedule them all prefers broader prioritize listing over last single schedule target', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $stateService = app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class);
+
+    $stateService->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 901, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 902, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 903, 'title' => 'C'],
+        ],
+        null,
+    );
+
+    $stateService->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 901, 'title' => 'A'],
+        ],
+        'later'
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'okay schedule them all for tomorrow instead');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(3);
+    expect($decision->constraints['count_limit'])->toBe(3);
+});
+
 test('schedule 1 and 2 for later afternoon resolves numeric index targets', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

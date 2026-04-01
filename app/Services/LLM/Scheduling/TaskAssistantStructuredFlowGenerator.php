@@ -14,6 +14,8 @@ use Illuminate\Support\Str;
 
 final class TaskAssistantStructuredFlowGenerator
 {
+    private const SCHEDULE_SCHEMA_VERSION = 2;
+
     public function __construct(
         private readonly TaskAssistantPromptData $promptData,
         private readonly TaskAssistantScheduleDbContextBuilder $dbContextBuilder,
@@ -97,6 +99,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         $data = [
+            'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,
@@ -224,6 +227,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         $data = [
+            'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,
@@ -265,6 +269,17 @@ final class TaskAssistantStructuredFlowGenerator
                 continue;
             }
             $copy = $p;
+            $uuid = trim((string) ($copy['proposal_uuid'] ?? ''));
+            $legacyId = trim((string) ($copy['proposal_id'] ?? ''));
+            if ($uuid === '') {
+                $uuid = $legacyId !== '' ? $legacyId : (string) Str::uuid();
+            }
+            if ($legacyId === '') {
+                $legacyId = $uuid;
+            }
+            $copy['proposal_uuid'] = $uuid;
+            $copy['proposal_id'] = $legacyId;
+            $copy['display_order'] = count($out);
             if (($copy['status'] ?? 'pending') !== 'pending') {
                 $out[] = $copy;
 
@@ -572,6 +587,7 @@ final class TaskAssistantStructuredFlowGenerator
     private function generateProposalsChunkedSpill(array $snapshot, array $context, int $countLimit): array
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
+        $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
         $placementDates = array_slice($this->resolvePlacementDates($snapshot, $timezone), 0, 1);
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
@@ -604,12 +620,35 @@ final class TaskAssistantStructuredFlowGenerator
         ];
 
         $proposals = [];
-        $totalUnits = count($units);
         /** @var array<int, int> $taskPlacedChunks */
         $taskPlacedChunks = [];
 
         $anchorDay = $placementDates[0] ?? (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $anchorStart = new \DateTimeImmutable($anchorDay.' '.$windowStart, $timezone);
+
+        if ($units !== [] && count($proposals) < $countLimit) {
+            $topUnit = $units[0];
+            if (($topUnit['entity_type'] ?? '') === 'task') {
+                $morningPlacement = $this->tryPlaceTopTaskInMorning(
+                    unit: $topUnit,
+                    placementDates: $placementDates,
+                    windowsByDay: $windowsByDay,
+                    proposals: $proposals,
+                    taskPlacedChunks: $taskPlacedChunks,
+                    digest: $digest,
+                );
+
+                if (($morningPlacement['placed'] ?? false) === true) {
+                    $proposals = $morningPlacement['proposals'];
+                    $windowsByDay = $morningPlacement['windowsByDay'];
+                    $taskPlacedChunks = $morningPlacement['taskPlacedChunks'];
+                    $digest = $morningPlacement['digest'];
+                    array_shift($units);
+                }
+            }
+        }
+
+        $totalUnits = count($units);
 
         foreach ($units as $unitIndex => $unit) {
             if (count($proposals) >= $countLimit) {
@@ -652,6 +691,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => $unit['title'],
                     'score' => $unit['score'],
                     'duration_minutes' => $blockMinutes,
+                    'priority_rank' => (int) ($unit['priority_rank'] ?? ($unitIndex + 1)),
                 ];
 
                 if ($unit['entity_type'] === 'task') {
@@ -714,10 +754,258 @@ final class TaskAssistantStructuredFlowGenerator
         );
 
         if ($proposals === []) {
-            return [[$this->emptyPlaceholderProposal($anchorStart, $anchorStart, count($placementDates) > 1)], $digest];
+            if (! $adaptiveAttempted && $this->shouldAttemptAdaptiveFallback($snapshot, $context, $digest, $timezone)) {
+                $adaptiveContext = $context;
+                $adaptiveContext['_adaptive_fallback_attempted'] = true;
+                $adaptiveSnapshot = $this->buildAdaptiveFallbackSnapshot($snapshot, $timezone);
+                [$retryProposals, $retryDigest] = $this->generateProposalsChunkedSpill($adaptiveSnapshot, $adaptiveContext, $countLimit);
+
+                if (! $this->isOnlyEmptyPlaceholderProposal($retryProposals)) {
+                    $retryDigest['fallback_mode'] = 'auto_relaxed_today_or_tomorrow';
+
+                    return [$retryProposals, $retryDigest];
+                }
+            }
+
+            $empty = $this->emptyPlaceholderProposal($anchorStart, $anchorStart, count($placementDates) > 1);
+            $empty['display_order'] = 0;
+
+            return [[$empty], $digest];
         }
 
+        foreach ($proposals as $idx => &$proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $proposal['display_order'] = $idx;
+        }
+        unset($proposal);
+
         return [$proposals, $digest];
+    }
+
+    private function shouldAttemptAdaptiveFallback(
+        array $snapshot,
+        array $context,
+        array $digest,
+        \DateTimeZone $timezone
+    ): bool {
+        if ((bool) ($context['time_window_strict'] ?? false)) {
+            return false;
+        }
+
+        $today = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $mode = (string) ($horizon['mode'] ?? 'single_day');
+        $start = (string) ($horizon['start_date'] ?? $today);
+        $end = (string) ($horizon['end_date'] ?? $today);
+
+        if ($mode !== 'single_day' || $start !== $today || $end !== $today) {
+            return false;
+        }
+
+        $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        foreach ($unplaced as $row) {
+            if (is_array($row) && (string) ($row['reason'] ?? '') === 'horizon_exhausted') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function buildAdaptiveFallbackSnapshot(array $snapshot, \DateTimeZone $timezone): array
+    {
+        $adaptive = $snapshot;
+        $today = CarbonImmutable::parse((string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d')), $timezone)->startOfDay();
+        $tomorrow = $today->addDay();
+
+        $adaptive['time_window'] = ['start' => '08:00', 'end' => '22:00'];
+        $adaptive['schedule_horizon'] = [
+            'mode' => 'single_day',
+            'start_date' => $tomorrow->toDateString(),
+            'end_date' => $tomorrow->toDateString(),
+            'label' => 'adaptive_tomorrow',
+        ];
+
+        return $adaptive;
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     * @param  list<string>  $placementDates
+     * @param  array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>>  $windowsByDay
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<int, int>  $taskPlacedChunks
+     * @param  array<string, mixed>  $digest
+     * @return array{
+     *   placed: bool,
+     *   proposals: array<int, array<string, mixed>>,
+     *   windowsByDay: array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>>,
+     *   taskPlacedChunks: array<int, int>,
+     *   digest: array<string, mixed>
+     * }
+     */
+    private function tryPlaceTopTaskInMorning(
+        array $unit,
+        array $placementDates,
+        array $windowsByDay,
+        array $proposals,
+        array $taskPlacedChunks,
+        array $digest
+    ): array {
+        $requestedMinutes = max(1, (int) ($unit['minutes'] ?? 30));
+        $minimumKeepMinutes = max(30, (int) ceil($requestedMinutes * 0.80));
+
+        foreach ($placementDates as $day) {
+            $dayWindows = $windowsByDay[$day] ?? [];
+            if ($dayWindows === []) {
+                continue;
+            }
+
+            $fit = $this->findFirstMorningFittingWindow($dayWindows, $day, $requestedMinutes);
+            $placedMinutes = $requestedMinutes;
+            if ($fit === null) {
+                $maxMorningMinutes = $this->maxMorningWindowMinutes($dayWindows, $day);
+                if ($maxMorningMinutes < $minimumKeepMinutes) {
+                    continue;
+                }
+                $placedMinutes = min($requestedMinutes, $maxMorningMinutes);
+                $fit = $this->findFirstMorningFittingWindow($dayWindows, $day, $placedMinutes);
+                if ($fit === null) {
+                    continue;
+                }
+            }
+
+            $windowIndex = (int) ($fit['window_index'] ?? 0);
+            $startAt = $fit['start'] ?? null;
+            if (! $startAt instanceof \DateTimeImmutable) {
+                continue;
+            }
+            $endAt = $startAt->modify("+{$placedMinutes} minutes");
+
+            $candidate = [
+                'entity_type' => 'task',
+                'entity_id' => $unit['entity_id'],
+                'title' => $unit['title'],
+                'score' => $unit['score'],
+                'duration_minutes' => $placedMinutes,
+                'priority_rank' => (int) ($unit['priority_rank'] ?? 1),
+                'schedule_apply_as' => 'update_task',
+            ];
+
+            $proposal = $this->makeProposal($candidate, $startAt, $endAt, $placedMinutes);
+            if ($placedMinutes < $requestedMinutes) {
+                $proposal['partial'] = true;
+                $proposal['requested_minutes'] = $requestedMinutes;
+                $proposal['placed_minutes'] = $placedMinutes;
+                $proposal['placement_reason'] = 'top1_morning_shrink';
+                $digest['partial_units'][] = [
+                    'entity_type' => 'task',
+                    'entity_id' => $unit['entity_id'],
+                    'title' => $unit['title'],
+                    'requested_minutes' => $requestedMinutes,
+                    'placed_minutes' => $placedMinutes,
+                    'reason' => 'top1_morning_shrink',
+                ];
+            }
+
+            $proposals[] = $proposal;
+            $taskPlacedChunks[(int) $unit['entity_id']] = 1;
+            $windowsByDay[$day] = $this->consumeWindow($dayWindows, $windowIndex, $startAt, $endAt);
+            if (! in_array($day, $digest['days_used'], true)) {
+                $digest['days_used'][] = $day;
+            }
+
+            return [
+                'placed' => true,
+                'proposals' => $proposals,
+                'windowsByDay' => $windowsByDay,
+                'taskPlacedChunks' => $taskPlacedChunks,
+                'digest' => $digest,
+            ];
+        }
+
+        return [
+            'placed' => false,
+            'proposals' => $proposals,
+            'windowsByDay' => $windowsByDay,
+            'taskPlacedChunks' => $taskPlacedChunks,
+            'digest' => $digest,
+        ];
+    }
+
+    /**
+     * @param  array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>  $windows
+     * @return array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>
+     */
+    /**
+     * @param  array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>  $windows
+     * @return array{window_index: int, start: \DateTimeImmutable}|null
+     */
+    private function findFirstMorningFittingWindow(array $windows, string $day, int $requiredMinutes): ?array
+    {
+        if ($windows === []) {
+            return null;
+        }
+
+        $tz = $windows[0]['start']->getTimezone();
+        $morningStart = new \DateTimeImmutable($day.' 08:00:00', $tz);
+        $morningEnd = new \DateTimeImmutable($day.' 12:00:00', $tz);
+
+        foreach ($windows as $index => $window) {
+            $start = $window['start'] > $morningStart ? $window['start'] : $morningStart;
+            $end = $window['end'] < $morningEnd ? $window['end'] : $morningEnd;
+            if ($end > $start) {
+                $minutes = (int) (($end->getTimestamp() - $start->getTimestamp()) / 60);
+                if ($minutes >= $requiredMinutes) {
+                    return ['window_index' => $index, 'start' => $start];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>  $windows
+     */
+    private function maxMorningWindowMinutes(array $windows, string $day): int
+    {
+        if ($windows === []) {
+            return 0;
+        }
+
+        $tz = $windows[0]['start']->getTimezone();
+        $morningStart = new \DateTimeImmutable($day.' 08:00:00', $tz);
+        $morningEnd = new \DateTimeImmutable($day.' 12:00:00', $tz);
+
+        $max = 0;
+        foreach ($windows as $window) {
+            $start = $window['start'] > $morningStart ? $window['start'] : $morningStart;
+            $end = $window['end'] < $morningEnd ? $window['end'] : $morningEnd;
+            if ($end <= $start) {
+                continue;
+            }
+            $minutes = (int) (($end->getTimestamp() - $start->getTimestamp()) / 60);
+            if ($minutes > $max) {
+                $max = $minutes;
+            }
+        }
+
+        return $max;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     */
+    private function isOnlyEmptyPlaceholderProposal(array $proposals): bool
+    {
+        if (count($proposals) !== 1) {
+            return false;
+        }
+
+        return trim((string) ($proposals[0]['title'] ?? '')) === 'No schedulable items found';
     }
 
     /**
@@ -787,6 +1075,7 @@ final class TaskAssistantStructuredFlowGenerator
             'title' => $unit['title'],
             'score' => $unit['score'],
             'duration_minutes' => $placedMinutes,
+            'priority_rank' => (int) ($unit['priority_rank'] ?? 1),
         ];
 
         $tid = (int) $unit['entity_id'];
@@ -877,6 +1166,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'score' => (int) ($candidate['score'] ?? 0),
                     'minutes' => $mins,
                     'candidate_order' => $order,
+                    'priority_rank' => (int) ($candidate['priority_rank'] ?? ($order + 1)),
                 ];
 
                 continue;
@@ -889,6 +1179,7 @@ final class TaskAssistantStructuredFlowGenerator
                 'score' => (int) ($candidate['score'] ?? 0),
                 'minutes' => max(1, (int) ($candidate['duration_minutes'] ?? 30)),
                 'candidate_order' => $order,
+                'priority_rank' => (int) ($candidate['priority_rank'] ?? ($order + 1)),
             ];
         }
 
@@ -918,8 +1209,10 @@ final class TaskAssistantStructuredFlowGenerator
      */
     private function makeProposal(array $candidate, \DateTimeImmutable $startAt, \DateTimeImmutable $endAt, int $minutes): array
     {
+        $proposalUuid = (string) Str::uuid();
         $proposal = [
-            'proposal_id' => (string) Str::uuid(),
+            'proposal_id' => $proposalUuid,
+            'proposal_uuid' => $proposalUuid,
             'status' => 'pending',
             'entity_type' => $candidate['entity_type'],
             'entity_id' => $candidate['entity_id'],
@@ -931,6 +1224,7 @@ final class TaskAssistantStructuredFlowGenerator
             'conflict_notes' => [],
             'schedule_apply_as' => $candidate['schedule_apply_as'] ?? null,
             'apply_payload' => $this->buildApplyPayload($candidate, $startAt, $endAt, $minutes),
+            'priority_rank' => isset($candidate['priority_rank']) ? (int) $candidate['priority_rank'] : null,
         ];
 
         return $proposal;
@@ -941,12 +1235,14 @@ final class TaskAssistantStructuredFlowGenerator
         \DateTimeImmutable $anchorForFallback,
         bool $multiDayHorizon,
     ): array {
+        $proposalUuid = (string) \Illuminate\Support\Str::uuid();
         $note = $multiDayHorizon
             ? 'No tasks/events/projects could fit within the selected date range without conflicts.'
             : 'No tasks/events/projects could fit into the selected day without conflicts.';
 
         return [
-            'proposal_id' => (string) \Illuminate\Support\Str::uuid(),
+            'proposal_id' => $proposalUuid,
+            'proposal_uuid' => $proposalUuid,
             'status' => 'pending',
             'entity_type' => 'task',
             'entity_id' => null,
@@ -1158,6 +1454,7 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             $score = (int) max(1, $rankedCount - $includedIndex);
+            $priorityRank = $includedIndex + 1;
 
             if ($type === 'task') {
                 $raw = is_array($rankedCandidate['raw'] ?? null) ? $rankedCandidate['raw'] : [];
@@ -1167,6 +1464,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => $title,
                     'duration_minutes' => $this->resolveCandidateDurationMinutes($raw),
                     'score' => $score,
+                    'priority_rank' => $priorityRank,
                 ];
 
                 $includedIndex++;
@@ -1191,6 +1489,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => $title,
                     'duration_minutes' => 60,
                     'score' => $score,
+                    'priority_rank' => $priorityRank,
                 ];
 
                 $includedIndex++;
@@ -1214,6 +1513,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => $title,
                     'duration_minutes' => 30,
                     'score' => $score,
+                    'priority_rank' => $priorityRank,
                 ];
 
                 $includedIndex++;

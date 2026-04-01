@@ -108,6 +108,7 @@ return [
         'enable_typing_effect' => (bool) env('TASK_ASSISTANT_ENABLE_TYPING_EFFECT', true),
         'inter_chunk_delay_ms' => (int) env('TASK_ASSISTANT_INTER_CHUNK_DELAY_MS', 24),
         'max_typing_effect_ms' => (int) env('TASK_ASSISTANT_MAX_TYPING_EFFECT_MS', 900),
+        'health_timeout_seconds' => (int) env('TASK_ASSISTANT_STREAM_HEALTH_TIMEOUT_SECONDS', 20),
     ],
 
     /*

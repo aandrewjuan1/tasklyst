@@ -523,6 +523,71 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('(~300 min)', $out);
     }
 
+    public function test_daily_schedule_message_preserves_ranked_row_order_from_payload(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your schedule.',
+            'reasoning' => 'This order follows your available windows.',
+            'confirmation' => 'Does this feel workable?',
+            'blocks' => [
+                [
+                    'start_time' => '16:00',
+                    'end_time' => '21:00',
+                    'label' => 'Impossible 5h study block before quiz',
+                    'task_id' => 31,
+                ],
+                [
+                    'start_time' => '08:00',
+                    'end_time' => '08:25',
+                    'label' => 'ITEL 210 – Online Quiz: Semantic HTML',
+                    'task_id' => 19,
+                ],
+                [
+                    'start_time' => '08:40',
+                    'end_time' => '09:10',
+                    'label' => 'Review today’s lecture notes',
+                    'task_id' => 23,
+                ],
+            ],
+            'items' => [
+                [
+                    'title' => 'Impossible 5h study block before quiz',
+                    'entity_type' => 'task',
+                    'entity_id' => 31,
+                    'start_datetime' => '2026-04-02T16:00:00+08:00',
+                    'end_datetime' => '2026-04-02T21:00:00+08:00',
+                    'duration_minutes' => 300,
+                ],
+                [
+                    'title' => 'ITEL 210 – Online Quiz: Semantic HTML',
+                    'entity_type' => 'task',
+                    'entity_id' => 19,
+                    'start_datetime' => '2026-04-02T08:00:00+08:00',
+                    'end_datetime' => '2026-04-02T08:25:00+08:00',
+                    'duration_minutes' => 25,
+                ],
+                [
+                    'title' => 'Review today’s lecture notes',
+                    'entity_type' => 'task',
+                    'entity_id' => 23,
+                    'start_datetime' => '2026-04-02T08:40:00+08:00',
+                    'end_datetime' => '2026-04-02T09:10:00+08:00',
+                    'duration_minutes' => 30,
+                ],
+            ],
+        ]);
+
+        $posEight = strpos($out, '8:00 AM–8:25 AM');
+        $posEightForty = strpos($out, '8:40 AM–9:10 AM');
+        $posFourPm = strpos($out, '4:00 PM–9:00 PM');
+
+        $this->assertNotFalse($posEight);
+        $this->assertNotFalse($posEightForty);
+        $this->assertNotFalse($posFourPm);
+        $this->assertTrue($posFourPm < $posEight);
+        $this->assertTrue($posEight < $posEightForty);
+    }
+
     public function test_daily_schedule_digest_note_mentions_count_limit_reason_instead_of_planning_horizon(): void
     {
         $out = $this->formatter->format('daily_schedule', [

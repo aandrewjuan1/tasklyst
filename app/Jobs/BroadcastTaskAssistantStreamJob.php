@@ -42,6 +42,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
 
     public function handle(TaskAssistantService $service): void
     {
+        $this->markAssistantPhase('processing');
         Log::debug('task-assistant.job.handle', [
             'layer' => 'queue_job',
             'thread_id' => $this->threadId,
@@ -125,6 +126,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         $assistantMessage->update([
             'content' => 'I ran into a temporary issue while preparing your response. Please try again.',
         ]);
+        $this->markAssistantPhase('failed', ['error_code' => $errorCode]);
 
         app(TaskAssistantStreamingBroadcaster::class)->streamFinalAssistantJson(
             userId: $this->userId,
@@ -176,11 +178,36 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
                 'content' => '',
                 'metadata' => $messageMetadata,
             ]);
+            $this->markAssistantPhase('cancelled');
         }
 
         $metadata = is_array($thread->metadata ?? null) ? $thread->metadata : [];
         data_set($metadata, 'stream.processing', null);
         data_set($metadata, 'stream.last_completed_at', now()->toIso8601String());
         $thread->update(['metadata' => $metadata]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $extra
+     */
+    private function markAssistantPhase(string $phase, array $extra = []): void
+    {
+        $assistantMessage = TaskAssistantMessage::query()
+            ->where('thread_id', $this->threadId)
+            ->where('id', $this->assistantMessageId)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if (! $assistantMessage) {
+            return;
+        }
+
+        $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+        data_set($metadata, 'stream.phase', $phase);
+        data_set($metadata, 'stream.phase_at', now()->toIso8601String());
+        foreach ($extra as $key => $value) {
+            data_set($metadata, 'stream.'.$key, $value);
+        }
+        $assistantMessage->update(['metadata' => $metadata]);
     }
 }

@@ -151,4 +151,42 @@ class ScheduleDraftMutationServiceTest extends TestCase
         $this->assertSame(1, $result['applied_ops_count']);
         $this->assertNotEmpty($result['changed_proposal_ids']);
     }
+
+    public function test_shift_operation_can_target_proposal_uuid_after_reorder(): void
+    {
+        $service = new ScheduleDraftMutationService;
+        $proposals = [
+            [
+                'proposal_id' => 'a',
+                'proposal_uuid' => 'uuid-a',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A',
+                'start_datetime' => '2026-03-30T14:00:00+00:00',
+                'end_datetime' => '2026-03-30T15:00:00+00:00',
+                'duration_minutes' => 60,
+            ],
+            [
+                'proposal_id' => 'b',
+                'proposal_uuid' => 'uuid-b',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 2,
+                'title' => 'B',
+                'start_datetime' => '2026-03-30T15:30:00+00:00',
+                'end_datetime' => '2026-03-30T16:00:00+00:00',
+                'duration_minutes' => 30,
+            ],
+        ];
+
+        $result = $service->applyOperations($proposals, [
+            ['op' => 'move_to_position', 'proposal_uuid' => 'uuid-b', 'target_index' => 0],
+            ['op' => 'shift_minutes', 'proposal_uuid' => 'uuid-a', 'delta_minutes' => 15],
+        ], 'UTC');
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame('uuid-b', $result['proposals'][0]['proposal_uuid']);
+        $this->assertSame('2026-03-30T14:15:00+00:00', $result['proposals'][1]['start_datetime']);
+    }
 }

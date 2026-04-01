@@ -40,7 +40,7 @@ final class ScheduleDraftMutationService
                 continue;
             }
 
-            $idx = (int) ($op['proposal_index'] ?? -1);
+            $idx = $this->resolveOperationIndex($copy, $op);
             if ($idx < 0 || $idx >= count($copy)) {
                 return [
                     'ok' => false,
@@ -129,6 +129,7 @@ final class ScheduleDraftMutationService
         }
 
         $changedIds = $this->changedProposalIds($proposals, $copy);
+        $this->reindexDisplayOrder($copy);
 
         return [
             'ok' => true,
@@ -174,7 +175,7 @@ final class ScheduleDraftMutationService
     private function applyReorderOperation(array &$rows, array $op): bool
     {
         $originalCount = count($rows);
-        $source = (int) ($op['proposal_index'] ?? -1);
+        $source = $this->resolveOperationIndex($rows, $op);
         if ($source < 0 || $source >= $originalCount) {
             return false;
         }
@@ -184,7 +185,7 @@ final class ScheduleDraftMutationService
         if ($type === 'move_to_position') {
             $target = (int) ($op['target_index'] ?? -1);
         } elseif (in_array($type, ['reorder_before', 'reorder_after'], true)) {
-            $anchor = (int) ($op['anchor_index'] ?? -1);
+            $anchor = $this->resolveAnchorIndex($rows, $op);
             if ($anchor < 0 || $anchor >= $originalCount) {
                 return false;
             }
@@ -207,8 +208,67 @@ final class ScheduleDraftMutationService
         array_splice($rows, $source, 1);
         $target = max(0, min($target, count($rows)));
         array_splice($rows, $target, 0, [$item]);
+        $this->reindexDisplayOrder($rows);
 
         return true;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<string, mixed>  $op
+     */
+    private function resolveOperationIndex(array $rows, array $op): int
+    {
+        $uuid = trim((string) ($op['proposal_uuid'] ?? ''));
+        if ($uuid !== '') {
+            foreach ($rows as $index => $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $rowUuid = trim((string) ($row['proposal_uuid'] ?? $row['proposal_id'] ?? ''));
+                if ($rowUuid === $uuid) {
+                    return $index;
+                }
+            }
+        }
+
+        return (int) ($op['proposal_index'] ?? -1);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<string, mixed>  $op
+     */
+    private function resolveAnchorIndex(array $rows, array $op): int
+    {
+        $anchorUuid = trim((string) ($op['anchor_proposal_uuid'] ?? ''));
+        if ($anchorUuid !== '') {
+            foreach ($rows as $index => $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $rowUuid = trim((string) ($row['proposal_uuid'] ?? $row['proposal_id'] ?? ''));
+                if ($rowUuid === $anchorUuid) {
+                    return $index;
+                }
+            }
+        }
+
+        return (int) ($op['anchor_index'] ?? -1);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function reindexDisplayOrder(array &$rows): void
+    {
+        foreach ($rows as $index => &$row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $row['display_order'] = $index;
+        }
+        unset($row);
     }
 
     /**

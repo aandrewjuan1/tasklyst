@@ -33,26 +33,34 @@ final class ScheduleEditUnderstandingPipeline
             return $this->clarify((string) ($target['reason'] ?? 'Please specify which item to edit.'));
         }
 
+        if (($target['confidence'] ?? 'low') === 'low' && ! $wantsReorder) {
+            $candidates = is_array($target['candidate_titles'] ?? null) ? $target['candidate_titles'] : [];
+            $candidateText = $candidates !== [] ? ' Possible matches: '.implode(', ', $candidates).'.' : '';
+
+            return $this->clarify('I am not fully sure which schedule item you mean.'.$candidateText.' Please mention first/second/last or part of the title.');
+        }
+
         $ops = [];
         $targetIndex = $target['index'];
+        $targetUuid = $target['proposal_uuid'] ?? null;
         if (preg_match('/\b(\d+)\s*(min|mins|minute|minutes)\b[^.]*\b(later|after|forward)\b/u', $normalized, $m) === 1) {
-            $ops[] = ['op' => 'shift_minutes', 'proposal_index' => $targetIndex, 'delta_minutes' => (int) $m[1]];
+            $ops[] = ['op' => 'shift_minutes', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'delta_minutes' => (int) $m[1]];
         } elseif (preg_match('/\b(\d+)\s*(min|mins|minute|minutes)\b[^.]*\b(earlier|before|back)\b/u', $normalized, $m) === 1) {
-            $ops[] = ['op' => 'shift_minutes', 'proposal_index' => $targetIndex, 'delta_minutes' => -1 * (int) $m[1]];
+            $ops[] = ['op' => 'shift_minutes', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'delta_minutes' => -1 * (int) $m[1]];
         }
 
         if (preg_match('/\b(make|set)\b[^.]*\b(\d+)\s*(min|mins|minute|minutes)\b/u', $normalized, $m) === 1) {
-            $ops[] = ['op' => 'set_duration_minutes', 'proposal_index' => $targetIndex, 'duration_minutes' => (int) $m[2]];
+            $ops[] = ['op' => 'set_duration_minutes', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'duration_minutes' => (int) $m[2]];
         }
 
         $time = $this->temporalParser->parseLocalTime($normalized);
         if ($time !== null) {
-            $ops[] = ['op' => 'set_local_time_hhmm', 'proposal_index' => $targetIndex, 'local_time_hhmm' => $time];
+            $ops[] = ['op' => 'set_local_time_hhmm', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_time_hhmm' => $time];
         }
 
         $date = $this->temporalParser->parseLocalDateYmd($normalized, $timezone);
         if ($date !== null) {
-            $ops[] = ['op' => 'set_local_date_ymd', 'proposal_index' => $targetIndex, 'local_date_ymd' => $date];
+            $ops[] = ['op' => 'set_local_date_ymd', 'proposal_index' => $targetIndex, 'proposal_uuid' => $targetUuid, 'local_date_ymd' => $date];
         }
 
         $reorder = $this->resolveReorderOperation($normalized, $proposals);
@@ -97,14 +105,14 @@ final class ScheduleEditUnderstandingPipeline
         if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bto\s+first\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             if (($source['index'] ?? null) !== null) {
-                return ['op' => 'move_to_position', 'proposal_index' => (int) $source['index'], 'target_index' => 0];
+                return ['op' => 'move_to_position', 'proposal_index' => (int) $source['index'], 'proposal_uuid' => $source['proposal_uuid'] ?? null, 'target_index' => 0];
             }
         }
 
         if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bto\s+last\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             if (($source['index'] ?? null) !== null) {
-                return ['op' => 'move_to_position', 'proposal_index' => (int) $source['index'], 'target_index' => $count - 1];
+                return ['op' => 'move_to_position', 'proposal_index' => (int) $source['index'], 'proposal_uuid' => $source['proposal_uuid'] ?? null, 'target_index' => $count - 1];
             }
         }
 
@@ -112,7 +120,13 @@ final class ScheduleEditUnderstandingPipeline
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             $anchor = $this->targetResolver->resolvePrimaryTarget((string) $m[2], $proposals);
             if (($source['index'] ?? null) !== null && ($anchor['index'] ?? null) !== null) {
-                return ['op' => 'reorder_before', 'proposal_index' => (int) $source['index'], 'anchor_index' => (int) $anchor['index']];
+                return [
+                    'op' => 'reorder_before',
+                    'proposal_index' => (int) $source['index'],
+                    'proposal_uuid' => $source['proposal_uuid'] ?? null,
+                    'anchor_index' => (int) $anchor['index'],
+                    'anchor_proposal_uuid' => $anchor['proposal_uuid'] ?? null,
+                ];
             }
         }
 
@@ -120,7 +134,13 @@ final class ScheduleEditUnderstandingPipeline
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             $anchor = $this->targetResolver->resolvePrimaryTarget((string) $m[2], $proposals);
             if (($source['index'] ?? null) !== null && ($anchor['index'] ?? null) !== null) {
-                return ['op' => 'reorder_after', 'proposal_index' => (int) $source['index'], 'anchor_index' => (int) $anchor['index']];
+                return [
+                    'op' => 'reorder_after',
+                    'proposal_index' => (int) $source['index'],
+                    'proposal_uuid' => $source['proposal_uuid'] ?? null,
+                    'anchor_index' => (int) $anchor['index'],
+                    'anchor_proposal_uuid' => $anchor['proposal_uuid'] ?? null,
+                ];
             }
         }
 

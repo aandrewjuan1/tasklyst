@@ -11,6 +11,7 @@ use App\Models\TaskAssistantThread;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Services\LLM\Scheduling\ScheduleDraftMutationService;
 use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
@@ -49,6 +50,7 @@ final class TaskAssistantService
         private readonly IntentRoutingPolicy $routingPolicy,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
         private readonly ScheduleDraftMutationService $scheduleDraftMutationService,
+        private readonly ScheduleDraftMetadataNormalizer $scheduleDraftMetadataNormalizer,
         private readonly ScheduleRefinementIntentResolver $scheduleRefinementIntentResolver,
     ) {}
 
@@ -1078,10 +1080,21 @@ final class TaskAssistantService
 
     private function assistantMessageHasPendingSchedulableProposals(TaskAssistantMessage $message): bool
     {
-        $proposals = $this->extractScheduleProposalsFromMessage($message);
-        if ($proposals === null) {
+        $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(
+            is_array($message->metadata ?? null) ? $message->metadata : []
+        );
+        if (! ($normalized['valid'] ?? false)) {
+            Log::debug('task-assistant.schedule_refinement.skip', [
+                'layer' => 'schedule_refinement',
+                'thread_id' => $message->thread_id,
+                'assistant_message_id' => $message->id,
+                'reason_code' => $normalized['reason_code'] ?? 'invalid_schedule_metadata',
+                'repairs' => $normalized['repairs'] ?? [],
+            ]);
+
             return false;
         }
+        $proposals = is_array($normalized['proposals'] ?? null) ? $normalized['proposals'] : [];
         foreach ($proposals as $p) {
             if (! is_array($p)) {
                 continue;
@@ -1119,20 +1132,14 @@ final class TaskAssistantService
      */
     private function extractScheduleProposalsFromMessage(TaskAssistantMessage $message): ?array
     {
-        $metadata = $message->metadata ?? [];
-        $candidates = [
-            ['key' => 'schedule', 'items_key' => 'proposals'],
-            ['key' => 'daily_schedule', 'items_key' => 'proposals'],
-            ['key' => 'structured', 'items_key' => 'data.proposals'],
-        ];
-        foreach ($candidates as $candidate) {
-            $items = data_get($metadata[$candidate['key']] ?? null, $candidate['items_key'], []);
-            if (is_array($items) && $items !== []) {
-                return $items;
-            }
+        $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(
+            is_array($message->metadata ?? null) ? $message->metadata : []
+        );
+        if (! ($normalized['valid'] ?? false)) {
+            return null;
         }
 
-        return null;
+        return is_array($normalized['proposals'] ?? null) ? $normalized['proposals'] : null;
     }
 
     /**
@@ -1140,17 +1147,14 @@ final class TaskAssistantService
      */
     private function extractPlacementDigestFromMessage(TaskAssistantMessage $message): ?array
     {
-        $metadata = $message->metadata ?? [];
-        foreach (['schedule', 'daily_schedule'] as $key) {
-            $digest = data_get($metadata[$key] ?? null, 'placement_digest');
+        $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(
+            is_array($message->metadata ?? null) ? $message->metadata : []
+        );
+        if ($normalized['valid'] ?? false) {
+            $digest = data_get($normalized['canonical_data'] ?? null, 'placement_digest');
             if (is_array($digest)) {
                 return $digest;
             }
-        }
-
-        $digest = data_get($metadata['structured'] ?? null, 'data.placement_digest');
-        if (is_array($digest)) {
-            return $digest;
         }
 
         return null;
@@ -1214,6 +1218,12 @@ final class TaskAssistantService
 
         $sourceProposals = $this->extractScheduleProposalsFromMessage($sourceMessage);
         if ($sourceProposals === null) {
+            $assistantMessage->update([
+                'metadata' => array_merge(
+                    is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [],
+                    ['schedule_refinement' => ['skip_reason_code' => 'missing_proposals']]
+                ),
+            ]);
             $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
 
             return;
@@ -1229,16 +1239,21 @@ final class TaskAssistantService
         $timezone = (string) config('app.timezone', 'UTC');
 
         $resolution = $this->scheduleRefinementIntentResolver->resolveDetailed($content, $workingProposals, $timezone);
+        $resolvedOperations = is_array($resolution['operations'] ?? null) ? $resolution['operations'] : [];
+        $referencedProposalUuids = array_values(array_filter(array_map(
+            static fn (mixed $op): string => is_array($op) ? trim((string) ($op['proposal_uuid'] ?? '')) : '',
+            $resolvedOperations
+        ), static fn (string $uuid): bool => $uuid !== ''));
         if ((bool) ($resolution['clarification_required'] ?? false)) {
             $clarification = (string) ($resolution['clarification_message'] ?? 'Please tell me which item to edit and the exact change.');
             $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
             $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint);
+            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids);
 
             return;
         }
 
-        $operations = is_array($resolution['operations'] ?? null) ? $resolution['operations'] : [];
+        $operations = $resolvedOperations;
         $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
         if (! (bool) ($mutation['ok'] ?? false)) {
             $error = trim((string) ($mutation['error'] ?? ''));
@@ -1247,7 +1262,7 @@ final class TaskAssistantService
                 : 'I could not apply that change yet.';
             $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
             $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint);
+            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids);
 
             return;
         }
@@ -1307,7 +1322,7 @@ final class TaskAssistantService
             assistantFallbackContent: 'I had trouble updating that schedule. Please try rephrasing the change.'
         );
 
-        $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint);
+        $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids);
         $this->streamFlowEnvelope(
             thread: $thread,
             assistantMessage: $assistantMessage,
@@ -1655,6 +1670,7 @@ final class TaskAssistantService
 
         $content = trim($clarification).' For example: "move second to 8 pm" or "move quiz task to tomorrow 8 pm".';
         $data = [
+            'schema_version' => ScheduleDraftMetadataNormalizer::SCHEMA_VERSION,
             'proposals' => $proposals,
             'blocks' => $blocks,
             'items' => $items,
@@ -1665,14 +1681,16 @@ final class TaskAssistantService
             'schedule_empty_placement' => false,
             'placement_digest' => [],
         ];
+        $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(['schedule' => $data, 'structured' => ['data' => $data]]);
+        $canonicalData = is_array($normalized['canonical_data'] ?? null) ? $normalized['canonical_data'] : $data;
 
         $assistantMessage->update([
             'content' => $content,
             'metadata' => array_merge(
                 is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [],
                 [
-                    'schedule' => $data,
-                    'structured' => ['data' => $data],
+                    'schedule' => $canonicalData,
+                    'structured' => ['data' => $canonicalData],
                 ]
             ),
         ]);
@@ -1682,7 +1700,7 @@ final class TaskAssistantService
             $assistantMessage,
             $this->buildJsonEnvelope(
                 flow: 'schedule',
-                data: $data,
+                data: $canonicalData,
                 threadId: $thread->id,
                 assistantMessageId: $assistantMessage->id,
                 ok: true,

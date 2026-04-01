@@ -241,7 +241,7 @@ final class IntentRoutingPolicy
 
         $targetEntities = [];
         if ($resolvedFlow === 'schedule') {
-            $listing = $this->scheduleAwareLastListing($thread);
+            $listing = $this->scheduleAwareLastListing($thread, $normalized);
             $resolved = $this->listingReferenceResolver->resolveForSchedule($normalized, $listing, $resolvedFlow);
             if ($resolved !== []) {
                 $targetEntities = $resolved;
@@ -268,10 +268,11 @@ final class IntentRoutingPolicy
         ];
     }
 
-    private function scheduleAwareLastListing(TaskAssistantThread $thread): ?array
+    private function scheduleAwareLastListing(TaskAssistantThread $thread, string $normalizedContent = ''): ?array
     {
         $state = $this->conversationState->get($thread);
         $lastFlow = (string) ($state['last_flow'] ?? '');
+        $lastListing = $this->conversationState->lastListing($thread);
 
         if ($lastFlow === 'schedule') {
             $schedule = $state['last_schedule'] ?? null;
@@ -304,6 +305,13 @@ final class IntentRoutingPolicy
                 }
 
                 if ($items !== []) {
+                    if ($this->isAllReferenceRequest($normalizedContent) && is_array($lastListing)) {
+                        $listingItems = is_array($lastListing['items'] ?? null) ? $lastListing['items'] : [];
+                        if (count($listingItems) > count($items)) {
+                            return $lastListing;
+                        }
+                    }
+
                     return [
                         'source_flow' => 'schedule',
                         'items' => $items,
@@ -312,7 +320,16 @@ final class IntentRoutingPolicy
             }
         }
 
-        return $this->conversationState->lastListing($thread);
+        return $lastListing;
+    }
+
+    private function isAllReferenceRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        return preg_match('/\b(all|them all|those all|all of them|all those)\b/u', $normalized) === 1;
     }
 
     private function extractCountLimit(string $normalized): int

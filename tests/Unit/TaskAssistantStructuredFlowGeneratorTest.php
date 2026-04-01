@@ -150,7 +150,14 @@ it('schedules a task atomically when duration fits the window', function (): voi
             ],
         ],
         'events' => [],
-        'events_for_busy' => [],
+        'events_for_busy' => [
+            [
+                'id' => 501,
+                'title' => 'Busy morning tail',
+                'starts_at' => '2026-03-30T12:00:00+00:00',
+                'ends_at' => '2026-03-30T13:00:00+00:00',
+            ],
+        ],
         'projects' => [],
     ];
 
@@ -214,7 +221,14 @@ it('records unplaced units when proposal count_limit is reached', function (): v
             ],
         ],
         'events' => [],
-        'events_for_busy' => [],
+        'events_for_busy' => [
+            [
+                'id' => 601,
+                'title' => 'Busy morning',
+                'starts_at' => '2026-03-30T08:00:00+00:00',
+                'ends_at' => '2026-03-30T11:30:00+00:00',
+            ],
+        ],
         'projects' => [],
     ];
 
@@ -259,6 +273,108 @@ it('does not truncate too far when the available same-day window is too small', 
             ],
         ],
         'events' => [],
+        'events_for_busy' => [
+            [
+                'id' => 601,
+                'title' => 'Busy morning',
+                'starts_at' => '2026-03-30T08:00:00+00:00',
+                'ends_at' => '2026-03-30T11:30:00+00:00',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+    $context['time_window_strict'] = true;
+
+    [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
+
+    expect((string) ($proposals[0]['title'] ?? ''))->toBe('No schedulable items found');
+    expect(is_array($digest['partial_units'] ?? null) ? count($digest['partial_units']) : 0)->toBe(0);
+    expect(is_array($digest['unplaced_units'] ?? null) ? count($digest['unplaced_units']) : 0)->toBeGreaterThan(0);
+});
+
+it('uses adaptive tomorrow fallback when narrow non-strict window cannot place any unit', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 2,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '21:45', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 199,
+                'title' => 'Too long for tiny window',
+                'priority' => 'urgent',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [
+            [
+                'id' => 501,
+                'title' => 'Busy morning tail',
+                'starts_at' => '2026-03-30T12:00:00+00:00',
+                'ends_at' => '2026-03-30T13:00:00+00:00',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon'], 'time_window_strict' => false];
+
+    [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
+
+    expect((string) ($proposals[0]['title'] ?? ''))->not->toBe('No schedulable items found');
+    expect((string) ($digest['fallback_mode'] ?? ''))->toBe('auto_relaxed_today_or_tomorrow');
+    expect((string) ($snapshot['today'] ?? ''))->toBe('2026-03-30');
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('2026-03-31');
+});
+
+it('places top ranked task in morning by shrinking to 80 percent minimum when needed', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 2,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 1001,
+                'title' => 'Top long task',
+                'priority' => 'urgent',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
         'events_for_busy' => [],
         'projects' => [],
     ];
@@ -267,9 +383,69 @@ it('does not truncate too far when the available same-day window is too small', 
 
     [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
 
-    expect((string) ($proposals[0]['title'] ?? ''))->toBe('No schedulable items found');
-    expect(is_array($digest['partial_units'] ?? null) ? count($digest['partial_units']) : 0)->toBe(0);
-    expect(is_array($digest['unplaced_units'] ?? null) ? count($digest['unplaced_units']) : 0)->toBeGreaterThan(0);
+    expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe(1001);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T08:00:00');
+    expect((int) ($proposals[0]['placed_minutes'] ?? 0))->toBe(240);
+    expect((int) ($proposals[0]['requested_minutes'] ?? 0))->toBe(300);
+    expect((string) ($proposals[0]['placement_reason'] ?? ''))->toBe('top1_morning_shrink');
+    expect((string) data_get($digest, 'partial_units.0.reason', ''))->toBe('top1_morning_shrink');
+});
+
+it('does not force top ranked morning placement when 80 percent minimum cannot fit', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 2,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-03-30',
+            'label' => 'default_today',
+        ],
+        'tasks' => [
+            [
+                'id' => 2001,
+                'title' => 'Top long task',
+                'priority' => 'urgent',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [
+            [
+                'id' => 601,
+                'title' => 'Busy morning',
+                'starts_at' => '2026-03-30T08:00:00+00:00',
+                'ends_at' => '2026-03-30T11:30:00+00:00',
+            ],
+        ],
+        'events_for_busy' => [
+            [
+                'id' => 601,
+                'title' => 'Busy morning',
+                'starts_at' => '2026-03-30T08:00:00+00:00',
+                'ends_at' => '2026-03-30T11:30:00+00:00',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 10);
+
+    expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe(2001);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T13:00:00');
+    expect((string) ($proposals[0]['placement_reason'] ?? ''))->not->toBe('top1_morning_shrink');
 });
 
 it('truncates same-day task duration when enough time remains within the window', function (): void {

@@ -42,6 +42,7 @@ final class TaskAssistantStreamingBroadcaster
         $content = $assistantMessage->content ?? '';
         $chunkCount = 0;
         $streamStartNs = hrtime(true);
+        $firstDeltaMarked = false;
         foreach (mb_str_split($content, $chunkSize) as $chunk) {
             if ($this->isCancellationRequested($assistantMessage) || $this->isMessageStopped($assistantMessage)) {
                 $this->markCancelled($assistantMessage);
@@ -52,6 +53,10 @@ final class TaskAssistantStreamingBroadcaster
                 continue;
             }
             $chunkCount++;
+            if (! $firstDeltaMarked) {
+                $firstDeltaMarked = true;
+                $this->markStreamPhase($assistantMessage, 'first_delta');
+            }
             broadcast(new TaskAssistantJsonDelta($userId, $assistantMessage->id, $chunk));
 
             if (! $enableTypingEffect || $interChunkDelayMs <= 0) {
@@ -97,8 +102,10 @@ final class TaskAssistantStreamingBroadcaster
             'assistant_text_bytes' => mb_strlen($content),
             'structured_envelope_json' => $envelopeJson,
             'structured_envelope_truncated' => $truncated,
+            'correlation_id' => data_get($assistantMessage->metadata, 'stream.correlation_id'),
         ]);
 
+        $this->markStreamPhase($assistantMessage, 'stream_end');
         broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
     }
 
@@ -141,5 +148,13 @@ final class TaskAssistantStreamingBroadcaster
         }
 
         return data_get($fresh->metadata, 'stream.status') === 'stopped';
+    }
+
+    private function markStreamPhase(TaskAssistantMessage $assistantMessage, string $phase): void
+    {
+        $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+        data_set($metadata, 'stream.phase', $phase);
+        data_set($metadata, 'stream.phase_at', now()->toIso8601String());
+        $assistantMessage->update(['metadata' => $metadata]);
     }
 }

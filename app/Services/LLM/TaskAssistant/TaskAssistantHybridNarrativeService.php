@@ -405,6 +405,38 @@ final class TaskAssistantHybridNarrativeService
         }
         $framing = $this->sanitizeScheduleRelativeDateClaims($framing, $promptData);
         $reasoning = $this->sanitizeScheduleRelativeDateClaims($reasoning, $promptData);
+        $framing = $this->sanitizeScheduleNarrativeTimeGrounding(
+            text: $framing,
+            blocks: $parsedBlocks,
+            fallback: $this->scheduleNarrativeFallback(
+                blockCount: max(1, $blockCount),
+                schedulableProposalCount: $schedulableProposalCount,
+                deterministicReasoning: $deterministicReasoning,
+                seed: 'time_grounding_framing|'.$threadId
+            )['framing']
+        );
+        $framing = $this->sanitizeScheduleReasoningSemanticGrounding(
+            text: $framing,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            fallback: $this->scheduleNarrativeFallback(
+                blockCount: max(1, $blockCount),
+                schedulableProposalCount: $schedulableProposalCount,
+                deterministicReasoning: $deterministicReasoning,
+                seed: 'semantic_grounding_framing|'.$threadId
+            )['framing']
+        );
+        $reasoning = $this->sanitizeScheduleNarrativeTimeGrounding(
+            text: $reasoning,
+            blocks: $parsedBlocks,
+            fallback: TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning)
+        );
+        $reasoning = $this->sanitizeScheduleReasoningSemanticGrounding(
+            text: $reasoning,
+            blocks: $parsedBlocks,
+            promptData: $promptData,
+            fallback: TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning)
+        );
         $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
 
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy($framing);
@@ -501,6 +533,81 @@ final class TaskAssistantHybridNarrativeService
         return $normalized;
     }
 
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     */
+    private function sanitizeScheduleNarrativeTimeGrounding(string $text, array $blocks, string $fallback): string
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return $fallback;
+        }
+
+        if (! $this->containsExplicitTimeLikeClaim($normalized)) {
+            return $normalized;
+        }
+
+        $validTokens = $this->validScheduleTimeTokens($blocks);
+        $lower = mb_strtolower($normalized);
+        foreach ($validTokens as $token) {
+            if ($token !== '' && str_contains($lower, $token)) {
+                return $normalized;
+            }
+        }
+
+        return trim($fallback) !== '' ? trim($fallback) : $normalized;
+    }
+
+    private function containsExplicitTimeLikeClaim(string $text): bool
+    {
+        return preg_match(
+            '/\b(\d{1,2}(:\d{2})?\s*(am|pm)|\d+\s*-\s*\d+\s*|(?:\d+\s*(hour|hr|minute|min)s?))\b/iu',
+            $text
+        ) === 1;
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     * @return list<string>
+     */
+    private function validScheduleTimeTokens(array $blocks): array
+    {
+        $tokens = [];
+        foreach ($blocks as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+            $start = trim((string) ($block['start_time'] ?? ''));
+            $end = trim((string) ($block['end_time'] ?? ''));
+            $startLabel = $this->formatHhmmLabel($start);
+            $endLabel = $this->formatHhmmLabel($end);
+            if ($startLabel !== '') {
+                $tokens[] = mb_strtolower($startLabel);
+            }
+            if ($endLabel !== '') {
+                $tokens[] = mb_strtolower($endLabel);
+            }
+            if ($startLabel !== '' && $endLabel !== '') {
+                $tokens[] = mb_strtolower($startLabel.'-'.$endLabel);
+                $tokens[] = mb_strtolower($startLabel.'–'.$endLabel);
+            }
+
+            $startMin = $this->timeToMinutes($start);
+            $endMin = $this->timeToMinutes($end);
+            if ($startMin !== null && $endMin !== null) {
+                $endAdj = $endMin >= $startMin ? $endMin : $endMin + 1440;
+                $mins = max(0, $endAdj - $startMin);
+                if ($mins > 0) {
+                    $tokens[] = $mins.' min';
+                    $tokens[] = $mins.' mins';
+                    $tokens[] = $mins.' minutes';
+                }
+            }
+        }
+
+        return array_values(array_unique($tokens));
+    }
+
     private function parseHumanDateLabel(string $dateLabel, string $timezone): ?CarbonImmutable
     {
         $formats = ['M j, Y', 'F j, Y'];
@@ -523,6 +630,344 @@ final class TaskAssistantHybridNarrativeService
     }
 
     /**
+     * Guard semantic schedule claims (daypart + relative due wording) so reasoning
+     * remains consistent with schedule rows and their underlying task deadlines.
+     *
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     * @param  array<string, mixed>  $promptData
+     */
+    private function sanitizeScheduleReasoningSemanticGrounding(
+        string $text,
+        array $blocks,
+        array $promptData,
+        string $fallback
+    ): string {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return trim($fallback) !== '' ? trim($fallback) : $normalized;
+        }
+
+        $timezone = trim((string) data_get($promptData, 'snapshot.timezone', ''));
+        if ($timezone === '') {
+            $timezone = trim((string) data_get($promptData, 'userContext.timezone', ''));
+        }
+        if ($timezone === '') {
+            $timezone = (string) config('app.timezone', 'UTC');
+        }
+
+        $referenceDate = trim((string) data_get($promptData, 'snapshot.today', ''));
+        $reference = null;
+        if ($referenceDate !== '') {
+            try {
+                $reference = CarbonImmutable::parse($referenceDate, $timezone)->startOfDay();
+            } catch (\Throwable) {
+                $reference = null;
+            }
+        }
+        if ($reference === null) {
+            $reference = CarbonImmutable::now($timezone)->startOfDay();
+        }
+
+        $dueDates = $this->resolveScheduledDueDatesFromPrompt($blocks, $promptData, $timezone);
+        $lower = mb_strtolower($normalized);
+        $earliestStart = $this->earliestBlockStartMinutes($blocks);
+        $topBlock = is_array($blocks[0] ?? null) ? $blocks[0] : [];
+        $topTitle = trim((string) ($topBlock['label'] ?? ''));
+        $topTitleLower = mb_strtolower($topTitle);
+        $topStartMinutes = $this->timeToMinutes((string) ($topBlock['start_time'] ?? ''));
+
+        if ($topTitleLower !== '' && preg_match('/\bstart(?:ing)?\s+with\b/iu', $lower) === 1) {
+            if (preg_match('/\bstart(?:ing)?\s+with\s+(?:the\s+)?[\'"]?([^\'"\n,.]+)[\'"]?/iu', $normalized, $m) === 1) {
+                $claimedTitle = mb_strtolower(trim((string) ($m[1] ?? '')));
+                if ($claimedTitle !== '' && ! str_contains($topTitleLower, $claimedTitle) && ! str_contains($claimedTitle, $topTitleLower)) {
+                    return trim($fallback) !== '' ? trim($fallback) : $normalized;
+                }
+            }
+        }
+
+        if ($earliestStart !== null
+            && preg_match('/\b(first thing in the morning|early morning|in the morning)\b/iu', $lower) === 1
+            && (($topStartMinutes ?? $earliestStart) >= 12 * 60)) {
+            return trim($fallback) !== '' ? trim($fallback) : $normalized;
+        }
+
+        if (preg_match('/\bdue\s+tomorrow\b/iu', $lower) === 1) {
+            if ($dueDates === []) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+            $target = $reference->addDay();
+            if (! $this->dueDatesContainDay($dueDates, $target)) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+        }
+        if (preg_match('/\bdue\s+today\b/iu', $lower) === 1) {
+            if ($dueDates === []) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+            if (! $this->dueDatesContainDay($dueDates, $reference)) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+        }
+
+        if (preg_match('/\boverdue\b/iu', $lower) === 1) {
+            if ($dueDates === []) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+            $hasOverdue = false;
+            foreach ($dueDates as $dueDate) {
+                if ($dueDate->lt($reference)) {
+                    $hasOverdue = true;
+                    break;
+                }
+            }
+            if (! $hasOverdue) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+        }
+
+        if (preg_match('/\bdue\s+next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/iu', $lower, $m) === 1) {
+            if ($dueDates === []) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+            $target = $this->nextWeekdayDate($reference, mb_strtolower((string) ($m[1] ?? '')));
+            if ($target !== null && ! $this->dueDatesContainDay($dueDates, $target)) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+        }
+
+        $windowClaim = $this->extractMaxTasksPerHourWindowClaim($normalized);
+        if (is_array($windowClaim)) {
+            $claimIsValid = $this->scheduleRespectsMaxTasksPerWindow(
+                blocks: $blocks,
+                maxTasks: (int) ($windowClaim['max_tasks'] ?? 0),
+                windowMinutes: (int) ($windowClaim['window_minutes'] ?? 0),
+            );
+            if (! $claimIsValid) {
+                return trim($fallback) !== '' ? trim($fallback) : $normalized;
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function extractMaxTasksPerHourWindowClaim(string $text): ?array
+    {
+        if (preg_match('/\b(?:no\s+more\s+than|at\s+most\s+)?one\s+task\s+per\s+([a-z0-9]+)(?:\s*-\s*hour|\s*hour)\s+window\b/iu', $text, $m) !== 1) {
+            return null;
+        }
+
+        $token = mb_strtolower(trim((string) ($m[1] ?? '')));
+        if ($token === '') {
+            return null;
+        }
+
+        $hourMap = [
+            '1' => 1,
+            'one' => 1,
+            '2' => 2,
+            'two' => 2,
+            '3' => 3,
+            'three' => 3,
+            '4' => 4,
+            'four' => 4,
+            '5' => 5,
+            'five' => 5,
+            '6' => 6,
+            'six' => 6,
+            '7' => 7,
+            'seven' => 7,
+            '8' => 8,
+            'eight' => 8,
+            '9' => 9,
+            'nine' => 9,
+            '10' => 10,
+            'ten' => 10,
+            '11' => 11,
+            'eleven' => 11,
+            '12' => 12,
+            'twelve' => 12,
+        ];
+
+        $hours = $hourMap[$token] ?? null;
+        if (! is_int($hours) || $hours <= 0) {
+            return null;
+        }
+
+        return [
+            'max_tasks' => 1,
+            'window_minutes' => $hours * 60,
+        ];
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     */
+    private function scheduleRespectsMaxTasksPerWindow(array $blocks, int $maxTasks, int $windowMinutes): bool
+    {
+        if ($maxTasks <= 0 || $windowMinutes <= 0) {
+            return true;
+        }
+
+        $intervals = [];
+        foreach ($blocks as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+
+            $start = $this->timeToMinutes((string) ($block['start_time'] ?? ''));
+            $end = $this->timeToMinutes((string) ($block['end_time'] ?? ''));
+            if ($start === null || $end === null) {
+                continue;
+            }
+
+            $endAdj = $end >= $start ? $end : $end + 1440;
+            if ($endAdj <= $start) {
+                continue;
+            }
+
+            $intervals[] = ['start' => $start, 'end' => $endAdj];
+        }
+
+        if (count($intervals) <= $maxTasks) {
+            return true;
+        }
+
+        $candidates = [];
+        foreach ($intervals as $interval) {
+            $start = (int) $interval['start'];
+            $end = (int) $interval['end'];
+            $candidates[] = $start;
+            $candidates[] = max(0, $end - $windowMinutes);
+        }
+        $candidates = array_values(array_unique($candidates));
+
+        foreach ($candidates as $windowStart) {
+            $windowEnd = $windowStart + $windowMinutes;
+            $count = 0;
+
+            foreach ($intervals as $interval) {
+                $start = (int) $interval['start'];
+                $end = (int) $interval['end'];
+                if ($start < $windowEnd && $end > $windowStart) {
+                    $count++;
+                    if ($count > $maxTasks) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     * @param  array<string, mixed>  $promptData
+     * @return list<CarbonImmutable>
+     */
+    private function resolveScheduledDueDatesFromPrompt(array $blocks, array $promptData, string $timezone): array
+    {
+        $labels = [];
+        foreach ($blocks as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+            $label = trim((string) ($block['label'] ?? ''));
+            if ($label !== '') {
+                $labels[] = mb_strtolower($label);
+            }
+        }
+        $labels = array_values(array_unique($labels));
+        if ($labels === []) {
+            return [];
+        }
+
+        $tasks = is_array(data_get($promptData, 'snapshot.tasks')) ? data_get($promptData, 'snapshot.tasks') : [];
+        $out = [];
+        foreach ($tasks as $task) {
+            if (! is_array($task)) {
+                continue;
+            }
+            $title = mb_strtolower(trim((string) ($task['title'] ?? '')));
+            if ($title === '' || ! in_array($title, $labels, true)) {
+                continue;
+            }
+            $endsAt = trim((string) ($task['ends_at'] ?? ''));
+            if ($endsAt === '') {
+                continue;
+            }
+            try {
+                $out[] = CarbonImmutable::parse($endsAt, $timezone)->startOfDay();
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
+     */
+    private function earliestBlockStartMinutes(array $blocks): ?int
+    {
+        $earliest = null;
+        foreach ($blocks as $block) {
+            if (! is_array($block)) {
+                continue;
+            }
+            $start = $this->timeToMinutes((string) ($block['start_time'] ?? ''));
+            if ($start === null) {
+                continue;
+            }
+            $earliest = $earliest === null ? $start : min($earliest, $start);
+        }
+
+        return $earliest;
+    }
+
+    /**
+     * @param  list<CarbonImmutable>  $dueDates
+     */
+    private function dueDatesContainDay(array $dueDates, CarbonImmutable $target): bool
+    {
+        foreach ($dueDates as $dueDate) {
+            if ($dueDate->isSameDay($target)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function nextWeekdayDate(CarbonImmutable $reference, string $weekday): ?CarbonImmutable
+    {
+        $map = [
+            'monday' => CarbonImmutable::MONDAY,
+            'tuesday' => CarbonImmutable::TUESDAY,
+            'wednesday' => CarbonImmutable::WEDNESDAY,
+            'thursday' => CarbonImmutable::THURSDAY,
+            'friday' => CarbonImmutable::FRIDAY,
+            'saturday' => CarbonImmutable::SATURDAY,
+            'sunday' => CarbonImmutable::SUNDAY,
+        ];
+
+        if (! isset($map[$weekday])) {
+            return null;
+        }
+
+        $cursor = $reference->addDay();
+        for ($i = 0; $i < 14; $i++) {
+            if ($cursor->dayOfWeek === $map[$weekday]) {
+                return $cursor->startOfDay();
+            }
+            $cursor = $cursor->addDay();
+        }
+
+        return null;
+    }
+
+    /**
      * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
      */
     private function sanitizeScheduleConfirmation(string $confirmation, array $blocks): string
@@ -532,47 +977,11 @@ final class TaskAssistantHybridNarrativeService
             return $text;
         }
 
-        $explicitTimeLikeClaim = preg_match(
-            '/\b(\d{1,2}(:\d{2})?\s*(am|pm)|\d+\s*-\s*\d+\s*|(?:\d+\s*(hour|hr|minute|min)s?))\b/iu',
-            $text
-        ) === 1;
-
-        if (! $explicitTimeLikeClaim) {
+        if (! $this->containsExplicitTimeLikeClaim($text)) {
             return $text;
         }
 
-        $validTokens = [];
-        foreach ($blocks as $block) {
-            if (! is_array($block)) {
-                continue;
-            }
-            $start = trim((string) ($block['start_time'] ?? ''));
-            $end = trim((string) ($block['end_time'] ?? ''));
-            $startLabel = $this->formatHhmmLabel($start);
-            $endLabel = $this->formatHhmmLabel($end);
-            if ($startLabel !== '') {
-                $validTokens[] = mb_strtolower($startLabel);
-            }
-            if ($endLabel !== '') {
-                $validTokens[] = mb_strtolower($endLabel);
-            }
-            if ($startLabel !== '' && $endLabel !== '') {
-                $validTokens[] = mb_strtolower($startLabel.'-'.$endLabel);
-                $validTokens[] = mb_strtolower($startLabel.'–'.$endLabel);
-            }
-
-            $startMin = $this->timeToMinutes($start);
-            $endMin = $this->timeToMinutes($end);
-            if ($startMin !== null && $endMin !== null) {
-                $endAdj = $endMin >= $startMin ? $endMin : $endMin + 1440;
-                $mins = max(0, $endAdj - $startMin);
-                if ($mins > 0) {
-                    $validTokens[] = $mins.' min';
-                    $validTokens[] = $mins.' mins';
-                    $validTokens[] = $mins.' minutes';
-                }
-            }
-        }
+        $validTokens = $this->validScheduleTimeTokens($blocks);
 
         $normalized = mb_strtolower($text);
         foreach ($validTokens as $token) {
@@ -740,7 +1149,7 @@ final class TaskAssistantHybridNarrativeService
         $durationPart = $durationMinutes !== null ? ' for '.$durationMinutes.' minutes' : '';
 
         // UX heuristic: if the first planned block dominates the total planned minutes,
-        // explain that it’s the "main block" of the window. Avoid mentioning exact minutes/times.
+        // emphasize starting with that block first without implying a single continuous block.
         $firstBlockMinutes = null;
         foreach ($blocks as $b) {
             $startTime = trim((string) ($b['start_time'] ?? ''));
@@ -766,7 +1175,7 @@ final class TaskAssistantHybridNarrativeService
             && $sumMinutes > 0
             && $firstBlockMinutes >= (int) ceil($sumMinutes * 0.65)
         ) {
-            $longFirstBlockNote = ' Since your first planned block is the main block of your schedule, it helps you focus first and then keep the later blocks smaller and easier to start.';
+            $longFirstBlockNote = ' Starting with the first block can make the day feel more manageable, then the later blocks stay shorter and easier to begin.';
         }
 
         $summary = $deterministicSummary;
@@ -775,7 +1184,7 @@ final class TaskAssistantHybridNarrativeService
         }
 
         $reasoning = $timeRange !== ''
-            ? "During your {$windowPhrase}, the plan schedules {$taskLabel} in the {$timeRange} block so you can stay focused without bouncing between tasks."
+            ? "During your {$windowPhrase}, the plan places {$taskLabel} across your planned blocks between {$timeRange} so your biggest work starts first and the follow-up blocks stay lighter."
             : 'This schedule sets aside focused time for your selected task so it fits the time you have available.';
 
         $reasoning .= $longFirstBlockNote;

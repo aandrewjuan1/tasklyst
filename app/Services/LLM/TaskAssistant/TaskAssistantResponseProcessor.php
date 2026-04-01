@@ -326,6 +326,8 @@ final class TaskAssistantResponseProcessor
         $rules = [
             'proposals' => ['nullable', 'array', 'max:100'],
             'proposals.*.proposal_id' => ['required_with:proposals', 'string', 'max:100'],
+            'proposals.*.proposal_uuid' => ['nullable', 'string', 'max:100'],
+            'proposals.*.display_order' => ['nullable', 'integer', 'min:0', 'max:500'],
             'proposals.*.status' => ['required_with:proposals', 'string', 'in:pending,accepted,declined,failed'],
             'proposals.*.entity_type' => ['required_with:proposals', 'string', 'in:task,event,project'],
             'proposals.*.entity_id' => ['nullable', 'integer'],

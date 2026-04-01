@@ -170,7 +170,7 @@ test('chat flyout can accept all schedule proposals and apply updates', function
     $assistantMessage->refresh();
     $task->refresh();
 
-    expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.0.status'))->toBe('accepted');
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('accepted');
     expect($task->duration)->toBe(90);
     expect($task->start_datetime?->toIso8601String())->toContain($startAt->format('Y-m-d\TH'));
 });
@@ -235,8 +235,8 @@ test('chat flyout accept all applies multiple pending task proposals', function 
     $taskA->refresh();
     $taskB->refresh();
 
-    expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.0.status'))->toBe('accepted');
-    expect(data_get($assistantMessage->metadata, 'daily_schedule.proposals.1.status'))->toBe('accepted');
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('accepted');
+    expect(data_get($assistantMessage->metadata, 'schedule.proposals.1.status'))->toBe('accepted');
     expect($taskA->duration)->toBe(60);
     expect($taskB->duration)->toBe(45);
 });
@@ -457,6 +457,41 @@ test('chat flyout does not rehydrate loading state for stopped message on reload
 
     $thread->refresh();
     expect(data_get($thread->metadata, 'stream.processing'))->toBeNull();
+});
+
+test('chat flyout marks timeout when stream health window is exceeded', function () {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+    config()->set('task-assistant.streaming.health_timeout_seconds', 1);
+
+    $thread = TaskAssistantThread::factory()->create([
+        'user_id' => $user->id,
+        'metadata' => [
+            'stream' => [
+                'processing' => [
+                    'active' => true,
+                    'assistant_message_id' => 0,
+                    'started_at' => now()->subSeconds(10)->toIso8601String(),
+                ],
+            ],
+        ],
+    ]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $assistant = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => '',
+        'metadata' => [],
+    ]);
+
+    $metadata = $thread->metadata ?? [];
+    data_set($metadata, 'stream.processing.assistant_message_id', $assistant->id);
+    $thread->update(['metadata' => $metadata]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('checkStreamingTimeout')
+        ->assertSet('streamingTimedOutAt', fn ($value): bool => is_string($value) && $value !== '');
 });
 
 test('chat flyout stops previous active assistant run when sending a new prompt', function () {

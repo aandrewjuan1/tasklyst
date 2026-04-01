@@ -4,6 +4,7 @@ use App\Enums\MessageRole;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Tools\LLM\TaskAssistant\CreateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateProjectTool;
@@ -12,6 +13,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Locked;
@@ -43,6 +45,10 @@ new class extends Component
     public array $dismissedNextOptionChipsByMessage = [];
 
     public bool $showWorking = false;
+
+    public ?string $streamingCorrelationId = null;
+
+    public ?string $streamingTimedOutAt = null;
 
     public function mount(): void
     {
@@ -86,6 +92,8 @@ new class extends Component
         $this->latestAssistantMessageId = null;
         $this->dismissedNextOptionChipsByMessage = [];
         $this->showWorking = false;
+        $this->streamingCorrelationId = null;
+        $this->streamingTimedOutAt = null;
     }
 
     /**
@@ -102,6 +110,8 @@ new class extends Component
             'latestAssistantMessageId' => $this->latestAssistantMessageId,
             'dismissedNextOptionChipsByMessage' => $this->dismissedNextOptionChipsByMessage,
             'showWorking' => $this->showWorking,
+            'streamingCorrelationId' => $this->streamingCorrelationId,
+            'streamingTimedOutAt' => $this->streamingTimedOutAt,
         ]);
     }
 
@@ -161,6 +171,40 @@ new class extends Component
         $this->showWorking = false;
     }
 
+    public function checkStreamingTimeout(): void
+    {
+        if (! $this->isStreaming || ! $this->streamingMessageId || ! $this->thread) {
+            return;
+        }
+
+        $startedAt = data_get($this->thread->metadata, 'stream.processing.started_at');
+        if (! is_string($startedAt) || trim($startedAt) === '') {
+            return;
+        }
+
+        $timeoutSeconds = max(3, (int) config('task-assistant.streaming.health_timeout_seconds', 20));
+
+        try {
+            $started = \Carbon\CarbonImmutable::parse($startedAt);
+        } catch (\Throwable) {
+            return;
+        }
+
+        if ($started->addSeconds($timeoutSeconds)->isFuture()) {
+            return;
+        }
+
+        $assistant = $this->thread->messages()->whereKey($this->streamingMessageId)->first();
+        if ($assistant && trim((string) ($assistant->content ?? '')) !== '') {
+            $this->refreshMessages();
+
+            return;
+        }
+
+        $this->streamingTimedOutAt = now()->toIso8601String();
+        $this->refreshMessages(true);
+    }
+
     public function submitMessage(): void
     {
         try {
@@ -208,6 +252,14 @@ new class extends Component
         $this->streamingMessageId = $assistantMessage->id;
         $this->streamingContent = '';
         $this->showWorking = false;
+        $this->streamingTimedOutAt = null;
+        $correlationId = (string) Str::uuid();
+        $this->streamingCorrelationId = $correlationId;
+        $assistantMetadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
+        data_set($assistantMetadata, 'stream.correlation_id', $correlationId);
+        data_set($assistantMetadata, 'stream.phase', 'queued');
+        data_set($assistantMetadata, 'stream.phase_at', now()->toIso8601String());
+        $assistantMessage->update(['metadata' => $assistantMetadata]);
         $this->markThreadProcessing($assistantMessage->id);
 
         Log::info('task-assistant.job.dispatch', [
@@ -413,6 +465,7 @@ new class extends Component
             return;
         }
 
+        /** @var TaskAssistantMessage|null $message */
         $message = $this->thread->messages()
             ->where('id', $assistantMessageId)
             ->where('role', MessageRole::Assistant)
@@ -595,25 +648,15 @@ new class extends Component
      */
     private function resolveScheduleProposalsBucket(TaskAssistantMessage $message): ?array
     {
-        $metadata = $message->metadata ?? [];
-        $candidates = [
-            ['key' => 'schedule', 'items_key' => 'proposals'],
-            ['key' => 'daily_schedule', 'items_key' => 'proposals'],
-            ['key' => 'structured', 'items_key' => 'data.proposals'],
-        ];
-
-        foreach ($candidates as $candidate) {
-            $items = data_get($metadata[$candidate['key']] ?? null, $candidate['items_key'], []);
-            if (! is_array($items) || $items === []) {
-                continue;
-            }
-
-            $fullPath = $candidate['key'].'.'.$candidate['items_key'];
-
-            return [$fullPath, count($items)];
+        $metadata = is_array($message->metadata ?? null) ? $message->metadata : [];
+        $normalized = app(ScheduleDraftMetadataNormalizer::class)->normalizeAndValidate($metadata);
+        if (! ($normalized['valid'] ?? false)) {
+            return null;
         }
 
-        return null;
+        $message->update(['metadata' => $normalized['canonical_metadata']]);
+
+        return ['schedule.proposals', count($normalized['proposals'] ?? [])];
     }
 
     /**

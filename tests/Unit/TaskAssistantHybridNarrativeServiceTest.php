@@ -66,6 +66,145 @@ test('daily_schedule narrative keeps deterministic reasoning times when model re
     expect($result['confirmation'])->toContain('earlier');
 });
 
+test('daily_schedule deterministic reasoning does not imply one continuous block across split blocks', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is a focused plan for tomorrow.',
+                'reasoning' => '',
+                'confirmation' => 'Do these times feel workable?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '08:00',
+            'end_time' => '12:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '13:00',
+            'end_time' => '13:25',
+            'label' => 'ITEL 210 - Online Quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '13:40',
+            'end_time' => '14:10',
+            'label' => 'Review today notes',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-04-01',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule all of them for tomorrow',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 3,
+    );
+
+    expect((string) $result['reasoning'])->toContain('across your planned blocks between 8:00 AM–2:10 PM');
+    expect((string) $result['reasoning'])->not->toContain('in the 8:00 AM–2:10 PM block');
+    expect((string) $result['reasoning'])->not->toContain('main block of your schedule');
+});
+
+test('daily_schedule narrative rejects unsupported one-task-per-two-hour-window density claim', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => "Here's how I'd approach this.",
+                'reasoning' => 'This order makes sense because it gives you a concentrated block of time before the quiz. It also leaves room for breathing between tasks-no more than one task per two-hour window.',
+                'confirmation' => 'Do these times feel workable?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '08:00',
+            'end_time' => '12:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '13:00',
+            'end_time' => '13:25',
+            'label' => 'ITEL 210 - Online Quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '13:40',
+            'end_time' => '14:10',
+            'label' => 'Review today notes',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-04-01',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule all of them for tomorrow',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 3,
+    );
+
+    expect((string) $result['reasoning'])->not->toContain('no more than one task per two-hour window');
+    expect((string) $result['reasoning'])->toContain('across your planned blocks between 8:00 AM–2:10 PM');
+});
+
 test('daily_schedule narrative sanitizes mismatched explicit confirmation time and duration claims', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -179,6 +318,196 @@ test('daily_schedule narrative sanitizes contradictory relative date wording aga
 
     expect($result['reasoning'])->toContain('due on Mar 30, 2026');
     expect($result['reasoning'])->not->toContain('due tomorrow (Mar 30, 2026)');
+});
+
+test('daily_schedule narrative falls back when model invents unsupported time claims', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Great, this is set for tomorrow 4 PM to 9 PM.',
+                'reasoning' => 'I scheduled this from 4 PM to 9 PM so you can focus.',
+                'confirmation' => 'Does this 4 PM to 9 PM plan work?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '13:00',
+            'end_time' => '18:00',
+            'label' => 'Focus block',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-31',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-31',
+            'end_date' => '2026-03-31',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule this',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    expect(mb_strtolower((string) $result['framing']))->not->toContain('4 pm');
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('4 pm');
+    expect((string) $result['reasoning'])->toContain('1:00 PM–6:00 PM');
+});
+
+test('daily_schedule narrative falls back when due next weekday claim conflicts with scheduled task due dates', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I arranged these blocks for tomorrow.',
+                'reasoning' => 'Since the quiz is due next Saturday, this should be tackled first thing in the morning.',
+                'confirmation' => 'Does this plan work?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '16:00',
+            'end_time' => '21:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '08:00',
+            'end_time' => '08:25',
+            'label' => 'ITEL 210 – Online Quiz: Semantic HTML',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-04-01',
+            'timezone' => 'Asia/Manila',
+            'tasks' => [
+                ['title' => 'Impossible 5h study block before quiz', 'ends_at' => '2026-03-31T09:00:00+08:00'],
+                ['title' => 'ITEL 210 – Online Quiz: Semantic HTML', 'ends_at' => '2026-04-10T09:30:00+08:00'],
+            ],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule all for tomorrow',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 2,
+    );
+
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('next saturday');
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('first thing in the morning');
+    expect((string) $result['reasoning'])->toContain('8:00 AM–9:00 PM');
+});
+
+test('daily_schedule narrative framing falls back when claiming top task starts in morning but top row is afternoon', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => "I'd start with the 5-hour study block first thing tomorrow morning, then do the quiz.",
+                'reasoning' => 'The schedule is focused.',
+                'confirmation' => 'Does this plan work?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '16:00',
+            'end_time' => '21:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '08:00',
+            'end_time' => '08:25',
+            'label' => 'ITEL 210 – Online Quiz: Semantic HTML',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-04-01',
+            'timezone' => 'Asia/Manila',
+            'tasks' => [
+                ['title' => 'Impossible 5h study block before quiz', 'ends_at' => '2026-03-31T09:00:00+08:00'],
+                ['title' => 'ITEL 210 – Online Quiz: Semantic HTML', 'ends_at' => '2026-04-10T09:30:00+08:00'],
+            ],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-02',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule all for tomorrow',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 2,
+    );
+
+    expect(mb_strtolower((string) $result['framing']))->not->toContain('first thing tomorrow morning');
 });
 
 test('daily_schedule narrative strips internal placement jargon from model output', function (): void {

@@ -1,5 +1,6 @@
 <div
     class="grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto]"
+    wire:poll.5s="checkStreamingTimeout"
     x-data="{
         loadingPhrases: [
             @js(__('Thinking...')),
@@ -158,7 +159,7 @@
                                     @foreach ($proposals as $proposal)
                                         @if (is_array($proposal))
                                             @php
-                                                $proposalId = (string) ($proposal['proposal_id'] ?? '');
+                                                $proposalId = (string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? '');
                                                 $status = (string) ($proposal['status'] ?? 'pending');
                                                 $startAt = (string) ($proposal['start_datetime'] ?? '');
                                                 $endAt = (string) ($proposal['end_datetime'] ?? '');
