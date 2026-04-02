@@ -96,6 +96,9 @@
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
                                 $display = $isStopped ? '' : ($message->content ?: __('…'));
                                 $proposals = data_get($message->metadata, 'schedule.proposals', data_get($message->metadata, 'daily_schedule.proposals', data_get($message->metadata, 'structured.data.proposals', [])));
+                                $scheduleConfirmationRequired = (bool) data_get($message->metadata, 'schedule.confirmation_required', data_get($message->metadata, 'structured.data.confirmation_required', false));
+                                $scheduleAwaitingDecision = (bool) data_get($message->metadata, 'schedule.awaiting_user_decision', data_get($message->metadata, 'structured.data.awaiting_user_decision', false));
+                                $hideScheduleProposalCards = $scheduleConfirmationRequired || $scheduleAwaitingDecision;
                                 $prioritizeChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', []);
                                 $guidanceChips = data_get($message->metadata, 'general_guidance.next_options_chip_texts', []);
                                 $scheduleChips = data_get($message->metadata, 'schedule.next_options_chip_texts', []);
@@ -124,7 +127,7 @@
                                 <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
                             @endif
 
-                            @if (is_array($proposals) && count($proposals) > 0)
+                            @if (! $hideScheduleProposalCards && is_array($proposals) && count($proposals) > 0)
                                 @php
                                     $pendingSchedulableCount = 0;
                                     foreach ($proposals as $p) {

@@ -110,6 +110,10 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $placementDigest,
+            'confirmation_required' => false,
+            'awaiting_user_decision' => false,
+            'confirmation_context' => null,
+            'fallback_preview' => null,
         ];
 
         $horizonLog = $contextualSnapshot['schedule_horizon'] ?? null;
@@ -238,6 +242,10 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $digestForPrompt,
+            'confirmation_required' => false,
+            'awaiting_user_decision' => false,
+            'confirmation_context' => null,
+            'fallback_preview' => null,
         ];
 
         Log::info('task-assistant.structured_generation', [
@@ -829,6 +837,7 @@ final class TaskAssistantStructuredFlowGenerator
 
                 if (! $this->isOnlyEmptyPlaceholderProposal($retryProposals)) {
                     $retryDigest['fallback_mode'] = 'auto_relaxed_today_or_tomorrow';
+                    $retryDigest['fallback_trigger_reason'] = 'horizon_exhausted';
 
                     return [$retryProposals, $retryDigest];
                 }

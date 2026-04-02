@@ -499,6 +499,11 @@ final class TaskAssistantMessageFormatter
      */
     private function formatDailyScheduleMessage(array $data): string
     {
+        $confirmationRequired = (bool) ($data['confirmation_required'] ?? false);
+        if ($confirmationRequired) {
+            return $this->formatScheduleFallbackConfirmationMessage($data);
+        }
+
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         $reasoning = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['reasoning'] ?? '')));
         $confirmation = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['confirmation'] ?? '')));
@@ -569,6 +574,68 @@ final class TaskAssistantMessageFormatter
         }
 
         return implode("\n\n", $paragraphs);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function formatScheduleFallbackConfirmationMessage(array $data): string
+    {
+        $ctx = is_array($data['confirmation_context'] ?? null) ? $data['confirmation_context'] : [];
+        $reason = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['reason_message'] ?? '')));
+        $prompt = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['prompt'] ?? '')));
+        $preview = is_array($data['fallback_preview'] ?? null) ? $data['fallback_preview'] : [];
+
+        $paragraphs = [];
+        $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
+        if ($framing !== '') {
+            $paragraphs[] = $framing;
+        }
+        if ($reason !== '') {
+            $paragraphs[] = $reason;
+        }
+
+        $proposalsCount = (int) ($preview['proposals_count'] ?? 0);
+        if ($proposalsCount > 0) {
+            // Intentionally avoid showing technical summary lines for students.
+        }
+
+        $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+        $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+        if ($items !== []) {
+            $lines = [];
+            foreach ($items as $idx => $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $title = trim((string) ($item['title'] ?? ''));
+                if ($title === '') {
+                    continue;
+                }
+                $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
+                $dateLabel = $this->formatDateLabel((string) ($item['start_datetime'] ?? ''));
+                $timeStart = $this->formatHhmmLabel((string) ($block['start_time'] ?? ''));
+                $timeEnd = $this->formatHhmmLabel((string) ($block['end_time'] ?? ''));
+                $timeLabel = $timeStart !== '' && $timeEnd !== '' ? $timeStart.'–'.$timeEnd : '';
+                $line = '• '.$title;
+                if ($dateLabel !== '') {
+                    $line .= ' — '.$dateLabel;
+                }
+                if ($timeLabel !== '') {
+                    $line .= ' · '.$timeLabel;
+                }
+                $lines[] = $line;
+            }
+            if ($lines !== []) {
+                $paragraphs[] = implode("\n", $lines);
+            }
+        }
+
+        if ($prompt !== '') {
+            $paragraphs[] = $prompt;
+        }
+
+        return trim(implode("\n\n", $paragraphs));
     }
 
     private function formatScheduleDurationLabel(int $minutes): string

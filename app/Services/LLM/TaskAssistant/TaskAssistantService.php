@@ -214,6 +214,19 @@ final class TaskAssistantService
                 }
             }
 
+            $pendingScheduleFallback = $this->conversationState->pendingScheduleFallback($thread);
+            if ($pendingScheduleFallback !== null) {
+                $handled = $this->handlePendingScheduleFallbackDecision(
+                    thread: $thread,
+                    assistantMessage: $assistantMessage,
+                    userMessageContent: $content,
+                    pendingState: $pendingScheduleFallback,
+                );
+                if ($handled) {
+                    return;
+                }
+            }
+
             $plan = $this->buildExecutionPlan($thread, $content);
             $plan = $this->maybeRemapScheduleToPrioritize($thread, $plan);
             $plan = $this->maybeRewritePlanForScheduleRefinement($thread, $plan, $assistantMessage->id, $content);
@@ -1445,6 +1458,12 @@ final class TaskAssistantService
                 'schedule_user_id' => $thread->user_id,
             ]
         );
+        $result = $this->maybeConvertToScheduleFallbackConfirmation(
+            thread: $thread,
+            userMessageContent: $content,
+            plan: $plan,
+            generationResult: $result,
+        );
 
         $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'daily_schedule',
@@ -1458,6 +1477,17 @@ final class TaskAssistantService
         $referencedProposalUuids = [];
         $genData = is_array($result['data'] ?? null) ? $result['data'] : [];
         $proposals = is_array($genData['proposals'] ?? null) ? $genData['proposals'] : [];
+        $confirmationRequired = (bool) ($genData['confirmation_required'] ?? false);
+        if ($confirmationRequired) {
+            $this->conversationState->rememberPendingScheduleFallback(
+                thread: $thread,
+                scheduleData: $genData,
+                timeWindowHint: $timeWindowHint,
+                initialUserMessage: $content,
+            );
+        } else {
+            $this->conversationState->clearPendingScheduleFallback($thread);
+        }
 
         // Store only schedulable (editable) proposal UUIDs so pronoun-based edits
         // (it/this/that) can resolve even for single-target schedules.
@@ -1507,12 +1537,14 @@ final class TaskAssistantService
             $proposals
         ), static fn (string $u): bool => $u !== ''));
 
-        $this->conversationState->rememberScheduleContext(
-            $thread,
-            $scheduleTargets,
-            $timeWindowHint,
-            $referencedProposalUuids,
-        );
+        if (! $confirmationRequired) {
+            $this->conversationState->rememberScheduleContext(
+                $thread,
+                $scheduleTargets,
+                $timeWindowHint,
+                $referencedProposalUuids,
+            );
+        }
         $this->streamFlowEnvelope(
             thread: $thread,
             assistantMessage: $assistantMessage,
@@ -1872,6 +1904,270 @@ final class TaskAssistantService
         $result['data'] = $data;
 
         return $result;
+    }
+
+    /**
+     * @param  array{valid: bool, data: array<string, mixed>, errors: array<int, string>}  $generationResult
+     * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
+     */
+    private function maybeConvertToScheduleFallbackConfirmation(
+        TaskAssistantThread $thread,
+        string $userMessageContent,
+        ExecutionPlan $plan,
+        array $generationResult,
+    ): array {
+        $data = is_array($generationResult['data'] ?? null) ? $generationResult['data'] : [];
+        if ($data === []) {
+            return $generationResult;
+        }
+
+        if (! $this->shouldRequireFallbackConfirmation($plan, $data)) {
+            return $generationResult;
+        }
+
+        $data = $this->buildScheduleFallbackConfirmationData($data, $thread, $userMessageContent);
+        $generationResult['data'] = $data;
+
+        return $generationResult;
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleData
+     */
+    private function shouldRequireFallbackConfirmation(ExecutionPlan $plan, array $scheduleData): bool
+    {
+        if ($plan->timeWindowHint !== 'later') {
+            return false;
+        }
+
+        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+        $fallbackMode = (string) ($digest['fallback_mode'] ?? '');
+
+        return $fallbackMode === 'auto_relaxed_today_or_tomorrow';
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleData
+     * @return array<string, mixed>
+     */
+    private function buildScheduleFallbackConfirmationData(array $scheduleData, TaskAssistantThread $thread, string $userMessageContent): array
+    {
+        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+        $placementDates = is_array($digest['placement_dates'] ?? null) ? $digest['placement_dates'] : [];
+        $daysUsed = is_array($digest['days_used'] ?? null) ? $digest['days_used'] : [];
+        $firstDate = is_string($placementDates[0] ?? null) ? $placementDates[0] : null;
+        $datePhrase = $firstDate !== null ? CarbonImmutable::parse($firstDate)->format('M j, Y') : 'tomorrow';
+        $requestedWindow = [
+            'hint' => 'later',
+            'label' => 'Later today',
+        ];
+        $prompt = "I could not fit everything later today, but I can place these on {$datePhrase}. Would you like me to use this plan?";
+        $reasonMessage = 'There is not enough free time left in your requested "later today" window.';
+
+        $scheduleData['confirmation_required'] = true;
+        $scheduleData['awaiting_user_decision'] = true;
+        $scheduleData['confirmation_context'] = [
+            'reason_code' => 'later_window_not_feasible',
+            'reason_message' => $reasonMessage,
+            'requested_window' => $requestedWindow,
+            'attempted_horizon' => [
+                'mode' => 'single_day',
+                'date' => CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString(),
+            ],
+            'fallback_horizon' => [
+                'mode' => 'single_day',
+                'dates' => $placementDates,
+            ],
+            'prompt' => $prompt,
+            'options' => [
+                'Yes, continue with tomorrow',
+                'Pick another time window',
+                'Cancel scheduling for now',
+            ],
+            'approved_narrative' => [
+                'framing' => (string) ($scheduleData['framing'] ?? ''),
+                'reasoning' => (string) ($scheduleData['reasoning'] ?? ''),
+                'confirmation' => (string) ($scheduleData['confirmation'] ?? ''),
+            ],
+        ];
+        $scheduleData['fallback_preview'] = [
+            'proposals_count' => is_array($scheduleData['proposals'] ?? null) ? count($scheduleData['proposals']) : 0,
+            'days_used' => $daysUsed,
+            'placement_dates' => $placementDates,
+            'summary' => (string) ($digest['summary'] ?? ''),
+        ];
+        $scheduleData['framing'] = 'I checked your request and prepared a backup plan so you can still make progress.';
+        $scheduleData['reasoning'] = 'Nothing is final yet. I will only continue if you confirm.';
+        $scheduleData['confirmation'] = $prompt;
+
+        $digest['fallback_trigger_reason'] = (string) ($digest['fallback_trigger_reason'] ?? 'horizon_exhausted');
+        $scheduleData['placement_digest'] = $digest;
+
+        Log::info('task-assistant.schedule.confirmation_required', [
+            'layer' => 'schedule_confirmation',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'user_id' => $thread->user_id,
+            'user_message_preview' => $this->previewForLogs($userMessageContent),
+            'placement_dates' => $placementDates,
+        ]);
+
+        return $scheduleData;
+    }
+
+    /**
+     * @param  array{schedule_data: array<string, mixed>, time_window_hint: string|null, initial_user_message: string, created_at?: string|null}  $pendingState
+     */
+    private function handlePendingScheduleFallbackDecision(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $assistantMessage,
+        string $userMessageContent,
+        array $pendingState,
+    ): bool {
+        $decision = $this->classifyScheduleFallbackDecision($userMessageContent);
+        if ($decision === 'confirm') {
+            $data = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
+            if ($data === []) {
+                $this->conversationState->clearPendingScheduleFallback($thread);
+
+                return false;
+            }
+
+            $ctx = is_array($data['confirmation_context'] ?? null) ? $data['confirmation_context'] : [];
+            $approvedNarrative = is_array($ctx['approved_narrative'] ?? null) ? $ctx['approved_narrative'] : [];
+            $data['confirmation_required'] = false;
+            $data['awaiting_user_decision'] = false;
+            $data['confirmation_context'] = null;
+            $data['fallback_preview'] = null;
+            $approvedFraming = trim((string) ($approvedNarrative['framing'] ?? ''));
+            $approvedReasoning = trim((string) ($approvedNarrative['reasoning'] ?? ''));
+            $approvedConfirmation = trim((string) ($approvedNarrative['confirmation'] ?? ''));
+            if ($approvedFraming !== '') {
+                $data['framing'] = $approvedFraming;
+            }
+            if ($approvedReasoning !== '') {
+                $data['reasoning'] = $approvedReasoning;
+            }
+            if ($approvedConfirmation !== '') {
+                $data['confirmation'] = $approvedConfirmation;
+            }
+
+            $generationResult = [
+                'valid' => true,
+                'data' => $data,
+                'errors' => [],
+            ];
+            $execution = $this->flowExecutionEngine->executeStructuredFlow(
+                flow: 'daily_schedule',
+                metadataKey: 'schedule',
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                generationResult: $generationResult,
+                assistantFallbackContent: 'I had trouble finalizing that schedule. Please try again.',
+            );
+
+            $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+            $targets = $this->targetEntitiesFromScheduleProposals($proposals);
+            $referencedProposalUuids = array_values(array_filter(array_map(
+                static fn (mixed $proposal): string => is_array($proposal)
+                    ? trim((string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? ''))
+                    : '',
+                $proposals
+            ), static fn (string $uuid): bool => $uuid !== ''));
+            $this->conversationState->rememberScheduleContext(
+                $thread,
+                $targets,
+                is_string($pendingState['time_window_hint'] ?? null) ? $pendingState['time_window_hint'] : null,
+                $referencedProposalUuids,
+            );
+            $this->conversationState->clearPendingScheduleFallback($thread);
+
+            $this->streamFlowEnvelope(
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                flow: 'schedule',
+                execution: $execution
+            );
+
+            return true;
+        }
+
+        $pendingData = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
+        $pendingProposals = is_array($pendingData['proposals'] ?? null) ? $pendingData['proposals'] : [];
+
+        if ($decision === 'decline') {
+            $this->conversationState->clearPendingScheduleFallback($thread);
+            $this->publishScheduleClarificationResponse(
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                proposals: $pendingProposals,
+                clarification: 'No problem. Tell me the time window you prefer (for example: tomorrow morning, this week, or specific time).',
+            );
+
+            return true;
+        }
+
+        $this->publishScheduleClarificationResponse(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            proposals: $pendingProposals,
+            clarification: 'Please confirm first. Reply with yes/confirm to continue, or tell me another preferred window.',
+        );
+
+        return true;
+    }
+
+    private function classifyScheduleFallbackDecision(string $content): string
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $content) ?? $content));
+        if ($normalized === '') {
+            return 'unclear';
+        }
+
+        $affirmativePatterns = [
+            '/\byes\b/u',
+            '/\bconfirm\b/u',
+            '/\bgo ahead\b/u',
+            '/\bproceed\b/u',
+            '/\bdo it\b/u',
+            '/\bsounds good\b/u',
+            '/\bok(?:ay)?\b/u',
+            '/\bfine\b/u',
+        ];
+        $negativePatterns = [
+            '/\bno\b/u',
+            '/\bdon\'t\b/u',
+            '/\bdo not\b/u',
+            '/\bnot now\b/u',
+            '/\bcancel\b/u',
+            '/\bnever mind\b/u',
+            '/\bstop\b/u',
+        ];
+
+        $hasAffirmative = false;
+        foreach ($affirmativePatterns as $pattern) {
+            if (preg_match($pattern, $normalized) === 1) {
+                $hasAffirmative = true;
+                break;
+            }
+        }
+
+        $hasNegative = false;
+        foreach ($negativePatterns as $pattern) {
+            if (preg_match($pattern, $normalized) === 1) {
+                $hasNegative = true;
+                break;
+            }
+        }
+
+        if ($hasAffirmative && ! $hasNegative) {
+            return 'confirm';
+        }
+        if ($hasNegative && ! $hasAffirmative) {
+            return 'decline';
+        }
+
+        return 'unclear';
     }
 
     private function buildJsonEnvelope(string $flow, array $data, int $threadId, int $assistantMessageId, bool $ok = true): array

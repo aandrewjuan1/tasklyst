@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Enums\FinishReason;
 use Prism\Prism\Facades\Prism;
@@ -532,4 +533,229 @@ test('empty workspace short-circuits schedule intent with prioritize-shaped enve
     expect($assistantMessage->metadata['prioritize']['workspace_empty'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['prioritize']['next_options_chip_texts'] ?? null)->toBe([]);
     expect($assistantMessage->metadata['prioritize']['workspace_empty_intended_flow'] ?? null)->toBe('schedule');
+});
+
+test('non-ideal later scheduling emits confirmation-required fallback payload', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-02 21:58:00', config('app.timezone', 'UTC')));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prepared a schedule.',
+                'reasoning' => 'Using the available window.',
+                'confirmation' => 'Does this work?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'last_listing' => [
+                    'source_flow' => 'prioritize',
+                    'items' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => $task->id,
+                        'title' => $task->title,
+                        'position' => 0,
+                    ]],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule them later',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeTrue();
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeArray();
+    CarbonImmutable::setTestNow();
+});
+
+test('pending schedule fallback proceeds on affirmative follow-up', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $scheduleData = [
+        'schema_version' => 2,
+        'proposals' => [[
+            'proposal_id' => 'p1',
+            'proposal_uuid' => 'p1',
+            'display_order' => 0,
+            'status' => 'pending',
+            'entity_type' => 'task',
+            'entity_id' => $task->id,
+            'title' => $task->title,
+            'reason_score' => 5,
+            'start_datetime' => '2026-04-03T08:00:00+08:00',
+            'end_datetime' => '2026-04-03T09:00:00+08:00',
+            'duration_minutes' => 60,
+            'conflict_notes' => [],
+            'apply_payload' => [
+                'tool' => 'update_task',
+                'arguments' => [
+                    'taskId' => $task->id,
+                    'updates' => [
+                        ['property' => 'startDatetime', 'value' => '2026-04-03T08:00:00+08:00'],
+                        ['property' => 'duration', 'value' => '60'],
+                    ],
+                ],
+            ],
+        ]],
+        'blocks' => [[
+            'start_time' => '08:00',
+            'end_time' => '09:00',
+            'task_id' => $task->id,
+            'event_id' => null,
+            'label' => $task->title,
+            'note' => 'Planned by strict scheduler.',
+        ]],
+        'items' => [[
+            'title' => $task->title,
+            'entity_type' => 'task',
+            'entity_id' => $task->id,
+            'start_datetime' => '2026-04-03T08:00:00+08:00',
+            'end_datetime' => '2026-04-03T09:00:00+08:00',
+            'duration_minutes' => 60,
+        ]],
+        'schedule_variant' => 'daily',
+        'framing' => 'Fallback preview ready.',
+        'reasoning' => 'Need your confirmation.',
+        'confirmation' => 'Confirm fallback?',
+        'schedule_empty_placement' => false,
+        'placement_digest' => ['fallback_mode' => 'auto_relaxed_today_or_tomorrow'],
+        'confirmation_required' => true,
+        'awaiting_user_decision' => true,
+        'confirmation_context' => [
+            'prompt' => 'Continue tomorrow?',
+            'options' => ['Yes', 'No'],
+        ],
+        'fallback_preview' => [
+            'proposals_count' => 1,
+            'days_used' => ['2026-04-03'],
+            'placement_dates' => ['2026-04-03'],
+            'summary' => 'placed_proposals=1 days_used=1 unplaced_units=0',
+        ],
+    ];
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'schedule_data' => $scheduleData,
+                    'time_window_hint' => 'later',
+                    'initial_user_message' => 'schedule them later',
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'yes, sounds good',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeFalse();
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+    expect((string) $assistantMessage->content)->not->toContain('Would you like me to use this plan?');
+});
+
+test('pending schedule fallback decline asks for alternate window and clears pending state', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'schedule_data' => [
+                        'schema_version' => 2,
+                        'proposals' => [[
+                            'proposal_id' => 'p1',
+                            'proposal_uuid' => 'p1',
+                            'status' => 'pending',
+                            'entity_type' => 'task',
+                            'entity_id' => $task->id,
+                            'title' => $task->title,
+                            'start_datetime' => '2026-04-03T08:00:00+08:00',
+                            'end_datetime' => '2026-04-03T09:00:00+08:00',
+                            'duration_minutes' => 60,
+                            'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $task->id, 'updates' => []]],
+                        ]],
+                    ],
+                    'time_window_hint' => 'later',
+                    'initial_user_message' => 'schedule them later',
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'no, cancel that',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($assistantMessage->content)->toContain('No problem');
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
 });

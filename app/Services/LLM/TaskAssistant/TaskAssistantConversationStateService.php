@@ -231,6 +231,62 @@ final class TaskAssistantConversationStateService
     }
 
     /**
+     * @param  array<string, mixed>  $scheduleData
+     */
+    public function rememberPendingScheduleFallback(
+        TaskAssistantThread $thread,
+        array $scheduleData,
+        ?string $timeWindowHint,
+        string $initialUserMessage,
+    ): void {
+        $state = $this->get($thread);
+        $state['pending_schedule_fallback'] = [
+            'schedule_data' => $scheduleData,
+            'time_window_hint' => $timeWindowHint,
+            'initial_user_message' => $initialUserMessage,
+            'created_at' => now()->toIso8601String(),
+        ];
+        $this->put($thread, $state);
+    }
+
+    /**
+     * @return array{
+     *   schedule_data: array<string, mixed>,
+     *   time_window_hint: string|null,
+     *   initial_user_message: string,
+     *   created_at?: string
+     * }|null
+     */
+    public function pendingScheduleFallback(TaskAssistantThread $thread): ?array
+    {
+        $state = $this->get($thread);
+        $pending = $state['pending_schedule_fallback'] ?? null;
+
+        if (! is_array($pending)) {
+            return null;
+        }
+
+        $scheduleData = is_array($pending['schedule_data'] ?? null) ? $pending['schedule_data'] : [];
+        if ($scheduleData === []) {
+            return null;
+        }
+
+        return [
+            'schedule_data' => $scheduleData,
+            'time_window_hint' => is_string($pending['time_window_hint'] ?? null) ? $pending['time_window_hint'] : null,
+            'initial_user_message' => (string) ($pending['initial_user_message'] ?? ''),
+            'created_at' => is_string($pending['created_at'] ?? null) ? $pending['created_at'] : null,
+        ];
+    }
+
+    public function clearPendingScheduleFallback(TaskAssistantThread $thread): void
+    {
+        $state = $this->get($thread);
+        unset($state['pending_schedule_fallback']);
+        $this->put($thread, $state);
+    }
+
+    /**
      * Clears listing selection state (legacy name; prefer {@see clearLastListing}).
      */
     public function clearSelectedEntities(TaskAssistantThread $thread): void

@@ -88,6 +88,22 @@ final class ScheduleDraftMetadataNormalizer
             $schedule['blocks'] = [];
             $repairs[] = 'blocks_defaulted';
         }
+        if (! isset($schedule['confirmation_required']) || ! is_bool($schedule['confirmation_required'])) {
+            $schedule['confirmation_required'] = false;
+            $repairs[] = 'confirmation_required_defaulted';
+        }
+        if (! isset($schedule['awaiting_user_decision']) || ! is_bool($schedule['awaiting_user_decision'])) {
+            $schedule['awaiting_user_decision'] = false;
+            $repairs[] = 'awaiting_user_decision_defaulted';
+        }
+        if (! array_key_exists('confirmation_context', $schedule)) {
+            $schedule['confirmation_context'] = null;
+            $repairs[] = 'confirmation_context_defaulted';
+        }
+        if (! array_key_exists('fallback_preview', $schedule)) {
+            $schedule['fallback_preview'] = null;
+            $repairs[] = 'fallback_preview_defaulted';
+        }
 
         $canonicalMetadata = $metadata;
         $canonicalMetadata['schedule'] = $schedule;

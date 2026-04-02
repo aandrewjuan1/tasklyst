@@ -373,6 +373,26 @@ final class TaskAssistantResponseProcessor
             'placement_digest.skipped_targets' => ['nullable', 'array', 'max:200'],
             'placement_digest.unplaced_units' => ['nullable', 'array', 'max:200'],
             'placement_digest.partial_units' => ['nullable', 'array', 'max:200'],
+            'placement_digest.fallback_mode' => ['nullable', 'string', 'max:120'],
+            'placement_digest.fallback_trigger_reason' => ['nullable', 'string', 'max:120'],
+            'confirmation_required' => ['nullable', 'boolean'],
+            'awaiting_user_decision' => ['nullable', 'boolean'],
+            'confirmation_context' => ['nullable', 'array'],
+            'confirmation_context.reason_code' => ['nullable', 'string', 'max:120'],
+            'confirmation_context.reason_message' => ['nullable', 'string', 'max:500'],
+            'confirmation_context.requested_window' => ['nullable', 'array'],
+            'confirmation_context.attempted_horizon' => ['nullable', 'array'],
+            'confirmation_context.fallback_horizon' => ['nullable', 'array'],
+            'confirmation_context.prompt' => ['nullable', 'string', 'max:500'],
+            'confirmation_context.options' => ['nullable', 'array', 'max:6'],
+            'confirmation_context.options.*' => ['string', 'max:160'],
+            'fallback_preview' => ['nullable', 'array'],
+            'fallback_preview.proposals_count' => ['nullable', 'integer', 'min:0', 'max:200'],
+            'fallback_preview.days_used' => ['nullable', 'array', 'max:400'],
+            'fallback_preview.days_used.*' => ['string', 'max:32'],
+            'fallback_preview.placement_dates' => ['nullable', 'array', 'max:400'],
+            'fallback_preview.placement_dates.*' => ['string', 'max:32'],
+            'fallback_preview.summary' => ['nullable', 'string', 'max:2000'],
             'framing' => ['required', 'string', 'min:3', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
             'confirmation' => ['required', 'string', 'min:5', 'max:'.$maxConfirmation],
@@ -478,6 +498,22 @@ final class TaskAssistantResponseProcessor
                 $end = trim((string) ($args['endDatetime'] ?? ''));
                 if ($title === '' || $start === '' || $end === '') {
                     $validator->errors()->add("proposals.$i.apply_payload", 'create_event apply_payload requires title, startDatetime, and endDatetime.');
+                }
+            }
+
+            $confirmationRequired = (bool) ($data['confirmation_required'] ?? false);
+            if ($confirmationRequired) {
+                $confirmationContext = is_array($data['confirmation_context'] ?? null)
+                    ? $data['confirmation_context']
+                    : [];
+                $prompt = trim((string) ($confirmationContext['prompt'] ?? ''));
+                if ($prompt === '') {
+                    $validator->errors()->add('confirmation_context.prompt', 'confirmation_context.prompt is required when confirmation_required is true.');
+                }
+
+                $options = is_array($confirmationContext['options'] ?? null) ? $confirmationContext['options'] : [];
+                if ($options === []) {
+                    $validator->errors()->add('confirmation_context.options', 'confirmation_context.options is required when confirmation_required is true.');
                 }
             }
         });
