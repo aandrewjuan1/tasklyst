@@ -687,4 +687,35 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('Pomodoro', $out);
         $this->assertStringNotContainsString('chunk', mb_strtolower($out));
     }
+
+    public function test_daily_schedule_skipped_targets_sentence_is_not_rendered(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your schedule.',
+            'reasoning' => 'This fits your available window for now.',
+            'confirmation' => 'Would you like any changes before saving?',
+            'blocks' => [],
+            'items' => [],
+            'proposals' => [],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => false,
+            'placement_digest' => [
+                'placement_dates' => ['2026-03-22'],
+                'days_used' => ['2026-03-22'],
+                'skipped_targets' => [
+                    [
+                        'entity_type' => 'event',
+                        'entity_id' => 2,
+                        'title' => 'Some event',
+                        'reason' => 'event_already_timed',
+                    ],
+                ],
+                'unplaced_units' => [],
+                'partial_units' => [],
+                'summary' => 'placed_proposals=0 days_used=1 unplaced_units=0',
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('Some targeted tasks could not be scheduled', $out);
+    }
 }

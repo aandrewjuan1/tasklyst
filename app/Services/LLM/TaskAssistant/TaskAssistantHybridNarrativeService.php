@@ -323,6 +323,34 @@ final class TaskAssistantHybridNarrativeService
             $digestBlock = "\n\nOptional planning notes (only use if helpful; never quote this heading or say digest/JSON; explain in plain English if a partial placement or spill matters):\n".$trimDigest;
         }
 
+        $schedulabilityNote = '';
+        $placementDigestData = null;
+        if ($placementDigestJson !== null) {
+            $decoded = json_decode($placementDigestJson, true);
+            if (is_array($decoded)) {
+                $placementDigestData = $decoded;
+            }
+        }
+
+        $skippedTargets = is_array($placementDigestData['skipped_targets'] ?? null)
+            ? $placementDigestData['skipped_targets']
+            : [];
+        $unplacedUnits = is_array($placementDigestData['unplaced_units'] ?? null)
+            ? $placementDigestData['unplaced_units']
+            : [];
+        $partialUnits = is_array($placementDigestData['partial_units'] ?? null)
+            ? $placementDigestData['partial_units']
+            : [];
+
+        if ($skippedTargets !== []) {
+            $count = count($skippedTargets);
+            $schedulabilityNote = $count === 1
+                ? 'I scheduled only the items I could place in your time window; the other selected item was already fixed in time, so I left it unchanged.'
+                : 'I scheduled only the items I could place in your time window; some selected items were already fixed in time, so I left them unchanged.';
+        } elseif ($unplacedUnits !== [] || $partialUnits !== []) {
+            $schedulabilityNote = 'I scheduled what I could fit in your time window; some selected items could not be placed, so they were left for a future tweak.';
+        }
+
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
@@ -403,6 +431,12 @@ final class TaskAssistantHybridNarrativeService
                 seed: 'empty_confirmation|'.$threadId
             )['confirmation'];
         }
+
+        if ($schedulabilityNote !== '' && ! str_contains(mb_strtolower((string) $reasoning), mb_strtolower($schedulabilityNote))) {
+            $reasoning = trim((string) $reasoning);
+            $reasoning = rtrim($reasoning, " \t\n\r\0\x0B.");
+            $reasoning .= '. '.$schedulabilityNote;
+        }
         $framing = $this->sanitizeScheduleRelativeDateClaims($framing, $promptData);
         $reasoning = $this->sanitizeScheduleRelativeDateClaims($reasoning, $promptData);
         $framing = $this->sanitizeScheduleNarrativeTimeGrounding(
@@ -436,6 +470,19 @@ final class TaskAssistantHybridNarrativeService
             blocks: $parsedBlocks,
             promptData: $promptData,
             fallback: TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning)
+        );
+
+        $confirmationFallback = $this->scheduleNarrativeFallback(
+            blockCount: max(1, $blockCount),
+            schedulableProposalCount: $schedulableProposalCount,
+            deterministicReasoning: $deterministicReasoning,
+            seed: 'time_grounding_confirmation|'.$threadId
+        )['confirmation'];
+
+        $confirmation = $this->sanitizeScheduleNarrativeTimeGrounding(
+            text: $confirmation,
+            blocks: $parsedBlocks,
+            fallback: $confirmationFallback
         );
         $confirmation = $this->sanitizeScheduleConfirmation($confirmation, $parsedBlocks);
 
@@ -547,6 +594,45 @@ final class TaskAssistantHybridNarrativeService
             return $normalized;
         }
 
+        // If the model claims an explicit time range ("X to Y", "starting at X and ending at Y"),
+        // ensure that exact start+end range exists in the planned blocks.
+        if (preg_match(
+            '/\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b.{0,60}?\b(?:to|–|-|through|until|ending at|end at)\b.{0,20}?\b(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/iu',
+            $normalized,
+            $m
+        ) === 1) {
+            $startMin = $this->amPmLabelToMinutes((string) ($m[1] ?? ''));
+            $endMin = $this->amPmLabelToMinutes((string) ($m[2] ?? ''));
+            if ($startMin !== null && $endMin !== null) {
+                $matched = false;
+                foreach ($blocks as $block) {
+                    if (! is_array($block)) {
+                        continue;
+                    }
+
+                    $bStart = $this->timeToMinutes((string) ($block['start_time'] ?? ''));
+                    $bEnd = $this->timeToMinutes((string) ($block['end_time'] ?? ''));
+                    if ($bStart === null || $bEnd === null) {
+                        continue;
+                    }
+
+                    $bEndAdj = $bEnd >= $bStart ? $bEnd : $bEnd + 1440;
+                    $endAdj = $endMin >= $startMin ? $endMin : $endMin + 1440;
+
+                    if ($startMin === $bStart && $endAdj === $bEndAdj) {
+                        $matched = true;
+                        break;
+                    }
+                }
+
+                if (! $matched) {
+                    return trim($fallback) !== '' ? trim($fallback) : $normalized;
+                }
+            }
+        }
+
+        // For single-time claims, accept if at least one exact planned token exists.
+        // Note: if the text includes an explicit range we already handled it above.
         $validTokens = $this->validScheduleTimeTokens($blocks);
         $lower = mb_strtolower($normalized);
         foreach ($validTokens as $token) {
@@ -556,6 +642,29 @@ final class TaskAssistantHybridNarrativeService
         }
 
         return trim($fallback) !== '' ? trim($fallback) : $normalized;
+    }
+
+    private function amPmLabelToMinutes(string $timeLabel): ?int
+    {
+        $t = trim($timeLabel);
+        if (! preg_match('/^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*$/iu', $t, $m)) {
+            return null;
+        }
+
+        $hour = (int) ($m[1] ?? 0);
+        $minute = (int) ($m[2] ?? 0);
+        $ampm = mb_strtolower((string) ($m[3] ?? ''));
+
+        if ($hour < 1 || $hour > 12 || $minute < 0 || $minute > 59) {
+            return null;
+        }
+
+        $hour24 = $hour % 12;
+        if ($ampm === 'pm') {
+            $hour24 += 12;
+        }
+
+        return $hour24 * 60 + $minute;
     }
 
     private function containsExplicitTimeLikeClaim(string $text): bool

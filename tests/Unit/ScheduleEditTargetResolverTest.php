@@ -32,3 +32,15 @@ it('resolves pronoun when last referenced proposal uuid matches one draft row', 
     expect($result['index'])->toBe(1);
     expect($result['confidence'])->toBe('high');
 });
+
+it('resolves pronoun for single scheduled item without last referenced uuids', function (): void {
+    $resolver = new ScheduleEditTargetResolver(new ScheduleEditLexicon);
+
+    $result = $resolver->resolvePrimaryTarget('move it to 8 pm', [
+        ['proposal_uuid' => 'uuid-a', 'title' => 'Write report'],
+    ]);
+
+    expect($result['ambiguous'])->toBeFalse();
+    expect($result['index'])->toBe(0);
+    expect($result['confidence'])->toBe('high');
+});

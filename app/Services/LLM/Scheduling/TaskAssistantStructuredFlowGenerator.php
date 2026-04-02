@@ -612,11 +612,15 @@ final class TaskAssistantStructuredFlowGenerator
             $windowsByDay[$day] = $this->buildFreeWindows($busyRanges, $dayStart, $dayEnd);
         }
 
+        $skippedTargets = [];
+
         if ($unitsOverride !== null) {
             $units = array_values($unitsOverride);
             usort($units, fn (array $a, array $b): int => $this->compareSchedulingUnits($a, $b));
         } else {
-            $candidates = $this->buildSchedulingCandidates($snapshot, $context);
+            $build = $this->buildSchedulingCandidates($snapshot, $context);
+            $candidates = is_array($build['candidates'] ?? null) ? $build['candidates'] : [];
+            $skippedTargets = is_array($build['skipped_targets'] ?? null) ? $build['skipped_targets'] : [];
             usort($candidates, fn (array $a, array $b): int => ($b['score'] <=> $a['score']));
 
             $units = $this->expandCandidatesToSchedulingUnits($candidates);
@@ -634,9 +638,18 @@ final class TaskAssistantStructuredFlowGenerator
             'summary' => '',
         ];
 
+        if ($skippedTargets !== []) {
+            $digest['skipped_targets'] = array_values(array_merge(
+                is_array($digest['skipped_targets'] ?? null) ? $digest['skipped_targets'] : [],
+                $skippedTargets
+            ));
+        }
+
         $proposals = [];
         /** @var array<int, int> $taskPlacedChunks */
         $taskPlacedChunks = [];
+        /** @var \DateTimeImmutable|null $lastPlacedStartAt */
+        $lastPlacedStartAt = null;
 
         $anchorDay = $placementDates[0] ?? (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $anchorStart = new \DateTimeImmutable($anchorDay.' '.$windowStart, $timezone);
@@ -661,6 +674,17 @@ final class TaskAssistantStructuredFlowGenerator
                     $taskPlacedChunks = $morningPlacement['taskPlacedChunks'];
                     $digest = $morningPlacement['digest'];
                     array_shift($units);
+
+                    // Enforce monotonic start ordering for subsequent placements.
+                    $firstPlaced = $proposals[0] ?? null;
+                    $firstStartRaw = is_array($firstPlaced) ? (string) ($firstPlaced['start_datetime'] ?? '') : '';
+                    if ($firstStartRaw !== '') {
+                        try {
+                            $lastPlacedStartAt = new \DateTimeImmutable($firstStartRaw);
+                        } catch (\Throwable) {
+                            $lastPlacedStartAt = null;
+                        }
+                    }
                 }
             }
         }
@@ -684,6 +708,13 @@ final class TaskAssistantStructuredFlowGenerator
             $placed = false;
             foreach ($placementDates as $day) {
                 $freeWindows = $windowsByDay[$day] ?? [];
+                if ($lastPlacedStartAt instanceof \DateTimeImmutable) {
+                    $freeWindows = array_values(array_filter(
+                        $freeWindows,
+                        static fn (array $w): bool => ($w['start'] ?? null) instanceof \DateTimeImmutable
+                            && ($w['start'] >= $lastPlacedStartAt)
+                    ));
+                }
                 $blockMinutes = max(1, (int) ($unit['minutes'] ?? 30));
                 $proposalsCountAfterPlacement = count($proposals) + 1;
                 // If we still need to place more items after this one, reserve a gap
@@ -733,6 +764,7 @@ final class TaskAssistantStructuredFlowGenerator
                     $digest['days_used'][] = $day;
                 }
                 $placed = true;
+                $lastPlacedStartAt = $startAt;
 
                 break;
             }
@@ -748,12 +780,23 @@ final class TaskAssistantStructuredFlowGenerator
                         countLimit: $countLimit,
                         taskPlacedChunks: $taskPlacedChunks,
                         digest: $digest,
+                        minStartAt: $lastPlacedStartAt,
                     );
                     if ($partial['placed'] ?? false) {
                         $proposals = $partial['proposals'];
                         $windowsByDay = $partial['windowsByDay'];
                         $digest = $partial['digest'];
                         $placed = true;
+
+                        $last = $proposals[array_key_last($proposals)] ?? null;
+                        $lastStartRaw = is_array($last) ? (string) ($last['start_datetime'] ?? '') : '';
+                        if ($lastStartRaw !== '') {
+                            try {
+                                $lastPlacedStartAt = new \DateTimeImmutable($lastStartRaw);
+                            } catch (\Throwable) {
+                                // Keep as-is.
+                            }
+                        }
                     }
                 }
 
@@ -801,6 +844,30 @@ final class TaskAssistantStructuredFlowGenerator
             return [[$empty], $digest];
         }
 
+        foreach ($proposals as $idx => &$proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $proposal['display_order'] = $idx;
+        }
+        unset($proposal);
+
+        // Ensure blocks/items are time-ordered for consistent narrative and UI.
+        usort($proposals, function (array $a, array $b): int {
+            $aStart = $a['start_datetime'] ?? null;
+            $bStart = $b['start_datetime'] ?? null;
+            if (! is_string($aStart) || trim($aStart) === '' || ! is_string($bStart) || trim($bStart) === '') {
+                return 0;
+            }
+            try {
+                $ad = new \DateTimeImmutable($aStart);
+                $bd = new \DateTimeImmutable($bStart);
+
+                return $ad <=> $bd;
+            } catch (\Throwable) {
+                return 0;
+            }
+        });
         foreach ($proposals as $idx => &$proposal) {
             if (! is_array($proposal)) {
                 continue;
@@ -1292,6 +1359,7 @@ final class TaskAssistantStructuredFlowGenerator
         int $countLimit,
         array $taskPlacedChunks,
         array $digest,
+        ?\DateTimeImmutable $minStartAt,
     ): array {
         if (count($proposals) >= $countLimit) {
             return ['placed' => false, 'proposals' => $proposals, 'windowsByDay' => $windowsByDay, 'digest' => $digest];
@@ -1305,6 +1373,13 @@ final class TaskAssistantStructuredFlowGenerator
 
         foreach ($placementDates as $day) {
             $freeWindows = $windowsByDay[$day] ?? [];
+            if ($minStartAt instanceof \DateTimeImmutable) {
+                $freeWindows = array_values(array_filter(
+                    $freeWindows,
+                    static fn (array $w): bool => ($w['start'] ?? null) instanceof \DateTimeImmutable
+                        && ($w['start'] >= $minStartAt)
+                ));
+            }
             foreach ($freeWindows as $wIndex => $w) {
                 $diff = (int) (($w['end']->getTimestamp() - $w['start']->getTimestamp()) / 60);
                 if ($diff < $minPartialMinutes) {
@@ -1696,9 +1771,10 @@ final class TaskAssistantStructuredFlowGenerator
     {
         $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
         $candidates = [];
+        $skippedTargets = [];
 
         if ($ranked === []) {
-            return $candidates;
+            return ['candidates' => $candidates, 'skipped_targets' => $skippedTargets];
         }
 
         $includedIndex = 0;
@@ -1744,6 +1820,13 @@ final class TaskAssistantStructuredFlowGenerator
                 // Preserve scheduler membership rule:
                 // - events are schedulable only when they are not already fully timed.
                 if (! empty($startsAt) && ! empty($endsAt)) {
+                    $skippedTargets[] = [
+                        'entity_type' => 'event',
+                        'entity_id' => $id,
+                        'title' => $title,
+                        'reason' => 'event_already_timed',
+                    ];
+
                     continue;
                 }
 
@@ -1768,6 +1851,13 @@ final class TaskAssistantStructuredFlowGenerator
                 // Preserve scheduler membership rule:
                 // - projects are schedulable only when they haven't started yet.
                 if (! empty($startAt)) {
+                    $skippedTargets[] = [
+                        'entity_type' => 'project',
+                        'entity_id' => $id,
+                        'title' => $title,
+                        'reason' => 'project_already_started',
+                    ];
+
                     continue;
                 }
 
@@ -1786,7 +1876,10 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
-        return $candidates;
+        return [
+            'candidates' => $candidates,
+            'skipped_targets' => $skippedTargets,
+        ];
     }
 
     private function computeBetweenBlockGapMinutes(int $blockMinutes): int

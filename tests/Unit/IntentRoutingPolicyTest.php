@@ -423,6 +423,81 @@ test('schedule 1 and 2 for later afternoon resolves numeric index targets', func
     expect($decision->constraints['count_limit'])->toBe(2);
 });
 
+test('schedule the two tasks for later binds count + type from last prioritize listing', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'A'],
+            ['entity_type' => 'event', 'entity_id' => 99, 'title' => 'E'],
+            ['entity_type' => 'task', 'entity_id' => 20, 'title' => 'B'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule the two tasks for later');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(2);
+    expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(10);
+    expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(20);
+    expect($decision->constraints['count_limit'])->toBe(2);
+});
+
+test('schedule two tasks for later extracts word count when no listing exists', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule two tasks for later');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['count_limit'])->toBe(2);
+});
+
+test('schedule only the first one for later extracts count_limit 1 when no listing exists', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule only the first one for later');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
+test('schedule second task resolves to second task entity with count_limit 1', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'A'],
+            ['entity_type' => 'event', 'entity_id' => 99, 'title' => 'E'],
+            ['entity_type' => 'task', 'entity_id' => 20, 'title' => 'B'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule second task for tomorrow');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(20);
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('schedule phrase with onwards maps to afternoon_onwards and strict only flag', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

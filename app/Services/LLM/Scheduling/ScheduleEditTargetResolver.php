@@ -30,6 +30,10 @@ final class ScheduleEditTargetResolver
             return ['index' => null, 'proposal_uuid' => null, 'ambiguous' => true, 'reason' => 'There are no editable schedule items yet.', 'confidence' => 'low', 'candidate_titles' => []];
         }
 
+        if ($count === 1 && $this->lexicon->hasAmbiguousPronoun($normalizedMessage)) {
+            return $this->resultFromIndex($proposals, 0, false, null, 'high');
+        }
+
         $uniqueLastUuids = array_values(array_unique(array_filter(
             array_map(static fn (mixed $u): string => trim((string) $u), $lastReferencedProposalUuids),
             static fn (string $u): bool => $u !== ''

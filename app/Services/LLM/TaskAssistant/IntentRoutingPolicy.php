@@ -338,12 +338,73 @@ final class IntentRoutingPolicy
             return 1;
         }
 
-        if (preg_match('/\b(those|them)\s+(\d+)\b/', $normalized, $matches) === 1) {
-            return max(1, min((int) ($matches[2] ?? 3), 10));
+        // Word-based ordinal singles like:
+        // - "schedule only the first one"
+        // - "put last one in the evening"
+        if (preg_match(
+            '/\b(?:schedule|put|plan)\b.{0,40}\b(only\s+)?(?:the\s+)?(first|top|last|bottom)\b.{0,40}\bone\b/iu',
+            $normalized
+        ) === 1) {
+            return 1;
         }
 
-        if (preg_match('/\b(top|first|next|only|limit)\s+(\d+)\b/', $normalized, $matches) === 1) {
-            return max(1, min((int) ($matches[2] ?? 3), 10));
+        $wordNumbers = [
+            'one' => 1,
+            'two' => 2,
+            'three' => 3,
+            'four' => 4,
+            'five' => 5,
+            'six' => 6,
+            'seven' => 7,
+            'eight' => 8,
+            'nine' => 9,
+            'ten' => 10,
+            'couple' => 2,
+        ];
+
+        $parseToken = static function (string $token) use ($wordNumbers): ?int {
+            $t = mb_strtolower(trim($token));
+            if ($t === '') {
+                return null;
+            }
+
+            if (preg_match('/^\d+$/u', $t) === 1) {
+                return max(1, (int) $t);
+            }
+
+            if (array_key_exists($t, $wordNumbers)) {
+                return $wordNumbers[$t];
+            }
+
+            return null;
+        };
+
+        // Typed counts adjacent to task/item words, e.g.:
+        // - "schedule two tasks for later"
+        // - "plan 3 items"
+        if (preg_match(
+            '/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b\s+(tasks?|task|items?|item)\b/iu',
+            $normalized,
+            $matches
+        ) === 1) {
+            $n = $parseToken((string) ($matches[1] ?? ''));
+            if ($n !== null) {
+                return max(1, min($n, 10));
+            }
+        }
+
+        if (preg_match('/\b(those|them)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/iu', $normalized, $matches) === 1) {
+            $n = $parseToken((string) ($matches[2] ?? ''));
+            if ($n !== null) {
+                return max(1, min($n, 10));
+            }
+        }
+
+        if (preg_match('/\b(top|first|next|only|limit)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/iu', $normalized, $matches) === 1) {
+            $n = $parseToken((string) ($matches[2] ?? ''));
+            if ($n !== null) {
+                return max(1, min($n, 10));
+            }
         }
 
         $defaultMulti = (int) config('task-assistant.intent.prioritize_default_multi_count', 3);

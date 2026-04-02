@@ -658,10 +658,6 @@ final class TaskAssistantMessageFormatter
             }
         }
 
-        if ($skipped !== []) {
-            $parts[] = 'Some targeted tasks could not be scheduled (missing or already completed).';
-        }
-
         if ($parts === []) {
             return '';
         }

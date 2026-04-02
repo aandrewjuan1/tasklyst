@@ -11,6 +11,7 @@ use App\Models\TaskAssistantThread;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskAssistantTaskChoiceConstraintsExtractor;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\LLM\Scheduling\PlacementDigestRebuilder;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Services\LLM\Scheduling\ScheduleDraftMutationService;
 use App\Services\LLM\Scheduling\ScheduleEditLexicon;
@@ -58,6 +59,7 @@ final class TaskAssistantService
         private readonly ScheduleEditTargetResolver $scheduleEditTargetResolver,
         private readonly ScheduleEditLexicon $scheduleEditLexicon,
         private readonly ScheduleRefinementPlacementRouter $scheduleRefinementPlacementRouter,
+        private readonly PlacementDigestRebuilder $placementDigestRebuilder,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -1285,6 +1287,7 @@ final class TaskAssistantService
         $finalProposals = $workingProposals;
         $referencedProposalUuids = $lastReferencedProposalUuids;
         $narrativeUserContent = $content;
+        $spillDigest = null;
 
         if ($useSpillPlacement) {
             $spill = $this->structuredFlowGenerator->placeRefinementProposalViaSpill(
@@ -1304,6 +1307,7 @@ final class TaskAssistantService
             }
             /** @var array<int, array<string, mixed>> $finalProposals */
             $finalProposals = $spill['merged_proposals'];
+            $spillDigest = is_array($spill['digest'] ?? null) ? $spill['digest'] : null;
             $rowUuid = trim((string) ($workingProposals[$targetIndexForRefinement]['proposal_uuid']
                 ?? $workingProposals[$targetIndexForRefinement]['proposal_id'] ?? ''));
             if ($rowUuid !== '') {
@@ -1370,8 +1374,13 @@ final class TaskAssistantService
         $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
 
         $digest = $this->extractPlacementDigestFromMessage($sourceMessage);
-        $digestJson = $digest !== null
-            ? (json_encode($digest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}')
+        $digestSource = $spillDigest ?? $digest;
+        $recomputedDigest = $this->placementDigestRebuilder->rebuildFromProposals(
+            $finalProposals,
+            $digestSource
+        );
+        $digestJson = $recomputedDigest !== null
+            ? (json_encode($recomputedDigest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: '{}')
             : null;
 
         $result = $this->structuredFlowGenerator->composeDailyScheduleFromProposals(
@@ -1446,7 +1455,64 @@ final class TaskAssistantService
             assistantFallbackContent: 'I had trouble scheduling these items. Please try again with more details.'
         );
 
-        $this->conversationState->rememberScheduleContext($thread, $scheduleTargets, $timeWindowHint);
+        $referencedProposalUuids = [];
+        $genData = is_array($result['data'] ?? null) ? $result['data'] : [];
+        $proposals = is_array($genData['proposals'] ?? null) ? $genData['proposals'] : [];
+
+        // Store only schedulable (editable) proposal UUIDs so pronoun-based edits
+        // (it/this/that) can resolve even for single-target schedules.
+        $referencedProposalUuids = array_values(array_filter(array_map(
+            static function (mixed $p): string {
+                if (! is_array($p)) {
+                    return '';
+                }
+
+                $uuid = trim((string) ($p['proposal_uuid'] ?? $p['proposal_id'] ?? ''));
+                if ($uuid === '') {
+                    return '';
+                }
+
+                $status = (string) ($p['status'] ?? 'pending');
+                if ($status !== 'pending') {
+                    return '';
+                }
+
+                $title = trim((string) ($p['title'] ?? ''));
+                if ($title === 'No schedulable items found') {
+                    return '';
+                }
+
+                $applyPayload = $p['apply_payload'] ?? null;
+                if (is_array($applyPayload) && $applyPayload !== []) {
+                    return $uuid;
+                }
+
+                $entityType = (string) ($p['entity_type'] ?? '');
+                $entityId = (int) ($p['entity_id'] ?? 0);
+                $start = trim((string) ($p['start_datetime'] ?? ''));
+                $end = trim((string) ($p['end_datetime'] ?? ''));
+
+                if ($entityType === 'task' && $entityId > 0 && $start !== '') {
+                    return $uuid;
+                }
+                if ($entityType === 'event' && $entityId > 0 && $start !== '' && $end !== '') {
+                    return $uuid;
+                }
+                if ($entityType === 'project' && $entityId > 0 && $start !== '') {
+                    return $uuid;
+                }
+
+                return '';
+            },
+            $proposals
+        ), static fn (string $u): bool => $u !== ''));
+
+        $this->conversationState->rememberScheduleContext(
+            $thread,
+            $scheduleTargets,
+            $timeWindowHint,
+            $referencedProposalUuids,
+        );
         $this->streamFlowEnvelope(
             thread: $thread,
             assistantMessage: $assistantMessage,
