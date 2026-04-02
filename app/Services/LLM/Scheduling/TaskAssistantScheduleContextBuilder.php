@@ -60,6 +60,19 @@ final class TaskAssistantScheduleContextBuilder
         $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
 
         $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
+        $horizon = is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [];
+        $isMultiDayHorizon = ($horizon['mode'] ?? '') === 'range'
+            && isset($horizon['start_date'], $horizon['end_date'])
+            && (string) $horizon['start_date'] !== (string) $horizon['end_date'];
+        $intentFlags = is_array($intent['intent_flags'] ?? null) ? $intent['intent_flags'] : [];
+        if ($isMultiDayHorizon && (($intentFlags['has_later'] ?? false) === true)) {
+            $intent['time_window'] = ['start' => '13:00', 'end' => '22:00'];
+            $reasonCodes = is_array($intent['reason_codes'] ?? null) ? $intent['reason_codes'] : [];
+            if (! in_array('intent_time_window_later_multiday_default', $reasonCodes, true)) {
+                $reasonCodes[] = 'intent_time_window_later_multiday_default';
+            }
+            $intent['reason_codes'] = $reasonCodes;
+        }
         $normalized['time_window'] = $intent['time_window'] ?? null;
         $normalized['time_window_strict'] = (bool) ($intent['strict_window'] ?? false);
         $normalized['schedule_intent_flags'] = is_array($intent['intent_flags'] ?? null)

@@ -28,7 +28,7 @@ test('tomorrow shifts anchor by one day', function (): void {
     expect($r['label'])->toBe('tomorrow');
 });
 
-test('this week returns monday to sunday range', function (): void {
+test('this week starts today and extends to week end', function (): void {
     $tz = 'UTC';
     $now = CarbonImmutable::parse('2025-06-11 12:00:00', $tz);
     $resolver = new TaskAssistantScheduleHorizonResolver;
@@ -36,8 +36,8 @@ test('this week returns monday to sunday range', function (): void {
     $r = $resolver->resolve('find time this week', $tz, $now);
 
     expect($r['mode'])->toBe('range');
-    expect($r['start_date'])->toBe('2025-06-09');
-    expect($r['end_date'])->toBe('2025-06-15');
+    expect($r['start_date'])->toBe('2025-06-11');
+    expect($r['end_date'])->toBe('2025-06-17');
 });
 
 test('next weekend is saturday sunday after upcoming weekend', function (): void {
@@ -62,8 +62,8 @@ test('this week range is capped by max_horizon_days', function (): void {
     $r = $resolver->resolve('find time this week', $tz, $now);
 
     expect($r['mode'])->toBe('range');
-    expect($r['start_date'])->toBe('2025-06-09');
-    expect($r['end_date'])->toBe('2025-06-11');
+    expect($r['start_date'])->toBe('2025-06-11');
+    expect($r['end_date'])->toBe('2025-06-13');
 });
 
 test('friday resolves to next friday from snapshot day', function (): void {

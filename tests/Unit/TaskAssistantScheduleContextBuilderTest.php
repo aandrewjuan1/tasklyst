@@ -233,4 +233,22 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
         $this->assertSame('13:00', $analysis['time_window']['start'] ?? null);
         $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
     }
+
+    public function test_it_uses_multiday_later_window_for_later_this_week(): void
+    {
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule them later this week', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-04-02',
+            'now' => '2026-04-02T22:01:00+00:00',
+        ]);
+
+        $this->assertSame('range', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('2026-04-02', $analysis['schedule_horizon']['start_date'] ?? null);
+        $this->assertSame('13:00', $analysis['time_window']['start'] ?? null);
+        $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
+        $this->assertContains('intent_time_window_later_multiday_default', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
 }

@@ -39,6 +39,44 @@ final class ScheduleEditUnderstandingPipeline
             return $this->clarify('Please describe the schedule change you want to make.');
         }
 
+        return $this->resolveNormalizedClause($normalized, $proposals, $timezone, $lastReferencedProposalUuids);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  list<string>  $lastReferencedProposalUuids
+     * @return array{
+     *   operations: list<array<string, mixed>>,
+     *   clarification_required: bool,
+     *   clarification_message: string|null,
+     *   reasons: list<string>
+     * }
+     */
+    public function resolveClause(
+        string $normalizedClause,
+        array $proposals,
+        string $timezone,
+        array $lastReferencedProposalUuids = [],
+    ): array {
+        return $this->resolveNormalizedClause($normalizedClause, $proposals, $timezone, $lastReferencedProposalUuids);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  list<string>  $lastReferencedProposalUuids
+     * @return array{
+     *   operations: list<array<string, mixed>>,
+     *   clarification_required: bool,
+     *   clarification_message: string|null,
+     *   reasons: list<string>
+     * }
+     */
+    public function resolveNormalizedClause(
+        string $normalized,
+        array $proposals,
+        string $timezone,
+        array $lastReferencedProposalUuids = [],
+    ): array {
         $target = $this->targetResolver->resolvePrimaryTarget(
             $normalized,
             $proposals,
@@ -112,6 +150,45 @@ final class ScheduleEditUnderstandingPipeline
     }
 
     /**
+     * @param  list<array<string, mixed>>  $operations
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @return list<array<string, mixed>>
+     */
+    public function enrichOperationsWithProposalUuids(array $operations, array $proposals): array
+    {
+        $out = [];
+        foreach ($operations as $op) {
+            if (! is_array($op)) {
+                continue;
+            }
+            $copy = $op;
+            $idx = $copy['proposal_index'] ?? null;
+            if (is_int($idx) && $idx >= 0 && $idx < count($proposals)) {
+                $row = $proposals[$idx];
+                if (is_array($row) && trim((string) ($copy['proposal_uuid'] ?? '')) === '') {
+                    $uuid = trim((string) ($row['proposal_uuid'] ?? $row['proposal_id'] ?? ''));
+                    if ($uuid !== '') {
+                        $copy['proposal_uuid'] = $uuid;
+                    }
+                }
+            }
+            $anchorIdx = $copy['anchor_index'] ?? null;
+            if (is_int($anchorIdx) && $anchorIdx >= 0 && $anchorIdx < count($proposals)) {
+                $row = $proposals[$anchorIdx];
+                if (is_array($row) && trim((string) ($copy['anchor_proposal_uuid'] ?? '')) === '') {
+                    $uuid = trim((string) ($row['proposal_uuid'] ?? $row['proposal_id'] ?? ''));
+                    if ($uuid !== '') {
+                        $copy['anchor_proposal_uuid'] = $uuid;
+                    }
+                }
+            }
+            $out[] = $copy;
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $proposals
      * @return array<string, mixed>|null
      */
@@ -122,7 +199,7 @@ final class ScheduleEditUnderstandingPipeline
             return null;
         }
 
-        $targetPattern = '(?:the\s+)?(?:first|1st|second|2nd|third|3rd|last|item\s*#?\d+)(?:\s+one)?';
+        $targetPattern = $this->lexicon->scheduleDraftReorderTargetPattern();
 
         if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bto\s+first\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);

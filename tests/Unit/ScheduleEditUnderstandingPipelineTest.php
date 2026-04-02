@@ -4,6 +4,7 @@ use App\Services\LLM\Scheduling\ScheduleEditLexicon;
 use App\Services\LLM\Scheduling\ScheduleEditTargetResolver;
 use App\Services\LLM\Scheduling\ScheduleEditTemporalParser;
 use App\Services\LLM\Scheduling\ScheduleEditUnderstandingPipeline;
+use App\Services\LLM\Scheduling\ScheduleRefinementClauseSplitter;
 
 it('maps part-of-day phrases to concrete set_local_time_hhmm for ordinal targets', function (string $message, string $expectedHhmm, int $expectedIndex): void {
     $pipeline = new ScheduleEditUnderstandingPipeline(
@@ -56,4 +57,57 @@ it('prefers explicit clock time over part of day when both could apply', functio
     expect($timeOps)->toHaveCount(1);
     expect($timeOps[0]['local_time_hhmm'])->toBe('20:00');
     expect($timeOps[0]['proposal_index'])->toBe(1);
+});
+
+it('accumulates per-clause time edits for multi-part then-delimited messages', function (): void {
+    $pipeline = new ScheduleEditUnderstandingPipeline(
+        new ScheduleEditLexicon,
+        new ScheduleEditTargetResolver(new ScheduleEditLexicon),
+        new ScheduleEditTemporalParser,
+    );
+    $splitter = new ScheduleRefinementClauseSplitter;
+
+    $proposals = [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+        ['proposal_uuid' => 'b', 'title' => 'Task B'],
+    ];
+
+    $segments = $splitter->split('move second to 8pm then move the first one at 8 am');
+    expect($segments)->toHaveCount(2);
+
+    $timeOps = [];
+    foreach ($segments as $segment) {
+        $result = $pipeline->resolve($segment, $proposals, 'UTC');
+        expect($result['clarification_required'])->toBeFalse();
+        foreach ($result['operations'] as $op) {
+            if (is_array($op) && ($op['op'] ?? '') === 'set_local_time_hhmm') {
+                $timeOps[] = $op;
+            }
+        }
+    }
+
+    expect($timeOps)->toHaveCount(2);
+    expect($timeOps[0]['proposal_index'])->toBe(1);
+    expect($timeOps[0]['local_time_hhmm'])->toBe('20:00');
+    expect($timeOps[1]['proposal_index'])->toBe(0);
+    expect($timeOps[1]['local_time_hhmm'])->toBe('08:00');
+});
+
+it('enrichOperationsWithProposalUuids fills missing proposal_uuid from index', function (): void {
+    $pipeline = new ScheduleEditUnderstandingPipeline(
+        new ScheduleEditLexicon,
+        new ScheduleEditTargetResolver(new ScheduleEditLexicon),
+        new ScheduleEditTemporalParser,
+    );
+
+    $proposals = [
+        ['proposal_uuid' => 'row-a', 'title' => 'A'],
+        ['proposal_uuid' => 'row-b', 'title' => 'B'],
+    ];
+
+    $enriched = $pipeline->enrichOperationsWithProposalUuids([
+        ['op' => 'set_local_time_hhmm', 'proposal_index' => 1, 'local_time_hhmm' => '15:00'],
+    ], $proposals);
+
+    expect($enriched[0]['proposal_uuid'] ?? null)->toBe('row-b');
 });

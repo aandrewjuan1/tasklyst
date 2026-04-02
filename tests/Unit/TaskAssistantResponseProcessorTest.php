@@ -476,6 +476,41 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertSame([], $result['errors']);
     }
 
+    public function test_daily_schedule_validation_allows_empty_schedule_when_nothing_can_be_placed(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [],
+            'items' => [],
+            'blocks' => [],
+            'schedule_variant' => 'range',
+            'schedule_empty_placement' => true,
+            'placement_digest' => [
+                'placement_dates' => ['2026-04-02', '2026-04-03'],
+                'days_used' => [],
+                'unplaced_units' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 31,
+                    'title' => 'Impossible 5h study block before quiz',
+                    'minutes' => 240,
+                    'reason' => 'horizon_exhausted',
+                ]],
+            ],
+            'framing' => 'Nothing in this slice could be placed cleanly in open time.',
+            'reasoning' => 'Getting one concrete item on your list is enough to start.',
+            'confirmation' => 'Want to widen the window or try a different time?',
+        ], [
+            'tasks' => [['id' => 31]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+        $this->assertStringNotContainsString('No schedulable items found —', $result['formatted_content']);
+    }
+
     public function test_daily_schedule_validation_fails_when_project_id_not_in_snapshot(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);

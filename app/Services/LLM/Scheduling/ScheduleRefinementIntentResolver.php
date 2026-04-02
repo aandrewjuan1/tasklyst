@@ -21,6 +21,7 @@ final class ScheduleRefinementIntentResolver
 
     /**
      * @param  array<int, array<string, mixed>>  $proposals
+     * @param  list<string>  $lastReferencedProposalUuids
      * @return array{
      *   operations: list<array<string, mixed>>,
      *   clarification_required: bool,
@@ -28,15 +29,20 @@ final class ScheduleRefinementIntentResolver
      *   reasons: list<string>
      * }
      */
-    /**
-     * @param  list<string>  $lastReferencedProposalUuids
-     */
     public function resolveDetailed(
         string $userMessage,
         array $proposals,
         string $userTimezone,
         array $lastReferencedProposalUuids = [],
     ): array {
-        return $this->pipeline->resolve($userMessage, $proposals, $userTimezone, $lastReferencedProposalUuids);
+        $resolved = $this->pipeline->resolve($userMessage, $proposals, $userTimezone, $lastReferencedProposalUuids);
+        if (! ($resolved['clarification_required'] ?? false)) {
+            $ops = is_array($resolved['operations'] ?? null) ? $resolved['operations'] : [];
+            if ($ops !== []) {
+                $resolved['operations'] = $this->pipeline->enrichOperationsWithProposalUuids($ops, $proposals);
+            }
+        }
+
+        return $resolved;
     }
 }

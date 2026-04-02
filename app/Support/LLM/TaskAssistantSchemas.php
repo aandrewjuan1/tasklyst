@@ -395,23 +395,28 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'schedule_refinement_ops',
-            description: 'Map the user request to at most one primary edit on an existing draft schedule. Use proposal_index 0 for the first listed item, 1 for second, etc. Do not invent new tasks.',
+            description: 'Map the user message to one or more ordered edits on the draft schedule rows provided. Use proposal_index 0 for the first listed item, 1 for second, etc. Do not invent new tasks or times outside what the user asked.',
             properties: [
                 new ArraySchema(
                     name: 'operations',
-                    description: 'Ordered operations to apply. Prefer a single operation unless the user clearly asked for two.',
+                    description: 'Ordered operations to apply in sequence. Use multiple operations when the user asked to change more than one row.',
                     items: new ObjectSchema(
                         name: 'schedule_refinement_op',
                         description: 'One edit operation.',
                         properties: [
                             new StringSchema(
                                 name: 'op',
-                                description: 'One of: shift_minutes, set_duration_minutes, set_local_time_hhmm, set_local_date_ymd, none.',
+                                description: 'One of: shift_minutes, set_duration_minutes, set_local_time_hhmm, set_local_date_ymd, move_to_position, reorder_before, reorder_after, none.',
                                 nullable: false
                             ),
                             new NumberSchema(
                                 name: 'proposal_index',
-                                description: '0-based index of the proposal row to change.',
+                                description: '0-based index of the primary proposal row (required for all ops except none).',
+                                nullable: true
+                            ),
+                            new StringSchema(
+                                name: 'proposal_uuid',
+                                description: 'Optional UUID string from the draft row list; helps disambiguate after reorder.',
                                 nullable: true
                             ),
                             new NumberSchema(
@@ -432,6 +437,21 @@ final class TaskAssistantSchemas
                             new StringSchema(
                                 name: 'local_date_ymd',
                                 description: 'For set_local_date_ymd: local date as YYYY-MM-DD, keeping the same local time-of-day as current start.',
+                                nullable: true
+                            ),
+                            new NumberSchema(
+                                name: 'target_index',
+                                description: 'For move_to_position: 0-based destination index in the current list.',
+                                nullable: true
+                            ),
+                            new NumberSchema(
+                                name: 'anchor_index',
+                                description: 'For reorder_before / reorder_after: 0-based index of the anchor row.',
+                                nullable: true
+                            ),
+                            new StringSchema(
+                                name: 'anchor_proposal_uuid',
+                                description: 'Optional anchor row UUID when using reorder_before or reorder_after.',
                                 nullable: true
                             ),
                         ],

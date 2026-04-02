@@ -189,4 +189,45 @@ class ScheduleDraftMutationServiceTest extends TestCase
         $this->assertSame('uuid-b', $result['proposals'][0]['proposal_uuid']);
         $this->assertSame('2026-03-30T14:15:00+00:00', $result['proposals'][1]['start_datetime']);
     }
+
+    public function test_sequential_apply_mimics_multi_edit_per_row(): void
+    {
+        $service = new ScheduleDraftMutationService;
+        $proposals = [
+            [
+                'proposal_uuid' => 'uuid-a',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'A',
+                'start_datetime' => '2026-04-03T13:00:00+00:00',
+                'end_datetime' => '2026-04-03T14:00:00+00:00',
+                'duration_minutes' => 60,
+                'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+            ],
+            [
+                'proposal_uuid' => 'uuid-b',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 2,
+                'title' => 'B',
+                'start_datetime' => '2026-04-03T17:30:00+00:00',
+                'end_datetime' => '2026-04-03T18:00:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => ['tool' => 'update_task', 'arguments' => []],
+            ],
+        ];
+
+        $first = $service->applyOperations($proposals, [
+            ['op' => 'set_local_time_hhmm', 'proposal_index' => 1, 'proposal_uuid' => 'uuid-b', 'local_time_hhmm' => '20:00'],
+        ], 'UTC');
+        $this->assertTrue($first['ok']);
+
+        $second = $service->applyOperations($first['proposals'], [
+            ['op' => 'set_local_time_hhmm', 'proposal_index' => 0, 'proposal_uuid' => 'uuid-a', 'local_time_hhmm' => '08:00'],
+        ], 'UTC');
+        $this->assertTrue($second['ok']);
+        $this->assertStringContainsString('T08:00:00', (string) $second['proposals'][0]['start_datetime']);
+        $this->assertStringContainsString('T20:00:00', (string) $second['proposals'][1]['start_datetime']);
+    }
 }

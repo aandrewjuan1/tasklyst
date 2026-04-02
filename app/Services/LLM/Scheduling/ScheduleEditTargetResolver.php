@@ -8,6 +8,7 @@ final class ScheduleEditTargetResolver
 
     /**
      * @param  array<int, array<string, mixed>>  $proposals
+     * @param  list<string>  $lastReferencedProposalUuids
      * @return array{
      *   index: int|null,
      *   proposal_uuid: string|null,
@@ -16,9 +17,6 @@ final class ScheduleEditTargetResolver
      *   confidence: string,
      *   candidate_titles: list<string>
      * }
-     */
-    /**
-     * @param  list<string>  $lastReferencedProposalUuids
      */
     public function resolvePrimaryTarget(
         string $normalizedMessage,
@@ -52,21 +50,9 @@ final class ScheduleEditTargetResolver
             }
         }
 
-        if (preg_match('/\bitem\s*#?(\d+)\b/u', $normalizedMessage, $m) === 1) {
-            $idx = (int) $m[1] - 1;
-            if ($idx >= 0 && $idx < $count) {
-                return $this->resultFromIndex($proposals, $idx, false, null, 'high');
-            }
-        }
-
-        foreach ($this->lexicon->ordinalMap() as $token => $idx) {
-            if (preg_match('/\b'.preg_quote($token, '/').'\b/u', $normalizedMessage) === 1) {
-                return $this->resultFromIndex($proposals, min($idx, $count - 1), false, null, 'medium');
-            }
-        }
-
-        if (preg_match('/\blast\b/u', $normalizedMessage) === 1) {
-            return $this->resultFromIndex($proposals, max(0, $count - 1), false, null, 'medium');
+        $positional = $this->resolveLeftmostPositionalTarget($normalizedMessage, $proposals);
+        if ($positional !== null) {
+            return $positional;
         }
 
         $matched = [];
@@ -101,6 +87,96 @@ final class ScheduleEditTargetResolver
         }
 
         return ['index' => null, 'proposal_uuid' => null, 'ambiguous' => true, 'reason' => 'Please specify which listed item to edit (first, second, last, or by title).', 'confidence' => 'low', 'candidate_titles' => $this->topCandidateTitles($proposals)];
+    }
+
+    /**
+     * When several ordinals or positional cues appear, prefer the **leftmost** mention in the message
+     * (byte offset) instead of a fixed map iteration order.
+     *
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @return array{
+     *   index: int|null,
+     *   proposal_uuid: string|null,
+     *   ambiguous: bool,
+     *   reason: string|null,
+     *   confidence: string,
+     *   candidate_titles: list<string>
+     * }|null
+     */
+    private function resolveLeftmostPositionalTarget(string $normalizedMessage, array $proposals): ?array
+    {
+        $count = count($proposals);
+        if ($count < 1) {
+            return null;
+        }
+
+        /** @var list<array{off: int, idx: int, conf: string}> $candidates */
+        $candidates = [];
+
+        $push = function (int $off, int $idx, string $conf) use (&$candidates, $count): void {
+            if ($idx >= 0 && $idx < $count && $off >= 0) {
+                $candidates[] = ['off' => $off, 'idx' => $idx, 'conf' => $conf];
+            }
+        };
+
+        if (preg_match('/\bitem\s*#?(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+        if (preg_match('/\btop\s*#?\s*(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+        if (preg_match('/\brank(?:ed)?\s*#?\s*(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+        if (preg_match('/\b(?:line|row|slot)\s*#?\s*(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+        if (preg_match('/\b(?:number|no\.|nr\.)\s*(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+
+        if (preg_match('/\btop\s+(one|first|two|second|three|third)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $word = (string) $m[1][0];
+            $map = [
+                'one' => 0, 'first' => 0, 'two' => 1, 'second' => 1, 'three' => 2, 'third' => 2,
+            ];
+            if (isset($map[$word])) {
+                $push((int) $m[0][1], min($map[$word], $count - 1), 'high');
+            }
+        }
+
+        if (preg_match('/(?:^|[\s,;])#([1-9]\d{0,2})\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+
+        foreach ($this->lexicon->ordinalMap() as $token => $idx) {
+            if (preg_match('/\b'.preg_quote($token, '/').'\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) !== 1) {
+                continue;
+            }
+            $push((int) $m[0][1], min($idx, $count - 1), 'medium');
+        }
+
+        if (preg_match('/\blast\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], max(0, $count - 1), 'medium');
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        usort($candidates, function (array $a, array $b): int {
+            if ($a['off'] !== $b['off']) {
+                return $a['off'] <=> $b['off'];
+            }
+
+            $rank = ['high' => 0, 'medium' => 1];
+
+            return ($rank[$a['conf']] ?? 2) <=> ($rank[$b['conf']] ?? 2);
+        });
+
+        $pick = $candidates[0];
+
+        return $this->resultFromIndex($proposals, $pick['idx'], false, null, $pick['conf']);
     }
 
     /**

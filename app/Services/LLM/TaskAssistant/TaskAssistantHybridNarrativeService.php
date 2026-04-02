@@ -2676,7 +2676,7 @@ TXT;
             $maxTokens = config($base.'.max_tokens');
         }
 
-        if ($generationRoute === 'prioritize_narrative' || $generationRoute === 'schedule_narrative' || $generationRoute === 'schedule_narrative_followup') {
+        if ($generationRoute === 'prioritize_narrative' || $generationRoute === 'schedule_narrative' || $generationRoute === 'schedule_narrative_followup' || $generationRoute === 'schedule_refinement_ops') {
             if (! is_numeric($topP)) {
                 $topP = null;
             }

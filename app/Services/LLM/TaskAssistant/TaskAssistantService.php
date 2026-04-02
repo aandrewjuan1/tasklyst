@@ -16,8 +16,10 @@ use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Services\LLM\Scheduling\ScheduleDraftMutationService;
 use App\Services\LLM\Scheduling\ScheduleEditLexicon;
 use App\Services\LLM\Scheduling\ScheduleEditTargetResolver;
+use App\Services\LLM\Scheduling\ScheduleRefinementClauseSplitter;
 use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
 use App\Services\LLM\Scheduling\ScheduleRefinementPlacementRouter;
+use App\Services\LLM\Scheduling\ScheduleRefinementStructuredOpExtractor;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
@@ -60,6 +62,8 @@ final class TaskAssistantService
         private readonly ScheduleEditLexicon $scheduleEditLexicon,
         private readonly ScheduleRefinementPlacementRouter $scheduleRefinementPlacementRouter,
         private readonly PlacementDigestRebuilder $placementDigestRebuilder,
+        private readonly ScheduleRefinementClauseSplitter $scheduleRefinementClauseSplitter,
+        private readonly ScheduleRefinementStructuredOpExtractor $scheduleRefinementStructuredOpExtractor,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -1257,112 +1261,203 @@ final class TaskAssistantService
             $workingProposals = $sourceProposals;
         }
 
+        $proposalsBeforeRefinement = $workingProposals;
+
         $timezone = (string) config('app.timezone', 'UTC');
 
         $normalizedRefinement = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $content) ?? $content));
         $lastReferencedProposalUuids = $this->conversationState->lastScheduleReferencedProposalUuids($thread);
-        $refinementTarget = $this->scheduleEditTargetResolver->resolvePrimaryTarget(
-            $normalizedRefinement,
-            $workingProposals,
-            $lastReferencedProposalUuids,
-        );
-        $wantsReorder = $this->scheduleEditLexicon->looksLikeReorder($normalizedRefinement);
 
-        if (($refinementTarget['ambiguous'] ?? true) && ! $wantsReorder) {
-            $clarification = (string) ($refinementTarget['reason'] ?? 'Please specify which item to edit.');
-            $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
-            $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $lastReferencedProposalUuids);
-
-            return;
+        $segments = $this->scheduleRefinementClauseSplitter->split($normalizedRefinement);
+        if ($segments === []) {
+            $segments = [$normalizedRefinement];
         }
 
-        if (($refinementTarget['confidence'] ?? 'low') === 'low' && ! $wantsReorder) {
-            $candidates = is_array($refinementTarget['candidate_titles'] ?? null) ? $refinementTarget['candidate_titles'] : [];
-            $candidateText = $candidates !== [] ? ' Possible matches: '.implode(', ', $candidates).'.' : '';
-            $clarification = 'I am not fully sure which schedule item you mean.'.$candidateText.' Please mention first/second/last or part of the title.';
-            $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
-            $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $lastReferencedProposalUuids);
+        $partialFailureNotes = [];
+        $hadSuccessfulEdit = false;
+        $llmFallbackAttempted = false;
+        $executionPath = count($segments) > 1 ? 'deterministic_multi' : 'single_clause';
 
-            return;
-        }
+        $finalProposals = $workingProposals;
+        $referencedProposalUuids = $lastReferencedProposalUuids;
+        $spillDigest = null;
 
-        $targetIndexForRefinement = $refinementTarget['index'];
-        $useSpillPlacement = is_int($targetIndexForRefinement)
-            && $this->scheduleRefinementPlacementRouter->shouldUseSpillForRefinement(
-                $content,
-                $workingProposals,
+        foreach ($segments as $segment) {
+            $refinementTarget = $this->scheduleEditTargetResolver->resolvePrimaryTarget(
+                $segment,
+                $finalProposals,
+                $referencedProposalUuids,
+            );
+            $wantsReorder = $this->scheduleEditLexicon->looksLikeReorder($segment);
+
+            if (($refinementTarget['ambiguous'] ?? true) && ! $wantsReorder) {
+                $llm = $this->tryApplyScheduleRefinementLlmFallback(
+                    $thread,
+                    $content,
+                    $finalProposals,
+                    $timezone,
+                    $llmFallbackAttempted,
+                );
+                if ($llm !== null) {
+                    $finalProposals = $llm['proposals'];
+                    $hadSuccessfulEdit = true;
+                    $executionPath = 'llm_fallback';
+                    if ($llm['referencedProposalUuids'] !== []) {
+                        $referencedProposalUuids = $llm['referencedProposalUuids'];
+                    }
+                    break;
+                }
+                $partialFailureNotes[] = trim((string) ($refinementTarget['reason'] ?? 'Please specify which item to edit.'));
+
+                continue;
+            }
+
+            if (($refinementTarget['confidence'] ?? 'low') === 'low' && ! $wantsReorder) {
+                $llm = $this->tryApplyScheduleRefinementLlmFallback(
+                    $thread,
+                    $content,
+                    $finalProposals,
+                    $timezone,
+                    $llmFallbackAttempted,
+                );
+                if ($llm !== null) {
+                    $finalProposals = $llm['proposals'];
+                    $hadSuccessfulEdit = true;
+                    $executionPath = 'llm_fallback';
+                    if ($llm['referencedProposalUuids'] !== []) {
+                        $referencedProposalUuids = $llm['referencedProposalUuids'];
+                    }
+                    break;
+                }
+                $candidates = is_array($refinementTarget['candidate_titles'] ?? null) ? $refinementTarget['candidate_titles'] : [];
+                $candidateText = $candidates !== [] ? ' Possible matches: '.implode(', ', $candidates).'.' : '';
+                $partialFailureNotes[] = 'I am not fully sure which schedule item you mean.'.$candidateText.' Please mention first/second/last or part of the title.';
+
+                continue;
+            }
+
+            $targetIndexForRefinement = $refinementTarget['index'];
+            if (! is_int($targetIndexForRefinement)) {
+                $partialFailureNotes[] = 'Could not resolve which schedule row to edit for part of your message.';
+
+                continue;
+            }
+
+            $useSpillPlacement = $this->scheduleRefinementPlacementRouter->shouldUseSpillForRefinement(
+                $segment,
+                $finalProposals,
                 $targetIndexForRefinement,
                 $timezone,
             );
 
-        $finalProposals = $workingProposals;
-        $referencedProposalUuids = $lastReferencedProposalUuids;
-        $narrativeUserContent = $content;
-        $spillDigest = null;
+            if ($useSpillPlacement) {
+                $spill = $this->structuredFlowGenerator->placeRefinementProposalViaSpill(
+                    user: $thread->user,
+                    userMessage: $segment,
+                    workingProposals: $finalProposals,
+                    targetIndex: $targetIndexForRefinement,
+                    scheduleUserId: (int) $thread->user_id,
+                );
+                if (! (bool) ($spill['ok'] ?? false)) {
+                    $partialFailureNotes[] = 'I could not find a free slot that fits that block in the time you asked for. Try a different part of the day, another day, or give an exact time (for example 8 pm).';
 
-        if ($useSpillPlacement) {
-            $spill = $this->structuredFlowGenerator->placeRefinementProposalViaSpill(
-                user: $thread->user,
-                userMessage: $content,
-                workingProposals: $workingProposals,
-                targetIndex: $targetIndexForRefinement,
-                scheduleUserId: (int) $thread->user_id,
-            );
-            if (! (bool) ($spill['ok'] ?? false)) {
-                $clarification = 'I could not find a free slot that fits that block in the time you asked for. Try a different part of the day, another day, or give an exact time (for example 8 pm).';
-                $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
-                $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-                $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids);
+                    continue;
+                }
+                /** @var array<int, array<string, mixed>> $merged */
+                $merged = $spill['merged_proposals'];
+                $finalProposals = $merged;
+                $hadSuccessfulEdit = true;
+                $spillDigest = is_array($spill['digest'] ?? null) ? $spill['digest'] : null;
+                $rowUuid = trim((string) ($finalProposals[$targetIndexForRefinement]['proposal_uuid']
+                    ?? $finalProposals[$targetIndexForRefinement]['proposal_id'] ?? ''));
+                if ($rowUuid !== '') {
+                    $referencedProposalUuids = array_values(array_unique(array_merge(
+                        $referencedProposalUuids,
+                        [$rowUuid]
+                    )));
+                }
 
-                return;
+                continue;
             }
-            /** @var array<int, array<string, mixed>> $finalProposals */
-            $finalProposals = $spill['merged_proposals'];
-            $spillDigest = is_array($spill['digest'] ?? null) ? $spill['digest'] : null;
-            $rowUuid = trim((string) ($workingProposals[$targetIndexForRefinement]['proposal_uuid']
-                ?? $workingProposals[$targetIndexForRefinement]['proposal_id'] ?? ''));
-            if ($rowUuid !== '') {
-                $referencedProposalUuids = [$rowUuid];
-            }
-        } else {
-            $resolution = $this->scheduleRefinementIntentResolver->resolveDetailed($content, $workingProposals, $timezone, $lastReferencedProposalUuids);
+
+            $resolution = $this->scheduleRefinementIntentResolver->resolveDetailed($segment, $finalProposals, $timezone, $referencedProposalUuids);
             $resolvedOperations = is_array($resolution['operations'] ?? null) ? $resolution['operations'] : [];
-            $referencedProposalUuids = array_values(array_filter(array_map(
-                static fn (mixed $op): string => is_array($op) ? trim((string) ($op['proposal_uuid'] ?? '')) : '',
-                $resolvedOperations
-            ), static fn (string $uuid): bool => $uuid !== ''));
             if ((bool) ($resolution['clarification_required'] ?? false)) {
-                $clarification = (string) ($resolution['clarification_message'] ?? 'Please tell me which item to edit and the exact change.');
-                $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
-                $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-                $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids);
+                $llm = $this->tryApplyScheduleRefinementLlmFallback(
+                    $thread,
+                    $content,
+                    $finalProposals,
+                    $timezone,
+                    $llmFallbackAttempted,
+                );
+                if ($llm !== null) {
+                    $finalProposals = $llm['proposals'];
+                    $hadSuccessfulEdit = true;
+                    $executionPath = 'llm_fallback';
+                    if ($llm['referencedProposalUuids'] !== []) {
+                        $referencedProposalUuids = $llm['referencedProposalUuids'];
+                    }
+                    break;
+                }
+                $partialFailureNotes[] = trim((string) ($resolution['clarification_message'] ?? 'Please tell me which item to edit and the exact change.'));
 
-                return;
+                continue;
             }
 
-            $operations = $resolvedOperations;
-            $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
+            $mutation = $this->scheduleDraftMutationService->applyOperations($finalProposals, $resolvedOperations, $timezone);
             if (! (bool) ($mutation['ok'] ?? false)) {
                 $error = trim((string) ($mutation['error'] ?? ''));
-                $clarification = $error !== ''
+                $partialFailureNotes[] = $error !== ''
                     ? 'I could not apply that change because '.$error
                     : 'I could not apply that change yet.';
-                $this->publishScheduleClarificationResponse($thread, $assistantMessage, $workingProposals, $clarification);
-                $targets = $this->targetEntitiesFromScheduleProposals($workingProposals);
-                $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $referencedProposalUuids);
 
-                return;
+                continue;
             }
 
             $finalProposals = $mutation['proposals'];
+            $hadSuccessfulEdit = true;
+            $extraUuids = $this->proposalUuidsFromScheduleOperations($resolvedOperations);
+            if ($extraUuids !== []) {
+                $referencedProposalUuids = array_values(array_unique(array_merge(
+                    $referencedProposalUuids,
+                    $extraUuids
+                )));
+            }
 
-            $narrativeUserContent = $content;
-            if ((bool) ($mutation['ok'] ?? false) && count((array) ($mutation['changed_proposal_ids'] ?? [])) === 0) {
-                $narrativeUserContent .= "\n\n(Planning note: no schedule change was applied yet. Ask a clarifying question instead of claiming a new time.)";
+            if (count((array) ($mutation['changed_proposal_ids'] ?? [])) === 0) {
+                $partialFailureNotes[] = 'No schedule change was applied for one part of your message (times may already match or the edit was unclear).';
             }
         }
+
+        if (! $hadSuccessfulEdit && $partialFailureNotes !== []) {
+            $clarification = implode(' ', array_values(array_unique($partialFailureNotes)));
+            $this->publishScheduleClarificationResponse($thread, $assistantMessage, $proposalsBeforeRefinement, $clarification);
+            $targets = $this->targetEntitiesFromScheduleProposals($proposalsBeforeRefinement);
+            $this->conversationState->rememberScheduleContext($thread, $targets, $plan->timeWindowHint, $lastReferencedProposalUuids);
+
+            return;
+        }
+
+        $planningNotes = [];
+        if ($partialFailureNotes !== []) {
+            $planningNotes[] = 'Some parts of your request could not be applied: '.implode(' ', array_values(array_unique($partialFailureNotes)));
+        }
+
+        $narrativeUserContent = $content;
+        if ($planningNotes !== []) {
+            $narrativeUserContent .= "\n\n(Planning note: ".implode(' ', $planningNotes).')';
+        }
+
+        Log::info('task-assistant.schedule_refinement.multi', [
+            'layer' => 'schedule_refinement',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'segment_count' => count($segments),
+            'execution_path' => $executionPath,
+            'had_successful_edit' => $hadSuccessfulEdit,
+            'partial_failure_count' => count($partialFailureNotes),
+        ]);
 
         $targets = $this->targetEntitiesFromScheduleProposals($finalProposals);
         $scheduleOptions = [
@@ -1406,7 +1501,7 @@ final class TaskAssistantService
             narrativeGenerationRoute: 'schedule_narrative_followup',
             placementDigestJson: $digestJson,
         );
-        $result = $this->enforceRefinementNarrativeConsistency($result, $workingProposals, $finalProposals);
+        $result = $this->enforceRefinementNarrativeConsistency($result, $proposalsBeforeRefinement, $finalProposals);
 
         $execution = $this->flowExecutionEngine->executeStructuredFlow(
             flow: 'daily_schedule',
@@ -1885,6 +1980,74 @@ final class TaskAssistantService
      * @param  array<int, array<string, mixed>>  $afterProposals
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
      */
+    /**
+     * @param  array<int, array<string, mixed>>  $workingProposals
+     * @return array{proposals: array<int, array<string, mixed>>, referencedProposalUuids: list<string>}|null
+     */
+    private function tryApplyScheduleRefinementLlmFallback(
+        TaskAssistantThread $thread,
+        string $originalUserContent,
+        array $workingProposals,
+        string $timezone,
+        bool &$llmFallbackAttempted,
+    ): ?array {
+        if ($llmFallbackAttempted) {
+            return null;
+        }
+        if (! (bool) config('task-assistant.schedule.refinement.llm_fallback_enabled', true)) {
+            return null;
+        }
+        $llmFallbackAttempted = true;
+
+        $extracted = $this->scheduleRefinementStructuredOpExtractor->tryExtract(
+            $thread->user,
+            $originalUserContent,
+            $workingProposals,
+        );
+        if (! ($extracted['ok'] ?? false)) {
+            return null;
+        }
+
+        $operations = is_array($extracted['operations'] ?? null) ? $extracted['operations'] : [];
+        if ($operations === []) {
+            return null;
+        }
+
+        $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
+        if (! ($mutation['ok'] ?? false)) {
+            return null;
+        }
+
+        return [
+            'proposals' => $mutation['proposals'],
+            'referencedProposalUuids' => $this->proposalUuidsFromScheduleOperations($operations),
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $operations
+     * @return list<string>
+     */
+    private function proposalUuidsFromScheduleOperations(array $operations): array
+    {
+        $uuids = [];
+        foreach ($operations as $op) {
+            if (! is_array($op)) {
+                continue;
+            }
+            $u = trim((string) ($op['proposal_uuid'] ?? ''));
+            if ($u !== '') {
+                $uuids[] = $u;
+            }
+            $a = trim((string) ($op['anchor_proposal_uuid'] ?? ''));
+            if ($a !== '') {
+                $uuids[] = $a;
+            }
+        }
+
+        return array_values(array_unique(array_filter($uuids, static fn (string $id): bool => $id !== '')));
+    }
+
     private function enforceRefinementNarrativeConsistency(array $result, array $beforeProposals, array $afterProposals): array
     {
         $beforeEncoded = json_encode($beforeProposals);

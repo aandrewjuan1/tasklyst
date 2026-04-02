@@ -26,6 +26,28 @@ final class TaskAssistantStructuredFlowGenerator
     ) {}
 
     /**
+     * When the user refers to a concrete listing ("them") we resolve {@see $options} target_entities.
+     * The message may still contain "this week" for placement horizon; that must not also apply
+     * {@see TaskPrioritizationService} due-window filtering (e.g. this_week drops tasks due after ~7 days).
+     *
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $options
+     * @return array<string, mixed>
+     */
+    private function normalizeSchedulingContextForExplicitTargets(array $context, array $options): array
+    {
+        $targets = $options['target_entities'] ?? [];
+        if (! is_array($targets) || $targets === []) {
+            return $context;
+        }
+
+        $out = $context;
+        $out['time_constraint'] = 'none';
+
+        return $out;
+    }
+
+    /**
      * @param  Collection<int, mixed>  $historyMessages
      * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
      */
@@ -41,7 +63,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         $promptData = $this->promptData->forUser($user);
         $built = $this->dbContextBuilder->buildForUser($user, $userMessageContent, $options);
-        $context = $built['context'];
+        $context = $this->normalizeSchedulingContextForExplicitTargets($built['context'], $options);
         $snapshot = $built['snapshot'];
 
         Log::info('task-assistant.snapshot', [
@@ -151,6 +173,7 @@ final class TaskAssistantStructuredFlowGenerator
     public function buildSchedulePromptContext(array $snapshot, string $userMessage, array $options = []): array
     {
         $context = $this->scheduleContextBuilder->build($userMessage, $snapshot);
+        $context = $this->normalizeSchedulingContextForExplicitTargets($context, $options);
         $contextualSnapshot = $this->applyContextToSnapshot($snapshot, $context, $options);
 
         return [$context, $contextualSnapshot];
@@ -606,7 +629,14 @@ final class TaskAssistantStructuredFlowGenerator
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
-        $placementDates = array_slice($this->resolvePlacementDates($snapshot, $timezone), 0, 1);
+        $placementDates = $this->resolvePlacementDates($snapshot, $timezone);
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $isRange = ($horizon['mode'] ?? '') === 'range'
+            && isset($horizon['start_date'], $horizon['end_date'])
+            && (string) $horizon['start_date'] !== (string) $horizon['end_date'];
+        if (! $isRange) {
+            $placementDates = array_slice($placementDates, 0, 1);
+        }
         $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
         $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
@@ -843,14 +873,7 @@ final class TaskAssistantStructuredFlowGenerator
                 }
             }
 
-            if ($context['_refinement_mode'] ?? false) {
-                return [[], $digest];
-            }
-
-            $empty = $this->emptyPlaceholderProposal($anchorStart, $anchorStart, count($placementDates) > 1);
-            $empty['display_order'] = 0;
-
-            return [[$empty], $digest];
+            return [[], $digest];
         }
 
         foreach ($proposals as $idx => &$proposal) {
@@ -1959,6 +1982,10 @@ final class TaskAssistantStructuredFlowGenerator
      */
     private function isScheduleEmptyPlacement(array $proposals): bool
     {
+        if ($proposals === []) {
+            return true;
+        }
+
         foreach ($proposals as $proposal) {
             if (! is_array($proposal)) {
                 continue;

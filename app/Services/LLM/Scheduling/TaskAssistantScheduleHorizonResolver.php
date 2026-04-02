@@ -111,7 +111,9 @@ final class TaskAssistantScheduleHorizonResolver
      */
     private function thisWeekRange(CarbonImmutable $now, int $maxDays): array
     {
-        $start = $now->copy()->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
+        $weekStart = $now->copy()->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
+        $today = $now->copy()->startOfDay();
+        $start = $today->gt($weekStart) ? $today : $weekStart;
         $end = $start->copy()->addDays(6)->startOfDay();
 
         return $this->cappedRange($start, $end, 'this week', $maxDays);

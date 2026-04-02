@@ -130,6 +130,13 @@ return [
             'reasoning' => 'Getting one concrete item on your list is enough to start—try the thing that is due soonest or on your mind the most, then come back for a ranked order or a fresh schedule.',
             'confirmation' => 'Want to widen the window, prioritize what to tackle first, or tell me a time that usually works better for you?',
         ],
+        /**
+         * When deterministic multi-clause refinement cannot parse a segment, optionally call a small
+         * structured Prism step to infer {@see ScheduleDraftMutationService} operations.
+         */
+        'refinement' => [
+            'llm_fallback_enabled' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_LLM_FALLBACK', true),
+        ],
     ],
     'tools' => [
         'routes' => [

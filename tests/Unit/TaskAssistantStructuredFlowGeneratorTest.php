@@ -6,6 +6,25 @@ use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
 use Carbon\CarbonImmutable;
 
+it('clears time_constraint when scheduling explicit target entities so due-window does not drop listing items', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'normalizeSchedulingContextForExplicitTargets');
+    $method->setAccessible(true);
+
+    $ctx = ['time_constraint' => 'this_week'];
+    $out = $method->invoke($generator, $ctx, [
+        'target_entities' => [
+            ['entity_type' => 'task', 'entity_id' => 31],
+            ['entity_type' => 'task', 'entity_id' => 10],
+        ],
+    ]);
+
+    expect($out['time_constraint'] ?? null)->toBe('none');
+
+    $unchanged = $method->invoke($generator, $ctx, []);
+    expect($unchanged['time_constraint'] ?? null)->toBe('this_week');
+});
+
 it('applies priority filters within target_entities task slice', function (): void {
     $generator = app(TaskAssistantStructuredFlowGenerator::class);
     $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'applyContextToSnapshot');
@@ -289,9 +308,59 @@ it('does not truncate too far when the available same-day window is too small', 
 
     [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
 
-    expect((string) ($proposals[0]['title'] ?? ''))->toBe('No schedulable items found');
+    expect($proposals)->toBe([]);
     expect(is_array($digest['partial_units'] ?? null) ? count($digest['partial_units']) : 0)->toBe(0);
     expect(is_array($digest['unplaced_units'] ?? null) ? count($digest['unplaced_units']) : 0)->toBeGreaterThan(0);
+});
+
+it('places work on later days within range horizon when first day has no room', function (): void {
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-02',
+        'time_window' => ['start' => '13:00', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'range',
+            'start_date' => '2026-04-02',
+            'end_date' => '2026-04-05',
+            'label' => 'this week',
+        ],
+        'tasks' => [
+            [
+                'id' => 42,
+                'title' => 'Later this week task',
+                'priority' => 'high',
+                'duration_minutes' => 60,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [
+            [
+                'id' => 9001,
+                'title' => 'Full day block',
+                'starts_at' => '2026-04-02T13:00:00+00:00',
+                'ends_at' => '2026-04-02T22:00:00+00:00',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $context = [
+        'schedule_horizon' => $snapshot['schedule_horizon'],
+        'time_window_strict' => false,
+    ];
+
+    [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 10);
+
+    expect($proposals)->not->toBe([]);
+    expect((string) ($proposals[0]['title'] ?? ''))->toBe('Later this week task');
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('2026-04-03');
+    expect(is_array($digest['days_used'] ?? null) ? $digest['days_used'] : [])->toContain('2026-04-03');
 });
 
 it('uses adaptive tomorrow fallback when narrow non-strict window cannot place any unit', function (): void {
