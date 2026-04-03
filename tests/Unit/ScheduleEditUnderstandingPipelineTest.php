@@ -59,6 +59,35 @@ it('prefers explicit clock time over part of day when both could apply', functio
     expect($timeOps[0]['proposal_index'])->toBe(1);
 });
 
+it('parses common shorthand and typos for day and daypart', function (): void {
+    $pipeline = new ScheduleEditUnderstandingPipeline(
+        new ScheduleEditLexicon,
+        new ScheduleEditTargetResolver(new ScheduleEditLexicon),
+        new ScheduleEditTemporalParser,
+    );
+
+    $proposals = [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+        ['proposal_uuid' => 'b', 'title' => 'Task B'],
+    ];
+
+    $result = $pipeline->resolve('drag 2nd to evning tmrw', $proposals, 'UTC');
+
+    expect($result['clarification_required'])->toBeFalse();
+
+    $timeOp = collect($result['operations'])->first(
+        fn (mixed $op): bool => is_array($op) && (($op['op'] ?? '') === 'set_local_time_hhmm')
+    );
+    expect($timeOp)->toBeArray();
+    expect($timeOp['proposal_index'] ?? null)->toBe(1);
+    expect($timeOp['local_time_hhmm'] ?? null)->toBe('18:00');
+
+    $dateOp = collect($result['operations'])->first(
+        fn (mixed $op): bool => is_array($op) && (($op['op'] ?? '') === 'set_local_date_ymd')
+    );
+    expect($dateOp)->toBeArray();
+});
+
 it('accumulates per-clause time edits for multi-part then-delimited messages', function (): void {
     $pipeline = new ScheduleEditUnderstandingPipeline(
         new ScheduleEditLexicon,

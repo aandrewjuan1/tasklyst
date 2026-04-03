@@ -7,7 +7,7 @@ namespace App\Services\LLM\Scheduling;
  */
 final class ScheduleRefinementClauseSplitter
 {
-    private const EDIT_VERB = '(?:move|put|shift|set|reschedule|change|edit|adjust|swap|make)\b';
+    private const EDIT_VERB = '(?:move|put|shift|set|reschedule|change|edit|adjust|swap|make|bump|drag|slide|bring|pull|drop|delay|advance|do)\b';
 
     private const EDIT_VERB_PREFIX = '^'.self::EDIT_VERB;
 

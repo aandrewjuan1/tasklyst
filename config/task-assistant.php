@@ -306,6 +306,16 @@ TXT,
             'ambiguity_second_composite_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_SECOND_COMPOSITE_MIN', 0.12),
             // Keep general-guidance override limited to medium confidence.
             'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.65),
+            /**
+             * Minimum min(prioritization, scheduling) before non-pattern hybrid signal blends apply
+             * (@see TaskAssistantIntentHybridCue::scoreHybridSignal).
+             */
+            'hybrid_signal_floor' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_SIGNAL_FLOOR', 0.18),
+            /**
+             * When the top two merged composites are prioritize vs schedule with a small margin,
+             * route to prioritize_schedule if the hybrid composite meets this floor.
+             */
+            'hybrid_ambiguity_resolution_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_AMBIGUITY_RESOLUTION_MIN', 0.47),
         ],
     ],
 

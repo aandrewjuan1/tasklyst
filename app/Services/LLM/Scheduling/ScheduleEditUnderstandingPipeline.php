@@ -85,14 +85,20 @@ final class ScheduleEditUnderstandingPipeline
         $wantsReorder = $this->lexicon->looksLikeReorder($normalized);
 
         if (($target['ambiguous'] ?? true) && ! $wantsReorder) {
-            return $this->clarify((string) ($target['reason'] ?? 'Please specify which item to edit.'));
+            return $this->clarify(
+                (string) ($target['reason'] ?? 'Please specify which item to edit.'),
+                ['target_ambiguous']
+            );
         }
 
         if (($target['confidence'] ?? 'low') === 'low' && ! $wantsReorder) {
             $candidates = is_array($target['candidate_titles'] ?? null) ? $target['candidate_titles'] : [];
             $candidateText = $candidates !== [] ? ' Possible matches: '.implode(', ', $candidates).'.' : '';
 
-            return $this->clarify('I am not fully sure which schedule item you mean.'.$candidateText.' Please mention first/second/last or part of the title.');
+            return $this->clarify(
+                'I am not fully sure which schedule item you mean.'.$candidateText.' Please mention first/second/last, #number, or part of the title.',
+                ['target_low_confidence']
+            );
         }
 
         $ops = [];
@@ -129,7 +135,10 @@ final class ScheduleEditUnderstandingPipeline
         }
 
         if ($ops === []) {
-            return $this->clarify('I could not map that to a concrete edit yet. Tell me item + change, like "move second to 8 pm".');
+            return $this->clarify(
+                'I could not map that to a concrete edit yet. Tell me item + change, like "move second to 8 pm".',
+                ['no_concrete_operation']
+            );
         }
 
         foreach ($ops as $op) {
@@ -201,21 +210,21 @@ final class ScheduleEditUnderstandingPipeline
 
         $targetPattern = $this->lexicon->scheduleDraftReorderTargetPattern();
 
-        if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bto\s+first\b/u', $normalized, $m) === 1) {
+        if (preg_match('/\b(?:move|drag|slide|bring|pull|drop)\s+('.$targetPattern.')\b[^.]*\bto\s+first\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             if (($source['index'] ?? null) !== null) {
                 return ['op' => 'move_to_position', 'proposal_index' => (int) $source['index'], 'proposal_uuid' => $source['proposal_uuid'] ?? null, 'target_index' => 0];
             }
         }
 
-        if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bto\s+last\b/u', $normalized, $m) === 1) {
+        if (preg_match('/\b(?:move|drag|slide|bring|pull|drop)\s+('.$targetPattern.')\b[^.]*\bto\s+last\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             if (($source['index'] ?? null) !== null) {
                 return ['op' => 'move_to_position', 'proposal_index' => (int) $source['index'], 'proposal_uuid' => $source['proposal_uuid'] ?? null, 'target_index' => $count - 1];
             }
         }
 
-        if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bbefore\b[^.]*\b('.$targetPattern.')\b/u', $normalized, $m) === 1) {
+        if (preg_match('/\b(?:move|drag|slide|bring|pull|drop)\s+('.$targetPattern.')\b[^.]*\bbefore\b[^.]*\b('.$targetPattern.')\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             $anchor = $this->targetResolver->resolvePrimaryTarget((string) $m[2], $proposals);
             if (($source['index'] ?? null) !== null && ($anchor['index'] ?? null) !== null) {
@@ -229,7 +238,7 @@ final class ScheduleEditUnderstandingPipeline
             }
         }
 
-        if (preg_match('/\bmove\s+('.$targetPattern.')\b[^.]*\bafter\b[^.]*\b('.$targetPattern.')\b/u', $normalized, $m) === 1) {
+        if (preg_match('/\b(?:move|drag|slide|bring|pull|drop)\s+('.$targetPattern.')\b[^.]*\bafter\b[^.]*\b('.$targetPattern.')\b/u', $normalized, $m) === 1) {
             $source = $this->targetResolver->resolvePrimaryTarget((string) $m[1], $proposals);
             $anchor = $this->targetResolver->resolvePrimaryTarget((string) $m[2], $proposals);
             if (($source['index'] ?? null) !== null && ($anchor['index'] ?? null) !== null) {
@@ -249,13 +258,13 @@ final class ScheduleEditUnderstandingPipeline
     /**
      * @return array{operations: list<array<string, mixed>>, clarification_required: bool, clarification_message: string, reasons: list<string>}
      */
-    private function clarify(string $message): array
+    private function clarify(string $message, array $reasons = []): array
     {
         return [
             'operations' => [],
             'clarification_required' => true,
             'clarification_message' => $message,
-            'reasons' => [$message],
+            'reasons' => $reasons !== [] ? $reasons : [$message],
         ];
     }
 }

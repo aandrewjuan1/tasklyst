@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 final class TaskAssistantIntentResolutionService
 {
     /**
-     * @param  array{prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float, hybrid?: float}  $signals
      */
     public function resolve(
         TaskAssistantThread $thread,
@@ -55,7 +55,7 @@ final class TaskAssistantIntentResolutionService
         }
 
         if ($inference->failed || $inference->intent === null) {
-            $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_failed_fallback_general_guidance'], false);
+            $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_failed_fallback_general_guidance'], false, null);
 
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
@@ -75,6 +75,47 @@ final class TaskAssistantIntentResolutionService
         $scheduleSignal = (float) ($signals['scheduling'] ?? 0.0);
         $signalOverrideThreshold = (float) config('task-assistant.intent.merge.validator_override_signal_min', 0.72);
 
+        // LLM can directly classify the unified flow (rank top tasks + schedule them).
+        if ($llmIntent === TaskAssistantUserIntent::PrioritizeSchedule) {
+            $mergedConfidence = max(
+                $llmConf,
+                min(1.0, ($prioritizeSignal + $scheduleSignal) / 2)
+            );
+
+            $codes = array_values(array_unique(array_merge(
+                $reasonCodes,
+                ['intent_llm_prioritize_schedule_composite']
+            )));
+
+            $wSig = (float) config('task-assistant.intent.merge.signal_weight', 0.5);
+            $signalHybrid = (float) ($signals['hybrid'] ?? 0.0);
+
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'prioritize_schedule',
+                $codes,
+                false,
+                [
+                    'prioritize_schedule' => $mergedConfidence,
+                    'prioritize' => $wSig * $prioritizeSignal,
+                    'schedule' => $wSig * $scheduleSignal,
+                    'hybrid_signal' => $signalHybrid,
+                ]
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'prioritize_schedule',
+                confidence: $mergedConfidence,
+                reasonCodes: $codes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($llmIntent === TaskAssistantUserIntent::Greeting || $llmIntent === TaskAssistantUserIntent::GeneralGuidance) {
             // If the model says "general guidance" but signals are clearly prioritize/schedule,
             // prefer the deterministic signal route to avoid obvious misclassification.
@@ -88,7 +129,8 @@ final class TaskAssistantIntentResolutionService
                         $signals,
                         'prioritize',
                         $codes,
-                        false
+                        false,
+                        null
                     );
 
                     return new IntentRoutingDecision(
@@ -110,7 +152,8 @@ final class TaskAssistantIntentResolutionService
                         $signals,
                         'schedule',
                         $codes,
-                        false
+                        false,
+                        null
                     );
 
                     return new IntentRoutingDecision(
@@ -131,7 +174,8 @@ final class TaskAssistantIntentResolutionService
                 $signals,
                 'general_guidance',
                 array_values(array_unique(array_merge($reasonCodes, ['intent_general_guidance']))),
-                false
+                false,
+                null
             );
 
             return new IntentRoutingDecision(
@@ -152,7 +196,8 @@ final class TaskAssistantIntentResolutionService
                 $signals,
                 'general_guidance',
                 array_values(array_unique(array_merge($reasonCodes, ['intent_unclear']))),
-                false
+                false,
+                null
             );
 
             return new IntentRoutingDecision(
@@ -178,7 +223,8 @@ final class TaskAssistantIntentResolutionService
                 $signals,
                 'general_guidance',
                 $reasonCodes,
-                false
+                false,
+                null
             );
 
             return new IntentRoutingDecision(
@@ -215,13 +261,19 @@ final class TaskAssistantIntentResolutionService
         $secondComposite = $sorted[1] ?? 0.0;
         $margin = $topComposite - $secondComposite;
 
+        $pComp = (float) ($compositeScores['prioritize'] ?? 0.0);
+        $sComp = (float) ($compositeScores['schedule'] ?? 0.0);
+        $topPairComposite = max($pComp, $sComp);
+        $secondPairComposite = min($pComp, $sComp);
+        $prioritizeScheduleMargin = $topPairComposite - $secondPairComposite;
+
         $weakMax = (float) config('task-assistant.intent.merge.weak_composite_max', 0.38);
         $clarifyMargin = (float) config('task-assistant.intent.merge.clarify_margin', 0.12);
         $clarifyCeiling = (float) config('task-assistant.intent.merge.clarify_composite_ceiling', 0.55);
 
         if ($topComposite < $weakMax && $llmConf < 0.45 && $strongestScore < 0.35) {
             $reasonCodes[] = 'validator_fallback_general';
-            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'general_guidance', $reasonCodes, false);
+            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'general_guidance', $reasonCodes, false, $compositeScores);
 
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
@@ -236,20 +288,45 @@ final class TaskAssistantIntentResolutionService
         $finalFlow = (string) array_key_first($compositeScores);
         $clarificationNeeded = $margin < $clarifyMargin && $topComposite < $clarifyCeiling;
 
-        // Confidence gap hardening:
-        // If the two top candidate composites are close, prefer general guidance
-        // (ask a question) instead of forcing prioritize/schedule or a
-        // clarification flow. This reduces wrong hard routing when Hermes is
-        // uncertain but still outputs a valid label.
+        // Confidence gap hardening (prioritize vs schedule composites only — ignore third flow).
+        // If those two are close, prefer general guidance unless hybrid composite can resolve the tie.
         $ambiguityGapMin = (float) config('task-assistant.intent.merge.ambiguity_gap_min', 0.15);
         $ambiguitySecondCompositeMin = (float) config('task-assistant.intent.merge.ambiguity_second_composite_min', 0.12);
         $ambiguityTopCompositeMax = (float) config('task-assistant.intent.merge.ambiguity_top_composite_max', 0.65);
 
-        $confidenceGapAmbiguous = $margin < $ambiguityGapMin
-            && $secondComposite >= $ambiguitySecondCompositeMin
-            && $topComposite <= $ambiguityTopCompositeMax;
+        $confidenceGapAmbiguous = $prioritizeScheduleMargin < $ambiguityGapMin
+            && $secondPairComposite >= $ambiguitySecondCompositeMin
+            && $topPairComposite <= $ambiguityTopCompositeMax;
 
         if ($confidenceGapAmbiguous) {
+            $hybridComposite = (float) ($compositeScores['prioritize_schedule'] ?? 0.0);
+            $hybridAmbiguityMin = (float) config('task-assistant.intent.merge.hybrid_ambiguity_resolution_min', 0.47);
+
+            if ($hybridComposite >= $hybridAmbiguityMin) {
+                $reasonCodes[] = 'hybrid_resolves_prioritize_schedule_ambiguity';
+                $reasonCodes[] = 'validator_merged';
+
+                $this->logResolution(
+                    $thread,
+                    $llmIntent->value,
+                    $llmConf,
+                    $signals,
+                    'prioritize_schedule',
+                    array_values(array_unique($reasonCodes)),
+                    false,
+                    $compositeScores
+                );
+
+                return new IntentRoutingDecision(
+                    flow: 'prioritize_schedule',
+                    confidence: $hybridComposite,
+                    reasonCodes: array_values(array_unique($reasonCodes)),
+                    constraints: [],
+                    clarificationNeeded: false,
+                    clarificationQuestion: null,
+                );
+            }
+
             $reasonCodes[] = 'confidence_gap_ambiguous_general_guidance';
             $this->logResolution(
                 $thread,
@@ -258,7 +335,8 @@ final class TaskAssistantIntentResolutionService
                 $signals,
                 'general_guidance',
                 $reasonCodes,
-                false
+                false,
+                $compositeScores
             );
 
             return new IntentRoutingDecision(
@@ -275,7 +353,7 @@ final class TaskAssistantIntentResolutionService
             // Clarification is no longer a separate branch; fall back to general guidance
             // and let the general flow ask the user to pick prioritize vs schedule.
             $reasonCodes[] = 'low_margin_intent_general_guidance';
-            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'general_guidance', $reasonCodes, false);
+            $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, 'general_guidance', $reasonCodes, false, $compositeScores);
 
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
@@ -289,7 +367,11 @@ final class TaskAssistantIntentResolutionService
 
         $reasonCodes[] = 'validator_merged';
 
-        $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, $finalFlow, $reasonCodes, false);
+        if ($finalFlow === 'prioritize_schedule') {
+            $reasonCodes[] = 'validator_merge_prioritize_schedule';
+        }
+
+        $this->logResolution($thread, $llmIntent->value, $llmConf, $signals, $finalFlow, $reasonCodes, false, $compositeScores);
 
         return new IntentRoutingDecision(
             flow: $finalFlow,
@@ -302,7 +384,7 @@ final class TaskAssistantIntentResolutionService
     }
 
     /**
-     * @param  array{prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float, hybrid?: float}  $signals
      */
     private function resolveSignalOnly(
         TaskAssistantThread $thread,
@@ -314,16 +396,25 @@ final class TaskAssistantIntentResolutionService
         $flowScores = [
             'prioritize' => (float) ($signals['prioritization'] ?? 0.0),
             'schedule' => (float) ($signals['scheduling'] ?? 0.0),
+            'prioritize_schedule' => (float) ($signals['hybrid'] ?? 0.0),
         ];
         arsort($flowScores);
-        $topFlow = (string) array_key_first($flowScores);
+        $orderedKeys = array_keys($flowScores);
+        $topFlow = (string) ($orderedKeys[0] ?? '');
+        $secondFlow = (string) ($orderedKeys[1] ?? '');
         $sorted = array_values($flowScores);
         $top = $sorted[0] ?? 0.0;
         $second = $sorted[1] ?? 0.0;
         $margin = $top - $second;
 
+        $topTwoArePrioritizeSchedulePair =
+            ($topFlow === 'prioritize' && $secondFlow === 'schedule')
+            || ($topFlow === 'schedule' && $secondFlow === 'prioritize');
+
+        $clarificationNeeded = $margin < $clarifyMargin && $topTwoArePrioritizeSchedulePair;
+
         if ($top < $weakThreshold) {
-            $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_disabled_signal_weak_general_guidance'], false);
+            $this->logResolution($thread, null, null, $signals, 'general_guidance', ['intent_llm_disabled_signal_weak_general_guidance'], false, $flowScores);
 
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
@@ -335,10 +426,9 @@ final class TaskAssistantIntentResolutionService
             );
         }
 
-        $clarificationNeeded = $margin < $clarifyMargin;
         if ($clarificationNeeded) {
             $reasonCodes = ['signal_only_low_margin_general_guidance'];
-            $this->logResolution($thread, null, null, $signals, 'general_guidance', $reasonCodes, false);
+            $this->logResolution($thread, null, null, $signals, 'general_guidance', $reasonCodes, false, $flowScores);
 
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
@@ -350,8 +440,10 @@ final class TaskAssistantIntentResolutionService
             );
         }
 
-        $reasonCodes = ['signal_only'];
-        $this->logResolution($thread, null, null, $signals, $topFlow, $reasonCodes, false);
+        $reasonCodes = $topFlow === 'prioritize_schedule'
+            ? ['signal_only_prioritize_schedule']
+            : ['signal_only'];
+        $this->logResolution($thread, null, null, $signals, $topFlow, $reasonCodes, false, $flowScores);
 
         return new IntentRoutingDecision(
             flow: $topFlow,
@@ -364,7 +456,7 @@ final class TaskAssistantIntentResolutionService
     }
 
     /**
-     * @param  array{prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float, hybrid?: float}  $signals
      * @return array<string, float>
      */
     private function compositeScores(array $signals, TaskAssistantUserIntent $effectiveIntent, float $llmConf): array
@@ -377,19 +469,25 @@ final class TaskAssistantIntentResolutionService
         $llmSched = $effectiveIntent === TaskAssistantUserIntent::Scheduling ? $llmConf : 0.0;
 
         $signalPrioritize = (float) ($signals['prioritization'] ?? 0.0);
+        $signalSchedule = (float) ($signals['scheduling'] ?? 0.0);
+        $signalHybrid = (float) ($signals['hybrid'] ?? 0.0);
 
         return [
             'prioritize' => $wLlm * $llmPrioritize + $wSig * $signalPrioritize,
-            'schedule' => $wLlm * $llmSched + $wSig * ($signals['scheduling'] ?? 0.0),
+            'schedule' => $wLlm * $llmSched + $wSig * $signalSchedule,
+            'prioritize_schedule' => $wLlm * 0.0 + $wSig * $signalHybrid,
         ];
     }
 
     /**
-     * @param  array{prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float, hybrid?: float}  $signals
      */
     private function strongestSignalKey(array $signals): string
     {
-        $copy = $signals;
+        $copy = [
+            'prioritization' => (float) ($signals['prioritization'] ?? 0.0),
+            'scheduling' => (float) ($signals['scheduling'] ?? 0.0),
+        ];
         arsort($copy);
 
         return (string) array_key_first($copy);
@@ -405,8 +503,9 @@ final class TaskAssistantIntentResolutionService
     }
 
     /**
-     * @param  array{prioritization: float, scheduling: float}  $signals
+     * @param  array{prioritization: float, scheduling: float, hybrid?: float}  $signals
      * @param  array<int, string>  $reasonCodes
+     * @param  array<string, float>|null  $compositeScores
      */
     private function logResolution(
         TaskAssistantThread $thread,
@@ -416,6 +515,7 @@ final class TaskAssistantIntentResolutionService
         string $finalFlow,
         array $reasonCodes,
         bool $clarificationNeeded,
+        ?array $compositeScores = null,
     ): void {
         Log::info('task-assistant.intent_resolution', [
             'layer' => 'intent_resolution',
@@ -425,6 +525,7 @@ final class TaskAssistantIntentResolutionService
             'llm_intent' => $llmIntent,
             'llm_confidence' => $llmConfidence,
             'signals' => $signals,
+            'composite_scores' => $compositeScores,
             'final_flow' => $finalFlow,
             'reason_codes' => $reasonCodes,
             'clarification_needed' => $clarificationNeeded,

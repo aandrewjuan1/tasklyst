@@ -117,21 +117,25 @@ Allowed intent values (exactly one): {$allowed}
 - greeting: social greeting-only (hi/hello/yo) with no task request.
 - general_guidance: vague help-seeking, stress/overwhelm, \"help\", \"what now\", or productivity/task support without a clear request to prioritize vs schedule.
 - unclear: unintelligible, noisy, or unclear message where you cannot identify a real request yet.
-- prioritization: what to do first, top tasks, ordering by importance/urgency, or listing/filtering requests.
-- scheduling: calendar, time blocks, plan my day, when to work on something.
+- prioritization: what to do first, top tasks, ordering by importance/urgency, ranking, deadlines, homework/quiz/exam stress, \"idk what to do\", \"what matters most\", listing/filtering, or choosing between tasks.
+- scheduling: calendar, time blocks, plan my day, when to work on something, \"fit it in\", \"when can I\", \"what time\", \"block time\", \"remind me\", afternoon/tomorrow/this week.
+- prioritize_schedule: the user wants ranked "top/first/next" tasks AND also wants them scheduled in a time window (e.g. "schedule my top 1 tasks for tomorrow/afternoon", "what's the perfect time to do my top tasks?", "rank my homework and put it tomorrow afternoon").
 - off_topic: unrelated to task management or productivity (e.g., politics, celebrity, product recommendations, relationship advice).
 
 USER MESSAGE:
 "{$userMessage}"
 
 Rules for confidence discipline:
+- If the user clearly wants help deciding order, urgency, or what to tackle (even if messy slang or short), prefer prioritization with confidence >= 0.72.
+- If the user clearly wants a time, calendar, or slot (even if informal), prefer scheduling with confidence >= 0.72.
 - If the user explicitly asks to prioritize or list what to do next, set confidence >= 0.75.
 - If the user explicitly asks for scheduling, calendar, or time blocks, set confidence >= 0.75.
+- If the user explicitly asks to schedule their top/first/next tasks (rank + time window), set confidence >= 0.75.
 - If the user is vague / only says \"help\", \"what now\", \"overwhelmed\", or otherwise does not clearly ask for prioritize vs schedule,
   use general_guidance with confidence between 0.55 and 0.80.
 - If the user is social/greeting-only, use greeting with confidence >= 0.80.
 - If the user is gibberish/noisy/unclear, use unclear with confidence >= 0.75.
-- Keep confidence <= 0.60 whenever the input is ambiguous between prioritize and scheduling.
+- Keep confidence <= 0.60 only when the input is truly ambiguous between prioritize and scheduling (both sound equally likely).
 
 Respond with JSON matching the schema. Set confidence between 0 and 1. Keep rationale under one sentence.
 PROMPT;

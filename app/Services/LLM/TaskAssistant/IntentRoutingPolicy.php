@@ -3,6 +3,7 @@
 namespace App\Services\LLM\TaskAssistant;
 
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\Intent\TaskAssistantIntentHybridCue;
 use App\Services\LLM\Intent\TaskAssistantIntentInferenceService;
 use App\Services\LLM\Intent\TaskAssistantIntentResolutionService;
 use App\Services\LLM\Intent\TaskAssistantIntentSignalExtractor;
@@ -77,6 +78,35 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['gibberish_shortcircuit_general_guidance', 'general_guidance_noisy_unclear'],
                 constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        if ($this->isLikelyPrioritizeScheduleCombinedPrompt($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'prioritize_schedule_combined_prompt_shortcircuit',
+                'flow' => 'prioritize_schedule',
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'prioritize_schedule',
+                confidence: 1.0,
+                reasonCodes: ['prioritize_schedule_combined_prompt'],
+                constraints: $constraints,
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -240,9 +270,10 @@ final class IntentRoutingPolicy
         $useSelected = preg_match('/\b(those|them|those\s+\d+|the\s+above)\b/i', $normalized) === 1;
 
         $targetEntities = [];
-        if ($resolvedFlow === 'schedule') {
+        if ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule') {
             $listing = $this->scheduleAwareLastListing($thread, $normalized);
-            $resolved = $this->listingReferenceResolver->resolveForSchedule($normalized, $listing, $resolvedFlow);
+            $referenceFlow = $resolvedFlow === 'prioritize_schedule' ? 'schedule' : $resolvedFlow;
+            $resolved = $this->listingReferenceResolver->resolveForSchedule($normalized, $listing, $referenceFlow);
             if ($resolved !== []) {
                 $targetEntities = $resolved;
             } elseif ($useSelected && $selected !== []) {
@@ -256,7 +287,7 @@ final class IntentRoutingPolicy
         // If we resolved explicit schedule targets from the user's last ordered listing
         // ("those/the above"/sliced subsets), align how many we schedule with that resolved set.
         // This prevents unintentionally truncating the user's requested batch size.
-        if ($resolvedFlow === 'schedule' && $targetEntities !== []) {
+        if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule') && $targetEntities !== []) {
             $countLimit = max(1, count($targetEntities));
         }
 
@@ -475,6 +506,17 @@ final class IntentRoutingPolicy
         return preg_match('/\bonly\b/u', $normalized) === 1;
     }
 
+    private function isLikelyPrioritizeScheduleCombinedPrompt(string $normalized): bool
+    {
+        if ($this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+            return false;
+        }
+
+        $normalized = TaskAssistantIntentHybridCue::normalizeForSignals($normalized);
+
+        return TaskAssistantIntentHybridCue::matchesCombinedPrioritizeSchedulePrompt($normalized);
+    }
+
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool
     {
         return TaskAssistantWhatToDoFirstIntent::matches($normalized);
@@ -499,9 +541,9 @@ final class IntentRoutingPolicy
             return false;
         }
 
-        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust)\b/u', $normalized) === 1;
+        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|do|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
         $hasScheduleCue = preg_match(
-            '/\b(first|second|third|last|item|one|it|this|that|before|after|later|earlier|tomorrow|today|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
+            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|item|task|one|it|this|that|same one|before|after|later|earlier|tomorrow|today|tmrw|tomorow|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
             $normalized
         ) === 1;
 
@@ -510,7 +552,12 @@ final class IntentRoutingPolicy
             $normalized
         ) === 1;
 
-        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape;
+        $implicitEditPhrase = preg_match(
+            '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|#\d+|item\s*#?\d+|task\s*#?\d+)\b.{0,40}\b(instead|please|at|for|to|on)\b.{0,60}\b(morning|afternoon|evening|night|today|tomorrow|tmrw|\d{1,2}(:\d{2})?\s*(am|pm)?)\b/u',
+            $normalized
+        ) === 1;
+
+        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase;
     }
 
     private function isLikelyPureGreeting(string $normalized): bool

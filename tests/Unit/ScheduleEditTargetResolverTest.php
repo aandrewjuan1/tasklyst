@@ -145,3 +145,21 @@ it('resolves top plus word ordinals', function (): void {
     expect($result['index'])->toBe(1);
     expect($result['confidence'])->toBe('high');
 });
+
+it('resolves task number and ordinal suffix references', function (): void {
+    $resolver = new ScheduleEditTargetResolver(new ScheduleEditLexicon);
+
+    $taskNumber = $resolver->resolvePrimaryTarget('shift task 2 to 4pm', [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+        ['proposal_uuid' => 'b', 'title' => 'Task B'],
+    ]);
+    expect($taskNumber['index'])->toBe(1);
+
+    $ordinalSuffix = $resolver->resolvePrimaryTarget('bring 3rd to evening', [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+        ['proposal_uuid' => 'b', 'title' => 'Task B'],
+        ['proposal_uuid' => 'c', 'title' => 'Task C'],
+    ]);
+    expect($ordinalSuffix['index'])->toBe(2);
+    expect($ordinalSuffix['confidence'])->toBe('high');
+});

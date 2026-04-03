@@ -58,6 +58,30 @@ test('LLM intent scheduling maps to schedule flow', function (): void {
     expect($decision->reasonCodes)->toContain('llm_intent_scheduling');
 });
 
+test('LLM intent prioritize_schedule maps to prioritize_schedule flow', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'prioritize_schedule',
+                'confidence' => 0.9,
+                'rationale' => 'Rank tasks, then pick the right time window.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    // This prompt should not match the regex heuristic (no "top/first/next" wording).
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'Schedule my highest priority tasks for tomorrow'
+    );
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('llm_intent_prioritize_schedule');
+});
+
 test('invalid LLM intent label falls back to general guidance', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -245,6 +269,53 @@ test('schedule top task resolves single target and count limit one', function ()
     expect((int) $decision->constraints['target_entities'][0]['entity_id'])->toBe(10);
 });
 
+test('schedule my top 1 tasks for later routes to prioritize_schedule with single count', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my top 1 tasks for later');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
+test('schedule my top tasks for later routes to prioritize_schedule with default multi count', function (string $prompt): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, $prompt);
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->constraints['count_limit'])->toBe(3);
+})->with([
+    'schedule my top tasks for tomorrow',
+    'schedule my top tasks for tomorrow afternoon',
+]);
+
+test('schedule my top tasks for tomorrow afternoon over prior listing targets all top tasks', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 101, 'title' => 'One'],
+            ['entity_type' => 'task', 'entity_id' => 102, 'title' => 'Two'],
+            ['entity_type' => 'task', 'entity_id' => 103, 'title' => 'Three'],
+        ],
+        null,
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my top tasks for tomorrow afternoon');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(3);
+    expect($decision->constraints['count_limit'])->toBe(3);
+});
+
 test('schedule flow resolves top N against last_listing', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -272,7 +343,7 @@ test('schedule flow resolves top N against last_listing', function (): void {
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule top 2 for later afternoon');
 
-    expect($decision->flow)->toBe('schedule');
+    expect($decision->flow)->toBe('prioritize_schedule');
     expect($decision->constraints['target_entities'])->toHaveCount(2);
     expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(101);
     expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(102);
@@ -581,6 +652,28 @@ test('pending schedule context plus edit-like prompt shortcircuits to schedule',
     );
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'move the first one to last');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->reasonCodes)->toContain('schedule_refinement_context_shortcircuit');
+});
+
+test('pending schedule context plus implicit edit phrase shortcircuits to schedule', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 701, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 702, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 703, 'title' => 'C'],
+        ],
+        null
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'third one at evening instead');
 
     expect($decision->flow)->toBe('schedule');
     expect($decision->reasonCodes)->toContain('schedule_refinement_context_shortcircuit');

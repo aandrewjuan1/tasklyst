@@ -122,6 +122,9 @@ final class ScheduleEditTargetResolver
         if (preg_match('/\bitem\s*#?(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
             $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
         }
+        if (preg_match('/\b(?:task|event|project)\s*#?(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
         if (preg_match('/\btop\s*#?\s*(\d+)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
             $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
         }
@@ -146,6 +149,9 @@ final class ScheduleEditTargetResolver
         }
 
         if (preg_match('/(?:^|[\s,;])#([1-9]\d{0,2})\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
+            $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
+        }
+        if (preg_match('/\b(\d+)(?:st|nd|rd|th)\b/u', $normalizedMessage, $m, PREG_OFFSET_CAPTURE) === 1) {
             $push((int) $m[0][1], (int) $m[1][0] - 1, 'high');
         }
 

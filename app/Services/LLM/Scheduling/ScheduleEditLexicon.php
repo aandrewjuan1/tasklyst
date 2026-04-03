@@ -54,11 +54,11 @@ final class ScheduleEditLexicon
 
     public function hasAmbiguousPronoun(string $message): bool
     {
-        return preg_match('/\b(it|this|that|this one|that one)\b/u', $message) === 1;
+        return preg_match('/\b(it|this|that|this one|that one|same one)\b/u', $message) === 1;
     }
 
     public function looksLikeReorder(string $message): bool
     {
-        return preg_match('/\b(before|after|first|last|reorder|swap)\b/u', $message) === 1;
+        return preg_match('/\b(before|after|first|last|reorder|swap|drag|slide)\b/u', $message) === 1;
     }
 }

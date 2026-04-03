@@ -59,6 +59,40 @@ final class TaskAssistantScheduleContextBuilder
         }
         $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
 
+        $explicitOverrideRaw = is_string($snapshot['refinement_explicit_day_override'] ?? null)
+            ? trim((string) $snapshot['refinement_explicit_day_override'])
+            : '';
+        if ($explicitOverrideRaw !== '') {
+            try {
+                $override = CarbonImmutable::parse($explicitOverrideRaw, $timezone)->toDateString();
+                $normalized['schedule_horizon'] = [
+                    'mode' => 'single_day',
+                    'start_date' => $override,
+                    'end_date' => $override,
+                    'label' => 'refinement_explicit_override',
+                ];
+            } catch (\Throwable) {
+                // Keep resolved horizon when override parsing fails.
+            }
+        } else {
+            $anchorRaw = is_string($snapshot['refinement_anchor_date'] ?? null)
+                ? trim((string) $snapshot['refinement_anchor_date'])
+                : '';
+            if ($anchorRaw !== '') {
+                try {
+                    $anchor = CarbonImmutable::parse($anchorRaw, $timezone)->toDateString();
+                    $normalized['schedule_horizon'] = [
+                        'mode' => 'single_day',
+                        'start_date' => $anchor,
+                        'end_date' => $anchor,
+                        'label' => 'refinement_anchor',
+                    ];
+                } catch (\Throwable) {
+                    // Keep resolved horizon when anchor parsing fails.
+                }
+            }
+        }
+
         $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
         $horizon = is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [];
         $isMultiDayHorizon = ($horizon['mode'] ?? '') === 'range'

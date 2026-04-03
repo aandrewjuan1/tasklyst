@@ -53,6 +53,14 @@ it('splits on next when followed by edit verb', function (): void {
     ]);
 });
 
+it('splits comma before colloquial edit verb', function (): void {
+    $s = new ScheduleRefinementClauseSplitter;
+    expect($s->split('move first to 8 am, drag second to 8 pm'))->toBe([
+        'move first to 8 am',
+        'drag second to 8 pm',
+    ]);
+});
+
 it('normalizes empty to empty list', function (): void {
     $s = new ScheduleRefinementClauseSplitter;
     expect($s->split('   '))->toBe([]);

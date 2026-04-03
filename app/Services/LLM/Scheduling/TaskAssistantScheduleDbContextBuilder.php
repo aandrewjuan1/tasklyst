@@ -46,7 +46,17 @@ final class TaskAssistantScheduleDbContextBuilder
         // Deterministically resolve placement horizon from the user's message.
         $context = $this->scheduleContextBuilder->build(
             $userMessageContent,
-            ['timezone' => $timezone, 'today' => $today, 'now' => $now->toIso8601String()]
+            [
+                'timezone' => $timezone,
+                'today' => $today,
+                'now' => $now->toIso8601String(),
+                'refinement_anchor_date' => is_string($options['refinement_anchor_date'] ?? null)
+                    ? (string) $options['refinement_anchor_date']
+                    : null,
+                'refinement_explicit_day_override' => is_string($options['refinement_explicit_day_override'] ?? null)
+                    ? (string) $options['refinement_explicit_day_override']
+                    : null,
+            ]
         );
 
         $horizon = $context['schedule_horizon'] ?? null;
@@ -75,6 +85,9 @@ final class TaskAssistantScheduleDbContextBuilder
         $snapshot = [
             'today' => $today,
             'timezone' => $timezone,
+            // Preserve the exact \"now\" used for horizon resolution so downstream
+            // placement logic can avoid proposing blocks in the past for today.
+            'now' => $now->toIso8601String(),
             'tasks' => $tasks,
             'events' => $events,
             'events_for_busy' => $events, // preserved by downstream logic

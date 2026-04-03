@@ -71,6 +71,14 @@ final class TaskAssistantListingReferenceResolver
         }
 
         $count = count($items);
+
+        // Global \"top tasks\" phrasing with a prior ordered listing should
+        // default to \"all of the current top tasks\" instead of collapsing to
+        // a single item, as long as the user did not specify an explicit
+        // numeric limit elsewhere in the prompt.
+        if ($this->matchesGlobalTopTasksPrompt($normalizedMessage)) {
+            return $this->toTargetEntities($items);
+        }
         $explicitLast = $this->matchLastBottomCount($normalizedMessage);
         $explicitFirst = $this->matchTopFirstCount($normalizedMessage);
 
@@ -378,6 +386,23 @@ final class TaskAssistantListingReferenceResolver
         }
 
         return null;
+    }
+
+    private function matchesGlobalTopTasksPrompt(string $normalized): bool
+    {
+        // Only interpret when the user is clearly asking to schedule/plan,
+        // without an explicit numeric limit (those are handled separately).
+        if (preg_match('/\b(schedule|plan)\b/iu', $normalized) !== 1) {
+            return false;
+        }
+
+        if (preg_match('/\b(top|first)\s+\d+\b/iu', $normalized) === 1) {
+            return false;
+        }
+
+        // Only treat the plural \"top tasks\" as a global request; singular
+        // \"top task\" should continue to map to a single item.
+        return preg_match('/\btop\s+tasks\b/iu', $normalized) === 1;
     }
 
     private function matchTopFirstCount(string $normalized): ?int

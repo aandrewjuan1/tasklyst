@@ -641,11 +641,40 @@ final class TaskAssistantStructuredFlowGenerator
         $windowStart = is_string($window['start'] ?? null) ? $window['start'] : '00:00';
         $windowEnd = is_string($window['end'] ?? null) ? $window['end'] : '23:59:59';
 
+        $todayStr = is_string($snapshot['today'] ?? null) ? trim((string) $snapshot['today']) : '';
+        $nowStr = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
+        $nowInstant = null;
+        if ($nowStr !== '') {
+            try {
+                $nowInstant = new \DateTimeImmutable($nowStr, $timezone);
+            } catch (\Throwable) {
+                $nowInstant = null;
+            }
+        }
+
         /** @var array<string, array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>> $windowsByDay */
         $windowsByDay = [];
         foreach ($placementDates as $day) {
             $dayStart = new \DateTimeImmutable($day.' '.$windowStart, $timezone);
             $dayEnd = new \DateTimeImmutable($day.' '.$windowEnd, $timezone);
+
+            // For the current day, avoid proposing new blocks in the past. If
+            // \"now\" lies within today's window, clamp the effective start of
+            // the scheduling window to that instant. If \"now\" is already
+            // beyond the end of the window, there is nothing left to schedule
+            // today so we skip free windows for this date entirely.
+            if ($todayStr !== '' && $day === $todayStr && $nowInstant instanceof \DateTimeImmutable) {
+                if ($nowInstant >= $dayEnd) {
+                    $windowsByDay[$day] = [];
+
+                    continue;
+                }
+
+                if ($nowInstant > $dayStart && $nowInstant < $dayEnd) {
+                    $dayStart = $nowInstant;
+                }
+            }
+
             $busyRanges = $this->buildBusyRanges($snapshot, $dayStart, $dayEnd, $timezone);
             $windowsByDay[$day] = $this->buildFreeWindows($busyRanges, $dayStart, $dayEnd);
         }
@@ -975,6 +1004,7 @@ final class TaskAssistantStructuredFlowGenerator
         array $workingProposals,
         int $targetIndex,
         int $scheduleUserId,
+        array $refinementDayOptions = [],
     ): array {
         if ($targetIndex < 0 || $targetIndex >= count($workingProposals)) {
             return ['ok' => false, 'merged_proposals' => $workingProposals, 'error' => 'invalid_target_index'];
@@ -1001,6 +1031,12 @@ final class TaskAssistantStructuredFlowGenerator
         $options = [
             'target_entities' => $targetEntities,
             'schedule_user_id' => $scheduleUserId,
+            'refinement_anchor_date' => is_string($refinementDayOptions['refinement_anchor_date'] ?? null)
+                ? (string) $refinementDayOptions['refinement_anchor_date']
+                : null,
+            'refinement_explicit_day_override' => is_string($refinementDayOptions['refinement_explicit_day_override'] ?? null)
+                ? (string) $refinementDayOptions['refinement_explicit_day_override']
+                : null,
         ];
 
         $built = $this->dbContextBuilder->buildForUser($user, $userMessage, $options);

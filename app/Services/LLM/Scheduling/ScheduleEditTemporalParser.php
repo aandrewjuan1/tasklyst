@@ -6,10 +6,23 @@ use Carbon\CarbonImmutable;
 
 final class ScheduleEditTemporalParser
 {
+    private function normalizeTemporalShorthand(string $message): string
+    {
+        $normalized = mb_strtolower($message);
+        $normalized = preg_replace('/\btmrw\b/u', 'tomorrow', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\btomor+ow\b/u', 'tomorrow', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\bevning\b/u', 'evening', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\bafternon\b/u', 'afternoon', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\b2nite\b/u', 'tonight', $normalized) ?? $normalized;
+
+        return $normalized;
+    }
+
     public function parseLocalTime(string $message, ?int $fallbackHour = null): ?string
     {
-        if (preg_match('/\b(?:at|to|for|later)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/u', $message, $m) !== 1) {
-            if (preg_match('/\b(?:at|to|for)?\s*(\d{1,2}):(\d{2})\b/u', $message, $m24) === 1) {
+        $normalized = $this->normalizeTemporalShorthand($message);
+        if (preg_match('/\b(?:at|to|for|later)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/u', $normalized, $m) !== 1) {
+            if (preg_match('/\b(?:at|to|for)?\s*(\d{1,2}):(\d{2})\b/u', $normalized, $m24) === 1) {
                 $hour = (int) $m24[1];
                 $minute = (int) $m24[2];
                 if ($hour >= 0 && $hour <= 23 && $minute >= 0 && $minute <= 59) {
@@ -39,26 +52,27 @@ final class ScheduleEditTemporalParser
 
     public function parseLocalDateYmd(string $message, string $timezone): ?string
     {
-        if (preg_match('/\b(\d{4}-\d{2}-\d{2})\b/u', $message, $m) === 1) {
+        $normalized = $this->normalizeTemporalShorthand($message);
+        if (preg_match('/\b(\d{4}-\d{2}-\d{2})\b/u', $normalized, $m) === 1) {
             return (string) $m[1];
         }
 
         $now = CarbonImmutable::now($timezone !== '' ? $timezone : 'UTC');
-        if (preg_match('/\btoday\b/u', $message) === 1) {
+        if (preg_match('/\btoday\b/u', $normalized) === 1) {
             return $now->format('Y-m-d');
         }
-        if (preg_match('/\btomorrow\b/u', $message) === 1) {
+        if (preg_match('/\btomorrow\b/u', $normalized) === 1) {
             return $now->addDay()->format('Y-m-d');
         }
-        if (preg_match('/\bnext week\b/u', $message) === 1) {
+        if (preg_match('/\bnext week\b/u', $normalized) === 1) {
             return $now->addWeek()->startOfWeek()->format('Y-m-d');
         }
 
-        if (preg_match('/\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/u', $message, $mDay) === 1) {
+        if (preg_match('/\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/u', $normalized, $mDay) === 1) {
             return $now->next((string) $mDay[1])->format('Y-m-d');
         }
 
-        if (preg_match('/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/u', $message, $mDay) === 1) {
+        if (preg_match('/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/u', $normalized, $mDay) === 1) {
             return $now->next((string) $mDay[1])->format('Y-m-d');
         }
 
@@ -74,7 +88,7 @@ final class ScheduleEditTemporalParser
      */
     public function parsePartOfDayAnchorHhmm(string $message): ?string
     {
-        $lower = mb_strtolower($message);
+        $lower = $this->normalizeTemporalShorthand($message);
 
         if (preg_match('/\b(evening|tonight|night)\b/u', $lower) === 1) {
             return '18:00';
