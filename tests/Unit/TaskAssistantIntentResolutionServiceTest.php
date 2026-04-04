@@ -129,3 +129,51 @@ test('merge resolves prioritize vs schedule composite tie to prioritize_schedule
     expect($decision->flow)->toBe('prioritize_schedule');
     expect($decision->reasonCodes)->toContain('hybrid_resolves_prioritize_schedule_ambiguity');
 });
+
+test('llm prioritization is overridden to prioritize schedule when message matches combined hybrid cue', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::Prioritization,
+        confidence: 0.85,
+        failed: false,
+        rationale: 'Model mislabeled combined intent.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'when should i do my most important tasks? can you please plan them',
+        $inference,
+        ['prioritization' => 1.0, 'scheduling' => 0.45, 'hybrid' => 0.52],
+    );
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('intent_llm_prioritization_combined_prompt_override');
+});
+
+test('llm scheduling is overridden to prioritize schedule when message matches combined hybrid cue', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::Scheduling,
+        confidence: 0.85,
+        failed: false,
+        rationale: 'Model picked time-only label for a rank+time message.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'when should i do my most important tasks? can you please plan them',
+        $inference,
+        ['prioritization' => 1.0, 'scheduling' => 0.45, 'hybrid' => 0.52],
+    );
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('intent_llm_scheduling_combined_prompt_override');
+});

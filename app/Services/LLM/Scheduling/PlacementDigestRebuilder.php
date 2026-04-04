@@ -64,7 +64,7 @@ final class PlacementDigestRebuilder
             count($unplacedUnits)
         );
 
-        return [
+        $digest = [
             'placement_dates' => $placementDates,
             'days_used' => $daysUsed,
             'skipped_targets' => array_values($skippedTargets),
@@ -72,5 +72,11 @@ final class PlacementDigestRebuilder
             'partial_units' => array_values($partialUnits),
             'summary' => $summary,
         ];
+
+        if (is_array($existingDigest) && array_key_exists('suppress_bulk_unplaced_narrative', $existingDigest)) {
+            $digest['suppress_bulk_unplaced_narrative'] = (bool) $existingDigest['suppress_bulk_unplaced_narrative'];
+        }
+
+        return $digest;
     }
 }

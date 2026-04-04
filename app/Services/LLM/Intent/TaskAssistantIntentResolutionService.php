@@ -67,6 +67,50 @@ final class TaskAssistantIntentResolutionService
             );
         }
 
+        $hybridNormalized = TaskAssistantIntentHybridCue::normalizeForSignals($normalized);
+        if (TaskAssistantIntentHybridCue::matchesCombinedPrioritizeSchedulePrompt($hybridNormalized)
+            && ($inference->intent === TaskAssistantUserIntent::Prioritization
+                || $inference->intent === TaskAssistantUserIntent::Scheduling)) {
+            $llmConf = max(0.0, min(1.0, $inference->confidence));
+            $prioritizeSignal = (float) ($signals['prioritization'] ?? 0.0);
+            $scheduleSignal = (float) ($signals['scheduling'] ?? 0.0);
+            $mergedConfidence = max(
+                $llmConf,
+                min(1.0, ($prioritizeSignal + $scheduleSignal) / 2)
+            );
+            $overrideCode = $inference->intent === TaskAssistantUserIntent::Scheduling
+                ? 'intent_llm_scheduling_combined_prompt_override'
+                : 'intent_llm_prioritization_combined_prompt_override';
+            $codes = [
+                $overrideCode,
+                'intent_merge_prioritize_schedule_composite',
+            ];
+
+            $this->logResolution(
+                $thread,
+                $inference->intent->value,
+                $llmConf,
+                $signals,
+                'prioritize_schedule',
+                $codes,
+                false,
+                [
+                    'prioritize_schedule' => $mergedConfidence,
+                    'prioritize' => $prioritizeSignal,
+                    'schedule' => $scheduleSignal,
+                ]
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'prioritize_schedule',
+                confidence: $mergedConfidence,
+                reasonCodes: $codes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         $llmIntent = $inference->intent;
         $llmConf = max(0.0, min(1.0, $inference->confidence));
 

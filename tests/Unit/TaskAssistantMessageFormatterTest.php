@@ -588,6 +588,70 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertTrue($posEight < $posEightForty);
     }
 
+    public function test_daily_schedule_suppresses_bulk_unplaced_note_when_digest_flag_set(): void
+    {
+        $horizonUnplaced = [];
+        for ($i = 0; $i < 5; $i++) {
+            $horizonUnplaced[] = [
+                'entity_type' => 'task',
+                'entity_id' => 100 + $i,
+                'title' => 'Other task '.$i,
+                'minutes' => 60,
+                'reason' => 'horizon_exhausted',
+            ];
+        }
+
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is what I scheduled.',
+            'reasoning' => 'Evening focus.',
+            'confirmation' => 'Does this work?',
+            'blocks' => [
+                ['start_time' => '18:00', 'end_time' => '22:00', 'task_id' => 31, 'event_id' => null, 'label' => 'Study block', 'note' => null],
+            ],
+            'items' => [[
+                'title' => 'Impossible 5h study block before quiz',
+                'entity_type' => 'task',
+                'entity_id' => 31,
+                'start_datetime' => '2026-04-04T18:00:00+08:00',
+                'end_datetime' => '2026-04-04T22:00:00+08:00',
+                'duration_minutes' => 240,
+            ]],
+            'proposals' => [
+                [
+                    'proposal_id' => 'p1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 31,
+                    'title' => 'Impossible 5h study block before quiz',
+                    'start_datetime' => '2026-04-04T18:00:00+08:00',
+                    'end_datetime' => '2026-04-04T22:00:00+08:00',
+                    'duration_minutes' => 240,
+                ],
+            ],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => false,
+            'placement_digest' => [
+                'placement_dates' => ['2026-04-04'],
+                'days_used' => ['2026-04-04'],
+                'skipped_targets' => [],
+                'unplaced_units' => $horizonUnplaced,
+                'partial_units' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 31,
+                    'title' => 'Impossible 5h study block before quiz',
+                    'requested_minutes' => 240,
+                    'placed_minutes' => 240,
+                    'reason' => 'partial_fit',
+                ]],
+                'summary' => 'test',
+                'suppress_bulk_unplaced_narrative' => true,
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('planning horizon', $out);
+        $this->assertStringContainsString('I scheduled Impossible 5h study block before quiz', $out);
+    }
+
     public function test_daily_schedule_digest_note_mentions_count_limit_reason_instead_of_planning_horizon(): void
     {
         $out = $this->formatter->format('daily_schedule', [

@@ -674,6 +674,7 @@ final class TaskAssistantMessageFormatter
         $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
         $skipped = is_array($digest['skipped_targets'] ?? null) ? $digest['skipped_targets'] : [];
         $partial = is_array($digest['partial_units'] ?? null) ? $digest['partial_units'] : [];
+        $suppressBulkUnplaced = (bool) ($digest['suppress_bulk_unplaced_narrative'] ?? false);
 
         $parts = [];
 
@@ -681,7 +682,7 @@ final class TaskAssistantMessageFormatter
             $parts[] = 'Some work was spread across '.count($daysUsed).' days to fit your time window.';
         }
 
-        if ($unplaced !== []) {
+        if ($unplaced !== [] && ! $suppressBulkUnplaced) {
             $reasons = [];
             foreach ($unplaced as $u) {
                 if (! is_array($u)) {

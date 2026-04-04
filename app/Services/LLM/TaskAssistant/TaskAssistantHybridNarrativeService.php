@@ -343,23 +343,24 @@ final class TaskAssistantHybridNarrativeService
             : [];
 
         if ($skippedTargets !== []) {
-            $count = count($skippedTargets);
-            $schedulabilityNote = $count === 1
-                ? 'I scheduled only the items I could place in your time window; the other selected item was already fixed in time, so I left it unchanged.'
-                : 'I scheduled only the items I could place in your time window; some selected items were already fixed in time, so I left them unchanged.';
+            $schedulabilityNote = $this->buildSchedulabilityNoteFromSkippedTargets($skippedTargets);
         } elseif ($unplacedUnits !== [] || $partialUnits !== []) {
             $schedulabilityNote = 'I scheduled what I could fit in your time window; some selected items could not be placed, so they were left for a future tweak.';
         }
 
+        $unplacedCountForPrompt = count($unplacedUnits);
+
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
-            'The schedule below is fixed and correct. The student will see each row with exact start, end, and duration right after your framing.'.$horizonHint."\n\n".
+            'The planned schedule is fixed and correct. The student will see each row with exact start, end, and duration immediately after your framing.'.$horizonHint."\n\n".
+            'PLACEMENT_FACTS (must respect; do not contradict): schedule_row_count='.$blockCount.'; unplaced_candidate_count='.$unplacedCountForPrompt.'. The UI shows exactly schedule_row_count time blocks with concrete start/end. Do not imply more tasks received scheduled start/end times than schedule_row_count. If unplaced_candidate_count>0, say plainly that some requested items did not get a slot in this pass (another day or a wider window may help)—do not claim every item was placed.'."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
-            '- framing: 1–2 sentence hand-off to the list. Do not repeat per-item clock times or lengths (the app shows them next).'."\n".
+            '- framing: 1–2 short sentences. First sentence: acknowledge their request in your own words (evening/later today/how many tasks they hinted at)—paraphrase; do not paste a long quote of the user. Second sentence (optional): brief hand-off to the schedule rows without repeating exact clock times or durations (the app shows those next).'."\n".
             '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, explain plainly what fit and what did not, and offer a neutral next step (wider window or another block) without mentioning Pomodoro or chunking terms.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
-            'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today.'."\n".
+            'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today or smart_default_spread.'."\n".
+            'In framing, do not say: order below, the list below, ranked list, top to bottom, step at a time, or numbered list—this is a time-block schedule, not a priority ranking screen.'."\n".
             'Use singular language when exactly one schedule row is present. Do not mention meals (lunch/dinner) unless the user explicitly used those words.'."\n".
             'Do not invent times beyond what the schedule data implies.'."\n\n".
             'Schedule data: '.$blocksJson.$digestBlock
@@ -381,11 +382,17 @@ final class TaskAssistantHybridNarrativeService
             $payload = $structuredResponse->structured ?? [];
             $payload = is_array($payload) ? $payload : [];
 
-            $framing = $this->sanitizeFraming(
-                trim((string) ($payload['framing'] ?? '')),
-                max(1, $blockCount),
-                'schedule|'.$threadId
-            );
+            $rawFraming = trim((string) ($payload['framing'] ?? ''));
+            $framing = ScheduleFramingNarrativeSupport::sanitizeModelFraming($rawFraming);
+            if ($framing === '') {
+                $framing = $this->scheduleFramingFallbackString(
+                    $parsedBlocks,
+                    $promptData,
+                    $userMessageContent,
+                    $schedulableProposalCount,
+                    'schedule_model_empty|'.$threadId
+                );
+            }
 
             $llmReasoning = trim((string) ($payload['reasoning'] ?? ''));
             $reasoning = $llmReasoning !== ''
@@ -405,7 +412,9 @@ final class TaskAssistantHybridNarrativeService
             ]);
 
             $fallback = $this->scheduleNarrativeFallback(
-                blockCount: max(1, $blockCount),
+                parsedBlocks: $parsedBlocks,
+                promptData: $promptData,
+                userMessageContent: $userMessageContent,
                 schedulableProposalCount: $schedulableProposalCount,
                 deterministicReasoning: $deterministicReasoning,
                 seed: 'fallback|'.$threadId
@@ -416,21 +425,36 @@ final class TaskAssistantHybridNarrativeService
         }
 
         if ($framing === '') {
-            $framing = $this->scheduleNarrativeFallback(
-                blockCount: max(1, $blockCount),
-                schedulableProposalCount: $schedulableProposalCount,
-                deterministicReasoning: $deterministicReasoning,
-                seed: 'empty_framing|'.$threadId
-            )['framing'];
+            $framing = $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'empty_framing|'.$threadId
+            );
         }
         if ($confirmation === '') {
             $confirmation = $this->scheduleNarrativeFallback(
-                blockCount: max(1, $blockCount),
+                parsedBlocks: $parsedBlocks,
+                promptData: $promptData,
+                userMessageContent: $userMessageContent,
                 schedulableProposalCount: $schedulableProposalCount,
                 deterministicReasoning: $deterministicReasoning,
                 seed: 'empty_confirmation|'.$threadId
             )['confirmation'];
         }
+
+        [$framing, $reasoning] = $this->enforceScheduleNarrativePlacementCardinality(
+            framing: $framing,
+            reasoning: $reasoning,
+            parsedBlocks: $parsedBlocks,
+            placementDigestData: $placementDigestData,
+            promptData: $promptData,
+            userMessageContent: $userMessageContent,
+            schedulableProposalCount: $schedulableProposalCount,
+            threadId: $threadId,
+            deterministicReasoning: $deterministicReasoning,
+        );
 
         if ($schedulabilityNote !== '' && ! str_contains(mb_strtolower((string) $reasoning), mb_strtolower($schedulabilityNote))) {
             $reasoning = trim((string) $reasoning);
@@ -439,26 +463,47 @@ final class TaskAssistantHybridNarrativeService
         }
         $framing = $this->sanitizeScheduleRelativeDateClaims($framing, $promptData);
         $reasoning = $this->sanitizeScheduleRelativeDateClaims($reasoning, $promptData);
+
+        [$studentTodayYmd, $scheduleAlignTz] = $this->resolveScheduleStudentTodayAndTimezone($promptData);
+        $firstPlacementDayYmd = $this->resolveFirstPlacementDayYmd($placementDigestData);
+        if ($studentTodayYmd !== '' && $firstPlacementDayYmd !== null && $blockCount > 0) {
+            $framing = TaskAssistantScheduleNarrativeSanitizer::alignLaterTodayPhrasingWithPlacementDay(
+                $framing,
+                $studentTodayYmd,
+                $firstPlacementDayYmd,
+                $scheduleAlignTz
+            );
+            $reasoning = TaskAssistantScheduleNarrativeSanitizer::alignLaterTodayPhrasingWithPlacementDay(
+                $reasoning,
+                $studentTodayYmd,
+                $firstPlacementDayYmd,
+                $scheduleAlignTz
+            );
+        }
+
         $framing = $this->sanitizeScheduleNarrativeTimeGrounding(
             text: $framing,
             blocks: $parsedBlocks,
-            fallback: $this->scheduleNarrativeFallback(
-                blockCount: max(1, $blockCount),
-                schedulableProposalCount: $schedulableProposalCount,
-                deterministicReasoning: $deterministicReasoning,
-                seed: 'time_grounding_framing|'.$threadId
-            )['framing']
+            fallback: $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'time_grounding_framing|'.$threadId
+            ),
+            strictClockPhrasesOnly: true,
         );
         $framing = $this->sanitizeScheduleReasoningSemanticGrounding(
             text: $framing,
             blocks: $parsedBlocks,
             promptData: $promptData,
-            fallback: $this->scheduleNarrativeFallback(
-                blockCount: max(1, $blockCount),
-                schedulableProposalCount: $schedulableProposalCount,
-                deterministicReasoning: $deterministicReasoning,
-                seed: 'semantic_grounding_framing|'.$threadId
-            )['framing']
+            fallback: $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'semantic_grounding_framing|'.$threadId
+            )
         );
         $reasoning = $this->sanitizeScheduleNarrativeTimeGrounding(
             text: $reasoning,
@@ -473,7 +518,9 @@ final class TaskAssistantHybridNarrativeService
         );
 
         $confirmationFallback = $this->scheduleNarrativeFallback(
-            blockCount: max(1, $blockCount),
+            parsedBlocks: $parsedBlocks,
+            promptData: $promptData,
+            userMessageContent: $userMessageContent,
             schedulableProposalCount: $schedulableProposalCount,
             deterministicReasoning: $deterministicReasoning,
             seed: 'time_grounding_confirmation|'.$threadId
@@ -583,14 +630,22 @@ final class TaskAssistantHybridNarrativeService
     /**
      * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $blocks
      */
-    private function sanitizeScheduleNarrativeTimeGrounding(string $text, array $blocks, string $fallback): string
-    {
+    private function sanitizeScheduleNarrativeTimeGrounding(
+        string $text,
+        array $blocks,
+        string $fallback,
+        bool $strictClockPhrasesOnly = false,
+    ): string {
         $normalized = trim($text);
         if ($normalized === '') {
             return $fallback;
         }
 
-        if (! $this->containsExplicitTimeLikeClaim($normalized)) {
+        $hasClockClaim = $strictClockPhrasesOnly
+            ? $this->containsSchedulingClockPhrase($normalized)
+            : $this->containsExplicitTimeLikeClaim($normalized);
+
+        if (! $hasClockClaim) {
             return $normalized;
         }
 
@@ -673,6 +728,19 @@ final class TaskAssistantHybridNarrativeService
             '/\b(\d{1,2}(:\d{2})?\s*(am|pm)|\d+\s*-\s*\d+\s*|(?:\d+\s*(hour|hr|minute|min)s?))\b/iu',
             $text
         ) === 1;
+    }
+
+    /**
+     * Stricter than {@see containsExplicitTimeLikeClaim}: only obvious clock tokens (am/pm / HH:MM),
+     * so schedule framing is not stripped for casual words like "minutes" without a digit.
+     */
+    private function containsSchedulingClockPhrase(string $text): bool
+    {
+        if (preg_match('/\b\d{1,2}:\d{2}\s*(am|pm)\b/iu', $text) === 1) {
+            return true;
+        }
+
+        return preg_match('/\b\d{1,2}(?::\d{2})?\s*(am|pm)\b/iu', $text) === 1;
     }
 
     /**
@@ -1141,17 +1209,74 @@ final class TaskAssistantHybridNarrativeService
     }
 
     /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $parsedBlocks
+     * @param  array<string, mixed>|null  $placementDigestData
+     * @param  array<string, mixed>  $promptData
+     * @return array{0: string, 1: string}
+     */
+    private function enforceScheduleNarrativePlacementCardinality(
+        string $framing,
+        string $reasoning,
+        array $parsedBlocks,
+        ?array $placementDigestData,
+        array $promptData,
+        string $userMessageContent,
+        int $schedulableProposalCount,
+        int $threadId,
+        string $deterministicReasoning,
+    ): array {
+        $placedBlockCount = count($parsedBlocks);
+        $unplacedCount = ScheduleNarrativePlacementCardinalitySupport::unplacedUnitCount($placementDigestData);
+
+        if (ScheduleNarrativePlacementCardinalitySupport::misrepresentsPlacementCount($reasoning, $placedBlockCount, $unplacedCount)) {
+            $reasoning = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning);
+        }
+
+        if (ScheduleNarrativePlacementCardinalitySupport::claimsMultiplePlacedTasksWithSingleBlock($reasoning, $placedBlockCount)) {
+            $reasoning = TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning);
+        }
+
+        if (ScheduleNarrativePlacementCardinalitySupport::claimsMultiplePlacedTasksWithSingleBlock($framing, $placedBlockCount)) {
+            $framing = $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'placement_cardinality_single_block_framing|'.$threadId
+            );
+        }
+
+        if (ScheduleNarrativePlacementCardinalitySupport::misrepresentsPlacementCount($framing, $placedBlockCount, $unplacedCount)) {
+            $framing = $this->scheduleFramingFallbackString(
+                $parsedBlocks,
+                $promptData,
+                $userMessageContent,
+                $schedulableProposalCount,
+                'placement_cardinality_framing|'.$threadId
+            );
+        }
+
+        return [$framing, $reasoning];
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $parsedBlocks
+     * @param  array<string, mixed>  $promptData
      * @return array{framing: string, reasoning: string, confirmation: string}
      */
     private function scheduleNarrativeFallback(
-        int $blockCount,
+        array $parsedBlocks,
+        array $promptData,
+        string $userMessageContent,
         int $schedulableProposalCount,
         string $deterministicReasoning,
         string $seed,
     ): array {
-        $framing = $this->sanitizeFraming(
-            $this->firstPersonFramingFallback(max(1, $blockCount), $seed.'|schedule'),
-            max(1, $blockCount),
+        $framing = $this->scheduleFramingFallbackString(
+            $parsedBlocks,
+            $promptData,
+            $userMessageContent,
+            $schedulableProposalCount,
             $seed
         );
 
@@ -1165,6 +1290,102 @@ final class TaskAssistantHybridNarrativeService
             'reasoning' => TaskAssistantPrioritizeOutputDefaults::clampPrioritizeReasoning($deterministicReasoning),
             'confirmation' => TaskAssistantPrioritizeOutputDefaults::clampNextField($confirm),
         ];
+    }
+
+    /**
+     * @param  list<array{start_time?:string,end_time?:string,label?:string}>  $parsedBlocks
+     * @param  array<string, mixed>  $promptData
+     */
+    private function scheduleFramingFallbackString(
+        array $parsedBlocks,
+        array $promptData,
+        string $userMessageContent,
+        int $schedulableProposalCount,
+        string $seed,
+    ): string {
+        return ScheduleFramingNarrativeSupport::buildFallback(
+            $parsedBlocks,
+            $promptData,
+            $schedulableProposalCount,
+            $userMessageContent,
+            $seed
+        );
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $skippedTargets
+     */
+    private function buildSchedulabilityNoteFromSkippedTargets(array $skippedTargets): string
+    {
+        if ($skippedTargets === []) {
+            return '';
+        }
+
+        $eventAlreadyTimed = 0;
+
+        foreach ($skippedTargets as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $reason = mb_strtolower(trim((string) ($row['reason'] ?? '')));
+            $type = mb_strtolower(trim((string) ($row['entity_type'] ?? '')));
+
+            if ($reason === 'event_already_timed' && $type === 'event') {
+                $eventAlreadyTimed++;
+            }
+        }
+
+        $total = count($skippedTargets);
+
+        if ($eventAlreadyTimed === $total && $eventAlreadyTimed > 0) {
+            return $eventAlreadyTimed === 1
+                ? 'Your calendar event already has its own start and end time, so I did not propose a new block for it—the rows below are task time proposals only.'
+                : 'Some calendar events you selected already have set start and end times, so I did not add new blocks for those—I only proposed times for your tasks.';
+        }
+
+        if ($total === 1) {
+            return 'One selected item could not get a new proposed time in this pass (for example it may already be fixed on your calendar).';
+        }
+
+        return 'Some selected items could not get new proposed times in this pass (for example calendar events that already have a set time).';
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function resolveScheduleStudentTodayAndTimezone(array $promptData): array
+    {
+        $timezone = trim((string) data_get($promptData, 'snapshot.timezone', ''));
+        if ($timezone === '') {
+            $timezone = trim((string) data_get($promptData, 'userContext.timezone', ''));
+        }
+        if ($timezone === '') {
+            $timezone = (string) config('app.timezone', 'UTC');
+        }
+
+        $today = trim((string) data_get($promptData, 'snapshot.today', ''));
+
+        return [$today, $timezone];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $placementDigestData
+     */
+    private function resolveFirstPlacementDayYmd(?array $placementDigestData): ?string
+    {
+        if (! is_array($placementDigestData)) {
+            return null;
+        }
+
+        $daysUsed = $placementDigestData['days_used'] ?? null;
+        if (! is_array($daysUsed) || $daysUsed === []) {
+            return null;
+        }
+
+        $first = trim((string) ($daysUsed[0] ?? ''));
+
+        return $first !== '' ? $first : null;
     }
 
     /**

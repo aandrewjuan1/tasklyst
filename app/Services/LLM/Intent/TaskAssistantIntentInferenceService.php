@@ -119,7 +119,7 @@ Allowed intent values (exactly one): {$allowed}
 - unclear: unintelligible, noisy, or unclear message where you cannot identify a real request yet.
 - prioritization: what to do first, top tasks, ordering by importance/urgency, ranking, deadlines, homework/quiz/exam stress, \"idk what to do\", \"what matters most\", listing/filtering, or choosing between tasks.
 - scheduling: calendar, time blocks, plan my day, when to work on something, \"fit it in\", \"when can I\", \"what time\", \"block time\", \"remind me\", afternoon/tomorrow/this week.
-- prioritize_schedule: the user wants ranked "top/first/next" tasks AND also wants them scheduled in a time window (e.g. "schedule my top 1 tasks for tomorrow/afternoon", "what's the perfect time to do my top tasks?", "rank my homework and put it tomorrow afternoon").
+- prioritize_schedule: the user wants **both** (a) which tasks matter most / what to do first **and** (b) **when** to do them or a concrete time plan. Use this whenever **importance/ordering** language is combined with **time, calendar, or planning-when** language—even if one side is short. Examples: "when should I do my most important tasks?", "plan my most important tasks", "what time should I tackle my top homework?", "when can I fit in my urgent tasks?", "rank these and put them on my calendar", "schedule my top 3 for tomorrow afternoon". If the user only wants an ordered list with **no** timing/planning angle, use prioritization; if they only want slots with **no** "what matters first" angle, use scheduling.
 - off_topic: unrelated to task management or productivity (e.g., politics, celebrity, product recommendations, relationship advice).
 
 USER MESSAGE:
@@ -131,6 +131,7 @@ Rules for confidence discipline:
 - If the user explicitly asks to prioritize or list what to do next, set confidence >= 0.75.
 - If the user explicitly asks for scheduling, calendar, or time blocks, set confidence >= 0.75.
 - If the user explicitly asks to schedule their top/first/next tasks (rank + time window), set confidence >= 0.75.
+- If the message combines **which tasks matter / most important / top / urgent (for tasks)** with **when / plan / time / calendar / fit in**, choose **prioritize_schedule** with confidence >= 0.78 (do not split into prioritization-only).
 - If the user is vague / only says \"help\", \"what now\", \"overwhelmed\", or otherwise does not clearly ask for prioritize vs schedule,
   use general_guidance with confidence between 0.55 and 0.80.
 - If the user is social/greeting-only, use greeting with confidence >= 0.80.

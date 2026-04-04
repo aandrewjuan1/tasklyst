@@ -366,12 +366,12 @@ final class TaskAssistantSchemas
             properties: [
                 new StringSchema(
                     name: 'framing',
-                    description: 'Required short intro in warm coach voice before the app-rendered schedule items.',
+                    description: 'Required: 1–2 short sentences in warm coach voice before the app-rendered schedule rows. First sentence acknowledges the student’s request in your own words (time intent like evening/later today, scope like one task vs several)—paraphrase; do not paste a long user quote. Optional second sentence hands off to the rows without repeating exact clock times or durations. Do not say: order below, the list below, ranked list, numbered list, top to bottom, step at a time—this is a time-block schedule, not a priority list. Use singular phrasing when exactly one row.',
                     nullable: false
                 ),
                 new StringSchema(
                     name: 'reasoning',
-                    description: 'Required: why this schedule fits the student’s goals and constraints—without stating exact times or dates.',
+                    description: 'Required: why this schedule fits the student’s goals and constraints—without stating exact times or dates. Counts must match the schedule rows in the prompt (e.g. do not say all three tasks were placed if only one row exists). If some candidates were not placed, say so plainly.',
                     nullable: false
                 ),
                 new StringSchema(

@@ -251,4 +251,106 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
         $this->assertSame('22:00', $analysis['time_window']['end'] ?? null);
         $this->assertContains('intent_time_window_later_multiday_default', $analysis['schedule_intent_reason_codes'] ?? []);
     }
+
+    public function test_it_widens_default_today_to_three_day_range_for_vague_schedule_message(): void
+    {
+        config([
+            'task-assistant.schedule.smart_default_spread_days' => 3,
+            'task-assistant.schedule.max_horizon_days' => 14,
+        ]);
+
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('schedule my top tasks', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-04-04',
+            'now' => '2026-04-04T14:00:00+00:00',
+        ]);
+
+        $this->assertSame('range', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('2026-04-04', $analysis['schedule_horizon']['start_date'] ?? null);
+        $this->assertSame('2026-04-06', $analysis['schedule_horizon']['end_date'] ?? null);
+        $this->assertSame('smart_default_spread', $analysis['schedule_horizon']['label'] ?? null);
+    }
+
+    public function test_it_does_not_widen_when_user_names_tomorrow(): void
+    {
+        config([
+            'task-assistant.schedule.smart_default_spread_days' => 3,
+        ]);
+
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('schedule my tasks tomorrow', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-04-04',
+            'now' => '2026-04-04T14:00:00+00:00',
+        ]);
+
+        $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('tomorrow', $analysis['schedule_horizon']['label'] ?? null);
+        $this->assertSame('2026-04-05', $analysis['schedule_horizon']['start_date'] ?? null);
+    }
+
+    public function test_it_does_not_widen_when_explicit_clock_window_is_present(): void
+    {
+        config([
+            'task-assistant.schedule.smart_default_spread_days' => 3,
+        ]);
+
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule 3pm onwards', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-03-31',
+            'now' => '2026-03-31T10:05:00+00:00',
+        ]);
+
+        $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('default_today', $analysis['schedule_horizon']['label'] ?? null);
+        $this->assertContains('intent_time_window_explicit_onwards_time', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
+
+    public function test_it_does_not_widen_when_after_lunch_anchor_applies(): void
+    {
+        config([
+            'task-assistant.schedule.smart_default_spread_days' => 3,
+        ]);
+
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Schedule after lunch', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-03-31',
+            'now' => '2026-03-31T10:05:00+00:00',
+        ]);
+
+        $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('default_today', $analysis['schedule_horizon']['label'] ?? null);
+        $this->assertContains('intent_time_window_after_anchor_lunch', $analysis['schedule_intent_reason_codes'] ?? []);
+    }
+
+    public function test_it_does_not_widen_when_time_constraint_is_today(): void
+    {
+        config([
+            'task-assistant.schedule.smart_default_spread_days' => 3,
+        ]);
+
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('Show urgent high priority tasks due today', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-04-04',
+            'now' => '2026-04-04T14:00:00+00:00',
+        ]);
+
+        $this->assertSame('today', $analysis['time_constraint'] ?? null);
+        $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('today', $analysis['schedule_horizon']['label'] ?? null);
+    }
 }

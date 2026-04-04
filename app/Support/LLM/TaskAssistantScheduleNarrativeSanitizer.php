@@ -2,6 +2,8 @@
 
 namespace App\Support\LLM;
 
+use Carbon\CarbonImmutable;
+
 /**
  * Keeps schedule narrative prompts and student-visible copy free of internal scheduling jargon.
  */
@@ -16,6 +18,7 @@ final class TaskAssistantScheduleNarrativeSanitizer
 
         return match ($key) {
             'default_today' => 'today',
+            'smart_default_spread' => 'the next few days',
             'today' => 'today',
             'tomorrow' => 'tomorrow',
             'this weekend' => 'this weekend',
@@ -65,6 +68,7 @@ final class TaskAssistantScheduleNarrativeSanitizer
             '/\bplanning\s+horizon\b/iu' => 'date range',
             '/\bplacement\s+digest\b/iu' => 'planning details',
             '/\bdefault_today\b/u' => 'today',
+            '/\bsmart_default_spread\b/u' => 'the next few days',
             '/\bdefault_placement\b/iu' => 'schedule',
             '/\bPLACEMENT_DIGEST_JSON\b/u' => '',
             '/\bBLOCKS_JSON\b/u' => 'the planned blocks',
@@ -88,5 +92,41 @@ final class TaskAssistantScheduleNarrativeSanitizer
         $t = trim((string) preg_replace('/\s+,/u', ',', $t) ?? $t);
 
         return $t;
+    }
+
+    /**
+     * When blocks land on a calendar day other than the student's "today", rewrite misleading
+     * "later today" / "for later today" phrasing so it matches the first placement date.
+     *
+     * @param  non-empty-string  $studentTodayYmd
+     * @param  non-empty-string  $firstPlacementDayYmd
+     * @param  non-empty-string  $timezone
+     */
+    public static function alignLaterTodayPhrasingWithPlacementDay(
+        string $text,
+        string $studentTodayYmd,
+        string $firstPlacementDayYmd,
+        string $timezone,
+    ): string {
+        $t = trim($text);
+        if ($t === '' || $studentTodayYmd === $firstPlacementDayYmd) {
+            return $t;
+        }
+
+        try {
+            $placement = CarbonImmutable::parse($firstPlacementDayYmd, $timezone)->startOfDay();
+            $today = CarbonImmutable::parse($studentTodayYmd, $timezone)->startOfDay();
+        } catch (\Throwable) {
+            return $t;
+        }
+
+        $isTomorrow = $placement->isSameDay($today->addDay());
+        $forPhrase = $isTomorrow ? 'tomorrow' : $placement->format('l, M j');
+        $standalonePhrase = $isTomorrow ? 'tomorrow' : 'on '.$placement->format('l, M j');
+
+        $out = (string) preg_replace('/\bfor\s+later\s+today\b/iu', 'for '.$forPhrase, $t);
+        $out = (string) preg_replace('/\blater\s+today\b/iu', $standalonePhrase, $out);
+
+        return trim((string) preg_replace('/\s{2,}/u', ' ', $out) ?? $out);
     }
 }

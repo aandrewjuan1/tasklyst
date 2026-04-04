@@ -375,6 +375,7 @@ final class TaskAssistantResponseProcessor
             'placement_digest.partial_units' => ['nullable', 'array', 'max:200'],
             'placement_digest.fallback_mode' => ['nullable', 'string', 'max:120'],
             'placement_digest.fallback_trigger_reason' => ['nullable', 'string', 'max:120'],
+            'placement_digest.suppress_bulk_unplaced_narrative' => ['nullable', 'boolean'],
             'confirmation_required' => ['nullable', 'boolean'],
             'awaiting_user_decision' => ['nullable', 'boolean'],
             'confirmation_context' => ['nullable', 'array'],

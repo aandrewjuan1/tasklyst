@@ -130,6 +130,192 @@ test('daily_schedule time grounding rejects mismatched framing end time', functi
     expect($result['framing'])->not->toContain('4:00 PM to 5:25 PM');
 });
 
+test('daily_schedule framing keeps digit-minute phrasing when no clock tokens are claimed', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I left a short runway—about 30 minutes—before the deeper block below.',
+                'reasoning' => '',
+                'confirmation' => 'Does this feel workable?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '18:00',
+            'end_time' => '19:30',
+            'label' => 'Practice coding interview problems',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-23',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-23',
+            'end_date' => '2026-03-23',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule top 1 for later evening',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks to structure your time',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    expect($result['framing'])->toContain('30 minutes');
+});
+
+test('daily_schedule replaces prioritize-style framing with schedule fallback copy', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Work through these in the order below, one step at a time.',
+                'reasoning' => 'Short rationale.',
+                'confirmation' => 'Okay?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '18:00',
+            'end_time' => '19:30',
+            'label' => 'Practice coding interview problems',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-23',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-23',
+            'end_date' => '2026-03-23',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule my top task tonight',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks to structure your time',
+        threadId: 42,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+    );
+
+    $lower = mb_strtolower($result['framing']);
+    expect($lower)->not->toContain('order below');
+    expect($lower)->not->toContain('one step at a time');
+    expect($lower)->toContain('practice coding interview problems');
+});
+
+test('daily_schedule replaces hallucinated multi-task placement when digest has unplaced units', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => "I've scheduled your top tasks for later today.",
+                'reasoning' => 'Placing all three of these urgent tasks together will help you stay steady.',
+                'confirmation' => 'Does this feel workable?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $digest = [
+        'unplaced_units' => [
+            ['entity_type' => 'task', 'entity_id' => 26, 'title' => 'Library research', 'minutes' => 90, 'reason' => 'horizon_exhausted'],
+            ['entity_type' => 'task', 'entity_id' => 4, 'title' => 'ITCS checkpoint', 'minutes' => 240, 'reason' => 'horizon_exhausted'],
+        ],
+        'partial_units' => [],
+        'skipped_targets' => [],
+    ];
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '18:00',
+            'end_time' => '22:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-03-23',
+            'timezone' => 'UTC',
+            'tasks' => [],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-03-23',
+            'end_date' => '2026-03-23',
+            'label' => 'default_today',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'schedule them as well',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks to structure your time.',
+        threadId: 99,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 1,
+        placementDigestJson: json_encode($digest, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    );
+
+    $reasonLower = mb_strtolower($result['reasoning']);
+    expect($reasonLower)->not->toContain('all three');
+    expect($reasonLower)->not->toContain('placing all three');
+
+    $frameLower = mb_strtolower($result['framing']);
+    expect($frameLower)->not->toContain('scheduled your top tasks');
+});
+
 test('daily_schedule time grounding rejects "starting at X and ending at Y"', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
@@ -264,7 +450,7 @@ test('daily_schedule reasoning explains skipped targets are left unchanged', fun
         placementDigestJson: (string) $placementDigestJson,
     );
 
-    expect($result['reasoning'])->toContain('left it unchanged');
+    expect($result['reasoning'])->toContain('calendar event already has its own start and end time');
 });
 
 test('daily_schedule deterministic reasoning does not imply one continuous block across split blocks', function (): void {

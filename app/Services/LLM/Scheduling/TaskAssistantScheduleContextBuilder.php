@@ -59,6 +59,16 @@ final class TaskAssistantScheduleContextBuilder
         }
         $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
 
+        $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
+        $intentReasonCodes = is_array($intent['reason_codes'] ?? null) ? $intent['reason_codes'] : [];
+        $horizonResolved = is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [];
+        $normalized['schedule_horizon'] = $this->maybeWidenSmartDefaultHorizon(
+            $horizonResolved,
+            (string) ($normalized['time_constraint'] ?? 'none'),
+            $intentReasonCodes,
+            $timezone,
+        );
+
         $explicitOverrideRaw = is_string($snapshot['refinement_explicit_day_override'] ?? null)
             ? trim((string) $snapshot['refinement_explicit_day_override'])
             : '';
@@ -93,7 +103,6 @@ final class TaskAssistantScheduleContextBuilder
             }
         }
 
-        $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
         $horizon = is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [];
         $isMultiDayHorizon = ($horizon['mode'] ?? '') === 'range'
             && isset($horizon['start_date'], $horizon['end_date'])
@@ -175,6 +184,101 @@ final class TaskAssistantScheduleContextBuilder
             'entity_type_preference' => $entityTypePreference,
             'comparison_focus' => $comparisonFocus,
             'recurring_requested' => (bool) ($extracted['recurring_requested'] ?? false),
+        ];
+    }
+
+    /**
+     * @param  array{mode?:string,start_date?:string,end_date?:string,label?:string}  $horizon
+     * @param  list<string>  $intentReasonCodes
+     * @return array{mode:string,start_date:string,end_date:string,label:string}
+     */
+    private function maybeWidenSmartDefaultHorizon(
+        array $horizon,
+        string $timeConstraint,
+        array $intentReasonCodes,
+        string $timezone,
+    ): array {
+        if (($horizon['label'] ?? '') !== 'default_today') {
+            return $this->normalizeHorizonShape($horizon);
+        }
+        if ($timeConstraint !== 'none') {
+            return $this->normalizeHorizonShape($horizon);
+        }
+        if ($this->smartDefaultSpreadBlockedByIntentSignals($intentReasonCodes)) {
+            return $this->normalizeHorizonShape($horizon);
+        }
+
+        $startRaw = trim((string) ($horizon['start_date'] ?? ''));
+        if ($startRaw === '') {
+            return $this->normalizeHorizonShape($horizon);
+        }
+
+        $maxDays = max(1, (int) config('task-assistant.schedule.max_horizon_days', 14));
+        $spread = max(1, (int) config('task-assistant.schedule.smart_default_spread_days', 3));
+        $spanDays = min($spread, $maxDays);
+
+        try {
+            $start = CarbonImmutable::parse($startRaw, $timezone)->startOfDay();
+        } catch (\Throwable) {
+            return $this->normalizeHorizonShape($horizon);
+        }
+
+        $end = $start->addDays($spanDays - 1);
+
+        return [
+            'mode' => 'range',
+            'start_date' => $start->toDateString(),
+            'end_date' => $end->toDateString(),
+            'label' => 'smart_default_spread',
+        ];
+    }
+
+    /**
+     * Block widening when the user already named a daypart, "later", combined windows, etc.—those
+     * stay same-day scoped; widening would flip {@see $isMultiDayHorizon} and trigger the multiday
+     * "later" time-window override incorrectly.
+     *
+     * @param  list<string>  $intentReasonCodes
+     */
+    private function smartDefaultSpreadBlockedByIntentSignals(array $intentReasonCodes): bool
+    {
+        $blockedPrefixes = [
+            'intent_time_window_explicit',
+            'intent_time_window_after_anchor',
+            'intent_time_window_evening',
+            'intent_time_window_morning',
+            'intent_time_window_afternoon',
+            'intent_time_window_later_after_now',
+            'intent_time_window_combined_named',
+            'intent_time_window_onwards',
+            'intent_time_window_later_multiday_default',
+        ];
+
+        foreach ($intentReasonCodes as $code) {
+            if (! is_string($code) || $code === '') {
+                continue;
+            }
+            foreach ($blockedPrefixes as $prefix) {
+                if (str_starts_with($code, $prefix)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array{mode?:string,start_date?:string,end_date?:string,label?:string}  $horizon
+     * @return array{mode:string,start_date:string,end_date:string,label:string}
+     */
+    private function normalizeHorizonShape(array $horizon): array
+    {
+        return [
+            'mode' => (string) ($horizon['mode'] ?? 'single_day'),
+            'start_date' => (string) ($horizon['start_date'] ?? ''),
+            'end_date' => (string) ($horizon['end_date'] ?? ''),
+            'label' => (string) ($horizon['label'] ?? ''),
         ];
     }
 }

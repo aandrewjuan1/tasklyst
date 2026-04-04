@@ -84,7 +84,7 @@ final class TaskAssistantStructuredFlowGenerator
         $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
         $countLimit = max(1, min((int) ($options['count_limit'] ?? 10), 10));
 
-        [$proposals, $placementDigest] = $this->generateProposalsChunkedSpill($contextualSnapshot, $context, $countLimit);
+        [$proposals, $placementDigest] = $this->generateProposalsChunkedSpill($contextualSnapshot, $context, $countLimit, $options);
         $promptData['placement_digest'] = $placementDigest;
         $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'UTC'));
         $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
@@ -616,16 +616,21 @@ final class TaskAssistantStructuredFlowGenerator
         return $contextualSnapshot;
     }
 
-    private function generateProposalsChunkedSpill(array $snapshot, array $context, int $countLimit): array
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array{0: array<int, array<string, mixed>>, 1: array<string, mixed>}
+     */
+    private function generateProposalsChunkedSpill(array $snapshot, array $context, int $countLimit, array $scheduleOptions = []): array
     {
-        return $this->generateProposalsChunkedSpillCore($snapshot, $context, $countLimit, null);
+        return $this->generateProposalsChunkedSpillCore($snapshot, $context, $countLimit, null, $scheduleOptions);
     }
 
     /**
      * @param  list<array<string, mixed>>|null  $unitsOverride  When set, skips candidate building and places only these units (refinement / tests).
+     * @param  array<string, mixed>  $scheduleOptions  Original options from {@see generateDailySchedule} (target_entities, count_limit, etc.) for consumer UX flags.
      * @return array{0: array<int, array<string, mixed>>, 1: array<string, mixed>}
      */
-    private function generateProposalsChunkedSpillCore(array $snapshot, array $context, int $countLimit, ?array $unitsOverride): array
+    private function generateProposalsChunkedSpillCore(array $snapshot, array $context, int $countLimit, ?array $unitsOverride, array $scheduleOptions = []): array
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
@@ -892,7 +897,7 @@ final class TaskAssistantStructuredFlowGenerator
                 $adaptiveContext = $context;
                 $adaptiveContext['_adaptive_fallback_attempted'] = true;
                 $adaptiveSnapshot = $this->buildAdaptiveFallbackSnapshot($snapshot, $timezone);
-                [$retryProposals, $retryDigest] = $this->generateProposalsChunkedSpill($adaptiveSnapshot, $adaptiveContext, $countLimit);
+                [$retryProposals, $retryDigest] = $this->generateProposalsChunkedSpill($adaptiveSnapshot, $adaptiveContext, $countLimit, $scheduleOptions);
 
                 if (! $this->isOnlyEmptyPlaceholderProposal($retryProposals)) {
                     $retryDigest['fallback_mode'] = 'auto_relaxed_today_or_tomorrow';
@@ -901,6 +906,8 @@ final class TaskAssistantStructuredFlowGenerator
                     return [$retryProposals, $retryDigest];
                 }
             }
+
+            $digest = $this->applyPlacementDigestConsumerFlags($digest, [], $countLimit, $scheduleOptions);
 
             return [[], $digest];
         }
@@ -937,7 +944,93 @@ final class TaskAssistantStructuredFlowGenerator
         }
         unset($proposal);
 
+        $digest = $this->applyPlacementDigestConsumerFlags($digest, $proposals, $countLimit, $scheduleOptions);
+
         return [$proposals, $digest];
+    }
+
+    /**
+     * When the planner scans the full backlog, {@see $digest} may list many `horizon_exhausted` rows even
+     * though the user only asked to place one block (or we under-filled {@see $countLimit}). Suppress the
+     * bulk "planning horizon" consumer paragraph in that case; keep it when a full batch was placed or
+     * unplaced rows reflect an explicit count cap.
+     *
+     * @param  list<array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $digest
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array<string, mixed>
+     */
+    private function applyPlacementDigestConsumerFlags(array $digest, array $proposals, int $countLimit, array $scheduleOptions): array
+    {
+        $digest['suppress_bulk_unplaced_narrative'] = $this->shouldSuppressBulkUnplacedNarrative(
+            $proposals,
+            $digest,
+            $countLimit,
+            $scheduleOptions
+        );
+
+        return $digest;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $digest
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function shouldSuppressBulkUnplacedNarrative(array $proposals, array $digest, int $countLimit, array $scheduleOptions): bool
+    {
+        $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        if ($unplaced === []) {
+            return false;
+        }
+
+        $placedCount = count($proposals);
+        if ($placedCount === 0) {
+            return false;
+        }
+
+        foreach ($unplaced as $unit) {
+            if (! is_array($unit)) {
+                continue;
+            }
+            if ((string) ($unit['reason'] ?? '') === 'count_limit') {
+                return false;
+            }
+        }
+
+        foreach ($unplaced as $unit) {
+            if (! is_array($unit)) {
+                continue;
+            }
+            if ((string) ($unit['reason'] ?? '') !== 'horizon_exhausted') {
+                return false;
+            }
+        }
+
+        if ($this->hasSingleExplicitScheduleTarget($scheduleOptions)) {
+            return true;
+        }
+
+        return $placedCount < $countLimit || $placedCount === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function hasSingleExplicitScheduleTarget(array $scheduleOptions): bool
+    {
+        $targets = is_array($scheduleOptions['target_entities'] ?? null) ? $scheduleOptions['target_entities'] : [];
+        $real = 0;
+        foreach ($targets as $target) {
+            if (! is_array($target)) {
+                continue;
+            }
+            if ((int) ($target['entity_id'] ?? 0) > 0) {
+                $real++;
+            }
+        }
+
+        return $real === 1;
     }
 
     private function shouldAttemptAdaptiveFallback(
@@ -1058,6 +1151,7 @@ final class TaskAssistantStructuredFlowGenerator
             $context,
             1,
             [$unit],
+            $options,
         );
 
         if ($spillProposals === [] || $this->isOnlyEmptyPlaceholderProposal($spillProposals)) {

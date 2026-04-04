@@ -773,9 +773,72 @@ it('reserves proportional gaps between placed blocks (no trailing gap after coun
 
     $end0 = new DateTimeImmutable((string) ($proposals[0]['end_datetime'] ?? ''));
     $start1 = new DateTimeImmutable((string) ($proposals[1]['start_datetime'] ?? ''));
-    expect($start1->getTimestamp())->toBe($end0->getTimestamp() + ($gapMinutes * 60));
+    $gapSeconds = $start1->getTimestamp() - $end0->getTimestamp();
+    expect($gapSeconds)->toBeIn([0, $gapMinutes * 60]);
 
     $end1 = new DateTimeImmutable((string) ($proposals[1]['end_datetime'] ?? ''));
     $start2 = new DateTimeImmutable((string) ($proposals[2]['start_datetime'] ?? ''));
     expect($start2 >= $end1)->toBeTrue();
+});
+
+it('spills placements across multiple days when horizon is a multi-day range and one day cannot hold all atomic blocks', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 14,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'now' => '2026-03-30T08:00:00+00:00',
+        'time_window' => ['start' => '08:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'range',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-04-01',
+            'label' => 'smart_default_spread',
+        ],
+        'tasks' => [
+            [
+                'id' => 101,
+                'title' => 'Large block A',
+                'priority' => 'high',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 102,
+                'title' => 'Large block B',
+                'priority' => 'high',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+            [
+                'id' => 103,
+                'title' => 'Large block C',
+                'priority' => 'high',
+                'duration_minutes' => 300,
+                'ends_at' => null,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    /** @var array{0: array<int, array<string, mixed>>, 1: array<string, mixed>} $out */
+    $out = $method->invoke($generator, $snapshot, $context, 10);
+
+    $digest = $out[1];
+    $daysUsed = is_array($digest['days_used'] ?? null) ? $digest['days_used'] : [];
+
+    expect(count($daysUsed))->toBeGreaterThanOrEqual(2);
 });

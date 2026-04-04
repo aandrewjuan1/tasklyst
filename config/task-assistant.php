@@ -122,6 +122,11 @@ return [
     'schedule' => [
         'max_horizon_days' => (int) env('TASK_ASSISTANT_SCHEDULE_MAX_HORIZON_DAYS', 14),
         /**
+         * When the user gives a vague schedule request (horizon label default_today), search this many
+         * consecutive local days starting from today, capped by max_horizon_days.
+         */
+        'smart_default_spread_days' => (int) env('TASK_ASSISTANT_SCHEDULE_SMART_DEFAULT_SPREAD_DAYS', 3),
+        /**
          * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
          * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
          */
