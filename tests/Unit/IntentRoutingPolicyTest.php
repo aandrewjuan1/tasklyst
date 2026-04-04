@@ -72,10 +72,10 @@ test('LLM intent prioritize_schedule maps to prioritize_schedule flow', function
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
-    // This prompt should not match the regex heuristic (no "top/first/next" wording).
+    // Avoid the combined-prompt policy short-circuit (needs both rank-ish + time cues from regex set).
     $decision = app(IntentRoutingPolicy::class)->decide(
         $thread,
-        'Schedule my highest priority tasks for tomorrow'
+        'Slot my deadlines for tomorrow by difficulty'
     );
 
     expect($decision->flow)->toBe('prioritize_schedule');

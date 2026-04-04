@@ -127,6 +127,19 @@ final class TaskAssistantScheduleNarrativeSanitizer
         $out = (string) preg_replace('/\bfor\s+later\s+today\b/iu', 'for '.$forPhrase, $t);
         $out = (string) preg_replace('/\blater\s+today\b/iu', $standalonePhrase, $out);
 
+        // Small models often say "today" for the student's availability window even when blocks land
+        // on the next calendar day. Rewrite schedule-window phrases only (narrow patterns).
+        $windowTodayReplacements = [
+            '/\bacross in your open window today\b/iu' => 'across in your open window for '.$forPhrase,
+            '/\bin your open window today\b/iu' => 'in your open window for '.$forPhrase,
+            '/\bin your available window today\b/iu' => 'in your available window for '.$forPhrase,
+            '/\bthis window today\b/iu' => 'this window for '.$forPhrase,
+            '/\b(your|this)\s+time\s+window\s+today\b/iu' => '$1 time window for '.$forPhrase,
+        ];
+        foreach ($windowTodayReplacements as $pattern => $replacement) {
+            $out = (string) preg_replace($pattern, $replacement, $out);
+        }
+
         return trim((string) preg_replace('/\s{2,}/u', ' ', $out) ?? $out);
     }
 }

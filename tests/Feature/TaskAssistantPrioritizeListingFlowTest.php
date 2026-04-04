@@ -94,8 +94,8 @@ test('prioritize mismatch explanation does not claim explicit requested count wh
     ]);
 
     Task::factory()->for($user)->create([
-        'title' => 'Future task',
-        'status' => TaskStatus::ToDo,
+        'title' => 'In progress task',
+        'status' => TaskStatus::Doing,
         'priority' => TaskPriority::Medium,
         'start_datetime' => null,
         'end_datetime' => now()->addDays(8),
@@ -103,7 +103,7 @@ test('prioritize mismatch explanation does not claim explicit requested count wh
 
     $userMessage = $thread->messages()->create([
         'role' => MessageRole::User,
-        'content' => 'whats my top tasks that i need to do i wanna finish something today',
+        'content' => 'whats my top tasks that i need to do i wanna make real progress',
     ]);
     $assistantMessage = $thread->messages()->create([
         'role' => MessageRole::Assistant,

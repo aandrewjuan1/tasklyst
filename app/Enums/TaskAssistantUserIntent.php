@@ -12,6 +12,8 @@ enum TaskAssistantUserIntent: string
     case Unclear = 'unclear';
     case Greeting = 'greeting';
 
+    case ListingFollowup = 'listing_followup';
+
     /**
      * @return list<string>
      */

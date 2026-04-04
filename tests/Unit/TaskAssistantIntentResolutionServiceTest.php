@@ -177,3 +177,51 @@ test('llm scheduling is overridden to prioritize schedule when message matches c
     expect($decision->flow)->toBe('prioritize_schedule');
     expect($decision->reasonCodes)->toContain('intent_llm_scheduling_combined_prompt_override');
 });
+
+test('llm listing_followup intent routes to listing_followup flow', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::ListingFollowup,
+        confidence: 0.82,
+        failed: false,
+        rationale: 'User is verifying a recent suggestion.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'is that ordering right?',
+        $inference,
+        ['prioritization' => 0.2, 'scheduling' => 0.05, 'hybrid' => 0.0],
+    );
+
+    expect($decision->flow)->toBe('listing_followup');
+    expect($decision->reasonCodes)->toContain('intent_llm_listing_followup');
+});
+
+test('llm prioritize_schedule demotes to prioritize when scheduling signal is weak and no combined cue', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::PrioritizeSchedule,
+        confidence: 0.85,
+        failed: false,
+        rationale: 'Mislabeled verification question.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'are those two the most urgent?',
+        $inference,
+        ['prioritization' => 0.42, 'scheduling' => 0.1, 'hybrid' => 0.0],
+    );
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('prioritize_schedule_demoted_weak_schedule_signal');
+});

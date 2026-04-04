@@ -220,6 +220,34 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->hasMultiturnListingFollowupContext($thread) && $this->isLikelyListingFollowupQuestion($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $content, 'listing_followup');
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'listing_followup_shortcircuit',
+                'flow' => 'listing_followup',
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'listing_followup',
+                confidence: 1.0,
+                reasonCodes: ['followup_listing_question_shortcircuit'],
+                constraints: $constraints,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         $signals = $this->signalExtractor->extract($normalized);
         $inference = null;
         $useLlm = (bool) config('task-assistant.intent.use_llm', true);
@@ -270,9 +298,12 @@ final class IntentRoutingPolicy
         $useSelected = preg_match('/\b(those|them|those\s+\d+|the\s+above)\b/i', $normalized) === 1;
 
         $targetEntities = [];
-        if ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule') {
+        $listing = null;
+        if ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup') {
             $listing = $this->scheduleAwareLastListing($thread, $normalized);
-            $referenceFlow = $resolvedFlow === 'prioritize_schedule' ? 'schedule' : $resolvedFlow;
+            $referenceFlow = ($resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup')
+                ? 'schedule'
+                : $resolvedFlow;
             $resolved = $this->listingReferenceResolver->resolveForSchedule($normalized, $listing, $referenceFlow);
             if ($resolved !== []) {
                 $targetEntities = $resolved;
@@ -284,10 +315,15 @@ final class IntentRoutingPolicy
         }
 
         $countLimit = $this->extractCountLimit($normalized);
+
+        if ($resolvedFlow === 'listing_followup' && $targetEntities === [] && is_array($listing)) {
+            $targetEntities = $this->targetsFromListingHead($listing, $countLimit);
+        }
+
         // If we resolved explicit schedule targets from the user's last ordered listing
         // ("those/the above"/sliced subsets), align how many we schedule with that resolved set.
         // This prevents unintentionally truncating the user's requested batch size.
-        if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule') && $targetEntities !== []) {
+        if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup') && $targetEntities !== []) {
             $countLimit = max(1, count($targetEntities));
         }
 
@@ -662,5 +698,85 @@ final class IntentRoutingPolicy
         }
 
         return false;
+    }
+
+    private function hasMultiturnListingFollowupContext(TaskAssistantThread $thread): bool
+    {
+        if ($this->conversationState->lastListing($thread) !== null) {
+            return true;
+        }
+
+        $state = $this->conversationState->get($thread);
+        if ((string) ($state['last_flow'] ?? '') !== 'schedule') {
+            return false;
+        }
+
+        $targets = data_get($state, 'last_schedule.target_entities', []);
+
+        return is_array($targets) && $targets !== [];
+    }
+
+    private function isLikelyListingFollowupQuestion(string $normalized): bool
+    {
+        $trimmed = trim($normalized);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        if (preg_match('/\b(schedule|reschedule|block\s+time|put\s+on\s+my\s+calendar)\b/u', $trimmed) === 1
+            && ! str_ends_with($trimmed, '?')) {
+            return false;
+        }
+
+        $questionShape = str_ends_with($trimmed, '?')
+            || preg_match('/^(are|is|was|were|do|does|did|why|what\s+about|should\s+i|would\s+that|can\s+you\s+explain|tell\s+me)\b/u', $trimmed) === 1;
+
+        if (! $questionShape) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(those|these|that|this|them|two|three|both|most\s+urgent|urgent|right\s+order|correct|make\s+sense|trust|sure|really)\b/u',
+            $trimmed
+        ) === 1;
+    }
+
+    /**
+     * @param  array{source_flow: string, items: list<array<string, mixed>>, assistant_message_id?: int|null, last_limit?: int}  $listing
+     * @return list<array{entity_type: string, entity_id: int, title: string, position: int}>
+     */
+    private function targetsFromListingHead(array $listing, int $limit): array
+    {
+        $items = $listing['items'] ?? [];
+        if (! is_array($items)) {
+            return [];
+        }
+
+        $limit = max(1, min($limit, 10));
+        $out = [];
+        $position = 0;
+
+        foreach (array_slice($items, 0, $limit) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $type = trim((string) ($row['entity_type'] ?? ''));
+            $id = (int) ($row['entity_id'] ?? 0);
+            $title = trim((string) ($row['title'] ?? ''));
+            if ($type === '' || $id <= 0 || $title === '') {
+                continue;
+            }
+
+            $out[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+                'position' => $position,
+            ];
+            $position++;
+        }
+
+        return $out;
     }
 }

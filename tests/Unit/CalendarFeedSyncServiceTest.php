@@ -23,14 +23,16 @@ it('creates or updates tasks from calendar feed events', function () {
         'sync_enabled' => true,
     ]);
 
-    $ics = <<<'ICS'
+    $start = now()->utc()->addDays(10)->setTime(9, 0, 0);
+    $end = $start->copy()->addMinutes(30);
+    $ics = <<<ICS
 BEGIN:VCALENDAR
 BEGIN:VEVENT
 UID:event-1@example.com
 SUMMARY:Quiz 1
 DESCRIPTION:View this quiz at https://brightspace.example.com/d2l/le/quiz/123
-DTSTART:20260301T090000Z
-DTEND:20260301T093000Z
+DTSTART:{$start->format('Ymd\THis\Z')}
+DTEND:{$end->format('Ymd\THis\Z')}
 END:VEVENT
 END:VCALENDAR
 ICS;
@@ -143,14 +145,16 @@ it('leaves source_url null when description has no URL', function () {
         'sync_enabled' => true,
     ]);
 
-    $ics = <<<'ICS'
+    $start = now()->utc()->addDays(11)->setTime(9, 0, 0);
+    $end = $start->copy()->addMinutes(30);
+    $ics = <<<ICS
 BEGIN:VCALENDAR
 BEGIN:VEVENT
 UID:event-2@example.com
 SUMMARY:Assignment without link
 DESCRIPTION:Review the assignment instructions in Brightspace.
-DTSTART:20260302T090000Z
-DTEND:20260302T093000Z
+DTSTART:{$start->format('Ymd\THis\Z')}
+DTEND:{$end->format('Ymd\THis\Z')}
 END:VEVENT
 END:VCALENDAR
 ICS;

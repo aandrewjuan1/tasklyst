@@ -73,8 +73,44 @@ final class TaskAssistantResponseProcessor
             'general_guidance' => $this->validateGeneralGuidanceData($data),
             'prioritize' => $this->validatePrioritizeListingData($data),
             'daily_schedule' => $this->validateDailyScheduleData($data, $snapshot),
+            'listing_followup' => $this->validateListingFollowupData($data),
             default => ['valid' => true, 'data' => $data, 'errors' => []],
         };
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array{valid: bool, data: array<string, mixed>, errors: array<int, string>}
+     */
+    private function validateListingFollowupData(array $data): array
+    {
+        $maxNext = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
+        $rules = [
+            'verdict' => ['required', 'string', 'in:yes,partial,no'],
+            'compared_items' => ['present', 'array'],
+            'compared_items.*.entity_type' => ['required', 'string', 'min:1'],
+            'compared_items.*.entity_id' => ['required', 'integer', 'min:1'],
+            'compared_items.*.title' => ['required', 'string', 'min:1', 'max:500'],
+            'more_urgent_alternatives' => ['present', 'array', 'max:3'],
+            'more_urgent_alternatives.*.entity_type' => ['required', 'string', 'min:1'],
+            'more_urgent_alternatives.*.entity_id' => ['required', 'integer', 'min:1'],
+            'more_urgent_alternatives.*.title' => ['required', 'string', 'min:1', 'max:500'],
+            'more_urgent_alternatives.*.reason_short' => ['required', 'string', 'min:2', 'max:220'],
+            'framing' => ['required', 'string', 'min:5', 'max:900'],
+            'rationale' => ['required', 'string', 'min:10', 'max:1200'],
+            'caveats' => ['nullable', 'string', 'max:500'],
+            'next_options' => ['required', 'string', 'min:5', 'max:'.$maxNext],
+            'next_options_chip_texts' => ['required', 'array', 'size:2'],
+            'next_options_chip_texts.*' => ['required', 'string', 'min:2', 'max:120'],
+        ];
+
+        $validator = Validator::make($data, $rules);
+
+        return [
+            'valid' => ! $validator->fails(),
+            'data' => $data,
+            'errors' => $validator->fails() ? array_values($validator->errors()->all()) : [],
+        ];
     }
 
     /**

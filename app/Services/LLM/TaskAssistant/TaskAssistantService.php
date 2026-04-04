@@ -22,6 +22,7 @@ use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
 use App\Services\LLM\Scheduling\ScheduleRefinementPlacementRouter;
 use App\Services\LLM\Scheduling\ScheduleRefinementStructuredOpExtractor;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
+use App\Services\LLM\Scheduling\TaskAssistantScheduleHorizonResolver;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use Carbon\CarbonImmutable;
@@ -66,6 +67,8 @@ final class TaskAssistantService
         private readonly PlacementDigestRebuilder $placementDigestRebuilder,
         private readonly ScheduleRefinementClauseSplitter $scheduleRefinementClauseSplitter,
         private readonly ScheduleRefinementStructuredOpExtractor $scheduleRefinementStructuredOpExtractor,
+        private readonly TaskAssistantScheduleHorizonResolver $scheduleHorizonResolver,
+        private readonly TaskAssistantListingFollowupService $listingFollowupService,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -193,7 +196,7 @@ final class TaskAssistantService
                         countLimit: $forcedCountLimit,
                         generationProfile: $forcedFlow,
                     );
-                    $forcedPlan = $this->maybeRemapScheduleToPrioritize($thread, $forcedPlan);
+                    $forcedPlan = $this->maybeRemapScheduleToPrioritize($thread, $forcedPlan, $content);
 
                     $this->logRoutingDecision($thread, $assistantMessage, $forcedPlan);
 
@@ -208,8 +211,14 @@ final class TaskAssistantService
                         return;
                     }
 
-                    if ($forcedFlow === 'prioritize') {
+                    if ($forcedPlan->flow === 'prioritize') {
                         $this->runPrioritizeFlow($thread, $assistantMessage, $content, $forcedPlan);
+
+                        return;
+                    }
+
+                    if ($forcedPlan->flow === 'prioritize_schedule') {
+                        $this->runPrioritizeScheduleFlow($thread, $userMessage, $assistantMessage, $content, $forcedPlan);
 
                         return;
                     }
@@ -234,11 +243,11 @@ final class TaskAssistantService
             }
 
             $plan = $this->buildExecutionPlan($thread, $content);
-            $plan = $this->maybeRemapScheduleToPrioritize($thread, $plan);
+            $plan = $this->maybeRemapScheduleToPrioritize($thread, $plan, $content);
             $plan = $this->maybeRewritePlanForScheduleRefinement($thread, $plan, $assistantMessage->id, $content);
             $this->logRoutingDecision($thread, $assistantMessage, $plan);
 
-            if (in_array($plan->flow, ['prioritize', 'schedule', 'prioritize_schedule'], true)) {
+            if (in_array($plan->flow, ['prioritize', 'schedule', 'prioritize_schedule', 'listing_followup'], true)) {
                 $candidateSnapshot = $this->candidateProvider->candidatesForUser(
                     $thread->user,
                     taskLimit: 200,
@@ -253,6 +262,12 @@ final class TaskAssistantService
 
             if ($plan->flow === 'general_guidance') {
                 $this->runGeneralGuidanceFlow($thread, $assistantMessage, $content, $plan);
+
+                return;
+            }
+
+            if ($plan->flow === 'listing_followup') {
+                $this->runListingFollowupFlow($thread, $assistantMessage, $content, $plan);
 
                 return;
             }
@@ -1036,6 +1051,10 @@ final class TaskAssistantService
         int $currentAssistantMessageId,
         string $content,
     ): ExecutionPlan {
+        if ($plan->flow === 'listing_followup') {
+            return $plan;
+        }
+
         if ($plan->flow === 'prioritize') {
             if (! $this->isLikelyScheduleRefinementEditPrompt($content)) {
                 return $plan;
@@ -1763,8 +1782,9 @@ final class TaskAssistantService
 
     /**
      * When the user asks to schedule but there is no multiturn listing and no resolved targets, run a ranked list first.
+     * If the message anchors a concrete calendar horizon (today/tomorrow/week/etc.), run prioritize+schedule instead.
      */
-    private function maybeRemapScheduleToPrioritize(TaskAssistantThread $thread, ExecutionPlan $plan): ExecutionPlan
+    private function maybeRemapScheduleToPrioritize(TaskAssistantThread $thread, ExecutionPlan $plan, string $userMessageContent): ExecutionPlan
     {
         if ($plan->flow !== 'schedule') {
             return $plan;
@@ -1774,6 +1794,32 @@ final class TaskAssistantService
         }
         if ($this->conversationState->lastListing($thread) !== null) {
             return $plan;
+        }
+
+        $snapshot = $this->candidateProvider->candidatesForUser($thread->user, taskLimit: 200);
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $now = CarbonImmutable::now($timezone);
+        $horizon = $this->scheduleHorizonResolver->resolve($userMessageContent, $timezone, $now);
+        $horizonLabel = (string) ($horizon['label'] ?? 'default_today');
+
+        if ($horizonLabel !== 'default_today') {
+            $reasonCodes = array_values(array_unique(array_merge(
+                $plan->reasonCodes,
+                ['schedule_promoted_prioritize_schedule_explicit_horizon']
+            )));
+
+            return new ExecutionPlan(
+                flow: 'prioritize_schedule',
+                confidence: $plan->confidence,
+                clarificationNeeded: $plan->clarificationNeeded,
+                clarificationQuestion: $plan->clarificationQuestion,
+                reasonCodes: $reasonCodes,
+                constraints: $plan->constraints,
+                targetEntities: $plan->targetEntities,
+                timeWindowHint: $plan->timeWindowHint,
+                countLimit: $plan->countLimit,
+                generationProfile: 'schedule',
+            );
         }
 
         $reasonCodes = array_values(array_unique(array_merge(
@@ -2522,6 +2568,7 @@ final class TaskAssistantService
             'prioritize',
             'schedule',
             'prioritize_schedule',
+            'listing_followup',
             'general_guidance' => $decision->flow,
             default => throw new \UnexpectedValueException('Unsupported routing flow: '.$decision->flow),
         };
@@ -2533,6 +2580,7 @@ final class TaskAssistantService
             'schedule' => 'schedule',
             'prioritize' => 'prioritize',
             'prioritize_schedule' => 'schedule',
+            'listing_followup' => 'listing_followup',
             'general_guidance' => 'general_guidance',
         };
 
@@ -2547,6 +2595,102 @@ final class TaskAssistantService
             timeWindowHint: $timeWindowHint,
             countLimit: $countLimit,
             generationProfile: $generationProfile,
+        );
+    }
+
+    private function runListingFollowupFlow(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $assistantMessage,
+        string $content,
+        ExecutionPlan $plan,
+    ): void {
+        $thread->refresh();
+
+        Log::info('task-assistant.flow', [
+            'layer' => 'flow',
+            'flow' => 'listing_followup',
+            'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+            'thread_id' => $thread->id,
+            'assistant_message_id' => $assistantMessage->id,
+            'target_entities_count' => count($plan->targetEntities),
+        ]);
+
+        $targets = $plan->targetEntities;
+        if ($targets === []) {
+            $generationResult = [
+                'valid' => true,
+                'data' => [
+                    'verdict' => 'partial',
+                    'compared_items' => [],
+                    'more_urgent_alternatives' => [],
+                    'framing' => 'I do not have a recent list or schedule in this chat yet to compare.',
+                    'rationale' => 'Try asking for your top tasks or a schedule first, then ask again about whether those items are the most urgent.',
+                    'caveats' => null,
+                    'next_options' => 'If you want, I can show a prioritized list or help you block time next.',
+                    'next_options_chip_texts' => [
+                        'What should I do first',
+                        'Plan my day tomorrow',
+                    ],
+                ],
+                'errors' => [],
+            ];
+        } else {
+            $generationResult = $this->listingFollowupService->generate(
+                $thread->user,
+                $thread,
+                $content,
+                $targets,
+            );
+            if (! ($generationResult['valid'] ?? false)) {
+                $generationResult = [
+                    'valid' => true,
+                    'data' => [
+                        'verdict' => 'partial',
+                        'compared_items' => [],
+                        'more_urgent_alternatives' => [],
+                        'framing' => 'I could not line up those items with your workspace snapshot just now.',
+                        'rationale' => 'Try a quick prioritize request so we have a fresh ordered slice to talk about.',
+                        'caveats' => null,
+                        'next_options' => 'If you want, I can list what to tackle first or sketch a simple schedule.',
+                        'next_options_chip_texts' => [
+                            'What should I do first',
+                            'Plan my day tomorrow',
+                        ],
+                    ],
+                    'errors' => [],
+                ];
+            }
+        }
+
+        $execution = $this->flowExecutionEngine->executeStructuredFlow(
+            flow: 'listing_followup',
+            metadataKey: 'listing_followup',
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            generationResult: $generationResult,
+            assistantFallbackContent: 'I had trouble answering that follow-up. Try asking for your top tasks again, then repeat the question.',
+        );
+
+        if (($execution['final_valid'] ?? false) === true) {
+            $structured = $execution['structured_data'] ?? [];
+            $compared = is_array($structured['compared_items'] ?? null) ? $structured['compared_items'] : [];
+            if ($compared !== []) {
+                $thread->refresh();
+                $preserveScheduleDraft = $this->conversationState->shouldPreserveScheduleDraftForListingFollowup($thread);
+                $this->conversationState->rememberListingFollowupContext(
+                    $thread,
+                    $compared,
+                    $assistantMessage->id,
+                    $preserveScheduleDraft,
+                );
+            }
+        }
+
+        $this->streamFlowEnvelope(
+            thread: $thread,
+            assistantMessage: $assistantMessage,
+            flow: 'listing_followup',
+            execution: $execution
         );
     }
 

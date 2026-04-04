@@ -21,6 +21,7 @@ final class TaskAssistantMessageFormatter
             'prioritize' => $this->formatPrioritizeListingMessage($data),
             'general_guidance' => $this->formatGeneralGuidanceMessage($data),
             'daily_schedule' => $this->formatDailyScheduleMessage($data),
+            'listing_followup' => $this->formatListingFollowupMessage($data),
             default => $this->formatDefaultMessage($data),
         };
 
@@ -313,6 +314,62 @@ final class TaskAssistantMessageFormatter
         }
 
         return trim(implode("\n\n", $unique));
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function formatListingFollowupMessage(array $data): string
+    {
+        $verdict = (string) ($data['verdict'] ?? 'partial');
+        $verdictLine = match ($verdict) {
+            'yes' => '**Short answer:** For the snapshot we just used, those items line up well with the top urgency band.',
+            'no' => '**Short answer:** There are other items in your workspace that look more urgent than everything in that set.',
+            default => '**Short answer:** It is partly aligned—some of it matches, but it is not a clean match end-to-end.',
+        };
+
+        $framing = trim((string) ($data['framing'] ?? ''));
+        $rationale = trim((string) ($data['rationale'] ?? ''));
+        $caveats = trim((string) ($data['caveats'] ?? ''));
+        $next = trim((string) ($data['next_options'] ?? ''));
+
+        $compared = is_array($data['compared_items'] ?? null) ? $data['compared_items'] : [];
+        $comparedLines = [];
+        foreach ($compared as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $comparedLines[] = '• '.$title;
+        }
+
+        $alts = is_array($data['more_urgent_alternatives'] ?? null) ? $data['more_urgent_alternatives'] : [];
+        $altLines = [];
+        foreach ($alts as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $title = trim((string) ($row['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $altLines[] = '• '.$title;
+        }
+
+        $segments = array_values(array_filter([
+            $verdictLine,
+            $framing,
+            $comparedLines !== [] ? "Items you asked about:\n".implode("\n", $comparedLines) : '',
+            $altLines !== [] ? "Examples ranked ahead right now:\n".implode("\n", $altLines) : '',
+            $rationale,
+            $caveats !== '' ? $caveats : '',
+            $next,
+        ], static fn (string $s): bool => $s !== ''));
+
+        return trim(implode("\n\n", $segments));
     }
 
     /**

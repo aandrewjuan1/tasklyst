@@ -320,6 +320,7 @@ new class extends Component
         $prioritizeChips = data_get($assistantMessage->metadata, 'prioritize.next_options_chip_texts', []);
         $guidanceChips = data_get($assistantMessage->metadata, 'general_guidance.next_options_chip_texts', []);
         $scheduleChips = data_get($assistantMessage->metadata, 'schedule.next_options_chip_texts', []);
+        $listingFollowupChips = data_get($assistantMessage->metadata, 'listing_followup.next_options_chip_texts', []);
         $structuredChips = data_get($assistantMessage->metadata, 'structured.data.next_options_chip_texts', []);
 
         $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
@@ -328,7 +329,9 @@ new class extends Component
                 ? $guidanceChips
                 : (is_array($scheduleChips) && count($scheduleChips) > 0
                     ? $scheduleChips
-                    : (is_array($structuredChips) ? $structuredChips : [])));
+                    : (is_array($listingFollowupChips) && count($listingFollowupChips) > 0
+                        ? $listingFollowupChips
+                        : (is_array($structuredChips) ? $structuredChips : []))));
 
         return array_values(array_filter(
             array_map(static fn (mixed $chip): string => trim((string) $chip), is_array($nextOptionChips) ? $nextOptionChips : []),

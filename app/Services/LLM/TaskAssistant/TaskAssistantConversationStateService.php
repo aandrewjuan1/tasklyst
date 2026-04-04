@@ -80,6 +80,74 @@ final class TaskAssistantConversationStateService
     }
 
     /**
+     * After a listing_followup answer, persist compared rows for multiturn references.
+     * When {@see $preserveScheduleDraftContext} is true (active schedule draft), keeps
+     * {@see last_flow} and {@see last_schedule} so refinement and draft routing still work.
+     *
+     * @param  array<int, array<string, mixed>>  $comparedItems
+     */
+    public function rememberListingFollowupContext(
+        TaskAssistantThread $thread,
+        array $comparedItems,
+        ?int $assistantMessageId = null,
+        bool $preserveScheduleDraftContext = false,
+    ): void {
+        $state = $this->get($thread);
+        unset($state['selected_entities']);
+
+        $normalized = [];
+        $position = 0;
+        foreach ($comparedItems as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $type = (string) ($row['entity_type'] ?? '');
+            $id = (int) ($row['entity_id'] ?? 0);
+            $title = (string) ($row['title'] ?? '');
+            if ($type === '' || $id <= 0 || trim($title) === '') {
+                continue;
+            }
+            $normalized[] = [
+                'entity_type' => $type,
+                'entity_id' => $id,
+                'title' => $title,
+                'position' => $position,
+            ];
+            $position++;
+        }
+
+        if ($normalized === []) {
+            return;
+        }
+
+        $state['last_listing'] = [
+            'source_flow' => 'listing_followup',
+            'items' => $normalized,
+            'assistant_message_id' => $assistantMessageId,
+        ];
+
+        if (! $preserveScheduleDraftContext) {
+            $state['last_flow'] = 'listing_followup';
+        }
+
+        $this->put($thread, $state);
+    }
+
+    /**
+     * True when the thread has a schedule draft context that must not be overwritten by listing_followup state.
+     */
+    public function shouldPreserveScheduleDraftForListingFollowup(TaskAssistantThread $thread): bool
+    {
+        $state = $this->get($thread);
+        if ((string) ($state['last_flow'] ?? '') !== 'schedule') {
+            return false;
+        }
+        $targets = data_get($state, 'last_schedule.target_entities', []);
+
+        return is_array($targets) && $targets !== [];
+    }
+
+    /**
      * @return array{
      *   source_flow: string,
      *   items: list<array{entity_type: string, entity_id: int, title: string, position: int}>,

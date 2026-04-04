@@ -559,4 +559,54 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertFalse($result['valid']);
         $this->assertNotEmpty($result['errors']);
     }
+
+    public function test_listing_followup_validation_passes_for_well_formed_payload(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('listing_followup', [
+            'verdict' => 'partial',
+            'compared_items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'Task A'],
+            ],
+            'more_urgent_alternatives' => [
+                ['entity_type' => 'task', 'entity_id' => 2, 'title' => 'Task B', 'reason_short' => 'Ranked ahead in this snapshot.'],
+            ],
+            'framing' => 'Here is a direct read on what you asked about those items.',
+            'rationale' => 'I compared them to the same ordering your assistant uses when it surfaces top work.',
+            'caveats' => 'Tasks and events are weighted a little differently.',
+            'next_options' => 'Say if you want a new schedule sketch or a refreshed ranked slice.',
+            'next_options_chip_texts' => [
+                'Show my top tasks',
+                'Plan my day tomorrow',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+    }
+
+    public function test_listing_followup_validation_passes_with_empty_alternatives_and_null_caveats(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('listing_followup', [
+            'verdict' => 'yes',
+            'compared_items' => [
+                ['entity_type' => 'task', 'entity_id' => 1, 'title' => 'Task A'],
+            ],
+            'more_urgent_alternatives' => [],
+            'framing' => 'For this snapshot, those items line up with the top urgency band.',
+            'rationale' => 'Their order matches how things are ranked for prioritize and schedule flows.',
+            'caveats' => null,
+            'next_options' => 'Tell me if you want to tweak times or see a different slice.',
+            'next_options_chip_texts' => [
+                'Adjust the plan',
+                'Prioritize again',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+    }
 }

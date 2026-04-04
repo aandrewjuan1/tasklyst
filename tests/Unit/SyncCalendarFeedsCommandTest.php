@@ -22,13 +22,15 @@ it('syncs enabled calendar feeds via console command', function () {
         'sync_enabled' => true,
     ]);
 
-    $ics = <<<'ICS'
+    $start = now()->utc()->addDays(12)->setTime(12, 0, 0);
+    $end = $start->copy()->addHour();
+    $ics = <<<ICS
 BEGIN:VCALENDAR
 BEGIN:VEVENT
 UID:cmd-event@example.com
 SUMMARY:Exam via Command
-DTSTART:20260301T120000Z
-DTEND:20260301T130000Z
+DTSTART:{$start->format('Ymd\THis\Z')}
+DTEND:{$end->format('Ymd\THis\Z')}
 END:VEVENT
 END:VCALENDAR
 ICS;

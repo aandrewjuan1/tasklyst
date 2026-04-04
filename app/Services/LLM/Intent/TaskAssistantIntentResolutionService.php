@@ -121,6 +121,42 @@ final class TaskAssistantIntentResolutionService
 
         // LLM can directly classify the unified flow (rank top tasks + schedule them).
         if ($llmIntent === TaskAssistantUserIntent::PrioritizeSchedule) {
+            $minScheduleSignal = (float) config('task-assistant.intent.merge.prioritize_schedule_min_schedule_signal', 0.35);
+            $hybridNorm = TaskAssistantIntentHybridCue::normalizeForSignals($normalized);
+            if ($scheduleSignal < $minScheduleSignal
+                && $prioritizeSignal >= $scheduleSignal
+                && ! TaskAssistantIntentHybridCue::matchesCombinedPrioritizeSchedulePrompt($hybridNorm)
+            ) {
+                $demoteCodes = array_values(array_unique(array_merge(
+                    $reasonCodes,
+                    ['prioritize_schedule_demoted_weak_schedule_signal']
+                )));
+
+                $this->logResolution(
+                    $thread,
+                    $llmIntent->value,
+                    $llmConf,
+                    $signals,
+                    'prioritize',
+                    $demoteCodes,
+                    false,
+                    [
+                        'prioritize_schedule' => $llmConf,
+                        'prioritize' => $prioritizeSignal,
+                        'schedule' => $scheduleSignal,
+                    ]
+                );
+
+                return new IntentRoutingDecision(
+                    flow: 'prioritize',
+                    confidence: max($llmConf, $prioritizeSignal),
+                    reasonCodes: $demoteCodes,
+                    constraints: [],
+                    clarificationNeeded: false,
+                    clarificationQuestion: null,
+                );
+            }
+
             $mergedConfidence = max(
                 $llmConf,
                 min(1.0, ($prioritizeSignal + $scheduleSignal) / 2)
@@ -153,6 +189,33 @@ final class TaskAssistantIntentResolutionService
             return new IntentRoutingDecision(
                 flow: 'prioritize_schedule',
                 confidence: $mergedConfidence,
+                reasonCodes: $codes,
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        if ($llmIntent === TaskAssistantUserIntent::ListingFollowup) {
+            $codes = array_values(array_unique(array_merge(
+                $reasonCodes,
+                ['intent_llm_listing_followup']
+            )));
+
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'listing_followup',
+                $codes,
+                false,
+                null
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'listing_followup',
+                confidence: max($llmConf, $prioritizeSignal),
                 reasonCodes: $codes,
                 constraints: [],
                 clarificationNeeded: false,

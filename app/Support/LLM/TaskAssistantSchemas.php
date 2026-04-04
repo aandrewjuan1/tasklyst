@@ -366,7 +366,7 @@ final class TaskAssistantSchemas
             properties: [
                 new StringSchema(
                     name: 'framing',
-                    description: 'Required: 1–2 short sentences in warm coach voice before the app-rendered schedule rows. First sentence acknowledges the student’s request in your own words (time intent like evening/later today, scope like one task vs several)—paraphrase; do not paste a long user quote. Optional second sentence hands off to the rows without repeating exact clock times or durations. Do not say: order below, the list below, ranked list, numbered list, top to bottom, step at a time—this is a time-block schedule, not a priority list. Use singular phrasing when exactly one row.',
+                    description: 'Required: 1–2 short sentences in warm coach voice before the app-rendered schedule rows. First sentence acknowledges the student’s request in your own words (time intent like evening, scope like one task vs several)—paraphrase; do not paste a long user quote. The user message includes CONTEXT naming the calendar day for these blocks—describe that day consistently (e.g. if CONTEXT says tomorrow, say tomorrow; do not call the placement day "today" unless CONTEXT says today). Optional second sentence hands off to the rows without repeating exact clock times or durations. Do not say: order below, the list below, ranked list, numbered list, top to bottom, step at a time—this is a time-block schedule, not a priority list. Use singular phrasing when exactly one row.',
                     nullable: false
                 ),
                 new StringSchema(

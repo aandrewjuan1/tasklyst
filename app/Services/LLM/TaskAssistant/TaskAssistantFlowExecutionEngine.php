@@ -311,6 +311,12 @@ final class TaskAssistantFlowExecutionEngine
             $summary['items_count'] = is_array($items) ? count($items) : 0;
         }
 
+        if ($flow === 'listing_followup') {
+            $summary['verdict'] = $payload['verdict'] ?? null;
+            $compared = $payload['compared_items'] ?? [];
+            $summary['compared_items_count'] = is_array($compared) ? count($compared) : 0;
+        }
+
         return $summary;
     }
 }

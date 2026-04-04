@@ -80,6 +80,11 @@ return [
             'max_tokens' => env('TASK_ASSISTANT_INTENT_MAX_TOKENS', 200),
             'top_p' => env('TASK_ASSISTANT_INTENT_TOP_P', 0.85),
         ],
+        'listing_followup' => [
+            'temperature' => (float) env('TASK_ASSISTANT_LISTING_FOLLOWUP_TEMPERATURE', 0.35),
+            'max_tokens' => (int) env('TASK_ASSISTANT_LISTING_FOLLOWUP_MAX_TOKENS', 450),
+            'top_p' => env('TASK_ASSISTANT_LISTING_FOLLOWUP_TOP_P', 0.88),
+        ],
         'listing' => [
             'temperature' => env('TASK_ASSISTANT_BROWSE_TEMPERATURE'),
             'max_tokens' => env('TASK_ASSISTANT_BROWSE_MAX_TOKENS'),
@@ -321,6 +326,11 @@ TXT,
              * route to prioritize_schedule if the hybrid composite meets this floor.
              */
             'hybrid_ambiguity_resolution_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_AMBIGUITY_RESOLUTION_MIN', 0.47),
+            /**
+             * When the LLM says prioritize_schedule but scheduling heuristics are weaker than this,
+             * demote to prioritize unless the message matches a combined rank+time pattern.
+             */
+            'prioritize_schedule_min_schedule_signal' => (float) env('TASK_ASSISTANT_PRIORITIZE_SCHEDULE_MIN_SCHEDULE_SIGNAL', 0.35),
         ],
     ],
 

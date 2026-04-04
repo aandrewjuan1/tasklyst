@@ -75,3 +75,15 @@ test('alignLaterTodayPhrasingWithPlacementDay leaves text unchanged when placeme
 
     expect($out)->toBe($original);
 });
+
+test('alignLaterTodayPhrasingWithPlacementDay rewrites open window today when placement is tomorrow', function (): void {
+    $out = TaskAssistantScheduleNarrativeSanitizer::alignLaterTodayPhrasingWithPlacementDay(
+        'I shaped 3 blocks across in your open window today—each row below is one stretch.',
+        '2026-04-04',
+        '2026-04-05',
+        'Asia/Manila'
+    );
+
+    expect(mb_strtolower($out))->not->toContain('open window today');
+    expect($out)->toContain('open window for tomorrow');
+});

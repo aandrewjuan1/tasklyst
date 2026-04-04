@@ -356,7 +356,7 @@ final class TaskAssistantHybridNarrativeService
             'The planned schedule is fixed and correct. The student will see each row with exact start, end, and duration immediately after your framing.'.$horizonHint."\n\n".
             'PLACEMENT_FACTS (must respect; do not contradict): schedule_row_count='.$blockCount.'; unplaced_candidate_count='.$unplacedCountForPrompt.'. The UI shows exactly schedule_row_count time blocks with concrete start/end. Do not imply more tasks received scheduled start/end times than schedule_row_count. If unplaced_candidate_count>0, say plainly that some requested items did not get a slot in this pass (another day or a wider window may help)—do not claim every item was placed.'."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
-            '- framing: 1–2 short sentences. First sentence: acknowledge their request in your own words (evening/later today/how many tasks they hinted at)—paraphrase; do not paste a long quote of the user. Second sentence (optional): brief hand-off to the schedule rows without repeating exact clock times or durations (the app shows those next).'."\n".
+            '- framing: 1–2 short sentences. First sentence: acknowledge their request in your own words (time intent like evening, or scope like how many tasks)—paraphrase; do not paste a long quote of the user. Use the same calendar day as the CONTEXT sentence above for when these blocks land (if CONTEXT says tomorrow, say tomorrow—do not describe the blocks as "today" unless CONTEXT says today). Second sentence (optional): brief hand-off to the schedule rows without repeating exact clock times or durations (the app shows those next).'."\n".
             '- reasoning: why this order fits the student (focus, deadlines, energy)—without quoting specific times or durations that duplicate the list. If the optional planning notes mention a partial block, explain plainly what fit and what did not, and offer a neutral next step (wider window or another block) without mentioning Pomodoro or chunking terms.'."\n".
             '- confirmation: clear check-in—do these times and block lengths feel workable? Invite them to describe tweaks in chat (earlier/later/longer/shorter/different order) and that nothing is final until they save. 1–3 sentences. Do not mention Accept all or UI buttons.'."\n\n".
             'STUDENT-FACING RULES: Write plain English only. Never say: placement window, default placement, planning horizon, digest, snapshot, BLOCKS_JSON, JSON, server-side, backend, or internal codenames like default_today or smart_default_spread.'."\n".
@@ -475,6 +475,12 @@ final class TaskAssistantHybridNarrativeService
             );
             $reasoning = TaskAssistantScheduleNarrativeSanitizer::alignLaterTodayPhrasingWithPlacementDay(
                 $reasoning,
+                $studentTodayYmd,
+                $firstPlacementDayYmd,
+                $scheduleAlignTz
+            );
+            $confirmation = TaskAssistantScheduleNarrativeSanitizer::alignLaterTodayPhrasingWithPlacementDay(
+                $confirmation,
                 $studentTodayYmd,
                 $firstPlacementDayYmd,
                 $scheduleAlignTz
