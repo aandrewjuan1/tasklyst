@@ -464,8 +464,8 @@ trait HandlesTasks
             $this->applyTaskFilters($taskQuery);
         }
 
-        if (method_exists($this, 'applySearchToQuery')) {
-            $this->applySearchToQuery($taskQuery, 'title');
+        if (method_exists($this, 'applyWorkspaceSearchToTaskQuery')) {
+            $this->applyWorkspaceSearchToTaskQuery($taskQuery);
         }
 
         $tasks = $taskQuery

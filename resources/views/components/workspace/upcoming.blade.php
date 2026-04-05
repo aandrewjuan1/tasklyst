@@ -9,7 +9,7 @@
     /** @var \Illuminate\Support\Collection $items */
     $items = $items instanceof \Illuminate\Support\Collection ? $items : collect($items);
 
-    // Always base "upcoming" on today, independent of the selected date.
+    // Always base "upcoming" on today, independent of the selected date, filters, and search.
     $baseDate = now()->startOfDay();
 
     $grouped = $items->groupBy(function (array $entry) {

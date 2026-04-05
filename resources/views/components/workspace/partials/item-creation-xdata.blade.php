@@ -202,7 +202,7 @@
                 }
 
                 // Call server for real tags
-                const promise = $wire.$parent.$call('deleteTag', tag.id);
+                const promise = window.workspaceShellWire($wire).$call('deleteTag', tag.id);
 
                 // Handle response
                 await promise;
@@ -275,7 +275,7 @@
                 this.creatingTag = true;
 
                 // Call server
-                const promise = $wire.$parent.$call('createTag', tagName);
+                const promise = window.workspaceShellWire($wire).$call('createTag', tagName);
 
                 // Handle response - the tag-created event will update with real ID
                 await promise;
@@ -332,7 +332,7 @@
             }
             const minLoadingMs = 500;
 
-            $wire.$parent.$call('createTask', payload)
+            window.workspaceShellWire($wire).$call('createTask', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
@@ -383,7 +383,7 @@
             }
             const minLoadingMs = 500;
 
-            $wire.$parent.$call('createEvent', payload)
+            window.workspaceShellWire($wire).$call('createEvent', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
@@ -421,7 +421,7 @@
             };
             const minLoadingMs = 500;
 
-            $wire.$parent.$call('createProject', payload)
+            window.workspaceShellWire($wire).$call('createProject', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);

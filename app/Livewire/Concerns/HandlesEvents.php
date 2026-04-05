@@ -514,8 +514,8 @@ trait HandlesEvents
             $eventQuery->notCancelled();
         }
 
-        if (method_exists($this, 'applySearchToQuery')) {
-            $this->applySearchToQuery($eventQuery, 'title');
+        if (method_exists($this, 'applyWorkspaceSearchToEventQuery')) {
+            $this->applyWorkspaceSearchToEventQuery($eventQuery);
         }
 
         $events = $eventQuery

@@ -353,6 +353,9 @@ trait HandlesFiltering
     /**
      * Apply search query to an Eloquent query (LIKE on the given column).
      * Escapes % and _ for safe LIKE matching. Limits length to avoid heavy queries.
+     *
+     * Prefer {@see applyWorkspaceSearchToTaskQuery}, {@see applyWorkspaceSearchToEventQuery},
+     * and {@see applyWorkspaceSearchToProjectQuery} for workspace search.
      */
     public function applySearchToQuery(Builder $query, string $column): void
     {
@@ -366,6 +369,136 @@ trait HandlesFiltering
         }
         $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search);
         $query->where($column, 'like', '%'.$escaped.'%');
+    }
+
+    /**
+     * Whitespace-separated search tokens (OR semantics). Empty when no active search.
+     *
+     * @return list<string>
+     */
+    protected function getWorkspaceSearchTokens(): array
+    {
+        $search = $this->getTrimmedSearchQuery();
+        if ($search === null) {
+            return [];
+        }
+
+        $limited = Str::limit($search, 255, '');
+        $parts = preg_split('/\s+/u', $limited, -1, PREG_SPLIT_NO_EMPTY);
+        if ($parts === false) {
+            return [];
+        }
+
+        $tokens = [];
+        foreach ($parts as $part) {
+            $t = Str::limit(trim($part), 128, '');
+            if ($t === '') {
+                continue;
+            }
+            if (! in_array($t, $tokens, true)) {
+                $tokens[] = $t;
+            }
+            if (count($tokens) >= 12) {
+                break;
+            }
+        }
+
+        return $tokens;
+    }
+
+    protected function escapeWorkspaceSearchLikeToken(string $token): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $token);
+    }
+
+    /**
+     * One token: match title, description, teacher/subject, or tag name.
+     */
+    protected function applyWorkspaceSearchTokenToTaskQuery(Builder $query, string $pattern): void
+    {
+        $query->where(function (Builder $group) use ($pattern): void {
+            $group->where('title', 'like', $pattern)
+                ->orWhere('description', 'like', $pattern)
+                ->orWhere('teacher_name', 'like', $pattern)
+                ->orWhere('subject_name', 'like', $pattern)
+                ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
+                    $tagQuery->where('tags.name', 'like', $pattern);
+                });
+        });
+    }
+
+    /**
+     * Broad workspace search on tasks (any token matches any included field or tag).
+     */
+    public function applyWorkspaceSearchToTaskQuery(Builder $query): void
+    {
+        $tokens = $this->getWorkspaceSearchTokens();
+        if ($tokens === []) {
+            return;
+        }
+
+        $query->where(function (Builder $outer) use ($tokens): void {
+            foreach ($tokens as $i => $token) {
+                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                $method = $i === 0 ? 'where' : 'orWhere';
+                $outer->{$method}(function (Builder $group) use ($pattern): void {
+                    $this->applyWorkspaceSearchTokenToTaskQuery($group, $pattern);
+                });
+            }
+        });
+    }
+
+    /**
+     * Broad workspace search on events: own fields/tags OR matching child tasks.
+     */
+    public function applyWorkspaceSearchToEventQuery(Builder $query): void
+    {
+        $tokens = $this->getWorkspaceSearchTokens();
+        if ($tokens === []) {
+            return;
+        }
+
+        $query->where(function (Builder $outer) use ($tokens): void {
+            foreach ($tokens as $i => $token) {
+                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                $method = $i === 0 ? 'where' : 'orWhere';
+                $outer->{$method}(function (Builder $group) use ($pattern): void {
+                    $group->where('title', 'like', $pattern)
+                        ->orWhere('description', 'like', $pattern)
+                        ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
+                            $tagQuery->where('tags.name', 'like', $pattern);
+                        })
+                        ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                            $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                        });
+                });
+            }
+        });
+    }
+
+    /**
+     * Broad workspace search on projects: name/description OR matching child tasks.
+     */
+    public function applyWorkspaceSearchToProjectQuery(Builder $query): void
+    {
+        $tokens = $this->getWorkspaceSearchTokens();
+        if ($tokens === []) {
+            return;
+        }
+
+        $query->where(function (Builder $outer) use ($tokens): void {
+            foreach ($tokens as $i => $token) {
+                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                $method = $i === 0 ? 'where' : 'orWhere';
+                $outer->{$method}(function (Builder $group) use ($pattern): void {
+                    $group->where('name', 'like', $pattern)
+                        ->orWhere('description', 'like', $pattern)
+                        ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                            $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                        });
+                });
+            }
+        });
     }
 
     /**

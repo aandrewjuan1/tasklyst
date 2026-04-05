@@ -365,8 +365,8 @@ trait HandlesProjects
 
         $query->orderByDesc('created_at');
 
-        if (method_exists($this, 'applySearchToQuery')) {
-            $this->applySearchToQuery($query, 'name');
+        if (method_exists($this, 'applyWorkspaceSearchToProjectQuery')) {
+            $this->applyWorkspaceSearchToProjectQuery($query);
         }
 
         $projects = $query

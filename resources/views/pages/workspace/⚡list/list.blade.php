@@ -1072,8 +1072,9 @@
                 ? __('Event status') . ': ' . (\App\Enums\EventStatus::tryFrom($filters['eventStatus'])?->label() ?? $filters['eventStatus'])
                 : null,
         ]);
+
     @endphp
-    @if($items->isEmpty() && $overdue->isEmpty())
+    @if ($items->isEmpty() && $overdue->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
             <div class="flex items-center gap-2">
                 <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />

@@ -562,8 +562,8 @@ class extends Component
                 $this->applyOverdueTaskFilters($overdueTaskQuery);
             }
 
-            if (method_exists($this, 'applySearchToQuery')) {
-                $this->applySearchToQuery($overdueTaskQuery, 'title');
+            if (method_exists($this, 'applyWorkspaceSearchToTaskQuery')) {
+                $this->applyWorkspaceSearchToTaskQuery($overdueTaskQuery);
             }
 
             $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
@@ -592,8 +592,8 @@ class extends Component
                 $this->applyOverdueEventFilters($overdueEventQuery);
             }
 
-            if (method_exists($this, 'applySearchToQuery')) {
-                $this->applySearchToQuery($overdueEventQuery, 'title');
+            if (method_exists($this, 'applyWorkspaceSearchToEventQuery')) {
+                $this->applyWorkspaceSearchToEventQuery($overdueEventQuery);
             }
 
             $overdueEvents = $overdueEventQuery->orderBy('end_datetime')->limit(50)->get()
@@ -617,6 +617,7 @@ class extends Component
     /**
      * Get upcoming tasks, events, and projects for the authenticated user.
      * Upcoming = within the next N days starting today (independent of the selected date).
+     * Intentionally ignores workspace filters and search so the sidebar stays a stable horizon.
      * Returns a unified collection of entries with 'kind' and 'item' for rendering.
      */
     #[Computed]
@@ -628,87 +629,45 @@ class extends Component
             return collect();
         }
 
-        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
-
         // Base date is always "today" for upcoming, regardless of the selected workspace date.
         $fromDate = now()->startOfDay();
         $days = 7;
 
         $entries = collect();
 
-        // Upcoming tasks (due soon by end_datetime)
-        if ($filterItemType === null || $filterItemType === 'tasks') {
-            $taskQuery = Task::query()
-                ->forUser($userId)
-                ->dueSoon($fromDate, $days)
-                ->whereDoesntHave('recurringTask');
+        $upcomingTasks = Task::query()
+            ->forUser($userId)
+            ->dueSoon($fromDate, $days)
+            ->whereDoesntHave('recurringTask')
+            ->orderBy('end_datetime')
+            ->limit(50)
+            ->get()
+            ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
 
-            if (method_exists($this, 'applyTaskFilters')) {
-                $this->applyTaskFilters($taskQuery);
-            }
+        $entries = $entries->merge($upcomingTasks);
 
-            if (method_exists($this, 'applySearchToQuery')) {
-                $this->applySearchToQuery($taskQuery, 'title');
-            }
+        $upcomingEvents = Event::query()
+            ->forUser($userId)
+            ->startingSoon($fromDate, $days)
+            ->whereDoesntHave('recurringEvent')
+            ->notCancelled()
+            ->orderBy('start_datetime')
+            ->limit(50)
+            ->get()
+            ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
 
-            $upcomingTasks = $taskQuery
-                ->orderBy('end_datetime')
-                ->limit(50)
-                ->get()
-                ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
+        $entries = $entries->merge($upcomingEvents);
 
-            $entries = $entries->merge($upcomingTasks);
-        }
+        $upcomingProjects = Project::query()
+            ->forUser($userId)
+            ->startingSoon($fromDate, $days)
+            ->notArchived()
+            ->orderBy('start_datetime')
+            ->limit(50)
+            ->get()
+            ->map(fn (Project $project) => ['kind' => 'project', 'item' => $project]);
 
-        // Upcoming events (starting soon by start_datetime)
-        if ($filterItemType === null || $filterItemType === 'events') {
-            $eventQuery = Event::query()
-                ->forUser($userId)
-                ->startingSoon($fromDate, $days)
-                ->whereDoesntHave('recurringEvent');
-
-            if (method_exists($this, 'applyEventFilters')) {
-                $this->applyEventFilters($eventQuery);
-            } else {
-                $eventQuery->notCancelled();
-            }
-
-            if (method_exists($this, 'applySearchToQuery')) {
-                $this->applySearchToQuery($eventQuery, 'title');
-            }
-
-            $upcomingEvents = $eventQuery
-                ->orderBy('start_datetime')
-                ->limit(50)
-                ->get()
-                ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
-
-            $entries = $entries->merge($upcomingEvents);
-        }
-
-        // Upcoming projects (starting soon by start_datetime)
-        if ($filterItemType === null || $filterItemType === 'projects') {
-            $projectQuery = Project::query()
-                ->forUser($userId)
-                ->startingSoon($fromDate, $days)
-                ->notArchived();
-
-            if (method_exists($this, 'applyProjectFilters')) {
-                $this->applyProjectFilters($projectQuery);
-            }
-
-            if (method_exists($this, 'applySearchToQuery')) {
-                $this->applySearchToQuery($projectQuery, 'name');
-            }
-
-            $upcomingProjects = $projectQuery
-                ->orderBy('start_datetime')
-                ->limit(50)
-                ->get()
-                ->map(fn (Project $project) => ['kind' => 'project', 'item' => $project]);
-
-            $entries = $entries->merge($upcomingProjects);
-        }
+        $entries = $entries->merge($upcomingProjects);
 
         // Sort all upcoming entries by their relevant datetime.
         return $entries

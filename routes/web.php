@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DashboardController;
 use App\Http\Middleware\ValidateWorkOSSession;
 use Illuminate\Support\Facades\Route;
 
@@ -8,7 +9,7 @@ Route::middleware([
     ValidateWorkOSSession::class,
 ])->group(function () {
     Route::livewire('/', 'pages::workspace.index');
-    Route::view('dashboard', 'dashboard')->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
     Route::livewire('workspace', 'pages::workspace.index')->name('workspace');
 });
 
