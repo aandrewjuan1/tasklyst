@@ -1,5 +1,9 @@
+import * as echarts from 'echarts';
+
 import { listItemCard } from './alpine/list-item-card.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
+
+window.echarts = echarts;
 
 // listItemCard registers itself in Alpine.store('listItemCards')[itemId] for focus-session escape handler etc.
 document.addEventListener('livewire:init', () => {

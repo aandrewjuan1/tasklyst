@@ -1,0 +1,188 @@
+<?php
+
+use App\Enums\CollaborationPermission;
+use App\Enums\FocusSessionType;
+use App\Enums\TaskStatus;
+use App\Models\Collaboration;
+use App\Models\FocusSession;
+use App\Models\Project;
+use App\Models\Task;
+use App\Models\User;
+use App\Services\UserAnalyticsService;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Carbon;
+
+beforeEach(function (): void {
+    $this->user = User::factory()->create();
+    $this->service = app(UserAnalyticsService::class);
+});
+
+test('overview aggregates completions creations focus totals by day and project', function (): void {
+    $start = CarbonImmutable::parse('2025-01-10', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-01-16', config('app.timezone'));
+
+    $project = Project::factory()->for($this->user)->create();
+
+    Task::factory()->for($this->user)->for($project)->create([
+        'title' => 'Done A',
+        'status' => TaskStatus::Done,
+        'completed_at' => Carbon::parse('2025-01-12 14:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-01-05 10:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Done B no project',
+        'status' => TaskStatus::Done,
+        'project_id' => null,
+        'completed_at' => Carbon::parse('2025-01-14 09:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-01-13 08:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'New incomplete',
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+        'created_at' => Carbon::parse('2025-01-11 12:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Outside range',
+        'status' => TaskStatus::Done,
+        'completed_at' => Carbon::parse('2025-01-20 12:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-01-18 12:00:00', config('app.timezone')),
+    ]);
+
+    $taskForFocus = Task::factory()->for($this->user)->create();
+
+    FocusSession::factory()->for($this->user)->for($taskForFocus, 'focusable')->work()->completed()->create([
+        'duration_seconds' => 60,
+        'started_at' => Carbon::parse('2025-01-12 10:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-12 10:01:00', config('app.timezone')),
+    ]);
+
+    FocusSession::factory()->for($this->user)->for($taskForFocus, 'focusable')->work()->completed()->create([
+        'duration_seconds' => 120,
+        'started_at' => Carbon::parse('2025-01-15 16:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-15 16:02:00', config('app.timezone')),
+    ]);
+
+    FocusSession::factory()->for($this->user)->for($taskForFocus, 'focusable')->create([
+        'type' => FocusSessionType::ShortBreak,
+        'completed' => true,
+        'duration_seconds' => 300,
+        'started_at' => Carbon::parse('2025-01-12 11:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-12 11:05:00', config('app.timezone')),
+    ]);
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->tasksCompletedCount)->toBe(2)
+        ->and($overview->tasksCreatedCount)->toBe(2)
+        ->and($overview->focusWorkSecondsTotal)->toBe(180)
+        ->and($overview->focusWorkSessionsCount)->toBe(2)
+        ->and($overview->tasksCompletedByDay)->toBe([
+            '2025-01-12' => 1,
+            '2025-01-14' => 1,
+        ])
+        ->and($overview->focusWorkSecondsByDay)->toBe([
+            '2025-01-12' => 60,
+            '2025-01-15' => 120,
+        ])
+        ->and($overview->tasksCompletedByProjectId)->toHaveKey('none')
+        ->and($overview->tasksCompletedByProjectId)->toHaveKey((string) $project->id)
+        ->and($overview->tasksCompletedByProjectId['none'])->toBe(1)
+        ->and($overview->tasksCompletedByProjectId[(string) $project->id])->toBe(1);
+});
+
+test('overview includes tasks completed in range that are later soft deleted', function (): void {
+    $start = CarbonImmutable::parse('2025-02-01', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-02-28', config('app.timezone'));
+
+    $task = Task::factory()->for($this->user)->create([
+        'completed_at' => Carbon::parse('2025-02-10 12:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-01-01 12:00:00', config('app.timezone')),
+    ]);
+
+    $task->delete();
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->tasksCompletedCount)->toBe(1)
+        ->and($overview->tasksCreatedCount)->toBe(0);
+});
+
+test('overview excludes tasks created in range when they are soft deleted', function (): void {
+    $start = CarbonImmutable::parse('2025-03-01', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-03-31', config('app.timezone'));
+
+    $task = Task::factory()->for($this->user)->create([
+        'completed_at' => null,
+        'created_at' => Carbon::parse('2025-03-05 12:00:00', config('app.timezone')),
+    ]);
+
+    $task->delete();
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->tasksCreatedCount)->toBe(0)
+        ->and($overview->tasksCompletedCount)->toBe(0);
+});
+
+test('collaborator sees shared task completions in their overview', function (): void {
+    $owner = User::factory()->create();
+    $collaborator = User::factory()->create();
+
+    $start = CarbonImmutable::parse('2025-04-01', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-04-30', config('app.timezone'));
+
+    $task = Task::factory()->for($owner)->create([
+        'completed_at' => Carbon::parse('2025-04-15 14:00:00', config('app.timezone')),
+    ]);
+
+    Collaboration::query()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'user_id' => $collaborator->id,
+        'permission' => CollaborationPermission::Edit,
+    ]);
+
+    $overview = app(UserAnalyticsService::class)->overview($collaborator, $start, $end);
+
+    expect($overview->tasksCompletedCount)->toBe(1)
+        ->and($overview->tasksCompletedByDay)->toBe(['2025-04-15' => 1])
+        ->and($overview->tasksCompletedByProjectId['none'])->toBe(1);
+});
+
+test('overview throws when start is after end', function (): void {
+    expect(fn () => $this->service->overview(
+        $this->user,
+        CarbonImmutable::parse('2025-05-10', config('app.timezone')),
+        CarbonImmutable::parse('2025-05-01', config('app.timezone')),
+    ))->toThrow(InvalidArgumentException::class, 'Analytics period start must be on or before the period end.');
+});
+
+test('completed tasks bucket by app timezone local calendar day', function (): void {
+    config(['app.timezone' => 'Asia/Tokyo']);
+
+    $start = CarbonImmutable::parse('2025-06-01', 'Asia/Tokyo');
+    $end = CarbonImmutable::parse('2025-06-30', 'Asia/Tokyo');
+
+    Task::factory()->for($this->user)->create([
+        'completed_at' => Carbon::parse('2025-06-02 01:00:00', 'Asia/Tokyo'),
+    ]);
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->tasksCompletedByDay)->toBe(['2025-06-02' => 1]);
+});
+
+test('normalizes period to start and end of day in app timezone', function (): void {
+    $tz = config('app.timezone');
+    $start = CarbonImmutable::parse('2025-07-10 14:22:00', $tz);
+    $end = CarbonImmutable::parse('2025-07-12 09:05:00', $tz);
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->periodStart->equalTo(CarbonImmutable::parse('2025-07-10', $tz)->startOfDay()))->toBeTrue()
+        ->and($overview->periodEnd->equalTo(CarbonImmutable::parse('2025-07-12', $tz)->endOfDay()))->toBeTrue();
+});
