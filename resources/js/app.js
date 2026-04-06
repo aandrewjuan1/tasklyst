@@ -2,6 +2,7 @@ import * as echarts from 'echarts';
 
 import { listItemCard } from './alpine/list-item-card.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
+import { dashboardAnalyticsCharts } from './alpine/dashboard-analytics-charts.js';
 
 window.echarts = echarts;
 
@@ -9,6 +10,7 @@ window.echarts = echarts;
 document.addEventListener('livewire:init', () => {
     window.Alpine.data('listItemCard', listItemCard);
     window.Alpine.data('kanbanBoard', kanbanBoard);
+    window.Alpine.data('dashboardAnalyticsCharts', dashboardAnalyticsCharts);
 });
 
 /**
