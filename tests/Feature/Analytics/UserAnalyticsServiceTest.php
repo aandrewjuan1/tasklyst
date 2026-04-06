@@ -2,6 +2,8 @@
 
 use App\Enums\CollaborationPermission;
 use App\Enums\FocusSessionType;
+use App\Enums\TaskComplexity;
+use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\Collaboration;
 use App\Models\FocusSession;
@@ -185,4 +187,108 @@ test('normalizes period to start and end of day in app timezone', function (): v
 
     expect($overview->periodStart->equalTo(CarbonImmutable::parse('2025-07-10', $tz)->startOfDay()))->toBeTrue()
         ->and($overview->periodEnd->equalTo(CarbonImmutable::parse('2025-07-12', $tz)->endOfDay()))->toBeTrue();
+});
+
+test('dashboard overview returns preset period with previous comparison and chart-ready trends', function (): void {
+    Carbon::setTestNow(Carbon::parse('2025-01-31 10:00:00', config('app.timezone')));
+
+    Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::Done,
+        'priority' => TaskPriority::High,
+        'complexity' => TaskComplexity::Complex,
+        'completed_at' => Carbon::parse('2025-01-30 14:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-01-28 09:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Low,
+        'complexity' => TaskComplexity::Simple,
+        'completed_at' => null,
+        'created_at' => Carbon::parse('2025-01-30 09:00:00', config('app.timezone')),
+        'end_datetime' => Carbon::parse('2025-01-29 09:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::Doing,
+        'priority' => TaskPriority::Medium,
+        'complexity' => TaskComplexity::Moderate,
+        'completed_at' => null,
+        'created_at' => Carbon::parse('2025-01-31 11:00:00', config('app.timezone')),
+        'end_datetime' => Carbon::parse('2025-02-03 12:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::Done,
+        'priority' => TaskPriority::Urgent,
+        'complexity' => TaskComplexity::Moderate,
+        'completed_at' => Carbon::parse('2025-01-25 13:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-01-24 08:00:00', config('app.timezone')),
+    ]);
+
+    $focusTask = Task::factory()->for($this->user)->create();
+    FocusSession::factory()->for($this->user)->for($focusTask, 'focusable')->work()->completed()->create([
+        'duration_seconds' => 600,
+        'started_at' => Carbon::parse('2025-01-30 08:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-30 08:10:00', config('app.timezone')),
+    ]);
+    FocusSession::factory()->for($this->user)->for($focusTask, 'focusable')->work()->completed()->create([
+        'duration_seconds' => 300,
+        'started_at' => Carbon::parse('2025-01-24 08:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-24 08:05:00', config('app.timezone')),
+    ]);
+
+    $overview = $this->service->dashboardOverview($this->user, '7d');
+
+    expect($overview->periodStart->toDateString())->toBe('2025-01-25')
+        ->and($overview->periodEnd->toDateString())->toBe('2025-01-31')
+        ->and($overview->previousPeriodStart->toDateString())->toBe('2025-01-18')
+        ->and($overview->previousPeriodEnd->toDateString())->toBe('2025-01-24')
+        ->and($overview->cards['tasks_created']['current'])->toBe(4)
+        ->and($overview->cards['tasks_created']['previous'])->toBe(1)
+        ->and($overview->cards['tasks_created']['delta'])->toBe(3)
+        ->and($overview->cards['tasks_completed']['current'])->toBe(2)
+        ->and($overview->cards['tasks_completed']['previous'])->toBe(0)
+        ->and($overview->cards['completion_rate']['current'])->toBe(50.0)
+        ->and($overview->cards['completion_rate']['previous'])->toBe(0.0)
+        ->and($overview->cards['overdue']['current'])->toBe(1)
+        ->and($overview->cards['due_soon']['current'])->toBe(1)
+        ->and($overview->cards['focus_work_seconds']['current'])->toBe(600)
+        ->and($overview->cards['focus_work_seconds']['previous'])->toBe(300)
+        ->and($overview->cards['focus_sessions']['current'])->toBe(1)
+        ->and($overview->cards['focus_sessions']['previous'])->toBe(1)
+        ->and($overview->trends['labels'])->toHaveCount(7)
+        ->and($overview->trends['tasks_completed'])->toHaveCount(7)
+        ->and($overview->trends['focus_work_seconds'])->toHaveCount(7);
+
+    Carbon::setTestNow();
+});
+
+test('dashboard overview project breakdown resolves names and fallback labels', function (): void {
+    Carbon::setTestNow(Carbon::parse('2025-06-15 10:00:00', config('app.timezone')));
+
+    $project = Project::factory()->for($this->user)->create(['name' => 'Semester Project']);
+
+    Task::factory()->for($this->user)->for($project)->create([
+        'status' => TaskStatus::Done,
+        'completed_at' => Carbon::parse('2025-06-14 09:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-06-12 09:00:00', config('app.timezone')),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::Done,
+        'project_id' => null,
+        'completed_at' => Carbon::parse('2025-06-13 09:00:00', config('app.timezone')),
+        'created_at' => Carbon::parse('2025-06-10 09:00:00', config('app.timezone')),
+    ]);
+
+    $overview = $this->service->dashboardOverview($this->user, '30d');
+    $projectBreakdown = collect($overview->breakdowns['project'])->keyBy('key');
+
+    expect($projectBreakdown[(string) $project->id]['label'])->toBe('Semester Project')
+        ->and($projectBreakdown[(string) $project->id]['value'])->toBe(1)
+        ->and($projectBreakdown['none']['label'])->toBe('No Project')
+        ->and($projectBreakdown['none']['value'])->toBe(1);
+
+    Carbon::setTestNow();
 });
