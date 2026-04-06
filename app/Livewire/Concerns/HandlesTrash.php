@@ -148,10 +148,6 @@ trait HandlesTrash
 
         $this->dispatch('toast', type: 'success', message: $this->restoreTrashSuccessMessage($kind));
 
-        if (method_exists($this, 'incrementListRefresh')) {
-            $this->incrementListRefresh();
-        }
-
         return true;
     }
 
@@ -292,10 +288,6 @@ trait HandlesTrash
         }
 
         $this->dispatchBatchTrashToast('restore', $restored, $failed);
-
-        if ($restored > 0 && method_exists($this, 'incrementListRefresh')) {
-            $this->incrementListRefresh();
-        }
 
         return ['restored' => $restored, 'failed' => $failed];
     }

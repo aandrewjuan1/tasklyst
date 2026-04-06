@@ -94,8 +94,6 @@ class extends Component
     #[Url(as: 'view')]
     public string $viewMode = 'list';
 
-    public int $listRefresh = 0;
-
     /**
      * Global item pagination for the workspace list (across tasks, events, projects).
      * Controls how many combined item cards are visible in the list component.
@@ -382,11 +380,6 @@ class extends Component
         $this->activeFocusSession = null;
     }
 
-    public function incrementListRefresh(): void
-    {
-        $this->listRefresh++;
-    }
-
     /**
      * Reset list pagination to first page. Call when date or filters change
      * so the list shows page 1 of the new result set.
@@ -429,10 +422,22 @@ class extends Component
     }
 
     /**
+     * Fingerprint for nested list/kanban wire:key. Model collections are not #[Reactive] on those
+     * children (Livewire reactive hash conflicts with Eloquent), so when date, filters, or list
+     * context change this key must change to remount children with fresh tasks/events/projects/overdue.
+     */
+    public function workspaceItemsFingerprint(): string
+    {
+        return md5(json_encode([
+            'date' => $this->selectedDate,
+            'listContext' => [$this->listContextProjectId, $this->listContextEventId],
+            'filters' => $this->getFilters(),
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
      * Load the next page of tasks, events, and projects (infinite scroll).
-     * Incrementing listRefresh forces the list component to remount with the new
-     * data so the DOM updates correctly (nested Livewire child does not receive
-     * updated props from parent re-render otherwise).
+     * Pagination uses #[Reactive] itemsPage on the nested list; wire:key stays stable (fingerprint omits page).
      */
     #[Async]
     public function loadMoreItems(): void
@@ -448,7 +453,6 @@ class extends Component
         }
 
         $this->itemsPage++;
-        $this->listRefresh++;
     }
 
     /**

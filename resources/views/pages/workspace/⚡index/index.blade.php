@@ -9,9 +9,39 @@
         <x-workspace.date-switcher :selected-date="$this->selectedDate" />
         <div
             x-data="{
-                viewMode: @js($this->viewMode),
+                pendingViewMode: null,
+                isSwitching: false,
+                switchTimeoutId: null,
+                activeViewMode() {
+                    return this.pendingViewMode ?? $wire.viewMode;
+                },
+                clearSwitchingState() {
+                    this.pendingViewMode = null;
+                    this.isSwitching = false;
+                    if (this.switchTimeoutId !== null) {
+                        clearTimeout(this.switchTimeoutId);
+                        this.switchTimeoutId = null;
+                    }
+                },
+                setSwitchFallbackTimeout() {
+                    if (this.switchTimeoutId !== null) {
+                        clearTimeout(this.switchTimeoutId);
+                    }
+
+                    this.switchTimeoutId = setTimeout(() => {
+                        this.clearSwitchingState();
+                    }, 6000);
+                },
                 setView(mode) {
-                    this.viewMode = mode;
+                    if (mode === this.activeViewMode()) {
+                        return;
+                    }
+
+                    this.pendingViewMode = mode;
+                    this.isSwitching = true;
+                    this.setSwitchFallbackTimeout();
+
+                    $wire.set('viewMode', mode);
                     const u = new URL(window.location.href);
                     u.searchParams.set('view', mode);
                     history.replaceState(null, '', u.pathname + u.search);
@@ -28,12 +58,17 @@
             x-init="
                 if (window.Alpine?.store) {
                     let store = Alpine.store('workspaceView');
-                    const initialMode = viewMode;
+                    const initialMode = $wire.viewMode;
                     if (!store || typeof store !== 'object') {
                         Alpine.store('workspaceView', { mode: initialMode });
                     } else {
                         store.mode = initialMode;
                     }
+                }
+            "
+            x-effect="
+                if (pendingViewMode !== null && $wire.viewMode === pendingViewMode) {
+                    clearSwitchingState();
                 }
             "
             class="flex w-full flex-col gap-6"
@@ -43,11 +78,11 @@
                     <button
                         type="button"
                         role="tab"
-                        :aria-selected="viewMode === 'list'"
+                        :aria-selected="activeViewMode() === 'list'"
                         aria-controls="workspace-list-panel"
                         id="workspace-view-list"
                         class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                        :class="viewMode === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                        :class="activeViewMode() === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
                         @click="setView('list')"
                     >
                         {{ __('List') }}
@@ -55,11 +90,11 @@
                     <button
                         type="button"
                         role="tab"
-                        :aria-selected="viewMode === 'kanban'"
+                        :aria-selected="activeViewMode() === 'kanban'"
                         aria-controls="workspace-kanban-panel"
                         id="workspace-view-kanban"
                         class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                        :class="viewMode === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                        :class="activeViewMode() === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
                         @click="setView('kanban')"
                     >
                         {{ __('Kanban') }}
@@ -131,6 +166,15 @@
         </div>
     </div>
 
+    {{--
+        wire:loading targets for the main list/kanban skeleton. Match any Livewire property or method
+        that should show the full-area placeholder while the workspace Index re-renders.
+
+        Covered: date (selectedDate), search (searchQuery, searchScope), filters (filter* and set/clear helpers),
+        collaboration accept, trash restore.
+
+        Intentionally omitted: viewMode (tab switch stays snappy), loadMoreItems / getMoreItemsHtml (append-only, no full flash).
+    --}}
     @php
         $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,acceptCollaborationInvitation,restoreTrashItem,restoreTrashItems';
     @endphp
@@ -138,7 +182,7 @@
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
-        <div class="min-w-0">
+        <div class="relative min-w-0">
             {{-- Real content - hidden during filter/date/view refresh --}}
             <div
                 wire:loading.remove
@@ -151,26 +195,28 @@
                     aria-labelledby="workspace-view-list"
                     class="w-full"
                     style="{{ $viewMode !== 'list' ? 'display: none' : '' }}"
-                    x-show="viewMode === 'list'"
+                    x-show="$wire.viewMode === 'list'"
                     x-transition:enter="transition ease-out duration-150"
                     x-transition:enter-start="opacity-0"
                     x-transition:enter-end="opacity-100"
                 >
-                    <livewire:pages::workspace.list
-                        :key="'workspace-list-'.$this->selectedDate.'-'.$this->listRefresh"
-                        :selected-date="$this->selectedDate"
-                        :items-page="$this->itemsPage"
-                        :items-per-page="$this->itemsPerPage"
-                        :projects="$this->projects"
-                        :events="$this->events"
-                        :tasks="$this->tasks"
-                        :overdue="$this->overdue"
-                        :tags="$this->tags"
-                        :filters="$this->getFilters()"
-                        :active-focus-session="$this->activeFocusSession"
-                        :pomodoro-settings="$this->pomodoroSettings"
-                        :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
-                    />
+                    @if ($this->viewMode === 'list')
+                        <livewire:pages::workspace.list
+                            wire:key="workspace-list-{{ $this->workspaceItemsFingerprint() }}"
+                            :selected-date="$this->selectedDate"
+                            :items-page="$this->itemsPage"
+                            :items-per-page="$this->itemsPerPage"
+                            :projects="$this->projects"
+                            :events="$this->events"
+                            :tasks="$this->tasks"
+                            :overdue="$this->overdue"
+                            :tags="$this->tags"
+                            :filters="$this->getFilters()"
+                            :active-focus-session="$this->activeFocusSession"
+                            :pomodoro-settings="$this->pomodoroSettings"
+                            :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
+                        />
+                    @endif
                 </div>
                 <div
                     id="workspace-kanban-panel"
@@ -178,23 +224,25 @@
                     aria-labelledby="workspace-view-kanban"
                     class="w-full"
                     style="{{ $viewMode !== 'kanban' ? 'display: none' : '' }}"
-                    x-show="viewMode === 'kanban'"
+                    x-show="$wire.viewMode === 'kanban'"
                     x-transition:enter="transition ease-out duration-150"
                     x-transition:enter-start="opacity-0"
                     x-transition:enter-end="opacity-100"
                 >
-                    <livewire:pages::workspace.kanban
-                        :key="'workspace-kanban-'.$this->selectedDate.'-'.$this->listRefresh"
-                        :selected-date="$this->selectedDate"
-                        :projects="$this->projects"
-                        :events="$this->events"
-                        :tasks="$this->tasks"
-                        :overdue="$this->overdue"
-                        :tags="$this->tags"
-                        :filters="$this->getFilters()"
-                        :active-focus-session="$this->activeFocusSession"
-                        :pomodoro-settings="$this->pomodoroSettings"
-                    />
+                    @if ($this->viewMode === 'kanban')
+                        <livewire:pages::workspace.kanban
+                            wire:key="workspace-kanban-{{ $this->workspaceItemsFingerprint() }}"
+                            :selected-date="$this->selectedDate"
+                            :projects="$this->projects"
+                            :events="$this->events"
+                            :tasks="$this->tasks"
+                            :overdue="$this->overdue"
+                            :tags="$this->tags"
+                            :filters="$this->getFilters()"
+                            :active-focus-session="$this->activeFocusSession"
+                            :pomodoro-settings="$this->pomodoroSettings"
+                        />
+                    @endif
                 </div>
             </div>
 
@@ -231,11 +279,11 @@
             >
                 <span
                     class="sr-only"
-                    x-text="viewMode === 'kanban' ? '{{ __('Loading workspace kanban...') }}' : '{{ __('Loading workspace list...') }}'"
+                    x-text="$wire.viewMode === 'kanban' ? '{{ __('Loading workspace kanban...') }}' : '{{ __('Loading workspace list...') }}'"
                 ></span>
 
                 {{-- List view skeleton --}}
-                <template x-if="viewMode === 'list'">
+                <template x-if="$wire.viewMode === 'list'">
                     <div class="space-y-4">
                         <template x-for="i in skeletonItems" :key="i">
                             <div>
@@ -262,7 +310,7 @@
                 </template>
 
                 {{-- Kanban view skeleton --}}
-                <template x-if="viewMode === 'kanban'">
+                <template x-if="$wire.viewMode === 'kanban'">
                     <div class="w-full min-w-0">
                         <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
                             <template x-for="col in [0, 1, 2]" :key="col">
@@ -295,6 +343,79 @@
                         </div>
                     </div>
                 </template>
+            </div>
+
+            {{-- View switch overlay skeleton (keeps current content visible underneath) --}}
+            <div
+                x-cloak
+                x-show="isSwitching"
+                x-transition.opacity.duration.150ms
+                wire:loading.flex
+                wire:target="viewMode"
+                class="pointer-events-none absolute inset-0 z-20 hidden flex-col gap-3 rounded-xl border border-border/60 bg-background/75 p-3 backdrop-blur-sm"
+                role="status"
+                aria-live="polite"
+            >
+                <template x-if="activeViewMode() === 'list'">
+                    <div class="space-y-3">
+                        <template x-for="i in [0, 1, 2]" :key="`switch-list-${i}`">
+                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0 flex-1 space-y-2">
+                                        <flux:skeleton.line class="w-4/5" size="lg" />
+                                        <flux:skeleton.line class="w-2/3" />
+                                    </div>
+                                    <div class="flex shrink-0 items-center gap-2">
+                                        <flux:skeleton class="h-6 w-14 rounded-full" />
+                                        <flux:skeleton class="size-8 shrink-0 rounded" />
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 pt-0.5">
+                                    <flux:skeleton class="h-5 w-16 rounded-full" />
+                                    <flux:skeleton class="h-5 w-20 rounded-full" />
+                                    <flux:skeleton class="h-5 w-14 rounded-full" />
+                                </div>
+                            </flux:skeleton.group>
+                        </template>
+                    </div>
+                </template>
+                <template x-if="activeViewMode() === 'kanban'">
+                    <div class="w-full min-w-0">
+                        <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3">
+                            <template x-for="col in [0, 1, 2]" :key="`switch-kanban-col-${col}`">
+                                <div class="flex w-full flex-col rounded-xl border border-border/60 bg-muted/30 shadow-sm">
+                                    <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+                                        <flux:skeleton.line class="w-1/2" />
+                                        <flux:skeleton class="h-5 w-10 rounded-full" />
+                                    </div>
+                                    <div class="flex min-h-[140px] flex-1 flex-col gap-2.5 overflow-visible p-2.5 sm:min-h-[160px] sm:gap-3 sm:p-3">
+                                        <template x-for="card in [0, 1, 2, 3, 4]" :key="`switch-kanban-card-${col}-${card}`">
+                                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 shadow-sm">
+                                                <div class="flex items-start justify-between gap-2">
+                                                    <div class="min-w-0 flex-1 space-y-2">
+                                                        <flux:skeleton.line class="w-4/5" />
+                                                        <flux:skeleton.line class="w-3/5" />
+                                                    </div>
+                                                    <div class="flex shrink-0 items-center gap-2">
+                                                        <flux:skeleton class="h-5 w-12 rounded-full" />
+                                                    </div>
+                                                </div>
+                                                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                                    <flux:skeleton class="h-4 w-12 rounded-full" />
+                                                    <flux:skeleton class="h-4 w-10 rounded-full" />
+                                                </div>
+                                            </flux:skeleton.group>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                <span
+                    class="sr-only"
+                    x-text="activeViewMode() === 'kanban' ? '{{ __('Switching to Kanban...') }}' : '{{ __('Switching to List...') }}'"
+                ></span>
             </div>
         </div>
 

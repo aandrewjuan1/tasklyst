@@ -86,7 +86,6 @@ trait HandlesEvents
             return;
         }
 
-        $this->listRefresh++;
         $this->dispatch('event-created', id: $event->id, title: $event->title);
         $this->dispatch('toast', ...Event::toastPayload('create', true, $event->title));
     }
@@ -627,7 +626,6 @@ trait HandlesEvents
             return null;
         }
 
-        $this->listRefresh++;
         $this->dispatch('recurring-event-occurrence-skipped', eventExceptionId: $exception->id, eventId: $event->id);
         $this->dispatch('toast', type: 'success', message: __('Occurrence skipped.'));
 
@@ -674,7 +672,6 @@ trait HandlesEvents
             return false;
         }
 
-        $this->listRefresh++;
         $eventId = $exception->recurringEvent?->event_id;
         $this->dispatch('recurring-event-occurrence-restored', eventExceptionId: $eventExceptionId, eventId: $eventId);
         $this->dispatch('toast', type: 'success', message: __('Occurrence restored.'));

@@ -110,7 +110,6 @@ trait HandlesTasks
             return;
         }
 
-        $this->listRefresh++;
         $this->dispatch('task-created', id: $task->id, title: $task->title);
         $this->dispatch('toast', ...Task::toastPayload('create', true, $task->title));
     }
@@ -547,7 +546,6 @@ trait HandlesTasks
             return null;
         }
 
-        $this->listRefresh++;
         $this->dispatch('recurring-task-occurrence-skipped', taskExceptionId: $exception->id, taskId: $task->id);
         $this->dispatch('toast', type: 'success', message: __('Occurrence skipped.'));
 
@@ -594,7 +592,6 @@ trait HandlesTasks
             return false;
         }
 
-        $this->listRefresh++;
         $taskId = $exception->recurringTask?->task_id;
         $this->dispatch('recurring-task-occurrence-restored', taskExceptionId: $taskExceptionId, taskId: $taskId);
         $this->dispatch('toast', type: 'success', message: __('Occurrence restored.'));

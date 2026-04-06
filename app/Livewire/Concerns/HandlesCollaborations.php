@@ -285,7 +285,6 @@ trait HandlesCollaborations
 
         $this->dispatch('collaborator-removed');
         $this->dispatch('toast', type: 'success', message: __('You left this item.'));
-        $this->incrementListRefresh();
 
         return true;
     }
@@ -378,7 +377,6 @@ trait HandlesCollaborations
 
         $this->dispatch('collaboration-invitation-accepted');
         $this->dispatch('toast', type: 'success', message: __('Invitation accepted.'));
-        $this->incrementListRefresh();
 
         return true;
     }

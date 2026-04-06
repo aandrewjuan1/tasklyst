@@ -37,3 +37,39 @@ test('invalid view mode is normalized to list on mount', function (): void {
         ->test('pages::workspace.index')
         ->assertSet('viewMode', 'list');
 });
+
+test('workspace list view mounts only the nested list livewire component', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace', ['view' => 'list']))
+        ->assertSuccessful()
+        ->assertSeeLivewire('pages::workspace.list')
+        ->assertDontSeeLivewire('pages::workspace.kanban');
+});
+
+test('workspace kanban view mounts only the nested kanban livewire component', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace', ['view' => 'kanban']))
+        ->assertSuccessful()
+        ->assertSeeLivewire('pages::workspace.kanban')
+        ->assertDontSeeLivewire('pages::workspace.list');
+});
+
+test('switching view mode from list to kanban renders kanban child', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::workspace.index')
+        ->assertSet('viewMode', 'list')
+        ->set('viewMode', 'kanban')
+        ->assertSeeLivewire('pages::workspace.kanban')
+        ->assertDontSeeLivewire('pages::workspace.list');
+});
+
+test('setFilter updates workspace state without requiring list remount counter', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::workspace.index')
+        ->call('setFilter', 'itemType', 'tasks')
+        ->assertSet('filterItemType', 'tasks');
+});

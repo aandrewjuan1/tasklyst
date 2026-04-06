@@ -21,10 +21,11 @@ test('search query filters tasks by title', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueSearchable')
-        ->assertSee('UniqueSearchableTask');
+        ->set('searchQuery', 'UniqueSearchable');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('UniqueSearchableTask');
 });
 
 test('search query excludes tasks when no title match', function (): void {
@@ -36,10 +37,11 @@ test('search query excludes tasks when no title match', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'ZzzNoMatch')
-        ->assertDontSee('VisibleTask');
+        ->set('searchQuery', 'ZzzNoMatch');
+
+    expect($component->instance()->tasks()->pluck('title'))->not->toContain('VisibleTask');
 });
 
 test('getFilters includes search state', function (): void {
@@ -78,11 +80,13 @@ test('search query with exact title shows only matching task', function (): void
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'ExactMatchTitle')
-        ->assertSee('ExactMatchTitle')
-        ->assertDontSee('OtherTask');
+        ->set('searchQuery', 'ExactMatchTitle');
+
+    $titles = $component->instance()->tasks()->pluck('title');
+    expect($titles)->toContain('ExactMatchTitle')
+        ->and($titles)->not->toContain('OtherTask');
 });
 
 test('search query matches task by description', function (): void {
@@ -95,10 +99,11 @@ test('search query matches task by description', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueDescriptionPhraseAlpha99')
-        ->assertSee('PlainTitleForDescSearch');
+        ->set('searchQuery', 'UniqueDescriptionPhraseAlpha99');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('PlainTitleForDescSearch');
 });
 
 test('search query matches task by tag name', function (): void {
@@ -114,10 +119,11 @@ test('search query matches task by tag name', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueWorkspaceTagBeta77')
-        ->assertSee('TitleWithoutTagToken');
+        ->set('searchQuery', 'UniqueWorkspaceTagBeta77');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('TitleWithoutTagToken');
 });
 
 test('search query matches task by teacher_name', function (): void {
@@ -132,10 +138,11 @@ test('search query matches task by teacher_name', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueTeacherGamma44')
-        ->assertSee('HomeworkItemGamma');
+        ->set('searchQuery', 'UniqueTeacherGamma44');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('HomeworkItemGamma');
 });
 
 test('search query matches task by subject_name', function (): void {
@@ -150,10 +157,11 @@ test('search query matches task by subject_name', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueSubjectDelta')
-        ->assertSee('QuizDelta');
+        ->set('searchQuery', 'UniqueSubjectDelta');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('QuizDelta');
 });
 
 test('search uses OR across tokens: matches when only one token hits', function (): void {
@@ -166,10 +174,11 @@ test('search uses OR across tokens: matches when only one token hits', function 
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'firsttoken notpresentsecondtokenzz')
-        ->assertSee('OrTokenTaskTitle');
+        ->set('searchQuery', 'firsttoken notpresentsecondtokenzz');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('OrTokenTaskTitle');
 });
 
 test('search shows event when only a child task matches', function (): void {
@@ -191,10 +200,11 @@ test('search shows event when only a child task matches', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueChildEventMatchToken88')
-        ->assertSee('ZZZParentEventTitleNoMatch');
+        ->set('searchQuery', 'UniqueChildEventMatchToken88');
+
+    expect($component->instance()->events()->pluck('title'))->toContain('ZZZParentEventTitleNoMatch');
 });
 
 test('search shows project when only a child task matches', function (): void {
@@ -215,8 +225,22 @@ test('search shows project when only a child task matches', function (): void {
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'UniqueChildProjectMatchToken99')
-        ->assertSee('ZZZParentProjectNameNoMatch');
+        ->set('searchQuery', 'UniqueChildProjectMatchToken99');
+
+    expect($component->instance()->projects()->pluck('name'))->toContain('ZZZParentProjectNameNoMatch');
+});
+
+test('workspace items fingerprint changes when filters change', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index');
+    $before = $component->instance()->workspaceItemsFingerprint();
+
+    $component->call('setFilter', 'taskStatus', 'done');
+
+    $after = $component->instance()->workspaceItemsFingerprint();
+
+    expect($before)->not->toBe($after);
 });

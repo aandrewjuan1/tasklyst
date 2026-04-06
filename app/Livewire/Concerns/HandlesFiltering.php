@@ -127,15 +127,13 @@ trait HandlesFiltering
     }
 
     /**
-     * Reset list pagination (if supported) and increment list refresh.
-     * Use when filters change so the list shows page 1 of the new result set.
+     * Reset list pagination (if supported) so the list shows page 1 of the new result set.
      */
     protected function refreshListAfterFilterChange(): void
     {
         if (method_exists($this, 'resetListPagination')) {
             $this->resetListPagination();
         }
-        $this->incrementListRefresh();
     }
 
     /**

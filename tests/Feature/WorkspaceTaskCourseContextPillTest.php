@@ -19,12 +19,14 @@ test('workspace task list shows course context pill when subject and teacher are
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'PillCourse')
-        ->assertSee('PillCourseTask')
-        ->assertSee('CS 220 UniqueSubjectPill')
-        ->assertSee('Prof UniqueTeacherPill');
+        ->set('searchQuery', 'PillCourse');
+
+    $task = $component->instance()->tasks()->firstWhere('title', 'PillCourseTask');
+    expect($task)->not->toBeNull()
+        ->and($task->subject_name)->toBe('CS 220 UniqueSubjectPill')
+        ->and($task->teacher_name)->toBe('Prof UniqueTeacherPill');
 });
 
 test('workspace task list shows course context pill with subject only when teacher is empty', function (): void {
@@ -38,9 +40,12 @@ test('workspace task list shows course context pill with subject only when teach
 
     $this->actingAs($this->user);
 
-    Livewire::test('pages::workspace.index')
+    $component = Livewire::test('pages::workspace.index')
         ->set('selectedDate', now()->toDateString())
-        ->set('searchQuery', 'SubjectOnlyPill')
-        ->assertSee('SubjectOnlyPillTask')
-        ->assertSee('OnlySubjectPillValue');
+        ->set('searchQuery', 'SubjectOnlyPill');
+
+    $task = $component->instance()->tasks()->firstWhere('title', 'SubjectOnlyPillTask');
+    expect($task)->not->toBeNull()
+        ->and($task->subject_name)->toBe('OnlySubjectPillValue')
+        ->and($task->teacher_name)->toBeNull();
 });

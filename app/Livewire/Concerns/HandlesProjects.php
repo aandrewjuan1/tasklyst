@@ -72,7 +72,6 @@ trait HandlesProjects
             return;
         }
 
-        $this->listRefresh++;
         $this->dispatch('project-created', id: $project->id, name: $project->name);
         $this->dispatch('toast', ...Project::toastPayload('create', true, $project->name));
     }
