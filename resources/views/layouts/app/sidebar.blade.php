@@ -4,7 +4,7 @@
         @include('partials.head')
     </head>
     <body
-        class="min-h-screen bg-white dark:bg-zinc-800"
+        class="min-h-screen bg-white text-brand-navy-blue dark:bg-zinc-800"
         x-data="{}"
         x-init="
             Alpine.store('datePicker', Alpine.store('datePicker') ?? { open: null });
@@ -142,7 +142,7 @@
 
             <flux:sidebar.nav>
                 <flux:sidebar.group class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard') || request()->is('/')" wire:navigate>
                         {{ __('Dashboard') }}
                     </flux:sidebar.item>
                     <flux:sidebar.item icon="computer-desktop" :href="route('workspace')" :current="request()->routeIs('workspace')" wire:navigate>
