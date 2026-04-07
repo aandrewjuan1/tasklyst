@@ -33,15 +33,14 @@ export function dashboardAnalyticsCharts(config = {}) {
             project: null,
         },
         resizeHandler: null,
+        renderRetryTimer: null,
 
         init() {
             this.activeAnalyticsSection = resolveSectionFromUrl();
             this.resizeHandler = () => this.resizeCharts();
             window.addEventListener('resize', this.resizeHandler);
             this.$nextTick(() => {
-                this.ensureCharts();
-                this.renderCharts();
-                this.resizeCharts();
+                this.safeRenderCharts();
             });
         },
 
@@ -59,9 +58,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             }
 
             this.$nextTick(() => {
-                this.ensureCharts();
-                this.renderCharts();
-                this.resizeCharts();
+                this.safeRenderCharts();
             });
         },
 
@@ -69,10 +66,121 @@ export function dashboardAnalyticsCharts(config = {}) {
             this.analytics = nextAnalytics ?? null;
             this.preset = nextPreset ?? this.preset;
             this.$nextTick(() => {
-                this.ensureCharts();
-                this.renderCharts();
-                this.resizeCharts();
+                this.safeRenderCharts();
             });
+        },
+
+        safeRenderCharts() {
+            if (this.renderRetryTimer) {
+                clearTimeout(this.renderRetryTimer);
+                this.renderRetryTimer = null;
+            }
+
+            this.ensureCharts();
+            this.renderCharts();
+            this.resizeCharts();
+
+            if (!this.areChartRefsReady()) {
+                this.renderRetryTimer = setTimeout(() => {
+                    this.renderRetryTimer = null;
+                    if (!this.$el?.isConnected) {
+                        return;
+                    }
+                    this.safeRenderCharts();
+                }, 120);
+            }
+        },
+
+        areChartRefsReady() {
+            const refs = [
+                this.$refs.trendChart,
+                this.$refs.focusSessionsChart,
+                this.$refs.statusChart,
+                this.$refs.priorityChart,
+                this.$refs.complexityChart,
+                this.$refs.projectChart,
+            ].filter(Boolean);
+
+            if (refs.length === 0) {
+                return true;
+            }
+
+            return refs.every((element) => {
+                if (!element.isConnected) {
+                    return false;
+                }
+                return element.clientWidth > 0 && element.clientHeight > 0;
+            });
+        },
+
+        getChartRefByKey(chartKey) {
+            const refMap = {
+                trend: this.$refs.trendChart,
+                focusSessions: this.$refs.focusSessionsChart,
+                status: this.$refs.statusChart,
+                priority: this.$refs.priorityChart,
+                complexity: this.$refs.complexityChart,
+                project: this.$refs.projectChart,
+            };
+
+            return refMap[chartKey] ?? null;
+        },
+
+        isElementRenderable(element) {
+            return !!(element && element.isConnected && element.clientWidth > 0 && element.clientHeight > 0);
+        },
+
+        applyChartOption(chartKey, option) {
+            const chart = this.charts[chartKey];
+            const element = this.getChartRefByKey(chartKey);
+
+            if (!chart || !this.isElementRenderable(element)) {
+                return;
+            }
+
+            const hasLineSeries = Array.isArray(option?.series) && option.series.some((series) => series?.type === 'line');
+            const safeOption = { ...(option ?? {}) };
+
+            // Keep Cartesian coordinate system explicit for line-series charts.
+            if (hasLineSeries) {
+                if (!safeOption.grid) {
+                    safeOption.grid = { left: 52, right: 52, top: 36, bottom: 56, containLabel: true };
+                }
+                if (!safeOption.xAxis) {
+                    safeOption.xAxis = [{ type: 'category', data: [] }];
+                } else if (!Array.isArray(safeOption.xAxis)) {
+                    safeOption.xAxis = [safeOption.xAxis];
+                }
+                if (!safeOption.yAxis) {
+                    safeOption.yAxis = [{ type: 'value' }];
+                } else if (!Array.isArray(safeOption.yAxis)) {
+                    safeOption.yAxis = [safeOption.yAxis];
+                }
+            }
+
+            try {
+                if (chartKey === 'trend') {
+                    chart.clear();
+                }
+                chart.setOption(safeOption, { notMerge: true, lazyUpdate: false, silent: true });
+            } catch (_) {
+                // If Livewire swapped DOM during render, recreate chart once and retry.
+                try {
+                    chart.dispose();
+                } catch (_) {}
+
+                this.charts[chartKey] = this.initChartRef(element, null);
+
+                if (!this.charts[chartKey]) {
+                    return;
+                }
+
+                try {
+                    this.charts[chartKey].setOption(safeOption, { notMerge: true, lazyUpdate: false, silent: true });
+                } catch (_) {
+                    // Keep silent here; safeRenderCharts retry loop will attempt again.
+                }
+            }
         },
 
         ensureCharts() {
@@ -95,6 +203,10 @@ export function dashboardAnalyticsCharts(config = {}) {
                 return existingChart;
             }
 
+            if (!element.isConnected || element.clientWidth <= 0 || element.clientHeight <= 0) {
+                return existingChart;
+            }
+
             if (existingChart) {
                 const dom = existingChart.getDom?.();
                 if (!dom || dom !== element || !element.isConnected) {
@@ -113,6 +225,10 @@ export function dashboardAnalyticsCharts(config = {}) {
         },
 
         renderCharts() {
+            if (!this.areChartRefsReady()) {
+                return;
+            }
+
             if (!this.analytics) {
                 this.setNoDataOptions();
                 return;
@@ -130,10 +246,8 @@ export function dashboardAnalyticsCharts(config = {}) {
 
         setNoDataOptions() {
             const noData = this.noDataOption('No analytics data');
-            Object.values(this.charts).forEach((chart) => {
-                if (chart) {
-                    chart.setOption(noData, true);
-                }
+            Object.keys(this.charts).forEach((chartKey) => {
+                this.applyChartOption(chartKey, noData);
             });
         },
 
@@ -147,49 +261,46 @@ export function dashboardAnalyticsCharts(config = {}) {
             const tasksCompleted = this.analytics?.trends?.tasks_completed ?? [];
             const focusSeconds = this.analytics?.trends?.focus_work_seconds ?? [];
 
-            this.charts.trend.setOption(
-                {
-                    tooltip: { trigger: 'axis' },
-                    legend: {
-                        data: ['Tasks Created', 'Tasks Completed', 'Focus (seconds)'],
-                        bottom: 4,
-                    },
-                    grid: { left: 52, right: 52, top: 36, bottom: 56, containLabel: true },
-                    xAxis: {
-                        type: 'category',
-                        data: labels,
-                        axisLabel: { hideOverlap: true },
-                    },
-                    yAxis: [
-                        { type: 'value', name: 'Tasks', nameLocation: 'middle', nameGap: 42 },
-                        { type: 'value', name: 'Seconds', nameLocation: 'middle', nameGap: 42 },
-                    ],
-                    series: [
-                        {
-                            name: 'Tasks Created',
-                            type: 'line',
-                            smooth: true,
-                            data: tasksCreated,
-                            yAxisIndex: 0,
-                        },
-                        {
-                            name: 'Tasks Completed',
-                            type: 'line',
-                            smooth: true,
-                            data: tasksCompleted,
-                            yAxisIndex: 0,
-                        },
-                        {
-                            name: 'Focus (seconds)',
-                            type: 'line',
-                            smooth: true,
-                            data: focusSeconds,
-                            yAxisIndex: 1,
-                        },
-                    ],
+            this.applyChartOption('trend', {
+                tooltip: { trigger: 'axis' },
+                legend: {
+                    data: ['Tasks Created', 'Tasks Completed', 'Focus (seconds)'],
+                    bottom: 4,
                 },
-                true,
-            );
+                grid: { left: 52, right: 52, top: 36, bottom: 56, containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    data: labels,
+                    axisLabel: { hideOverlap: true },
+                },
+                yAxis: [
+                    { type: 'value', name: 'Tasks', nameLocation: 'middle', nameGap: 42 },
+                    { type: 'value', name: 'Seconds', nameLocation: 'middle', nameGap: 42 },
+                ],
+                series: [
+                    {
+                        name: 'Tasks Created',
+                        type: 'line',
+                        smooth: true,
+                        data: tasksCreated,
+                        yAxisIndex: 0,
+                    },
+                    {
+                        name: 'Tasks Completed',
+                        type: 'line',
+                        smooth: true,
+                        data: tasksCompleted,
+                        yAxisIndex: 0,
+                    },
+                    {
+                        name: 'Focus (seconds)',
+                        type: 'line',
+                        smooth: true,
+                        data: focusSeconds,
+                        yAxisIndex: 1,
+                    },
+                ],
+            });
         },
 
         applyTrendChartHeight() {
@@ -211,26 +322,23 @@ export function dashboardAnalyticsCharts(config = {}) {
             const labels = this.analytics?.trends?.labels ?? [];
             const focusSessions = this.analytics?.trends?.focus_sessions ?? [];
 
-            this.charts.focusSessions.setOption(
-                {
-                    tooltip: { trigger: 'axis' },
-                    grid: { left: 40, right: 20, top: 20, bottom: 30, containLabel: true },
-                    xAxis: {
-                        type: 'category',
-                        data: labels,
-                        axisLabel: { hideOverlap: true },
-                    },
-                    yAxis: { type: 'value' },
-                    series: [
-                        {
-                            name: 'Focus sessions',
-                            type: 'bar',
-                            data: focusSessions,
-                        },
-                    ],
+            this.applyChartOption('focusSessions', {
+                tooltip: { trigger: 'axis' },
+                grid: { left: 40, right: 20, top: 20, bottom: 30, containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    data: labels,
+                    axisLabel: { hideOverlap: true },
                 },
-                true,
-            );
+                yAxis: { type: 'value' },
+                series: [
+                    {
+                        name: 'Focus sessions',
+                        type: 'bar',
+                        data: focusSessions,
+                    },
+                ],
+            });
         },
 
         setStatusDonutOption() {
@@ -241,22 +349,19 @@ export function dashboardAnalyticsCharts(config = {}) {
             const rows = this.analytics?.breakdowns?.status ?? [];
             const seriesData = rows.map((row) => ({ name: row.label, value: row.value }));
 
-            this.charts.status.setOption(
-                {
-                    tooltip: { trigger: 'item' },
-                    legend: { bottom: 0, left: 'center' },
-                    series: [
-                        {
-                            name: 'Status',
-                            type: 'pie',
-                            radius: ['45%', '70%'],
-                            avoidLabelOverlap: true,
-                            data: seriesData,
-                        },
-                    ],
-                },
-                true,
-            );
+            this.applyChartOption('status', {
+                tooltip: { trigger: 'item' },
+                legend: { bottom: 0, left: 'center' },
+                series: [
+                    {
+                        name: 'Status',
+                        type: 'pie',
+                        radius: ['45%', '70%'],
+                        avoidLabelOverlap: true,
+                        data: seriesData,
+                    },
+                ],
+            });
         },
 
         setPriorityBarOption() {
@@ -280,16 +385,18 @@ export function dashboardAnalyticsCharts(config = {}) {
             const labels = rows.map((row) => row.label);
             const values = rows.map((row) => row.value);
 
-            chart.setOption(
-                {
-                    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                    grid: { left: 20, right: 20, top: 20, bottom: 20, containLabel: true },
-                    xAxis: { type: 'value' },
-                    yAxis: { type: 'category', data: labels, inverse: true, axisLabel: { width: 140, overflow: 'truncate' } },
-                    series: [{ name: seriesName, type: 'bar', data: values }],
-                },
-                true,
-            );
+            const chartKey = Object.keys(this.charts).find((key) => this.charts[key] === chart);
+            if (!chartKey) {
+                return;
+            }
+
+            this.applyChartOption(chartKey, {
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                grid: { left: 20, right: 20, top: 20, bottom: 20, containLabel: true },
+                xAxis: { type: 'value' },
+                yAxis: { type: 'category', data: labels, inverse: true, axisLabel: { width: 140, overflow: 'truncate' } },
+                series: [{ name: seriesName, type: 'bar', data: values }],
+            });
         },
 
         noDataOption(text) {
@@ -302,8 +409,6 @@ export function dashboardAnalyticsCharts(config = {}) {
                         style: { text, fill: '#9ca3af', fontSize: 14 },
                     },
                 ],
-                xAxis: { show: false },
-                yAxis: { show: false },
                 series: [],
             };
         },
@@ -319,6 +424,11 @@ export function dashboardAnalyticsCharts(config = {}) {
         destroy() {
             if (this.resizeHandler) {
                 window.removeEventListener('resize', this.resizeHandler);
+            }
+
+            if (this.renderRetryTimer) {
+                clearTimeout(this.renderRetryTimer);
+                this.renderRetryTimer = null;
             }
 
             Object.keys(this.charts).forEach((key) => {

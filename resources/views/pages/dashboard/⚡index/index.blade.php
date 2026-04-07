@@ -159,7 +159,7 @@
                                             </div>
                                         </div>
                                         <div class="px-3 py-3">
-                                            <div x-ref="trendChart" wire:ignore class="w-full"></div>
+                                            <div x-ref="trendChart" wire:ignore class="h-64 w-full"></div>
                                         </div>
                                     </div>
                                 @endisland

@@ -539,7 +539,7 @@
                             type="button"
                             class="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors disabled:pointer-events-none"
                             :disabled="!day.date"
-                            :class=\"!day.date ? 'cursor-default opacity-0' : day.isSelected ? 'cursor-pointer bg-brand-blue text-white shadow-sm' : day.isToday ? 'cursor-pointer text-brand-blue dark:text-brand-light-blue' : 'cursor-pointer text-zinc-700 dark:text-zinc-300'\"
+                            :class="!day.date ? 'cursor-default opacity-0' : day.isSelected ? 'cursor-pointer bg-brand-blue text-white shadow-sm' : day.isToday ? 'cursor-pointer text-brand-blue dark:text-brand-light-blue' : 'cursor-pointer text-zinc-700 dark:text-zinc-300'"
                             @click.prevent.stop="day.date && selectDay(day.date)"
                             x-text="day.label"
                         ></button>
