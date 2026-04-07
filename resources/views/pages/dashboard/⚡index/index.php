@@ -17,11 +17,15 @@ new
 #[Title('Dashboard')]
 class extends Component
 {
+    private const ANALYTICS_PRESETS = ['daily', 'weekly', 'monthly'];
+
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
 
     #[Url(as: 'preset')]
-    public string $analyticsPreset = '30d';
+    public string $analyticsPreset = 'daily';
+    
+    public string $trendPreset = 'daily';
 
     /**
      * Cached parsed date to avoid parsing multiple times.
@@ -41,11 +45,24 @@ class extends Component
         if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
             $this->selectedDate = now()->toDateString();
         }
+
+        $this->analyticsPreset = $this->normalizeAnalyticsPreset($this->analyticsPreset);
+        $this->trendPreset = $this->normalizeAnalyticsPreset($this->trendPreset);
     }
 
     public function updatedSelectedDate(): void
     {
         $this->parsedSelectedDate = null;
+    }
+
+    public function setAnalyticsPreset(string $preset): void
+    {
+        $this->analyticsPreset = $this->normalizeAnalyticsPreset($preset);
+    }
+    
+    public function setTrendPreset(string $preset): void
+    {
+        $this->trendPreset = $this->normalizeAnalyticsPreset($preset);
     }
 
     #[Computed]
@@ -59,6 +76,21 @@ class extends Component
         return $this->userAnalyticsService->dashboardOverview(
             user: $user,
             preset: $this->analyticsPreset,
+            anchor: $this->analyticsAnchor(),
+        );
+    }
+    
+    #[Computed]
+    public function trendAnalytics(): ?DashboardAnalyticsOverview
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return null;
+        }
+
+        return $this->userAnalyticsService->dashboardOverview(
+            user: $user,
+            preset: $this->trendPreset,
             anchor: $this->analyticsAnchor(),
         );
     }
@@ -152,5 +184,21 @@ class extends Component
         }
 
         return $this->parsedSelectedDate;
+    }
+
+    private function normalizeAnalyticsPreset(string $preset): string
+    {
+        $normalizedPreset = strtolower(trim($preset));
+
+        if (in_array($normalizedPreset, self::ANALYTICS_PRESETS, true)) {
+            return $normalizedPreset;
+        }
+
+        return match ($normalizedPreset) {
+            '7d' => 'daily',
+            '30d' => 'weekly',
+            '90d', 'this_month' => 'monthly',
+            default => 'daily',
+        };
     }
 };

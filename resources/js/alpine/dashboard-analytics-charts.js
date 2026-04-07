@@ -26,6 +26,7 @@ export function dashboardAnalyticsCharts(config = {}) {
         activeAnalyticsSection: resolveSectionFromUrl(),
         charts: {
             trend: null,
+            focusSessions: null,
             status: null,
             priority: null,
             complexity: null,
@@ -81,6 +82,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             }
 
             this.charts.trend = this.initChartRef(this.$refs.trendChart, this.charts.trend);
+            this.charts.focusSessions = this.initChartRef(this.$refs.focusSessionsChart, this.charts.focusSessions);
             this.charts.status = this.initChartRef(this.$refs.statusChart, this.charts.status);
             this.charts.priority = this.initChartRef(this.$refs.priorityChart, this.charts.priority);
             this.charts.complexity = this.initChartRef(this.$refs.complexityChart, this.charts.complexity);
@@ -94,7 +96,12 @@ export function dashboardAnalyticsCharts(config = {}) {
             }
 
             if (existingChart) {
-                return existingChart;
+                const dom = existingChart.getDom?.();
+                if (!dom || dom !== element || !element.isConnected) {
+                    existingChart.dispose();
+                } else {
+                    return existingChart;
+                }
             }
 
             const existing = echarts.getInstanceByDom(element);
@@ -111,7 +118,9 @@ export function dashboardAnalyticsCharts(config = {}) {
                 return;
             }
 
+            this.applyTrendChartHeight();
             this.setTrendOption();
+            this.setFocusSessionsOption();
             this.setStatusDonutOption();
             this.setPriorityBarOption();
             this.setComplexityBarOption();
@@ -134,6 +143,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             }
 
             const labels = this.analytics?.trends?.labels ?? [];
+            const tasksCreated = this.analytics?.trends?.tasks_created ?? [];
             const tasksCompleted = this.analytics?.trends?.tasks_completed ?? [];
             const focusSeconds = this.analytics?.trends?.focus_work_seconds ?? [];
 
@@ -141,20 +151,27 @@ export function dashboardAnalyticsCharts(config = {}) {
                 {
                     tooltip: { trigger: 'axis' },
                     legend: {
-                        data: ['Tasks Completed', 'Focus (seconds)'],
-                        bottom: 0,
+                        data: ['Tasks Created', 'Tasks Completed', 'Focus (seconds)'],
+                        bottom: 4,
                     },
-                    grid: { left: 40, right: 20, top: 20, bottom: 45, containLabel: true },
+                    grid: { left: 52, right: 52, top: 36, bottom: 56, containLabel: true },
                     xAxis: {
                         type: 'category',
                         data: labels,
                         axisLabel: { hideOverlap: true },
                     },
                     yAxis: [
-                        { type: 'value', name: 'Tasks' },
-                        { type: 'value', name: 'Seconds' },
+                        { type: 'value', name: 'Tasks', nameLocation: 'middle', nameGap: 42 },
+                        { type: 'value', name: 'Seconds', nameLocation: 'middle', nameGap: 42 },
                     ],
                     series: [
+                        {
+                            name: 'Tasks Created',
+                            type: 'line',
+                            smooth: true,
+                            data: tasksCreated,
+                            yAxisIndex: 0,
+                        },
                         {
                             name: 'Tasks Completed',
                             type: 'line',
@@ -168,6 +185,47 @@ export function dashboardAnalyticsCharts(config = {}) {
                             smooth: true,
                             data: focusSeconds,
                             yAxisIndex: 1,
+                        },
+                    ],
+                },
+                true,
+            );
+        },
+
+        applyTrendChartHeight() {
+            if (!this.$refs.trendChart) {
+                return;
+            }
+
+            const pointCount = this.analytics?.trends?.labels?.length ?? 0;
+            const height = pointCount <= 7 ? 240 : pointCount <= 14 ? 270 : 300;
+
+            this.$refs.trendChart.style.height = `${height}px`;
+        },
+
+        setFocusSessionsOption() {
+            if (!this.charts.focusSessions) {
+                return;
+            }
+
+            const labels = this.analytics?.trends?.labels ?? [];
+            const focusSessions = this.analytics?.trends?.focus_sessions ?? [];
+
+            this.charts.focusSessions.setOption(
+                {
+                    tooltip: { trigger: 'axis' },
+                    grid: { left: 40, right: 20, top: 20, bottom: 30, containLabel: true },
+                    xAxis: {
+                        type: 'category',
+                        data: labels,
+                        axisLabel: { hideOverlap: true },
+                    },
+                    yAxis: { type: 'value' },
+                    series: [
+                        {
+                            name: 'Focus sessions',
+                            type: 'bar',
+                            data: focusSessions,
                         },
                     ],
                 },

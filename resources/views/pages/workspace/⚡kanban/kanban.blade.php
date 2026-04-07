@@ -1,5 +1,5 @@
 <div class="space-y-4">
-    <x-workspace.item-creation :tags="$tags" :projects="$projects" :active-focus-session="$activeFocusSession" />
+    <x-workspace.item-creation :tags="$tags" :projects="$projects" :active-focus-session="$activeFocusSession" mode="kanban" />
 
     @php
     use App\Enums\TaskStatus;
@@ -20,15 +20,15 @@
     $kanbanStatusMeta = [
         TaskStatus::ToDo->value => [
             'label' => TaskStatus::ToDo->label(),
-            'class' => 'bg-gray-800/10 text-gray-800 dark:bg-gray-300/20 dark:text-gray-300',
+            'class' => 'bg-gray-800/10 text-gray-800',
         ],
         TaskStatus::Doing->value => [
             'label' => TaskStatus::Doing->label(),
-            'class' => 'bg-blue-800/10 text-blue-800 dark:bg-blue-300/20 dark:text-blue-300',
+            'class' => 'bg-blue-800/10 text-blue-800',
         ],
         TaskStatus::Done->value => [
             'label' => TaskStatus::Done->label(),
-            'class' => 'bg-green-800/10 text-green-800 dark:bg-green-300/20 dark:text-green-300',
+            'class' => 'bg-green-800/10 text-green-800',
         ],
     ];
 

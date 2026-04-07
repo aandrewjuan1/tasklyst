@@ -103,6 +103,12 @@ class extends Component
     public int $itemsPage = 1;
 
     /**
+     * Version bump to force nested list/kanban remount after mutations (create/delete/restore).
+     * This is included in workspaceItemsFingerprint() to ensure wire:key changes when items change.
+     */
+    public int $workspaceItemsVersion = 0;
+
+    /**
      * Optional list context: when set, task list shows only tasks in this project.
      * Authorized in HandlesTasks::tasks() before applying scope.
      */
@@ -400,6 +406,19 @@ class extends Component
     }
 
     /**
+     * Force the nested list/kanban to remount with fresh model collections.
+     * Keep mutations in the parent, but ensure the child receives updated props.
+     */
+    public function refreshWorkspaceItems(bool $resetPagination = true): void
+    {
+        if ($resetPagination) {
+            $this->resetListPagination();
+        }
+
+        $this->workspaceItemsVersion++;
+    }
+
+    /**
      * When the selected date changes, reset pagination so we show page 1 for the new date.
      * Also clear the cached parsed date so it gets re-parsed.
      */
@@ -432,6 +451,7 @@ class extends Component
             'date' => $this->selectedDate,
             'listContext' => [$this->listContextProjectId, $this->listContextEventId],
             'filters' => $this->getFilters(),
+            'version' => $this->workspaceItemsVersion,
         ], JSON_THROW_ON_ERROR));
     }
 

@@ -163,6 +163,12 @@
         newTagName: '',
         creatingTag: false,
         deletingTagIds: new Set(),
+        workspaceWire() {
+            // This component is rendered inside nested Livewire children (List/Kanban),
+            // but the mutation methods live on the parent workspace Index component.
+            // Prefer parent when available; fall back to the current component for safety.
+            return $wire?.$parent ?? $wire;
+        },
         async deleteTagOptimistic(tag) {
             // Prevent duplicate deletions
             if (this.deletingTagIds?.has(tag.id)) {
@@ -202,7 +208,7 @@
                 }
 
                 // Call server for real tags
-                const promise = window.workspaceShellWire($wire).$call('deleteTag', tag.id);
+                const promise = this.workspaceWire().$call('deleteTag', tag.id);
 
                 // Handle response
                 await promise;
@@ -275,7 +281,7 @@
                 this.creatingTag = true;
 
                 // Call server
-                const promise = window.workspaceShellWire($wire).$call('createTag', tagName);
+                const promise = this.workspaceWire().$call('createTag', tagName);
 
                 // Handle response - the tag-created event will update with real ID
                 await promise;
@@ -332,7 +338,7 @@
             }
             const minLoadingMs = 500;
 
-            window.workspaceShellWire($wire).$call('createTask', payload)
+            this.workspaceWire().$call('createTask', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
@@ -383,7 +389,7 @@
             }
             const minLoadingMs = 500;
 
-            window.workspaceShellWire($wire).$call('createEvent', payload)
+            this.workspaceWire().$call('createEvent', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
@@ -421,7 +427,7 @@
             };
             const minLoadingMs = 500;
 
-            window.workspaceShellWire($wire).$call('createProject', payload)
+            this.workspaceWire().$call('createProject', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);

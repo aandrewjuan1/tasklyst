@@ -112,6 +112,10 @@ trait HandlesTasks
 
         $this->dispatch('task-created', id: $task->id, title: $task->title);
         $this->dispatch('toast', ...Task::toastPayload('create', true, $task->title));
+
+        if (method_exists($this, 'refreshWorkspaceItems')) {
+            $this->refreshWorkspaceItems();
+        }
     }
 
     /**

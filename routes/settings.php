@@ -10,5 +10,4 @@ Route::middleware([
     Route::redirect('settings', 'settings/profile');
 
     Route::livewire('settings/profile', 'pages::settings.profile')->name('settings.profile');
-    Route::livewire('settings/appearance', 'pages::settings.appearance')->name('settings.appearance');
 });

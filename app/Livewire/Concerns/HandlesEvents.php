@@ -88,6 +88,10 @@ trait HandlesEvents
 
         $this->dispatch('event-created', id: $event->id, title: $event->title);
         $this->dispatch('toast', ...Event::toastPayload('create', true, $event->title));
+
+        if (method_exists($this, 'refreshWorkspaceItems')) {
+            $this->refreshWorkspaceItems();
+        }
     }
 
     /**

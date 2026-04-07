@@ -8,7 +8,13 @@ readonly class DashboardAnalyticsOverview
 {
     /**
      * @param  array<string, array{current: int|float, previous: int|float, delta: int|float, delta_percentage: int|float|null}>  $cards
-     * @param  array{labels: array<int, string>, tasks_completed: array<int, int>, focus_work_seconds: array<int, int>}  $trends
+     * @param  array{
+     *   labels: array<int, string>,
+     *   tasks_created: array<int, int>,
+     *   tasks_completed: array<int, int>,
+     *   focus_work_seconds: array<int, int>,
+     *   focus_sessions: array<int, int>
+     * }  $trends
      * @param  array{
      *   status: array<int, array{key: string, label: string, value: int}>,
      *   priority: array<int, array{key: string, label: string, value: int}>,

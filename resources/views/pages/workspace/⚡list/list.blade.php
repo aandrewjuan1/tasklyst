@@ -859,8 +859,8 @@
                             </div>
 
                             <div class="flex w-full items-center gap-1.5" x-show="errors.dateRange" x-cloak>
-                                <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
-                                <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="errors.dateRange"></p>
+                                <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600" />
+                                <p class="text-xs font-medium text-red-600" x-text="errors.dateRange"></p>
                             </div>
                         </div>
 
@@ -883,10 +883,10 @@
         class="mt-4 flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm backdrop-blur opacity-60"
     >
         <div
-            class="relative h-px w-full overflow-hidden bg-zinc-300 dark:bg-zinc-600"
+            class="relative h-px w-full overflow-hidden bg-zinc-300"
             aria-hidden="true"
         >
-            <div class="loading-bar-track absolute left-0 top-0 h-full w-1/3 max-w-[120px] rounded-full bg-zinc-500 dark:bg-zinc-400"></div>
+            <div class="loading-bar-track absolute left-0 top-0 h-full w-1/3 max-w-[120px] rounded-full bg-zinc-500"></div>
         </div>
         <div class="flex flex-col gap-2 px-3 pt-3 pb-2">
         <div class="flex items-start justify-between gap-2">
@@ -898,7 +898,7 @@
                     x-show="creationKind !== 'project'"
                     x-cloak
                     class="cursor-default inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out"
-                    :class="(formData.item.recurrence?.enabled && formData.item.recurrence?.type) ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300 dark:border-indigo-400/25' : 'border-border/60 bg-muted text-muted-foreground'"
+                    :class="(formData.item.recurrence?.enabled && formData.item.recurrence?.type) ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm' : 'border-border/60 bg-muted text-muted-foreground'"
                 >
                     <flux:icon name="arrow-path" class="size-3" />
                     <span x-show="formData.item.recurrence?.enabled && formData.item.recurrence?.type" class="inline-flex items-baseline gap-1" x-cloak>
@@ -917,7 +917,7 @@
             <template x-if="creationKind === 'task'">
                 <div class="flex flex-wrap items-center gap-2">
                     <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold"
                         :class="getStatusBadgeClass(formData.item.status)"
                     >
                         <flux:icon name="check-circle" class="size-3" />
@@ -927,7 +927,7 @@
                         </span>
                     </span>
                     <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold"
                         :class="getPriorityBadgeClass(formData.item.priority)"
                     >
                         <flux:icon name="bolt" class="size-3" />
@@ -937,7 +937,7 @@
                         </span>
                     </span>
                     <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold"
                         :class="getComplexityBadgeClass(formData.item.complexity)"
                     >
                         <flux:icon name="squares-2x2" class="size-3" />
@@ -958,7 +958,7 @@
             <template x-if="creationKind === 'event'">
                 <div class="flex flex-wrap items-center gap-2">
                     <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold"
                         :class="getEventStatusBadgeClass(formData.item.status)"
                     >
                         <flux:icon name="check-circle" class="size-3" />
@@ -968,7 +968,7 @@
                         </span>
                     </span>
                     <span
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 text-xs font-medium transition-[box-shadow,transform] duration-150 ease-out"
                         :class="formData.item.allDay ? 'bg-emerald-500/10 text-emerald-500 shadow-sm' : 'bg-muted text-muted-foreground'"
                     >
                         <flux:icon name="sun" class="size-3" />
@@ -998,7 +998,7 @@
             </span>
             <span
                 x-show="creationKind !== 'project' && formData.item.projectId && projectNames[formData.item.projectId]"
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10"
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90"
             >
                 <flux:icon name="folder" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
@@ -1009,7 +1009,7 @@
         </div>
         <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-1.5 mt-1 text-[10px]" x-show="creationKind !== 'project'" x-cloak>
             <template x-for="tag in getSelectedTags()" :key="tag.id">
-                <span class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground" x-text="tag.name"></span>
+                <span class="inline-flex items-center rounded-sm border border-black/10 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground" x-text="tag.name"></span>
             </template>
             <span
                 x-show="!(formData.item.tagIds && formData.item.tagIds.length > 0)"

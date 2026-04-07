@@ -1,4 +1,4 @@
-@props(['tags', 'projects', 'activeFocusSession'])
+@props(['tags', 'projects', 'activeFocusSession', 'mode' => 'list'])
 
 <div
     class="space-y-4"

@@ -15,8 +15,39 @@
             </p>
         </div>
 
-        <div class="flex items-center justify-end">
-            <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+        <div class="flex w-full flex-col items-end gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+            <div class="flex w-full min-w-0 max-w-[18rem] shrink-0 items-center gap-1 sm:w-[18rem]">
+                <flux:input
+                    type="search"
+                    wire:model.live.debounce.300ms="searchQuery"
+                    :loading="false"
+                    placeholder="{{ __('Search tasks, events, projects…') }}"
+                    aria-label="{{ __('Search tasks, events, and projects') }}"
+                    autocomplete="off"
+                    class="w-full min-w-0"
+                />
+                <flux:tooltip
+                    :content="$this->searchScope === 'selected_date'
+                        ? __('Currently searching selected date only. (Click to search all items.)')
+                        : __('Currently searching all items. (Click to search selected date only.)')"
+                >
+                    <flux:button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        :loading="false"
+                        :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
+                        aria-label="{{ __('Toggle search scope') }}"
+                        class="size-8 shrink-0"
+                        wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
+                        wire:loading.attr="disabled"
+                        wire:target="searchScope"
+                    />
+                </flux:tooltip>
+            </div>
+            <div class="flex shrink-0 items-center">
+                <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+            </div>
         </div>
     </div>
 
@@ -120,36 +151,6 @@
     {{-- Search, filters / pending invitations / add filter / trash --}}
     <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex flex-wrap items-center gap-2">
-            {{-- Search (server-side, debounced); scope toggle beside input --}}
-            <div class="flex min-w-0 max-w-[16rem] shrink-0 items-center gap-1">
-                <flux:input
-                    type="search"
-                    wire:model.live.debounce.300ms="searchQuery"
-                    :loading="false"
-                    placeholder="{{ __('Search tasks, events, projects…') }}"
-                    aria-label="{{ __('Search tasks, events, and projects') }}"
-                    autocomplete="off"
-                    class="w-full min-w-0"
-                />
-                <flux:tooltip
-                    :content="$this->searchScope === 'selected_date'
-                        ? __('Currently searching selected date only. (Click to search all items.)')
-                        : __('Currently searching all items. (Click to search selected date only.)')"
-                >
-                    <flux:button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        :loading="false"
-                        :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
-                        aria-label="{{ __('Toggle search scope') }}"
-                        class="size-8 shrink-0"
-                        wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
-                        wire:loading.attr="disabled"
-                        wire:target="searchScope"
-                    />
-                </flux:tooltip>
-            </div>
             @auth
                 <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
             @endauth

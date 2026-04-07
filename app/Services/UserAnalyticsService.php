@@ -57,17 +57,27 @@ class UserAnalyticsService
         ];
 
         $dailyCompleted = $this->tasksCompletedByDay($user, $period->currentStart, $period->currentEnd);
+        $dailyCreated = $this->tasksCreatedByDay($user, $period->currentStart, $period->currentEnd);
         $dailyFocusWorkSeconds = $this->focusWorkSecondsByDay($user, $period->currentStart, $period->currentEnd);
+        $dailyFocusWorkSessions = $this->focusWorkSessionsByDay($user, $period->currentStart, $period->currentEnd);
         $labels = $this->dateLabelsInPeriod($period->currentStart, $period->currentEnd);
 
         $trends = [
             'labels' => $labels,
+            'tasks_created' => array_map(
+                fn (string $label): int => (int) ($dailyCreated[$label] ?? 0),
+                $labels
+            ),
             'tasks_completed' => array_map(
                 fn (string $label): int => (int) ($dailyCompleted[$label] ?? 0),
                 $labels
             ),
             'focus_work_seconds' => array_map(
                 fn (string $label): int => (int) ($dailyFocusWorkSeconds[$label] ?? 0),
+                $labels
+            ),
+            'focus_sessions' => array_map(
+                fn (string $label): int => (int) ($dailyFocusWorkSessions[$label] ?? 0),
                 $labels
             ),
         ];
@@ -207,6 +217,28 @@ class UserAnalyticsService
     }
 
     /**
+     * Bucket by calendar date in {@see config('app.timezone')} so boundaries match the normalized period.
+     *
+     * @return array<string, int>
+     */
+    private function tasksCreatedByDay(User $user, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): array
+    {
+        $timezone = (string) config('app.timezone');
+
+        $tasks = $this->tasksCreatedBaseQuery($user, $periodStart, $periodEnd)
+            ->get(['created_at']);
+
+        $map = [];
+        foreach ($tasks as $task) {
+            $day = $task->created_at->timezone($timezone)->format('Y-m-d');
+            $map[$day] = ($map[$day] ?? 0) + 1;
+        }
+        ksort($map);
+
+        return $map;
+    }
+
+    /**
      * @return array<string, int>
      */
     private function focusWorkSecondsByDay(User $user, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): array
@@ -220,6 +252,26 @@ class UserAnalyticsService
         foreach ($sessions as $session) {
             $day = $session->started_at->timezone($timezone)->format('Y-m-d');
             $map[$day] = ($map[$day] ?? 0) + (int) $session->duration_seconds;
+        }
+        ksort($map);
+
+        return $map;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function focusWorkSessionsByDay(User $user, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): array
+    {
+        $timezone = (string) config('app.timezone');
+
+        $sessions = $this->focusWorkBaseQuery($user, $periodStart, $periodEnd)
+            ->get(['started_at']);
+
+        $map = [];
+        foreach ($sessions as $session) {
+            $day = $session->started_at->timezone($timezone)->format('Y-m-d');
+            $map[$day] = ($map[$day] ?? 0) + 1;
         }
         ksort($map);
 

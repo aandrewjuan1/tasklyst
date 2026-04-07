@@ -74,6 +74,10 @@ trait HandlesProjects
 
         $this->dispatch('project-created', id: $project->id, name: $project->name);
         $this->dispatch('toast', ...Project::toastPayload('create', true, $project->name));
+
+        if (method_exists($this, 'refreshWorkspaceItems')) {
+            $this->refreshWorkspaceItems();
+        }
     }
 
     /**

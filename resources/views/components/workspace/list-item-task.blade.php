@@ -546,8 +546,8 @@
                 <x-slot:trigger>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $statusInitialClass }}"
-                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out {{ $statusInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
                         aria-haspopup="menu"
                     >
                         <flux:icon name="check-circle" class="size-3" />
@@ -575,7 +575,7 @@
                 </div>
             </x-simple-select-dropdown>
         @else
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $statusInitialClass }}">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold {{ $statusInitialClass }}">
                 <flux:icon name="check-circle" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
@@ -595,8 +595,8 @@
                 <x-slot:trigger>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $priorityInitialClass }}"
-                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out {{ $priorityInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out ' + (getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
                         aria-haspopup="menu"
                     >
                         <flux:icon name="bolt" class="size-3" />
@@ -624,7 +624,7 @@
                 </div>
             </x-simple-select-dropdown>
         @else
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $priorityInitialClass }}">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold {{ $priorityInitialClass }}">
                 <flux:icon name="bolt" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
@@ -644,8 +644,8 @@
                 <x-slot:trigger>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 {{ $complexityInitialClass }}"
-                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 ' + (getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out {{ $complexityInitialClass }}"
+                        x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out ' + (getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
                         aria-haspopup="menu"
                     >
                         <flux:icon name="squares-2x2" class="size-3" />
@@ -673,7 +673,7 @@
                 </div>
             </x-simple-select-dropdown>
         @else
-            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10 {{ $complexityInitialClass }}">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold {{ $complexityInitialClass }}">
                 <flux:icon name="squares-2x2" class="size-3" />
                 <span class="inline-flex items-baseline gap-1">
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
@@ -758,15 +758,15 @@
                                 @click.stop
                                 @blur="applyCustomDuration()"
                                 @keydown.enter.prevent.stop="applyCustomDuration()"
-                                class="h-8 w-16 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-brand-light-blue dark:focus:ring-brand-light-blue"
+                                class="h-8 w-16 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue"
                             />
-                            <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                            <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm">
                                 <button
                                     type="button"
                                     class="px-2 py-1 transition-colors"
                                     :class="customDurationUnit === 'minutes'
-                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
-                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
+                                        ? 'bg-brand-blue text-white'
+                                        : 'text-zinc-600 hover:bg-zinc-100'"
                                     @click.stop.prevent="customDurationUnit = 'minutes'; applyCustomDuration()"
                                 >
                                     {{ __('Min') }}
@@ -775,8 +775,8 @@
                                     type="button"
                                     class="px-2 py-1 transition-colors"
                                     :class="customDurationUnit === 'hours'
-                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
-                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
+                                        ? 'bg-brand-blue text-white'
+                                        : 'text-zinc-600 hover:bg-zinc-100'"
                                     @click.stop.prevent="customDurationUnit = 'hours'; applyCustomDuration()"
                                 >
                                     {{ __('Hours') }}
@@ -826,8 +826,8 @@
     />
 
     <div class="flex w-full items-center gap-1.5" x-show="editDateRangeError" x-cloak>
-        <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600 dark:text-red-400" />
-        <p class="text-xs font-medium text-red-600 dark:text-red-400" x-text="editDateRangeError"></p>
+        <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600" />
+        <p class="text-xs font-medium text-red-600" x-text="editDateRangeError"></p>
     </div>
 
     @php
@@ -871,7 +871,7 @@
         >
             <span
                 x-show="kind === 'task'"
-                class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300"
+                class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700"
             >
                 <flux:icon name="folder" class="size-3" />
                 <span
@@ -899,7 +899,7 @@
         >
             <span
                 x-show="kind === 'task'"
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500 dark:border-white/10"
+                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500"
             >
                 <flux:icon name="calendar" class="size-3" />
                 <span
@@ -923,7 +923,7 @@
         <span
             x-show="kind === 'task' && showProjectPill"
             x-cloak
-            class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300"
+            class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700"
         >
             <flux:icon name="folder" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -937,7 +937,7 @@
         <span
             x-show="kind === 'task' && showEventPill"
             x-cloak
-            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500 dark:border-white/10"
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500"
         >
             <flux:icon name="calendar" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -964,7 +964,7 @@
         href="{{ $sourceUrl }}"
         target="_blank"
         rel="noopener noreferrer"
-        class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800 dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300 dark:hover:bg-blue-500/25"
+        class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800"
     >
         @if($isBrightspace)
             <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3 shrink-0 object-contain" />

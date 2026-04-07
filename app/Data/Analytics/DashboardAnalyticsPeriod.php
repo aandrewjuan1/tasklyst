@@ -26,6 +26,9 @@ readonly class DashboardAnalyticsPeriod
         $normalizedPreset = strtolower(trim($preset));
 
         return match ($normalizedPreset) {
+            'daily' => self::slidingWindow($normalizedPreset, $anchorDate, 7),
+            'weekly' => self::slidingWindow($normalizedPreset, $anchorDate, 30),
+            'monthly' => self::slidingWindow($normalizedPreset, $anchorDate, 90),
             '7d' => self::slidingWindow($normalizedPreset, $anchorDate, 7),
             '30d' => self::slidingWindow($normalizedPreset, $anchorDate, 30),
             '90d' => self::slidingWindow($normalizedPreset, $anchorDate, 90),

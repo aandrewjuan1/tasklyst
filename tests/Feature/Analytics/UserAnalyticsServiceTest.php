@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * @property \App\Models\User $user
+ * @property \App\Services\UserAnalyticsService $service
+ */
+
 use App\Enums\CollaborationPermission;
 use App\Enums\FocusSessionType;
 use App\Enums\TaskComplexity;
@@ -258,8 +263,10 @@ test('dashboard overview returns preset period with previous comparison and char
         ->and($overview->cards['focus_sessions']['current'])->toBe(1)
         ->and($overview->cards['focus_sessions']['previous'])->toBe(1)
         ->and($overview->trends['labels'])->toHaveCount(7)
+        ->and($overview->trends['tasks_created'])->toHaveCount(7)
         ->and($overview->trends['tasks_completed'])->toHaveCount(7)
-        ->and($overview->trends['focus_work_seconds'])->toHaveCount(7);
+        ->and($overview->trends['focus_work_seconds'])->toHaveCount(7)
+        ->and($overview->trends['focus_sessions'])->toHaveCount(7);
 
     Carbon::setTestNow();
 });
@@ -289,6 +296,23 @@ test('dashboard overview project breakdown resolves names and fallback labels', 
         ->and($projectBreakdown[(string) $project->id]['value'])->toBe(1)
         ->and($projectBreakdown['none']['label'])->toBe('No Project')
         ->and($projectBreakdown['none']['value'])->toBe(1);
+
+    Carbon::setTestNow();
+});
+
+test('dashboard overview supports daily weekly and monthly preset aliases', function (): void {
+    Carbon::setTestNow(Carbon::parse('2025-08-20 10:00:00', config('app.timezone')));
+
+    $dailyOverview = $this->service->dashboardOverview($this->user, 'daily');
+    $weeklyOverview = $this->service->dashboardOverview($this->user, 'weekly');
+    $monthlyOverview = $this->service->dashboardOverview($this->user, 'monthly');
+
+    expect($dailyOverview->preset)->toBe('daily')
+        ->and($dailyOverview->trends['labels'])->toHaveCount(7)
+        ->and($weeklyOverview->preset)->toBe('weekly')
+        ->and($weeklyOverview->trends['labels'])->toHaveCount(30)
+        ->and($monthlyOverview->preset)->toBe('monthly')
+        ->and($monthlyOverview->trends['labels'])->toHaveCount(90);
 
     Carbon::setTestNow();
 });

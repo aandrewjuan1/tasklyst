@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="dark scroll-smooth">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="scroll-smooth">
     <head>
         @include('partials.head')
     </head>
     <body
-        class="min-h-screen bg-white text-brand-navy-blue dark:bg-zinc-800"
+        class="min-h-screen text-brand-navy-blue {{ request()->routeIs('dashboard') || request()->routeIs('workspace') ? 'bg-brand-light-lavender' : 'bg-white' }}"
         x-data="{}"
         x-init="
             Alpine.store('datePicker', Alpine.store('datePicker') ?? { open: null });
@@ -133,7 +133,7 @@
             sticky 
             collapsible 
             persist="false"
-            class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900"
+            class="border-e border-zinc-200 bg-brand-light-lavender"
         >
             <flux:sidebar.header class="pb-1">
                 <x-app-logo

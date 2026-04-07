@@ -19,6 +19,25 @@ test('workspace with view kanban shows Kanban board columns', function (): void 
         ->assertSee(__('Kanban'));
 });
 
+test('creating a task while in kanban view shows it on the board', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::withQueryParams(['view' => 'kanban'])
+        ->test('pages::workspace.index')
+        ->assertSet('viewMode', 'kanban')
+        ->call('createTask', ['title' => 'Kanban created task'])
+        ->assertSee('Kanban created task');
+});
+
+test('kanban view add control is task-only (no event or project options)', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace', ['view' => 'kanban']))
+        ->assertSuccessful()
+        ->assertDontSee('calendar-days')
+        ->assertDontSee('clipboard-document-list');
+});
+
 test('workspace view mode can be set to list and kanban', function (): void {
     $this->actingAs($this->user);
 
