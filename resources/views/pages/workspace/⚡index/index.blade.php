@@ -4,9 +4,24 @@
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
-    {{-- Centered date switcher and view mode --}}
-    <div class="flex w-full flex-col items-center gap-3">
-        <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+    {{-- Header --}}
+    <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="space-y-1">
+            <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">
+                {{ __('Workspace') }}
+            </h1>
+            <p class="text-sm text-muted-foreground">
+                {{ __('Plan and manage your day') }}
+            </p>
+        </div>
+
+        <div class="flex items-center justify-end">
+            <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+        </div>
+    </div>
+
+    {{-- View mode --}}
+    <div class="flex w-full flex-col gap-3">
         <div
             x-data="{
                 pendingViewMode: null,
@@ -422,15 +437,15 @@
         {{-- Right Side: Calendar (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
             <div class="sticky top-6 space-y-3" data-focus-lock-viewport>
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                    <x-workspace.calendar-feeds-popover />
+                </div>
+
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
                 />
-
-                <div class="flex flex-wrap items-center justify-end gap-2">
-                    <x-workspace.calendar-feeds-popover />
-                </div>
 
                 <x-workspace.upcoming
                     :items="$this->upcoming"

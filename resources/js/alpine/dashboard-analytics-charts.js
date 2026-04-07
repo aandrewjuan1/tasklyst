@@ -1,3 +1,18 @@
+const ANALYTICS_SECTIONS = ['summary', 'trends', 'breakdowns'];
+
+/**
+ * @returns {string}
+ */
+function resolveSectionFromUrl() {
+    if (typeof window === 'undefined') {
+        return 'summary';
+    }
+
+    const raw = new URLSearchParams(window.location.search).get('section');
+
+    return ANALYTICS_SECTIONS.includes(raw) ? raw : 'summary';
+}
+
 /**
  * Alpine.js component for dashboard analytics ECharts rendering.
  *
@@ -8,6 +23,7 @@ export function dashboardAnalyticsCharts(config = {}) {
     return {
         analytics: config.analytics ?? null,
         preset: config.preset ?? '30d',
+        activeAnalyticsSection: resolveSectionFromUrl(),
         charts: {
             trend: null,
             status: null,
@@ -18,11 +34,34 @@ export function dashboardAnalyticsCharts(config = {}) {
         resizeHandler: null,
 
         init() {
-            this.ensureCharts();
-            this.renderCharts();
-
+            this.activeAnalyticsSection = resolveSectionFromUrl();
             this.resizeHandler = () => this.resizeCharts();
             window.addEventListener('resize', this.resizeHandler);
+            this.$nextTick(() => {
+                this.ensureCharts();
+                this.renderCharts();
+                this.resizeCharts();
+            });
+        },
+
+        setSection(section) {
+            if (!ANALYTICS_SECTIONS.includes(section)) {
+                return;
+            }
+
+            this.activeAnalyticsSection = section;
+
+            if (typeof window !== 'undefined' && window.history?.replaceState) {
+                const url = new URL(window.location.href);
+                url.searchParams.set('section', section);
+                window.history.replaceState({}, '', url);
+            }
+
+            this.$nextTick(() => {
+                this.ensureCharts();
+                this.renderCharts();
+                this.resizeCharts();
+            });
         },
 
         sync(nextAnalytics, nextPreset) {
@@ -31,6 +70,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             this.$nextTick(() => {
                 this.ensureCharts();
                 this.renderCharts();
+                this.resizeCharts();
             });
         },
 

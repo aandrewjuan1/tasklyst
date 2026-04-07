@@ -49,7 +49,7 @@
     $triggerInitialStateClass = $shouldRenderCompact
         ? 'border-border/60 bg-muted text-muted-foreground'
         : ($isInitiallyEnabled
-            ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
+            ? 'border-brand-blue/25 bg-brand-light-blue text-brand-navy-blue shadow-sm dark:border-brand-blue/30 dark:bg-brand-blue/20 dark:text-brand-light-blue'
             : 'border-border/60 bg-muted text-muted-foreground');
     $triggerInitialClass = $triggerBaseClass . ' ' . $triggerInitialStateClass;
 
@@ -369,7 +369,7 @@
             const state = (!this.enabled && this.compactWhenDisabled)
                 ? 'border-border/60 bg-muted text-muted-foreground'
                 : (this.enabled
-                    ? 'border-indigo-500/25 bg-indigo-500/10 text-indigo-700 shadow-sm dark:text-indigo-300'
+                    ? 'border-brand-blue/25 bg-brand-light-blue text-brand-navy-blue shadow-sm dark:border-brand-blue/30 dark:bg-brand-blue/20 dark:text-brand-light-blue'
                     : 'border-border/60 bg-muted text-muted-foreground');
             const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
             if (this.readonly) {
@@ -476,7 +476,7 @@
                         type="button"
                         @click="updateField('type', 'daily')"
                         class="rounded-md border px-3 py-2 text-sm transition-colors"
-                        :class="type === 'daily' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                        :class="type === 'daily' ? 'border-brand-blue bg-brand-light-blue text-brand-navy-blue dark:bg-brand-blue/20 dark:text-brand-light-blue' : 'border-border bg-muted/50 hover:bg-muted'"
                     >
                         {{ __('Daily') }}
                     </button>
@@ -484,7 +484,7 @@
                         type="button"
                         @click="updateField('type', 'weekly')"
                         class="rounded-md border px-3 py-2 text-sm transition-colors"
-                        :class="type === 'weekly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                        :class="type === 'weekly' ? 'border-brand-blue bg-brand-light-blue text-brand-navy-blue dark:bg-brand-blue/20 dark:text-brand-light-blue' : 'border-border bg-muted/50 hover:bg-muted'"
                     >
                         {{ __('Weekly') }}
                     </button>
@@ -492,7 +492,7 @@
                         type="button"
                         @click="updateField('type', 'monthly')"
                         class="rounded-md border px-3 py-2 text-sm transition-colors"
-                        :class="type === 'monthly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                        :class="type === 'monthly' ? 'border-brand-blue bg-brand-light-blue text-brand-navy-blue dark:bg-brand-blue/20 dark:text-brand-light-blue' : 'border-border bg-muted/50 hover:bg-muted'"
                     >
                         {{ __('Monthly') }}
                     </button>
@@ -500,7 +500,7 @@
                         type="button"
                         @click="updateField('type', 'yearly')"
                         class="rounded-md border px-3 py-2 text-sm transition-colors"
-                        :class="type === 'yearly' ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400' : 'border-border bg-muted/50 hover:bg-muted'"
+                        :class="type === 'yearly' ? 'border-brand-blue bg-brand-light-blue text-brand-navy-blue dark:bg-brand-blue/20 dark:text-brand-light-blue' : 'border-border bg-muted/50 hover:bg-muted'"
                     >
                         {{ __('Yearly') }}
                     </button>
@@ -539,7 +539,7 @@
                                 type="button"
                                 @click="toggleDay(index)"
                                 class="rounded-md border px-2 py-1.5 text-xs transition-colors"
-                                :class="isDaySelected(index) ? 'border-pink-500 bg-pink-50 text-pink-900 dark:bg-pink-900/20 dark:text-pink-400 font-semibold' : 'border-border bg-muted/50 hover:bg-muted'"
+                                :class="isDaySelected(index) ? 'border-brand-blue bg-brand-light-blue text-brand-navy-blue dark:bg-brand-blue/20 dark:text-brand-light-blue font-semibold' : 'border-border bg-muted/50 hover:bg-muted'"
                                 x-text="dayLabel"
                             ></button>
                         </template>

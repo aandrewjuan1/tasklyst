@@ -758,14 +758,14 @@
                                 @click.stop
                                 @blur="applyCustomDuration()"
                                 @keydown.enter.prevent.stop="applyCustomDuration()"
-                                class="h-8 w-16 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
+                                class="h-8 w-16 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-brand-light-blue dark:focus:ring-brand-light-blue"
                             />
                             <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
                                 <button
                                     type="button"
                                     class="px-2 py-1 transition-colors"
                                     :class="customDurationUnit === 'minutes'
-                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
                                         : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
                                     @click.stop.prevent="customDurationUnit = 'minutes'; applyCustomDuration()"
                                 >
@@ -775,7 +775,7 @@
                                     type="button"
                                     class="px-2 py-1 transition-colors"
                                     :class="customDurationUnit === 'hours'
-                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
                                         : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
                                     @click.stop.prevent="customDurationUnit = 'hours'; applyCustomDuration()"
                                 >

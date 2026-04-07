@@ -253,7 +253,7 @@
                 @click="changeMonth(-1)"
                 wire:loading.attr="disabled"
                 wire:target="selectedDate"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:h-9 sm:w-9"
+                class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
                 aria-label="{{ __('Previous month') }}"
             >
                 <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -274,7 +274,7 @@
                 @click="changeMonth(1)"
                 wire:loading.attr="disabled"
                 wire:target="selectedDate"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:h-9 sm:w-9"
+                class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
                 aria-label="{{ __('Next month') }}"
             >
                 <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -318,7 +318,7 @@
                             @click="if (typeof $wire !== 'undefined') { $wire.set('selectedDate', '{{ $dayData['dateString'] }}'); }"
                             wire:loading.attr="disabled"
                             wire:target="selectedDate"
-                            class="group relative flex h-full w-full min-w-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:text-sm {{ $dayData['isSelected'] ? 'bg-pink-500 text-white shadow-md shadow-pink-500/20 dark:bg-pink-500 dark:text-white' : ($dayData['isToday'] ? 'bg-pink-50 text-pink-600 ring-2 ring-pink-500/30 dark:bg-pink-900/20 dark:text-pink-400 dark:ring-pink-500/20' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
+                            class="group relative flex h-full w-full min-w-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm {{ $dayData['isSelected'] ? 'bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
                             data-date="{{ $dayData['dateString'] }}"
                             aria-label="{{ __('Select date') }}: {{ \Illuminate\Support\Carbon::parse($dayData['dateString'])->translatedFormat('F j, Y') }}"
                         >
@@ -349,12 +349,12 @@
                             @click="selectDay(dayData)"
                             wire:loading.attr="disabled"
                             wire:target="selectedDate"
-                            class="group relative flex h-full w-full min-w-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:text-sm"
+                            class="group relative flex h-full w-full min-w-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:text-sm"
                             :data-date="dayData.dateString"
                             :aria-label="`{{ __('Select date') }}: ${dayData.dateString}`"
                             :class="{
-                                'bg-pink-500 text-white shadow-md shadow-pink-500/20 dark:bg-pink-500 dark:text-white': dayData.isSelected,
-                                'bg-pink-50 text-pink-600 ring-2 ring-pink-500/30 dark:bg-pink-900/20 dark:text-pink-400 dark:ring-pink-500/20': !dayData.isSelected && dayData.isToday,
+                                'bg-brand-blue text-white shadow-md': dayData.isSelected,
+                                'bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25': !dayData.isSelected && dayData.isToday,
                                 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300': !dayData.isSelected && !dayData.isToday,
                             }"
                         >
@@ -379,7 +379,7 @@
                     @click="goToday()"
                     wire:loading.attr="disabled"
                     wire:target="selectedDate"
-                    class="rounded-lg px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:px-4 sm:text-xs"
+                    class="rounded-lg px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-xs"
                     aria-label="{{ __('Go to today') }}"
                 >
                     {{ __('Today') }}

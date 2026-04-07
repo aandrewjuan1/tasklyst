@@ -539,7 +539,7 @@
                             type="button"
                             class="flex h-8 w-8 items-center justify-center rounded-full text-sm transition-colors disabled:pointer-events-none"
                             :disabled="!day.date"
-                            :class="!day.date ? 'cursor-default opacity-0' : day.isSelected ? 'cursor-pointer bg-pink-500 text-white shadow-sm' : day.isToday ? 'cursor-pointer text-pink-600 dark:text-pink-400' : 'cursor-pointer text-zinc-700 dark:text-zinc-300'"
+                            :class=\"!day.date ? 'cursor-default opacity-0' : day.isSelected ? 'cursor-pointer bg-brand-blue text-white shadow-sm' : day.isToday ? 'cursor-pointer text-brand-blue dark:text-brand-light-blue' : 'cursor-pointer text-zinc-700 dark:text-zinc-300'\"
                             @click.prevent.stop="day.date && selectDay(day.date)"
                             x-text="day.label"
                         ></button>
@@ -550,7 +550,7 @@
                     <div class="mb-3 flex items-center justify-center gap-2">
                         <button
                             type="button"
-                            class="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-medium text-pink-600 hover:bg-pink-50 dark:text-pink-400 dark:hover:bg-pink-900/20"
+                            class="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-medium text-brand-blue hover:bg-brand-light-blue dark:text-brand-light-blue dark:hover:bg-brand-blue/20"
                             @click.prevent.stop="selectToday()"
                         >
                             Today
@@ -581,7 +581,7 @@
                                 x-model="hour"
                                 @change="updateTime()"
                                 placeholder="12"
-                                class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
+                                class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-brand-light-blue dark:focus:ring-brand-light-blue"
                             />
                             <span class="pb-1 text-sm text-zinc-400 dark:text-zinc-500">:</span>
                             <input
@@ -591,14 +591,14 @@
                                 x-model="minute"
                                 @change="updateTime()"
                                 placeholder="00"
-                                class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-pink-500 focus:bg-white focus:ring-1 focus:ring-pink-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-pink-400 dark:focus:ring-pink-400"
+                                class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-brand-light-blue dark:focus:ring-brand-light-blue"
                             />
                             <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
                                 <button
                                     type="button"
                                     class="px-2 py-1 transition-colors"
                                     :class="ampm === 'AM'
-                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
                                         : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
                                     @click.prevent.stop="ampm = 'AM'; updateTime()"
                                 >
@@ -608,7 +608,7 @@
                                     type="button"
                                     class="px-2 py-1 transition-colors"
                                     :class="ampm === 'PM'
-                                        ? 'bg-pink-500 text-white dark:bg-pink-500'
+                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
                                         : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
                                     @click.prevent.stop="ampm = 'PM'; updateTime()"
                                 >

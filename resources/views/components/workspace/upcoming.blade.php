@@ -120,9 +120,9 @@
                                     };
 
                                     $accentClass = match ($kind) {
-                                        'task' => 'border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-300',
-                                        'event' => 'border-sky-500/30 bg-sky-500/5 text-sky-600 dark:text-sky-300',
-                                        'project' => 'border-violet-500/30 bg-violet-500/5 text-violet-600 dark:text-violet-300',
+                                        'task' => 'border-[var(--color-brand-blue)]/30 bg-[var(--color-brand-light-blue)] text-[var(--color-brand-navy-blue)]',
+                                        'event' => 'border-[var(--color-brand-navy-blue)]/25 bg-[var(--color-brand-light-lavender)] text-[var(--color-brand-navy-blue)]',
+                                        'project' => 'border-[var(--color-brand-blue)]/25 bg-[var(--color-brand-light-lavender)] text-[var(--color-brand-blue)]',
                                         default => 'border-border/60 bg-muted text-muted-foreground',
                                     };
 
@@ -140,10 +140,7 @@
                                 @endphp
 
                                 <li
-                                    wire:click="$set('searchQuery', @js($searchLabel))"
-                                    class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 cursor-pointer hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                    role="button"
-                                    tabindex="0"
+                                    class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5"
                                 >
                                     <div class="mt-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {{ $accentClass }}">
                                         <div class="flex items-center gap-1">

@@ -136,17 +136,22 @@
             class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900"
         >
             <flux:sidebar.header class="pb-1">
-                <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
+                <x-app-logo
+                    :sidebar="true"
+                    href="{{ route('dashboard') }}"
+                    wire:navigate
+                    class="in-data-flux-sidebar-collapsed-desktop:hidden"
+                />
                 <flux:sidebar.collapse />
             </flux:sidebar.header>
 
             <flux:sidebar.nav class="pt-0">
                 <flux:sidebar.group class="grid">
                     <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard') || request()->is('/')" wire:navigate>
-                        {{ __('Dashboard') }}
+                        <span class="font-bold">{{ __('Dashboard') }}</span>
                     </flux:sidebar.item>
                     <flux:sidebar.item icon="computer-desktop" :href="route('workspace')" :current="request()->routeIs('workspace')" wire:navigate>
-                        {{ __('Workspace') }}
+                        <span class="font-bold">{{ __('Workspace') }}</span>
                     </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
