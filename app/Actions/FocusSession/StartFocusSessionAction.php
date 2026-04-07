@@ -42,9 +42,10 @@ class StartFocusSessionAction
             $this->abandonFocusSessionAction->execute($active);
         }
 
+        $appTimezone = config('app.timezone');
         $startedAt = $startedAt instanceof CarbonInterface
-            ? $startedAt
-            : Carbon::parse($startedAt);
+            ? $startedAt->copy()->setTimezone($appTimezone)
+            : Carbon::parse($startedAt)->setTimezone($appTimezone);
 
         $occurrenceDateForPayload = null;
 

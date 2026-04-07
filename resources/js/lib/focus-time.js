@@ -42,6 +42,38 @@ export function getFocusRemainingSeconds(session, nowMs, options = {}) {
 }
 
 /**
+ * Compute remaining seconds for the latest unfinished session snapshot.
+ * Supports active, paused, and abandoned (ended but not completed) sessions.
+ * @param {{ started_at: string, duration_seconds: number, paused_at?: string|null, paused_seconds?: number, ended_at?: string|null }} session
+ * @param {number} [nowMs]
+ * @returns {number}
+ */
+export function getUnfinishedSessionRemainingSeconds(session, nowMs = Date.now()) {
+    if (!session?.started_at || session?.duration_seconds == null) return 0;
+    const startedMs = parseFocusStartedAt(session.started_at);
+    if (!Number.isFinite(startedMs)) return 0;
+    const durationSec = Number(session.duration_seconds);
+    const pausedSec = Math.max(0, Math.floor(Number(session.paused_seconds ?? 0)));
+
+    if (session.ended_at) {
+        const endedMs = parseFocusStartedAt(session.ended_at);
+        if (!Number.isFinite(endedMs)) return 0;
+        const elapsedSec = Math.max(0, (endedMs - startedMs) / 1000);
+        return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+    }
+
+    if (session.paused_at) {
+        const pausedAtMs = parseFocusStartedAt(session.paused_at);
+        if (!Number.isFinite(pausedAtMs)) return 0;
+        const elapsedSec = Math.max(0, (pausedAtMs - startedMs) / 1000);
+        return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+    }
+
+    const elapsedSec = Math.max(0, (nowMs - startedMs) / 1000);
+    return Math.max(0, Math.floor(durationSec - elapsedSec + pausedSec));
+}
+
+/**
  * Format seconds as countdown string (e.g. "05:00" or "1:00:00").
  * @param {number} seconds
  * @returns {string}

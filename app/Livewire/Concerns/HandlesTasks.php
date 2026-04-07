@@ -425,6 +425,7 @@ trait HandlesTasks
                 'event',
                 'user',
                 'recurringTask',
+                'latestUnfinishedFocusSession',
                 'tags',
                 'collaborations',
                 'collaborators',

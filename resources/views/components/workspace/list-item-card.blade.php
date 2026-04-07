@@ -162,22 +162,6 @@
         @include('components.workspace.list-item-card.header', ['layout' => $layout])
 
         <div class="flex flex-wrap items-center text-xs {{ $isKanbanLayout ? 'gap-1 pt-0.5' : 'gap-2 pt-0.5' }}">
-            @if($kind === 'task' && $canEdit)
-                <div class="shrink-0 {{ $hasActiveFocusOnThisTask ? 'hidden' : '' }}">
-                    <flux:tooltip :content="__('Start focus mode')">
-                        <button
-                            type="button"
-                            x-ref="focusTrigger"
-                            @click.stop="setTimeout(() => enterFocusReady(), 120)"
-                            class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:bg-primary/15 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                            <flux:icon name="bolt" class="size-3 shrink-0" />
-                            <span>{{ __('Focus') }}</span>
-                        </button>
-                    </flux:tooltip>
-                </div>
-            @endif
-
             @if($kind === 'project')
                 <x-workspace.list-item-project
                     :item="$item"

@@ -637,9 +637,9 @@ export function createFocusSessionController() {
             ctx.focusReady = true;
         },
 
-        async startFocusFromReady(ctx) {
+        async startFocusFromReady(ctx, options = {}) {
             try {
-                await ctx.startFocusMode();
+                await ctx.startFocusMode(options);
             } finally {
                 ctx.focusReady = false;
             }
@@ -766,7 +766,7 @@ export function createFocusSessionController() {
             window.dispatchEvent(new CustomEvent('focus-session-updated', { detail: { session: session ?? null }, bubbles: true, composed: true }));
         },
 
-        async startFocusMode(ctx) {
+        async startFocusMode(ctx, options = {}) {
             if (ctx.kind !== 'task' || !ctx.canEdit || ctx.isFocused) return;
             const previousTaskStatus = ctx.taskStatus;
             const types = ctx.focusModeTypes ?? [];
@@ -781,10 +781,18 @@ export function createFocusSessionController() {
             const isPomodoro = ctx.focusModeType === 'pomodoro';
             if (isPomodoro) ctx.pomodoroWorkCount = 1;
             const baseSequence = Number.isFinite(Number(ctx.pomodoroSequence)) && Number(ctx.pomodoroSequence) > 0 ? Number(ctx.pomodoroSequence) : 1;
+            const shouldResumePrevious = !!options.resumePrevious
+                && ctx.canResumePreviousSession
+                && ctx.previousUnfinishedSession;
+            const previousRemainingSeconds = shouldResumePrevious
+                ? Math.max(0, Math.floor(Number(ctx.previousUnfinishedSessionRemainingSeconds ?? 0)))
+                : 0;
             const minutes = isPomodoro
                 ? Math.max(1, Math.min(120, Math.floor(Number(ctx.pomodoroWorkMinutes ?? 25))))
                 : (ctx.taskDurationMinutes != null && ctx.taskDurationMinutes > 0 ? Number(ctx.taskDurationMinutes) : ctx.defaultWorkDurationMinutes);
-            const durationSeconds = Math.max(60, minutes * 60);
+            const durationSeconds = shouldResumePrevious
+                ? Math.max(60, previousRemainingSeconds)
+                : Math.max(60, minutes * 60);
             const startedAt = new Date().toISOString();
             const sequenceNumber = isPomodoro ? baseSequence : 1;
             const payload = {
@@ -795,6 +803,7 @@ export function createFocusSessionController() {
                 payload: {
                     used_task_duration: !isPomodoro && !!(ctx.taskDurationMinutes != null && ctx.taskDurationMinutes > 0),
                     focus_mode_type: ctx.focusModeType ?? 'countdown',
+                    resumed_from_focus_session_id: shouldResumePrevious ? ctx.previousUnfinishedSession.id : null,
                 },
             };
             if (ctx.isRecurringTask && ctx.listFilterDate) payload.occurrence_date = String(ctx.listFilterDate).slice(0, 10);
@@ -851,6 +860,9 @@ export function createFocusSessionController() {
                     payload: ctx.activeFocusSession?.payload ?? result.payload ?? {},
                 };
                 ctx.activeFocusSession = merged;
+                if (shouldResumePrevious) {
+                    ctx.previousUnfinishedSession = null;
+                }
                 if (ctx.isPomodoroSession && result.sequence_number) {
                     ctx.pomodoroSequence = result.sequence_number;
                     ctx.lastPomodoroTaskId = ctx.itemId;
@@ -881,6 +893,9 @@ export function createFocusSessionController() {
             if (!ctx.activeFocusSession || !ctx.activeFocusSession.id) return;
             const sessionSnapshot = { ...ctx.activeFocusSession };
             const focusReadySnapshot = ctx.focusReady;
+            const previousUnfinishedSessionSnapshot = ctx.previousUnfinishedSession
+                ? { ...ctx.previousUnfinishedSession }
+                : null;
             const isBreak = ctx.isBreakFocused;
             const wasPomodoro = ctx.isPomodoroSession;
             if (isTempSessionId(sessionSnapshot.id)) {
@@ -898,12 +913,21 @@ export function createFocusSessionController() {
                 return;
             }
             const pausedSeconds = ctx.getFocusPausedSecondsTotal();
+            const unfinishedSnapshot = {
+                ...sessionSnapshot,
+                paused_seconds: pausedSeconds,
+                completed: false,
+                ended_at: new Date().toISOString(),
+            };
             try {
                 ctx.activeFocusSession = null;
                 ctx.isBreakSession = false;
                 ctx.nextSessionInfo = null;
                 ctx.dispatchFocusSessionUpdated(null);
                 ctx.focusReady = true;
+                if (!isBreak) {
+                    ctx.previousUnfinishedSession = unfinishedSnapshot;
+                }
                 await ctx.$wire.$parent.$call('abandonFocusSession', sessionSnapshot.id, { paused_seconds: pausedSeconds });
                 if (wasPomodoro) {
                     ctx.pomodoroSequence = 1;
@@ -915,6 +939,7 @@ export function createFocusSessionController() {
                 ctx.isBreakSession = isBreak;
                 ctx.dispatchFocusSessionUpdated(sessionSnapshot);
                 ctx.focusReady = focusReadySnapshot;
+                ctx.previousUnfinishedSession = previousUnfinishedSessionSnapshot;
                 ctx.$wire.$dispatch('toast', { type: 'error', message: error.message || ctx.focusStopErrorToast });
             }
         },
@@ -963,6 +988,9 @@ export function createFocusSessionController() {
             } else {
                 if (isBreak) return;
                 ctx.activeFocusSession = incoming;
+            }
+            if (!isBreak) {
+                ctx.previousUnfinishedSession = null;
             }
             ctx.isBreakSession = isBreak;
             if (ctx.isPomodoroSession && incoming.sequence_number) ctx.pomodoroSequence = incoming.sequence_number;

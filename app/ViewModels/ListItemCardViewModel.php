@@ -6,6 +6,7 @@ use App\Enums\EventStatus;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
+use App\Models\FocusSession;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -294,6 +295,16 @@ class ListItemCardViewModel
         $data = $this->viewData();
         $item = $this->item;
         $kind = $this->kind;
+        $previousUnfinishedSession = null;
+
+        if ($kind === 'task' && method_exists($item, 'latestUnfinishedFocusSession')) {
+            $session = $item->relationLoaded('latestUnfinishedFocusSession')
+                ? $item->getRelation('latestUnfinishedFocusSession')
+                : $item->latestUnfinishedFocusSession;
+            if ($session instanceof FocusSession) {
+                $previousUnfinishedSession = $this->mapFocusSessionForFrontend($session);
+            }
+        }
 
         $titleProperty = match ($kind) {
             'project' => 'name',
@@ -365,6 +376,7 @@ class ListItemCardViewModel
             'addDescriptionLabel' => __('Add description'),
             'isOverdue' => $this->isOverdue,
             'activeFocusSession' => $this->activeFocusSession,
+            'previousUnfinishedSession' => $previousUnfinishedSession,
             'pendingStartPromise' => null,
             'focusStopRequestedBeforeStartResolved' => false,
             'defaultWorkDurationMinutes' => $this->defaultWorkDurationMinutes,
@@ -416,6 +428,30 @@ class ListItemCardViewModel
             'pomodoroSoundLabel' => __('Sound on complete'),
             'pomodoroVolumeLabel' => __('Volume'),
             'pomodoroSettingsSaveErrorToast' => __('Could not save Pomodoro settings. Please try again.'),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mapFocusSessionForFrontend(FocusSession $session): array
+    {
+        $focusModeType = $session->focus_mode_type?->value
+            ?? ($session->payload['focus_mode_type'] ?? 'sprint');
+
+        return [
+            'id' => $session->id,
+            'started_at' => $session->started_at?->utc()->format('Y-m-d\TH:i:s.v\Z'),
+            'ended_at' => $session->ended_at?->utc()->format('Y-m-d\TH:i:s.v\Z'),
+            'paused_at' => $session->paused_at?->utc()->format('Y-m-d\TH:i:s.v\Z'),
+            'duration_seconds' => (int) $session->duration_seconds,
+            'paused_seconds' => (int) ($session->paused_seconds ?? 0),
+            'type' => $session->type->value,
+            'focus_mode_type' => $focusModeType,
+            'sequence_number' => (int) ($session->sequence_number ?? 1),
+            'task_id' => $session->focusable_id,
+            'payload' => $session->payload ?? [],
+            'completed' => (bool) $session->completed,
         ];
     }
 }

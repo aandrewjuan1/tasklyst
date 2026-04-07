@@ -89,7 +89,7 @@
                 {{-- Ready: duration + Start/Cancel --}}
                 <div class="flex items-center gap-3" x-show="!isFocused && !isBreakFocused">
                     <span class="min-w-18 text-right text-base font-semibold tabular-nums text-primary" x-text="focusModeType === 'pomodoro' ? formattedPomodoroWorkDuration : formattedFocusReadyDuration"></span>
-                    <div class="flex shrink-0 items-center gap-1.5">
+                    <div class="flex shrink-0 items-center gap-1.5" x-show="!showFocusStartChoice">
                         <flux:button
                             variant="primary"
                             size="sm"
@@ -108,6 +108,26 @@
                             @click="closeFocusModal()"
                         >
                             {{ __('Cancel') }}
+                        </flux:button>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1.5" x-show="showFocusStartChoice" x-cloak>
+                        <flux:button
+                            variant="primary"
+                            size="sm"
+                            icon="play"
+                            class="shrink-0"
+                            @click="chooseFocusStart('resume')"
+                        >
+                            {{ __('Resume') }}
+                        </flux:button>
+                        <flux:button
+                            variant="ghost"
+                            size="sm"
+                            icon="arrow-path"
+                            class="shrink-0"
+                            @click="chooseFocusStart('restart')"
+                        >
+                            {{ __('Restart') }}
                         </flux:button>
                     </div>
                 </div>
@@ -170,6 +190,27 @@
                     <span class="text-sm font-medium text-primary">{{ __('Starting next session...') }}</span>
                     <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
                 </div>
+            </div>
+        </div>
+
+        {{-- Row: Previous progress (ready state only, separate row for readability) --}}
+        <div
+            x-show="!isFocused && !isBreakFocused && hasPreviousUnfinishedProgress"
+            x-cloak
+            class="w-full"
+        >
+            <div class="space-y-1.5">
+                <div class="flex items-center justify-between gap-2">
+                    <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Previous progress') }}</span>
+                    <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="Math.round(previousUnfinishedProgressPercent) + '%'"></span>
+                </div>
+                <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(previousUnfinishedProgressPercent)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Previous focus progress') }}">
+                    <div
+                        class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width,background-color] duration-300 ease-linear"
+                        :style="'width: ' + Math.round(previousUnfinishedProgressPercent) + '%; min-width: ' + (Math.round(previousUnfinishedProgressPercent) > 0 ? '2px' : '0')"
+                    ></div>
+                </div>
+                <span class="text-xs text-zinc-500" x-text="previousUnfinishedSessionRemainingText + ' {{ __('left') }}'"></span>
             </div>
         </div>
 

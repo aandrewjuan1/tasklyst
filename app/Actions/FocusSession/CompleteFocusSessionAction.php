@@ -33,9 +33,10 @@ class CompleteFocusSessionAction
         int $pausedSeconds = 0,
         ?string $markTaskStatus = null
     ): FocusSession {
+        $appTimezone = config('app.timezone');
         $endedAt = $endedAt instanceof CarbonInterface
-            ? $endedAt
-            : Carbon::parse($endedAt);
+            ? $endedAt->copy()->setTimezone($appTimezone)
+            : Carbon::parse($endedAt)->setTimezone($appTimezone);
 
         $session->flushPausedAt();
 

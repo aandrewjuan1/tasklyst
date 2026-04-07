@@ -474,6 +474,14 @@ class Task extends Model
         return $this->morphMany(FocusSession::class, 'focusable')->orderByDesc('started_at');
     }
 
+    public function latestUnfinishedFocusSession(): HasOne
+    {
+        return $this->hasOne(FocusSession::class, 'focusable_id')
+            ->where('focusable_type', $this->getMorphClass())
+            ->where('completed', false)
+            ->latestOfMany('started_at');
+    }
+
     public function collaborators(): MorphToMany
     {
         return $this->morphToMany(User::class, 'collaboratable', 'collaborations')

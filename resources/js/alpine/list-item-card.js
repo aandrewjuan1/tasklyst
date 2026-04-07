@@ -11,6 +11,7 @@ import {
     formatFocusCountdown as formatFocusCountdownLib,
     formatDurationMinutes,
     getFocusRemainingSeconds,
+    getUnfinishedSessionRemainingSeconds,
 } from '../lib/focus-time.js';
 import {
     isItemStillRelevantForList,
@@ -40,6 +41,7 @@ export function listItemCard(config) {
         _onPomodoroStartNextWork: null, // Holder for global pomodoro event handler
         _audioContext: null, // Shared audio context for completion sounds
         _audioGainNode: null, // Shared gain node for completion sounds
+        showFocusStartChoice: false,
         init() {
             this._focus = createFocusSessionController();
             this._focus.init(this);
@@ -215,6 +217,7 @@ export function listItemCard(config) {
         /** Close the focus modal and return focus to the trigger without scrolling. */
         closeFocusModal() {
             this.focusReady = false;
+            this.showFocusStartChoice = false;
             this.restoreFocusAfterModalClose();
         },
         /** Return focus to the in-list Focus trigger without scrolling (used on any modal close). */
@@ -281,6 +284,37 @@ export function listItemCard(config) {
                 hrsLabel: this.focusDurationLabelHrs ?? 'hours',
             });
         },
+        get previousUnfinishedSessionDurationSeconds() {
+            return Number(this.previousUnfinishedSession?.duration_seconds ?? 0);
+        },
+        get previousUnfinishedSessionRemainingSeconds() {
+            if (!this.previousUnfinishedSession) return 0;
+            return getUnfinishedSessionRemainingSeconds(this.previousUnfinishedSession, Date.now());
+        },
+        get previousUnfinishedProgressPercent() {
+            const duration = this.previousUnfinishedSessionDurationSeconds;
+            if (duration <= 0) return 0;
+            const remaining = this.previousUnfinishedSessionRemainingSeconds;
+            return Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100));
+        },
+        get previousUnfinishedSessionRemainingText() {
+            if (!this.hasPreviousUnfinishedProgress) return '';
+            return formatFocusCountdownLib(this.previousUnfinishedSessionRemainingSeconds);
+        },
+        get previousUnfinishedSessionDurationText() {
+            if (!this.hasPreviousUnfinishedProgress) return '';
+            return formatFocusCountdownLib(this.previousUnfinishedSessionDurationSeconds);
+        },
+        get hasPreviousUnfinishedProgress() {
+            if (this.kind !== 'task' || this.isFocused || this.isBreakFocused) return false;
+            if (!this.previousUnfinishedSession || this.previousUnfinishedSession.completed === true) return false;
+            return this.previousUnfinishedSessionRemainingSeconds > 0;
+        },
+        get canResumePreviousSession() {
+            return this.hasPreviousUnfinishedProgress
+                && this.previousUnfinishedSession?.type === 'work'
+                && Number(this.previousUnfinishedSession?.task_id) === Number(this.itemId);
+        },
         get pomodoroSummaryText() {
             const work = Math.max(0, Math.floor(Number(this.pomodoroWorkMinutes ?? 25)));
             const short = Math.max(0, Math.floor(Number(this.pomodoroShortBreakMinutes ?? 5)));
@@ -320,10 +354,22 @@ export function listItemCard(config) {
             return this._focus.savePomodoroSettings(this);
         },
         enterFocusReady() {
+            this.showFocusStartChoice = false;
             this._focus.enterFocusReady(this);
         },
         async startFocusFromReady() {
-            await this._focus.startFocusFromReady(this);
+            if (this.canResumePreviousSession) {
+                this.showFocusStartChoice = true;
+                return;
+            }
+            this.showFocusStartChoice = false;
+            await this._focus.startFocusFromReady(this, { resumePrevious: false });
+            this.$nextTick(() => this.focusFirstInModal());
+        },
+        async chooseFocusStart(action) {
+            this.showFocusStartChoice = false;
+            const resumePrevious = action === 'resume';
+            await this._focus.startFocusFromReady(this, { resumePrevious });
             this.$nextTick(() => this.focusFirstInModal());
         },
         parseFocusStartedAt(isoString) {
@@ -400,8 +446,8 @@ export function listItemCard(config) {
         dispatchFocusSessionUpdated(session) {
             this._focus.dispatchFocusSessionUpdated(this, session);
         },
-        async startFocusMode() {
-            return this._focus.startFocusMode(this);
+        async startFocusMode(options = {}) {
+            return this._focus.startFocusMode(this, options);
         },
         async stopFocus() {
             return this._focus.stopFocus(this);

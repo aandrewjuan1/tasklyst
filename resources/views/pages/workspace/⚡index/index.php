@@ -358,8 +358,8 @@ class extends Component
     }
 
     /**
-     * Mount: fetch any in-progress focus session via getActiveFocusSession() and abandon it
-     * so focus does not persist across reload, tab close, or navigation.
+     * Mount: restore any in-progress focus session so per-task focus progress
+     * remains consistent across reloads and navigation.
      */
     public function mount(): void
     {
@@ -376,14 +376,7 @@ class extends Component
             $this->viewMode = 'list';
         }
         $this->syncFilterTagIdFromTagIds();
-        $session = $this->getActiveFocusSession();
-        if ($session !== null) {
-            $this->abandonFocusSession(
-                (int) $session['id'],
-                ['paused_seconds' => (int) ($session['paused_seconds'] ?? 0)]
-            );
-        }
-        $this->activeFocusSession = null;
+        $this->activeFocusSession = $this->getActiveFocusSession();
     }
 
     /**
@@ -571,6 +564,7 @@ class extends Component
                 ->with([
                     'project',
                     'tags',
+                    'latestUnfinishedFocusSession',
                     'collaborations',
                     'collaborators',
                     'collaborationInvitations.invitee',

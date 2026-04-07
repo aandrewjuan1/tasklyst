@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Event;
+use App\Models\FocusSession;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
@@ -177,4 +178,40 @@ it('shows project and event pills when parents exist and are not trashed', funct
     expect($config['showEventPill'])->toBeTrue();
     expect($config['itemProjectName'])->toBe('My Project');
     expect($config['itemEventTitle'])->toBe('My Event');
+});
+
+it('includes previous unfinished focus session payload for task cards', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create(['title' => 'Task with unfinished focus']);
+    $session = FocusSession::factory()
+        ->for($this->user)
+        ->for($task, 'focusable')
+        ->work()
+        ->create([
+            'completed' => false,
+            'duration_seconds' => 1500,
+            'paused_seconds' => 180,
+            'started_at' => now()->subMinutes(15),
+            'ended_at' => now()->subMinutes(2),
+        ]);
+    $task->load('latestUnfinishedFocusSession');
+
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    $config = $vm->alpineConfig();
+
+    expect($config['previousUnfinishedSession'])->toBeArray()
+        ->and($config['previousUnfinishedSession']['id'])->toBe($session->id)
+        ->and($config['previousUnfinishedSession']['task_id'])->toBe($task->id)
+        ->and($config['previousUnfinishedSession']['completed'])->toBeFalse()
+        ->and($config['previousUnfinishedSession']['duration_seconds'])->toBe(1500);
 });

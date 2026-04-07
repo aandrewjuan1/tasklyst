@@ -18,7 +18,7 @@ test('workspace index getActiveFocusSession returns null when user has no in-pro
     expect($result)->toBeNull();
 });
 
-test('workspace index getActiveFocusSession returns null after mount because mount ends any in-progress session', function (): void {
+test('workspace index getActiveFocusSession returns active session after mount when one exists', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();
     FocusSession::factory()->for($this->user)->inProgress()->create([
@@ -29,7 +29,9 @@ test('workspace index getActiveFocusSession returns null after mount because mou
     $component = Livewire::test('pages::workspace.index')->instance();
     $result = $component->getActiveFocusSession();
 
-    expect($result)->toBeNull();
+    expect($result)->not->toBeNull()
+        ->and($result['task_id'] ?? null)->toBe($task->id)
+        ->and($result['type'] ?? null)->toBe('work');
 });
 
 test('workspace index startFocusSession creates session and dispatches no error toast', function (): void {
@@ -78,6 +80,30 @@ test('workspace index startFocusSession persists focus_mode_type column and payl
     expect($session)->not->toBeNull()
         ->and($session->focus_mode_type->value)->toBe('pomodoro')
         ->and(($session->payload['focus_mode_type'] ?? null))->toBe('pomodoro');
+});
+
+test('workspace index startFocusSession persists resumed_from_focus_session_id in payload when provided', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 900,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'focus_mode_type' => 'countdown',
+            'resumed_from_focus_session_id' => 12345,
+        ],
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertNotDispatched('toast', type: 'error');
+
+    $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull()
+        ->and(($session->payload['resumed_from_focus_session_id'] ?? null))->toBe(12345);
 });
 
 test('workspace index abandonFocusSession ends session and dispatches toast', function (): void {
@@ -220,7 +246,7 @@ test('workspace index pauseFocusSession returns false when session is already en
     expect($session->paused_at)->toBeNull();
 });
 
-test('workspace index mount ends any active focus session on load so focus does not persist across reload', function (): void {
+test('workspace index mount keeps active focus session on load so it persists across reload', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();
     $session = FocusSession::factory()->for($this->user)->inProgress()->create([
@@ -230,11 +256,37 @@ test('workspace index mount ends any active focus session on load so focus does 
     ]);
 
     Livewire::test('pages::workspace.index')
-        ->assertSet('activeFocusSession', null);
+        ->assertSet('activeFocusSession.id', $session->id)
+        ->assertSet('activeFocusSession.task_id', $task->id);
 
     $session->refresh();
-    expect($session->ended_at)->not->toBeNull()
+    expect($session->ended_at)->toBeNull()
         ->and($session->completed)->toBeFalse();
+});
+
+test('workspace index abandonFocusSession keeps started and ended timestamps in same timezone basis', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+    $utcStartedAt = now('UTC')->subSeconds(5)->toIso8601String();
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 900,
+        'started_at' => $utcStartedAt,
+        'sequence_number' => 1,
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload);
+
+    $session = FocusSession::query()->forUser($this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull();
+
+    Livewire::test('pages::workspace.index')
+        ->call('abandonFocusSession', $session->id);
+
+    $session->refresh();
+    expect($session->ended_at)->not->toBeNull();
+    expect($session->started_at->diffInSeconds($session->ended_at))->toBeLessThan(120);
 });
 
 test('workspace index startBreakSession with task_id stores focusable_type and focusable_id for short break', function (): void {

@@ -92,6 +92,10 @@ trait HandlesFocusSessions
         if (is_string($focusModeType) && $focusModeType !== '') {
             $sessionPayload['focus_mode_type'] = $focusModeType;
         }
+        $resumedFromSessionId = $validated['payload']['resumed_from_focus_session_id'] ?? null;
+        if (is_numeric($resumedFromSessionId) && (int) $resumedFromSessionId > 0) {
+            $sessionPayload['resumed_from_focus_session_id'] = (int) $resumedFromSessionId;
+        }
 
         $session = $this->startFocusSessionAction->execute(
             $user,

@@ -108,6 +108,29 @@
         ->implode(' · ');
     $courseContextPillCompactLine = \App\Support\CourseContextPillFormatter::compactLine($subjectDisplay, $teacherDisplay)
         ?? '';
+
+    $initialPreviousUnfinishedSession = $item->latestUnfinishedFocusSession;
+    $hasInitialPreviousUnfinishedProgress = false;
+    $initialPreviousUnfinishedProgressPercent = 0;
+    if ($initialPreviousUnfinishedSession && ! $initialPreviousUnfinishedSession->completed) {
+        $durationSeconds = (int) ($initialPreviousUnfinishedSession->duration_seconds ?? 0);
+        $startedAt = $initialPreviousUnfinishedSession->started_at;
+        if ($durationSeconds > 0 && $startedAt) {
+            $pausedSeconds = max(0, (int) ($initialPreviousUnfinishedSession->paused_seconds ?? 0));
+            if ($initialPreviousUnfinishedSession->ended_at) {
+                $elapsedSeconds = max(0, $initialPreviousUnfinishedSession->ended_at->diffInSeconds($startedAt));
+            } elseif ($initialPreviousUnfinishedSession->paused_at) {
+                $elapsedSeconds = max(0, $initialPreviousUnfinishedSession->paused_at->diffInSeconds($startedAt));
+            } else {
+                $elapsedSeconds = max(0, now()->diffInSeconds($startedAt));
+            }
+            $remainingSeconds = max(0, $durationSeconds - $elapsedSeconds + $pausedSeconds);
+            $hasInitialPreviousUnfinishedProgress = $remainingSeconds > 0;
+            if ($hasInitialPreviousUnfinishedProgress) {
+                $initialPreviousUnfinishedProgressPercent = (int) round(min(100, max(0, (($durationSeconds - $remainingSeconds) / $durationSeconds) * 100)));
+            }
+        }
+    }
 @endphp
 
 <div
@@ -833,6 +856,45 @@
     @php
         $hideTagsSection = $isCollaboratedView && $item->tags->isEmpty();
     @endphp
+
+    @if($canEdit)
+        <div class="w-full basis-full mt-1 flex flex-col gap-2">
+            <div class="flex items-center">
+                <flux:tooltip :content="__('Start focus mode')">
+                    <button
+                        type="button"
+                        x-ref="focusTrigger"
+                        x-show="!isFocused && !isBreakFocused"
+                        @click.stop="setTimeout(() => enterFocusReady(), 120)"
+                        class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <flux:icon name="bolt" class="size-3 shrink-0" />
+                        <span>{{ __('Focus') }}</span>
+                    </button>
+                </flux:tooltip>
+            </div>
+            <div
+                x-show="hasPreviousUnfinishedProgress && !isFocusModalOpen"
+                @if(! $hasInitialPreviousUnfinishedProgress) style="display: none;" @endif
+                class="w-full"
+            >
+                <div class="space-y-1.5">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Previous focus') }}</span>
+                        <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="Math.round(previousUnfinishedProgressPercent) + '%'"></span>
+                    </div>
+                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(previousUnfinishedProgressPercent)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Previous focus progress') }}">
+                        <div
+                            class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width,background-color] duration-300 ease-linear"
+                            style="width: {{ $initialPreviousUnfinishedProgressPercent }}%; min-width: {{ $initialPreviousUnfinishedProgressPercent > 0 ? '2px' : '0' }}"
+                            :style="'width: ' + Math.round(previousUnfinishedProgressPercent) + '%; min-width: ' + (Math.round(previousUnfinishedProgressPercent) > 0 ? '2px' : '0')"
+                        ></div>
+                    </div>
+                    <span class="text-xs text-zinc-500" x-text="previousUnfinishedSessionRemainingText + ' {{ __('left') }}'"></span>
+                </div>
+            </div>
+        </div>
+    @endif
 
     @unless($hideTagsSection)
         <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
