@@ -7,6 +7,7 @@ use App\Enums\TaskStatus;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Event;
+use App\Models\FocusSession;
 use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Task;
@@ -287,4 +288,41 @@ test('scope for event returns only tasks in that event', function (): void {
 
     expect($tasks)->toHaveCount(1)
         ->and($tasks->first()->id)->toBe($inA->id);
+});
+
+test('latest unfinished focus session excludes active sessions and prefers paused or ended', function (): void {
+    $task = Task::factory()->for($this->owner)->create();
+
+    FocusSession::factory()->for($this->owner)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'paused_at' => null,
+        'ended_at' => null,
+        'started_at' => now()->subMinutes(5),
+    ]);
+
+    $paused = FocusSession::factory()->for($this->owner)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'paused_at' => now()->subMinutes(1),
+        'ended_at' => null,
+        'started_at' => now()->subMinutes(3),
+    ]);
+
+    $latestEnded = FocusSession::factory()->for($this->owner)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'paused_at' => null,
+        'ended_at' => now()->subSeconds(30),
+        'started_at' => now()->subMinutes(2),
+    ]);
+
+    $task->load('latestUnfinishedFocusSession');
+
+    expect($task->latestUnfinishedFocusSession)->not->toBeNull()
+        ->and($task->latestUnfinishedFocusSession->id)->toBe($latestEnded->id)
+        ->and($task->latestUnfinishedFocusSession->id)->not->toBe($paused->id);
 });

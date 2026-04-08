@@ -700,6 +700,7 @@ export function createFocusSessionController() {
                     if (ok === false) {
                         ctx.focusIsPaused = snapshot.focusIsPaused;
                         ctx.focusPauseStartedAt = snapshot.focusPauseStartedAt;
+                        ctx.focusPausedSecondsAccumulated = snapshot.focusPausedSecondsAccumulated;
                         ctx.activeFocusSession = snapshot.activeFocusSession;
                         ctx.dispatchFocusSessionUpdated(snapshot.activeFocusSession);
                         ctx.$wire.$dispatch('toast', { type: 'error', message: ctx.focusSessionNoLongerActiveToast });

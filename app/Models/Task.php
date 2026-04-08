@@ -479,6 +479,10 @@ class Task extends Model
         return $this->hasOne(FocusSession::class, 'focusable_id')
             ->where('focusable_type', $this->getMorphClass())
             ->where('completed', false)
+            ->where(function (Builder $query): void {
+                $query->whereNotNull('paused_at')
+                    ->orWhereNotNull('ended_at');
+            })
             ->latestOfMany('started_at');
     }
 

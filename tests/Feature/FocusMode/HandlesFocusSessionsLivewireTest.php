@@ -86,6 +86,13 @@ test('workspace index startFocusSession persists resumed_from_focus_session_id i
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();
 
+    $previous = FocusSession::factory()->for($this->user)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => now(),
+    ]);
+
     $payload = [
         'type' => 'work',
         'duration_seconds' => 900,
@@ -93,7 +100,7 @@ test('workspace index startFocusSession persists resumed_from_focus_session_id i
         'sequence_number' => 1,
         'payload' => [
             'focus_mode_type' => 'countdown',
-            'resumed_from_focus_session_id' => 12345,
+            'resumed_from_focus_session_id' => $previous->id,
         ],
     ];
 
@@ -103,7 +110,96 @@ test('workspace index startFocusSession persists resumed_from_focus_session_id i
 
     $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
     expect($session)->not->toBeNull()
-        ->and(($session->payload['resumed_from_focus_session_id'] ?? null))->toBe(12345);
+        ->and(($session->payload['resumed_from_focus_session_id'] ?? null))->toBe($previous->id);
+});
+
+test('workspace index startFocusSession rejects resumed_from_focus_session_id from another task', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+    $otherTask = Task::factory()->for($this->user)->create();
+
+    $previous = FocusSession::factory()->for($this->user)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $otherTask->id,
+        'completed' => false,
+        'ended_at' => now(),
+    ]);
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 900,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'focus_mode_type' => 'countdown',
+            'resumed_from_focus_session_id' => $previous->id,
+        ],
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertDispatched('toast', type: 'error', message: __('Invalid resume session.'));
+
+    expect(FocusSession::query()->forUser($this->user->id)->inProgress()->count())->toBe(0);
+});
+
+test('workspace index startFocusSession rejects resumed_from_focus_session_id when session is completed', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+
+    $previous = FocusSession::factory()->for($this->user)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => true,
+        'ended_at' => now(),
+    ]);
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 900,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'focus_mode_type' => 'countdown',
+            'resumed_from_focus_session_id' => $previous->id,
+        ],
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertDispatched('toast', type: 'error', message: __('Invalid resume session.'));
+
+    expect(FocusSession::query()->forUser($this->user->id)->inProgress()->count())->toBe(0);
+});
+
+test('workspace index startFocusSession rejects resumed_from_focus_session_id when previous session is active', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+
+    $previous = FocusSession::factory()->for($this->user)->inProgress()->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => null,
+        'paused_at' => null,
+    ]);
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 900,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'focus_mode_type' => 'countdown',
+            'resumed_from_focus_session_id' => $previous->id,
+        ],
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertDispatched('toast', type: 'error', message: __('Invalid resume session.'));
+
+    expect(FocusSession::query()->forUser($this->user->id)->inProgress()->count())->toBe(1);
 });
 
 test('workspace index abandonFocusSession ends session and dispatches toast', function (): void {
@@ -124,7 +220,8 @@ test('workspace index abandonFocusSession ends session and dispatches toast', fu
 
     Livewire::test('pages::workspace.index')
         ->call('abandonFocusSession', $session->id)
-        ->assertDispatched('toast', type: 'info', message: __('Focus session stopped.'));
+        ->assertDispatched('toast', type: 'info', message: __('Focus session stopped.'))
+        ->assertDispatched('focus-session-updated', session: null);
 
     $session->refresh();
     expect($session->ended_at)->not->toBeNull()
@@ -154,7 +251,8 @@ test('workspace index completeFocusSession updates session and dispatches toast'
     ];
 
     $component->call('completeFocusSession', $session->id, $completePayload)
-        ->assertDispatched('toast', type: 'success', message: __('Focus session saved.'));
+        ->assertDispatched('toast', type: 'success', message: __('Focus session saved.'))
+        ->assertDispatched('focus-session-updated', session: null);
 
     $session->refresh();
     expect($session->completed)->toBeTrue()

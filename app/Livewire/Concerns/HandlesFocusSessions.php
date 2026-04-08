@@ -81,6 +81,25 @@ trait HandlesFocusSessions
             return ['error' => __('Invalid session type.')];
         }
 
+        $resumedFromSessionId = $validated['payload']['resumed_from_focus_session_id'] ?? null;
+        if (is_numeric($resumedFromSessionId) && (int) $resumedFromSessionId > 0) {
+            $resumeCandidate = FocusSession::query()
+                ->forUser($user->id)
+                ->find((int) $resumedFromSessionId);
+
+            $isResumable = $resumeCandidate !== null
+                && $resumeCandidate->completed === false
+                && ($resumeCandidate->paused_at !== null || $resumeCandidate->ended_at !== null)
+                && (int) $resumeCandidate->focusable_id === (int) $task->id
+                && (string) $resumeCandidate->focusable_type === (string) $task->getMorphClass();
+
+            if (! $isResumable) {
+                $this->dispatch('toast', type: 'error', message: __('Invalid resume session.'));
+
+                return ['error' => __('Invalid resume session.')];
+            }
+        }
+
         $sessionPayload = [];
         if (! empty($validated['payload']['used_task_duration'])) {
             $sessionPayload['used_task_duration'] = true;
@@ -92,7 +111,6 @@ trait HandlesFocusSessions
         if (is_string($focusModeType) && $focusModeType !== '') {
             $sessionPayload['focus_mode_type'] = $focusModeType;
         }
-        $resumedFromSessionId = $validated['payload']['resumed_from_focus_session_id'] ?? null;
         if (is_numeric($resumedFromSessionId) && (int) $resumedFromSessionId > 0) {
             $sessionPayload['resumed_from_focus_session_id'] = (int) $resumedFromSessionId;
         }
@@ -172,6 +190,7 @@ trait HandlesFocusSessions
 
         if (property_exists($this, 'activeFocusSession')) {
             $this->activeFocusSession = null;
+            $this->dispatch('focus-session-updated', session: null);
         }
 
         return true;
@@ -209,6 +228,7 @@ trait HandlesFocusSessions
 
         if (property_exists($this, 'activeFocusSession')) {
             $this->activeFocusSession = null;
+            $this->dispatch('focus-session-updated', session: null);
         }
 
         return true;

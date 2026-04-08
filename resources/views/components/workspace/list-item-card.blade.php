@@ -27,6 +27,7 @@
     $alpineConfig = array_merge($vm->alpineConfig(), [
         'layout' => $layout ?? 'list',
     ]);
+    $initialHideCard = (bool) ($alpineConfig['hideCard'] ?? false);
     $isKanbanLayout = ($layout ?? 'list') === 'kanban';
     $hasActiveFocusOnThisTask = $kind === 'task'
         && $activeFocusSession
@@ -45,7 +46,8 @@
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"
     x-init="alpineReady = true"
-    x-show="!hideCard"
+    :style="hideCard ? 'display: none;' : ''"
+    @if($initialHideCard) style="display: none;" @endif
     x-cleanup="destroy()"
     x-transition:leave="transition ease-in duration-200"
     x-transition:leave-start="opacity-100 scale-100"

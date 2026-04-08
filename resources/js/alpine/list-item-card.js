@@ -42,9 +42,15 @@ export function listItemCard(config) {
         _audioContext: null, // Shared audio context for completion sounds
         _audioGainNode: null, // Shared gain node for completion sounds
         showFocusStartChoice: false,
+        previousUnfinishedRemainingSecondsValue: 0,
+        previousUnfinishedProgressPercentValue: 0,
+        previousUnfinishedTickerId: null,
         init() {
             this._focus = createFocusSessionController();
             this._focus.init(this);
+            this.startPreviousUnfinishedTicker();
+            this.$watch('previousUnfinishedSession', () => this.syncPreviousUnfinishedSnapshot());
+            this.$watch('activeFocusSession', () => this.syncPreviousUnfinishedSnapshot());
             if (this.itemId != null && window.Alpine?.store) {
                 let store = window.Alpine.store('listItemCards');
                 if (!store || typeof store !== 'object') {
@@ -287,15 +293,40 @@ export function listItemCard(config) {
         get previousUnfinishedSessionDurationSeconds() {
             return Number(this.previousUnfinishedSession?.duration_seconds ?? 0);
         },
+        syncPreviousUnfinishedSnapshot() {
+            if (!this.previousUnfinishedSession || this.previousUnfinishedSession.completed === true || this.isFocused || this.isBreakFocused) {
+                this.previousUnfinishedRemainingSecondsValue = 0;
+                this.previousUnfinishedProgressPercentValue = 0;
+                return;
+            }
+            const remaining = getUnfinishedSessionRemainingSeconds(this.previousUnfinishedSession, Date.now());
+            const duration = this.previousUnfinishedSessionDurationSeconds;
+            this.previousUnfinishedRemainingSecondsValue = Math.max(0, remaining);
+            this.previousUnfinishedProgressPercentValue = duration > 0
+                ? Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100))
+                : 0;
+        },
+        startPreviousUnfinishedTicker() {
+            if (this.kind !== 'task') return;
+            this.syncPreviousUnfinishedSnapshot();
+            if (this.previousUnfinishedTickerId != null) {
+                clearInterval(this.previousUnfinishedTickerId);
+            }
+            this.previousUnfinishedTickerId = setInterval(() => {
+                this.syncPreviousUnfinishedSnapshot();
+            }, 1000);
+        },
+        stopPreviousUnfinishedTicker() {
+            if (this.previousUnfinishedTickerId != null) {
+                clearInterval(this.previousUnfinishedTickerId);
+                this.previousUnfinishedTickerId = null;
+            }
+        },
         get previousUnfinishedSessionRemainingSeconds() {
-            if (!this.previousUnfinishedSession) return 0;
-            return getUnfinishedSessionRemainingSeconds(this.previousUnfinishedSession, Date.now());
+            return Math.max(0, Number(this.previousUnfinishedRemainingSecondsValue ?? 0));
         },
         get previousUnfinishedProgressPercent() {
-            const duration = this.previousUnfinishedSessionDurationSeconds;
-            if (duration <= 0) return 0;
-            const remaining = this.previousUnfinishedSessionRemainingSeconds;
-            return Math.min(100, Math.max(0, ((duration - remaining) / duration) * 100));
+            return Math.min(100, Math.max(0, Number(this.previousUnfinishedProgressPercentValue ?? 0)));
         },
         get previousUnfinishedSessionRemainingText() {
             if (!this.hasPreviousUnfinishedProgress) return '';
@@ -983,6 +1014,7 @@ export function listItemCard(config) {
         },
         /** Unregisters this card from listItemCards store and clears focus ticker/listeners via the focus controller. */
         destroy() {
+            this.stopPreviousUnfinishedTicker();
             if (this._onSubtaskUnbound) {
                 window.removeEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
             }
