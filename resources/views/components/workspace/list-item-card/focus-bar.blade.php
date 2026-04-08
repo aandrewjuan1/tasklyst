@@ -193,24 +193,24 @@
             </div>
         </div>
 
-        {{-- Row: Previous progress (ready state only, separate row for readability) --}}
+        {{-- Row: Task progress (ready state only, separate row for readability) --}}
         <div
-            x-show="!isFocused && !isBreakFocused && hasPreviousUnfinishedProgress"
+            x-show="!isFocused && !isBreakFocused && hasTaskDurationTarget"
             x-cloak
             class="w-full"
         >
             <div class="space-y-1.5">
                 <div class="flex items-center justify-between gap-2">
-                    <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Previous progress') }}</span>
-                    <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="Math.round(previousUnfinishedProgressPercent) + '%'"></span>
+                    <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Task progress') }}</span>
+                    <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="taskFocusProgressPercentText"></span>
                 </div>
-                <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(previousUnfinishedProgressPercent)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Previous focus progress') }}">
+                <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(taskFocusProgressPercentTotal)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Task progress') }}">
                     <div
                         class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width,background-color] duration-300 ease-linear"
-                        :style="'width: ' + Math.round(previousUnfinishedProgressPercent) + '%; min-width: ' + (Math.round(previousUnfinishedProgressPercent) > 0 ? '2px' : '0')"
+                        :style="'width: ' + Math.round(taskFocusProgressPercentTotal) + '%; min-width: ' + (Math.round(taskFocusProgressPercentTotal) > 0 ? '2px' : '0')"
                     ></div>
                 </div>
-                <span class="text-xs text-zinc-500" x-text="previousUnfinishedSessionRemainingText + ' {{ __('left') }}'"></span>
+                <span class="text-xs text-zinc-500" x-text="taskFocusRemainingText + ' {{ __('left') }}'"></span>
             </div>
         </div>
 

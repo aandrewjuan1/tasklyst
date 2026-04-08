@@ -426,6 +426,9 @@ trait HandlesTasks
                 'user',
                 'recurringTask',
                 'latestUnfinishedFocusSession',
+                'focusSessions' => fn ($query) => $query
+                    ->work()
+                    ->select(['id', 'focusable_type', 'focusable_id', 'type', 'started_at', 'ended_at', 'paused_at', 'paused_seconds']),
                 'tags',
                 'collaborations',
                 'collaborators',

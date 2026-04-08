@@ -45,9 +45,12 @@ export function listItemCard(config) {
         previousUnfinishedRemainingSecondsValue: 0,
         previousUnfinishedProgressPercentValue: 0,
         previousUnfinishedTickerId: null,
+        taskFocusSpentBaseSeconds: 0,
+        taskFocusLastAppliedSessionId: null,
         init() {
             this._focus = createFocusSessionController();
             this._focus.init(this);
+            this.taskFocusSpentBaseSeconds = Math.max(0, Number(this.taskFocusSpentSeconds ?? 0));
             this.startPreviousUnfinishedTicker();
             this.$watch('previousUnfinishedSession', () => this.syncPreviousUnfinishedSnapshot());
             this.$watch('activeFocusSession', () => this.syncPreviousUnfinishedSnapshot());
@@ -336,13 +339,89 @@ export function listItemCard(config) {
             if (!this.hasPreviousUnfinishedProgress) return '';
             return formatFocusCountdownLib(this.previousUnfinishedSessionDurationSeconds);
         },
+        get activeWorkSessionSpentSeconds() {
+            if (!this.hasTaskDurationTarget || !this.isFocused || this.activeFocusSession?.type !== 'work') {
+                return 0;
+            }
+            const duration = Math.max(0, Number(this.activeFocusSession?.duration_seconds ?? 0));
+            const remaining = Math.max(0, Number(this.focusRemainingSeconds ?? 0));
+            return Math.max(0, duration - remaining);
+        },
+        get taskFocusSpentSecondsTotal() {
+            if (!this.hasTaskDurationTarget) {
+                return 0;
+            }
+            return Math.max(0, Math.floor(Number(this.taskFocusSpentBaseSeconds ?? 0) + this.activeWorkSessionSpentSeconds));
+        },
+        get taskFocusTargetSeconds() {
+            if (!this.hasTaskDurationTarget) {
+                return 0;
+            }
+            return Math.max(0, Number(this.taskTargetDurationSeconds ?? 0));
+        },
+        get taskFocusRemainingSecondsTotal() {
+            if (!this.hasTaskDurationTarget) {
+                return 0;
+            }
+            return Math.max(0, this.taskFocusTargetSeconds - this.taskFocusSpentSecondsTotal);
+        },
+        get taskFocusProgressPercentTotal() {
+            if (!this.hasTaskDurationTarget || this.taskFocusTargetSeconds <= 0) {
+                return 0;
+            }
+            return Math.min(100, Math.max(0, (this.taskFocusSpentSecondsTotal / this.taskFocusTargetSeconds) * 100));
+        },
+        get taskFocusProgressPercentText() {
+            if (!this.hasTaskDurationTarget) {
+                return '';
+            }
+            return `${Math.round(this.taskFocusProgressPercentTotal)}%`;
+        },
+        get taskFocusRemainingText() {
+            if (!this.hasTaskDurationTarget) {
+                return '';
+            }
+            return formatFocusCountdownLib(this.taskFocusRemainingSecondsTotal);
+        },
+        get taskFocusSpentText() {
+            if (!this.hasTaskDurationTarget) {
+                return '';
+            }
+            return formatFocusCountdownLib(this.taskFocusSpentSecondsTotal);
+        },
+        get taskFocusTargetText() {
+            if (!this.hasTaskDurationTarget) {
+                return '';
+            }
+            return formatFocusCountdownLib(this.taskFocusTargetSeconds);
+        },
+        addCurrentSessionToTaskFocusProgress() {
+            if (!this.hasTaskDurationTarget || !this.activeFocusSession || this.activeFocusSession.type !== 'work') {
+                return;
+            }
+            const sessionId = this.activeFocusSession?.id;
+            if (sessionId != null && this.taskFocusLastAppliedSessionId === String(sessionId)) {
+                return;
+            }
+            const spent = this.activeWorkSessionSpentSeconds;
+            if (spent <= 0) {
+                return;
+            }
+            this.taskFocusSpentBaseSeconds = Math.max(0, Number(this.taskFocusSpentBaseSeconds ?? 0)) + spent;
+            if (sessionId != null) {
+                this.taskFocusLastAppliedSessionId = String(sessionId);
+            }
+        },
         get hasPreviousUnfinishedProgress() {
             if (this.kind !== 'task' || this.isFocused || this.isBreakFocused) return false;
             if (!this.previousUnfinishedSession || this.previousUnfinishedSession.completed === true) return false;
             return this.previousUnfinishedSessionRemainingSeconds > 0;
         },
         get canResumePreviousSession() {
-            return this.hasPreviousUnfinishedProgress
+            return this.focusModeType === 'countdown'
+                && this.taskFocusRemainingSecondsTotal > 0
+                && this.previousUnfinishedSession
+                && this.previousUnfinishedSession.completed !== true
                 && this.previousUnfinishedSession?.type === 'work'
                 && Number(this.previousUnfinishedSession?.task_id) === Number(this.itemId);
         },
@@ -975,6 +1054,10 @@ export function listItemCard(config) {
             if (!detail || this.kind !== 'task') return;
             if (Number(detail.itemId) !== Number(this.itemId)) return;
             this.taskDurationMinutes = detail.durationMinutes != null ? Number(detail.durationMinutes) : null;
+            this.hasTaskDurationTarget = this.taskDurationMinutes != null && Number(this.taskDurationMinutes) > 0;
+            this.taskTargetDurationSeconds = this.hasTaskDurationTarget
+                ? Math.max(0, Math.floor(Number(this.taskDurationMinutes) * 60))
+                : 0;
         },
         onItemPropertyUpdated(detail) {
             if (this.shouldHideAfterPropertyUpdate(detail)) {

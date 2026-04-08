@@ -296,6 +296,11 @@ class ListItemCardViewModel
         $item = $this->item;
         $kind = $this->kind;
         $previousUnfinishedSession = null;
+        $hasTaskDurationTarget = false;
+        $taskTargetDurationSeconds = 0;
+        $taskFocusSpentSeconds = 0;
+        $taskFocusRemainingSeconds = 0;
+        $taskFocusProgressPercent = 0;
 
         if ($kind === 'task' && method_exists($item, 'latestUnfinishedFocusSession')) {
             $session = $item->relationLoaded('latestUnfinishedFocusSession')
@@ -303,6 +308,20 @@ class ListItemCardViewModel
                 : $item->latestUnfinishedFocusSession;
             if ($session instanceof FocusSession) {
                 $previousUnfinishedSession = $this->mapFocusSessionForFrontend($session);
+            }
+        }
+
+        if ($kind === 'task') {
+            $durationMinutes = (int) ($item->duration ?? 0);
+            $hasTaskDurationTarget = $durationMinutes > 0;
+            $taskTargetDurationSeconds = $hasTaskDurationTarget ? $durationMinutes * 60 : 0;
+
+            if ($hasTaskDurationTarget && method_exists($item, 'calculateFocusedWorkSecondsExcludingActive')) {
+                $taskFocusSpentSeconds = max(0, (int) $item->calculateFocusedWorkSecondsExcludingActive(now()));
+                $taskFocusRemainingSeconds = max(0, $taskTargetDurationSeconds - $taskFocusSpentSeconds);
+                $taskFocusProgressPercent = $taskTargetDurationSeconds > 0
+                    ? (int) min(100, max(0, round(($taskFocusSpentSeconds / $taskTargetDurationSeconds) * 100)))
+                    : 0;
             }
         }
 
@@ -385,6 +404,11 @@ class ListItemCardViewModel
             'taskStatusLabel' => $kind === 'task' ? ($data['statusInitialOption']['label'] ?? '') : null,
             'taskStatusClass' => $kind === 'task' ? ($data['statusInitialClass'] ?? 'bg-muted text-muted-foreground') : null,
             'sourceUrl' => $kind === 'task' ? ($item->source_url ?? null) : null,
+            'hasTaskDurationTarget' => $hasTaskDurationTarget,
+            'taskTargetDurationSeconds' => $taskTargetDurationSeconds,
+            'taskFocusSpentSeconds' => $taskFocusSpentSeconds,
+            'taskFocusRemainingSeconds' => $taskFocusRemainingSeconds,
+            'taskFocusProgressPercent' => $taskFocusProgressPercent,
             'focusTickerNow' => null,
             'focusIntervalId' => null,
             'focusElapsedPercentValue' => 0,

@@ -183,7 +183,11 @@ export function createFocusSessionController() {
                     ctx.sessionComplete = true;
                     const pausedSeconds = ctx.getFocusPausedSecondsTotal();
                     const sessionId = ctx.activeFocusSession?.id;
+                    const wasWorkSession = ctx.activeFocusSession?.type === 'work';
                     ctx.stopFocusTicker();
+                    if (wasWorkSession) {
+                        ctx.addCurrentSessionToTaskFocusProgress?.();
+                    }
                     if (sessionId != null && !isTempSessionId(sessionId)) {
                         if (ctx.isPomodoroSession) {
                             ctx.completePomodoroSession(sessionId, pausedSeconds);
@@ -219,6 +223,7 @@ export function createFocusSessionController() {
         },
 
         dismissCompletedFocus(ctx) {
+            ctx.addCurrentSessionToTaskFocusProgress?.();
             if (ctx._completedDismissTimeoutId != null) {
                 clearTimeout(ctx._completedDismissTimeoutId);
                 ctx._completedDismissTimeoutId = null;
@@ -287,6 +292,7 @@ export function createFocusSessionController() {
         async completePomodoroSession(ctx, sessionId, pausedSeconds) {
             if (ctx.completingPomodoro) return;
             ctx.completingPomodoro = true;
+            const wasWorkSession = ctx.activeFocusSession?.type === 'work';
             const snapshot = {
                 activeFocusSession: ctx.activeFocusSession ? { ...ctx.activeFocusSession } : null,
                 isBreakSession: ctx.isBreakSession,
@@ -312,6 +318,9 @@ export function createFocusSessionController() {
                 ctx.$wire.$dispatch('toast', { type: 'error', message: message || ctx.focusCompleteErrorToast });
             };
             try {
+                if (wasWorkSession) {
+                    ctx.addCurrentSessionToTaskFocusProgress?.();
+                }
                 const predictedNextSession = ctx.predictNextPomodoroSessionInfo();
                 if (predictedNextSession) {
                     if (predictedNextSession.auto_start) {
@@ -780,13 +789,15 @@ export function createFocusSessionController() {
                 return;
             }
             const isPomodoro = ctx.focusModeType === 'pomodoro';
+            const isSprintMode = !isPomodoro;
             if (isPomodoro) ctx.pomodoroWorkCount = 1;
             const baseSequence = Number.isFinite(Number(ctx.pomodoroSequence)) && Number(ctx.pomodoroSequence) > 0 ? Number(ctx.pomodoroSequence) : 1;
             const shouldResumePrevious = !!options.resumePrevious
+                && isSprintMode
                 && ctx.canResumePreviousSession
                 && ctx.previousUnfinishedSession;
             const previousRemainingSeconds = shouldResumePrevious
-                ? Math.max(0, Math.floor(Number(ctx.previousUnfinishedSessionRemainingSeconds ?? 0)))
+                ? Math.max(0, Math.floor(Number(ctx.taskFocusRemainingSecondsTotal ?? 0)))
                 : 0;
             const minutes = isPomodoro
                 ? Math.max(1, Math.min(120, Math.floor(Number(ctx.pomodoroWorkMinutes ?? 25))))
@@ -921,6 +932,7 @@ export function createFocusSessionController() {
                 ended_at: new Date().toISOString(),
             };
             try {
+                ctx.addCurrentSessionToTaskFocusProgress?.();
                 ctx.activeFocusSession = null;
                 ctx.isBreakSession = false;
                 ctx.nextSessionInfo = null;

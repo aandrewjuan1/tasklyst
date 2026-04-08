@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\FocusSessionType;
 use App\Models\Event;
 use App\Models\FocusSession;
 use App\Models\Project;
@@ -84,6 +85,7 @@ it('produces alpineConfig with expected keys and no callables for a task', funct
         'kind', 'itemId', 'canEdit', 'canDelete', 'deleteMethod', 'updatePropertyMethod',
         'editedTitle', 'recurrence', 'activeFocusSession', 'defaultWorkDurationMinutes', 'taskDurationMinutes',
         'focusModeType', 'focusModeTypes', 'focusModeComingSoonToast',
+        'hasTaskDurationTarget', 'taskTargetDurationSeconds', 'taskFocusSpentSeconds', 'taskFocusRemainingSeconds', 'taskFocusProgressPercent',
     ]);
     expect($config['kind'])->toBe('task');
     expect($config['itemId'])->toBe($this->task->id);
@@ -214,4 +216,123 @@ it('includes previous unfinished focus session payload for task cards', function
         ->and($config['previousUnfinishedSession']['task_id'])->toBe($task->id)
         ->and($config['previousUnfinishedSession']['completed'])->toBeFalse()
         ->and($config['previousUnfinishedSession']['duration_seconds'])->toBe(1500);
+});
+
+it('hides task progress when task duration is not set', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create([
+        'title' => 'No duration task',
+        'duration' => null,
+    ]);
+
+    FocusSession::factory()
+        ->for($this->user)
+        ->for($task, 'focusable')
+        ->work()
+        ->create([
+            'started_at' => now()->subMinutes(10),
+            'ended_at' => now()->subMinutes(5),
+            'paused_seconds' => 0,
+        ]);
+
+    $task->load('focusSessions');
+
+    $config = (new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    ))->alpineConfig();
+
+    expect($config['hasTaskDurationTarget'])->toBeFalse()
+        ->and($config['taskTargetDurationSeconds'])->toBe(0)
+        ->and($config['taskFocusSpentSeconds'])->toBe(0)
+        ->and($config['taskFocusRemainingSeconds'])->toBe(0)
+        ->and($config['taskFocusProgressPercent'])->toBe(0);
+});
+
+it('computes task progress from ended and paused work sessions only', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create([
+        'title' => 'Progress task',
+        'duration' => 60,
+    ]);
+
+    FocusSession::factory()
+        ->for($this->user)
+        ->for($task, 'focusable')
+        ->work()
+        ->create([
+            'started_at' => now()->subMinutes(70),
+            'ended_at' => now()->subMinutes(50),
+            'paused_seconds' => 120,
+            'completed' => true,
+        ]);
+
+    FocusSession::factory()
+        ->for($this->user)
+        ->for($task, 'focusable')
+        ->work()
+        ->create([
+            'started_at' => now()->subMinutes(30),
+            'paused_at' => now()->subMinutes(20),
+            'ended_at' => null,
+            'paused_seconds' => 60,
+            'completed' => false,
+        ]);
+
+    FocusSession::factory()
+        ->for($this->user)
+        ->for($task, 'focusable')
+        ->inProgress()
+        ->work()
+        ->create([
+            'started_at' => now()->subMinutes(5),
+            'paused_at' => null,
+            'ended_at' => null,
+            'paused_seconds' => 0,
+            'completed' => false,
+        ]);
+
+    FocusSession::factory()
+        ->for($this->user)
+        ->for($task, 'focusable')
+        ->create([
+            'type' => FocusSessionType::ShortBreak,
+            'started_at' => now()->subMinutes(15),
+            'ended_at' => now()->subMinutes(10),
+            'paused_seconds' => 0,
+            'completed' => true,
+        ]);
+
+    $task->load('focusSessions');
+
+    $config = (new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    ))->alpineConfig();
+
+    // Ended/completed work: 20m - 2m pause = 1080s
+    // Paused work: 10m - 1m pause = 540s
+    // Active in-progress work excluded from base.
+    $expectedSpent = 1620;
+    $expectedTarget = 3600;
+    $expectedRemaining = 1980;
+    $expectedPercent = 45;
+
+    expect($config['hasTaskDurationTarget'])->toBeTrue()
+        ->and($config['taskTargetDurationSeconds'])->toBe($expectedTarget)
+        ->and($config['taskFocusSpentSeconds'])->toBe($expectedSpent)
+        ->and($config['taskFocusRemainingSeconds'])->toBe($expectedRemaining)
+        ->and($config['taskFocusProgressPercent'])->toBe($expectedPercent);
 });

@@ -6,6 +6,7 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -484,6 +485,48 @@ class Task extends Model
                     ->orWhereNotNull('ended_at');
             })
             ->latestOfMany('started_at');
+    }
+
+    public function calculateFocusedWorkSecondsExcludingActive(?CarbonInterface $now = null): int
+    {
+        $referenceTime = $now ? CarbonImmutable::instance($now) : CarbonImmutable::now();
+        $sessions = $this->relationLoaded('focusSessions')
+            ? $this->getRelation('focusSessions')
+            : $this->focusSessions()->work()->get();
+
+        $total = 0;
+
+        foreach ($sessions as $session) {
+            if (! $session instanceof FocusSession || $session->type?->value !== 'work' || $session->started_at === null) {
+                continue;
+            }
+
+            $startedAt = CarbonImmutable::instance($session->started_at);
+            $endedAt = null;
+
+            if ($session->ended_at !== null) {
+                $endedAt = CarbonImmutable::instance($session->ended_at);
+            } elseif ($session->paused_at !== null) {
+                $endedAt = CarbonImmutable::instance($session->paused_at);
+            }
+
+            // Active in-progress sessions are excluded from the base total and added live on the frontend.
+            if ($endedAt === null) {
+                continue;
+            }
+
+            if ($endedAt->greaterThan($referenceTime)) {
+                $endedAt = $referenceTime;
+            }
+
+            $elapsedSeconds = max(0, $endedAt->getTimestamp() - $startedAt->getTimestamp());
+            $pausedSeconds = max(0, (int) ($session->paused_seconds ?? 0));
+            $effectiveSeconds = max(0, $elapsedSeconds - $pausedSeconds);
+
+            $total += $effectiveSeconds;
+        }
+
+        return $total;
     }
 
     public function collaborators(): MorphToMany

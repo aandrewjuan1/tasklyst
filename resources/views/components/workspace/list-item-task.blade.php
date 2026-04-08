@@ -109,12 +109,14 @@
     $courseContextPillCompactLine = \App\Support\CourseContextPillFormatter::compactLine($subjectDisplay, $teacherDisplay)
         ?? '';
 
-    // Server-render the initial progress bar state to avoid Alpine init flicker.
-    // Alpine takes over after hydration via `previousUnfinishedSession*` getters.
-    $initialPreviousUnfinishedSession = $item->latestUnfinishedFocusSession;
-    $hasInitialPreviousUnfinishedProgress = false;
-    $initialPreviousUnfinishedProgressPercent = 0;
-    $initialPreviousUnfinishedSessionRemainingText = '';
+    // Server-render the initial task-progress bar state to avoid Alpine init flicker.
+    // Alpine takes over after hydration via `taskFocus*` getters.
+    $taskDurationSeconds = (int) (($item->duration ?? 0) * 60);
+    $hasTaskDurationTarget = $taskDurationSeconds > 0;
+    $taskFocusedSeconds = 0;
+    if ($hasTaskDurationTarget) {
+        $taskFocusedSeconds = $item->calculateFocusedWorkSecondsExcludingActive(now());
+    }
     $formatCountdown = function (int $seconds): string {
         $s = max(0, (int) $seconds);
         $h = (int) floor($s / 3600);
@@ -127,35 +129,13 @@
 
         return str_pad((string) $m, 2, '0', STR_PAD_LEFT) . ':' . str_pad((string) $sec, 2, '0', STR_PAD_LEFT);
     };
+    $initialTaskProgressPercent = $hasTaskDurationTarget && $taskDurationSeconds > 0
+        ? (int) round(min(100, max(0, ($taskFocusedSeconds / $taskDurationSeconds) * 100)))
+        : 0;
+    $initialTaskRemainingText = $hasTaskDurationTarget
+        ? $formatCountdown(max(0, $taskDurationSeconds - $taskFocusedSeconds))
+        : '';
 
-    if ($initialPreviousUnfinishedSession && ! $initialPreviousUnfinishedSession->completed) {
-        $durationSeconds = (int) ($initialPreviousUnfinishedSession->duration_seconds ?? 0);
-        $startedAt = $initialPreviousUnfinishedSession->started_at;
-
-        if ($durationSeconds > 0 && $startedAt) {
-            $startedAtMs = (int) $startedAt->valueOf();
-            $pausedSeconds = max(0, (int) ($initialPreviousUnfinishedSession->paused_seconds ?? 0));
-
-            if ($initialPreviousUnfinishedSession->ended_at) {
-                $endedAtMs = (int) $initialPreviousUnfinishedSession->ended_at->valueOf();
-                $elapsedSeconds = max(0, max(0, $endedAtMs - $startedAtMs) / 1000);
-            } elseif ($initialPreviousUnfinishedSession->paused_at) {
-                $pausedAtMs = (int) $initialPreviousUnfinishedSession->paused_at->valueOf();
-                $elapsedSeconds = max(0, max(0, $pausedAtMs - $startedAtMs) / 1000);
-            } else {
-                $nowMs = (int) now()->valueOf();
-                $elapsedSeconds = max(0, max(0, $nowMs - $startedAtMs) / 1000);
-            }
-
-            $remainingSeconds = max(0, (int) floor($durationSeconds - $elapsedSeconds + $pausedSeconds));
-            $hasInitialPreviousUnfinishedProgress = $remainingSeconds > 0;
-
-            if ($hasInitialPreviousUnfinishedProgress) {
-                $initialPreviousUnfinishedProgressPercent = (int) round(min(100, max(0, (($durationSeconds - $remainingSeconds) / $durationSeconds) * 100)));
-                $initialPreviousUnfinishedSessionRemainingText = $formatCountdown($remainingSeconds);
-            }
-        }
-    }
 @endphp
 
 <div
@@ -899,26 +879,26 @@
                 </flux:tooltip>
             </div>
             <div
-                :style="(hasPreviousUnfinishedProgress && !isFocusModalOpen) ? '' : 'display: none;'"
-                @if(! $hasInitialPreviousUnfinishedProgress) style="display: none;" @endif
+                :style="(hasTaskDurationTarget && !isFocusModalOpen) ? '' : 'display: none;'"
+                @if(! $hasTaskDurationTarget) style="display: none;" @endif
                 class="w-full"
             >
                 <div class="space-y-1.5">
                     <div class="flex items-center justify-between gap-2">
-                        <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Previous focus') }}</span>
-                        <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="Math.round(previousUnfinishedProgressPercent) + '%'">
-                            {{ $initialPreviousUnfinishedProgressPercent }}%
+                        <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Task progress') }}</span>
+                        <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="taskFocusProgressPercentText">
+                            {{ $initialTaskProgressPercent }}%
                         </span>
                     </div>
-                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(previousUnfinishedProgressPercent)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Previous focus progress') }}">
+                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(taskFocusProgressPercentTotal)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Task progress') }}">
                         <div
                             class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width,background-color] duration-300 ease-linear"
-                            style="width: {{ $initialPreviousUnfinishedProgressPercent }}%; min-width: {{ $initialPreviousUnfinishedProgressPercent > 0 ? '2px' : '0' }};"
-                            :style="'width: ' + Math.round(previousUnfinishedProgressPercent) + '%; min-width: ' + (Math.round(previousUnfinishedProgressPercent) > 0 ? '2px' : '0')"
+                            style="width: {{ $initialTaskProgressPercent }}%; min-width: {{ $initialTaskProgressPercent > 0 ? '2px' : '0' }};"
+                            :style="'width: ' + Math.round(taskFocusProgressPercentTotal) + '%; min-width: ' + (Math.round(taskFocusProgressPercentTotal) > 0 ? '2px' : '0')"
                         ></div>
                     </div>
-                    <span class="text-xs text-zinc-500" x-text="previousUnfinishedSessionRemainingText + ' {{ __('left') }}'">
-                        {{ $initialPreviousUnfinishedSessionRemainingText }} {{ __('left') }}
+                    <span class="text-xs text-zinc-500" x-text="taskFocusRemainingText + ' {{ __('left') }}'">
+                        {{ $initialTaskRemainingText }} {{ __('left') }}
                     </span>
                 </div>
             </div>
