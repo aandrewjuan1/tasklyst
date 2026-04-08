@@ -395,6 +395,32 @@ export function listItemCard(config) {
             }
             return formatFocusCountdownLib(this.taskFocusTargetSeconds);
         },
+        get isTaskDoneForProgress() {
+            return this.kind === 'task' && String(this.taskStatus ?? '') === 'done';
+        },
+        get shouldShowTaskProgress() {
+            return this.hasTaskDurationTarget && !this.isTaskDoneForProgress;
+        },
+        resetTaskFocusProgress() {
+            this.taskFocusSpentBaseSeconds = 0;
+            this.taskFocusLastAppliedSessionId = null;
+        },
+        clearPreviousUnfinishedSessionState() {
+            this.previousUnfinishedSession = null;
+            this.previousUnfinishedRemainingSecondsValue = 0;
+            this.previousUnfinishedProgressPercentValue = 0;
+            this.showFocusStartChoice = false;
+        },
+        applyTaskStatusTransition(previousStatus, nextStatus) {
+            if (this.kind !== 'task') {
+                return;
+            }
+
+            if (String(previousStatus ?? '') === 'done' && String(nextStatus ?? '') !== 'done') {
+                this.resetTaskFocusProgress();
+                this.clearPreviousUnfinishedSessionState();
+            }
+        },
         addCurrentSessionToTaskFocusProgress() {
             if (!this.hasTaskDurationTarget || !this.activeFocusSession || this.activeFocusSession.type !== 'work') {
                 return;
@@ -419,7 +445,7 @@ export function listItemCard(config) {
         },
         get canResumePreviousSession() {
             return this.focusModeType === 'countdown'
-                && this.taskFocusRemainingSecondsTotal > 0
+                && this.taskFocusRemainingSecondsTotal >= 60
                 && this.previousUnfinishedSession
                 && this.previousUnfinishedSession.completed !== true
                 && this.previousUnfinishedSession?.type === 'work'
@@ -479,7 +505,8 @@ export function listItemCard(config) {
         async chooseFocusStart(action) {
             this.showFocusStartChoice = false;
             const resumePrevious = action === 'resume';
-            await this._focus.startFocusFromReady(this, { resumePrevious });
+            const restartProgress = action === 'restart';
+            await this._focus.startFocusFromReady(this, { resumePrevious, restartProgress });
             this.$nextTick(() => this.focusFirstInModal());
         },
         parseFocusStartedAt(isoString) {
@@ -1067,7 +1094,9 @@ export function listItemCard(config) {
                 this.dateChangeHidingCard = false;
                 const d = detail;
                 if (d && d.property === 'status' && this.kind === 'task' && d.value) {
+                    const previousStatus = this.taskStatus;
                     this.taskStatus = d.value;
+                    this.applyTaskStatusTransition(previousStatus, this.taskStatus);
                 }
                  if (d && d.property === 'title' && this.kind === 'task') {
                      this.editedTitle = d.value ?? '';

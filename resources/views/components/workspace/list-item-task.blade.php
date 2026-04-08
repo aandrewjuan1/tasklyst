@@ -879,8 +879,8 @@
                 </flux:tooltip>
             </div>
             <div
-                :style="(hasTaskDurationTarget && !isFocusModalOpen) ? '' : 'display: none;'"
-                @if(! $hasTaskDurationTarget) style="display: none;" @endif
+                :style="(shouldShowTaskProgress && !isFocusModalOpen) ? '' : 'display: none;'"
+                @if(! $hasTaskDurationTarget || ($item->status?->value === 'done')) style="display: none;" @endif
                 class="w-full"
             >
                 <div class="space-y-1.5">

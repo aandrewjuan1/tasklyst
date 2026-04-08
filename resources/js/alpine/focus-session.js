@@ -126,7 +126,11 @@ export function createFocusSessionController() {
             ctx.sessionComplete = true;
             const pausedSeconds = ctx.getFocusPausedSecondsTotal();
             const sessionId = ctx.activeFocusSession?.id;
+            const wasWorkSession = ctx.activeFocusSession?.type === 'work';
             ctx.stopFocusTicker();
+            if (wasWorkSession) {
+                ctx.addCurrentSessionToTaskFocusProgress?.();
+            }
             if (sessionId != null && !isTempSessionId(sessionId)) {
                 if (ctx.isPomodoroSession) {
                     ctx.completePomodoroSession(sessionId, pausedSeconds);
@@ -647,8 +651,22 @@ export function createFocusSessionController() {
         },
 
         async startFocusFromReady(ctx, options = {}) {
+            let shouldResetAfterStart = false;
+            if (options.restartProgress) {
+                // Optimistic restart UX: clear local progress immediately, then sync reset in background.
+                ctx.resetTaskFocusProgress?.();
+                ctx.clearPreviousUnfinishedSessionState?.();
+                shouldResetAfterStart = true;
+            }
             try {
                 await ctx.startFocusMode(options);
+                if (shouldResetAfterStart) {
+                    // Avoid concurrent Livewire message collisions by sending reset only after start resolves.
+                    const ok = await ctx.$wire.$parent.$call('resetTaskFocusProgress', ctx.itemId).catch(() => false);
+                    if (!ok) {
+                        ctx.$wire.$dispatch('toast', { type: 'error', message: ctx.focusStartErrorToast });
+                    }
+                }
             } finally {
                 ctx.focusReady = false;
             }

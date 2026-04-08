@@ -195,7 +195,7 @@
 
         {{-- Row: Task progress (ready state only, separate row for readability) --}}
         <div
-            x-show="!isFocused && !isBreakFocused && hasTaskDurationTarget"
+            x-show="!isFocused && !isBreakFocused && shouldShowTaskProgress"
             x-cloak
             class="w-full"
         >

@@ -202,6 +202,59 @@ test('workspace index startFocusSession rejects resumed_from_focus_session_id wh
     expect(FocusSession::query()->forUser($this->user->id)->inProgress()->count())->toBe(1);
 });
 
+test('workspace index resetTaskFocusProgress deletes existing task focus sessions', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+
+    FocusSession::factory()->for($this->user)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => now(),
+    ]);
+
+    expect($task->focusSessions()->count())->toBe(1);
+
+    Livewire::test('pages::workspace.index')
+        ->call('resetTaskFocusProgress', $task->id)
+        ->assertReturned(true);
+
+    expect($task->fresh()->focusSessions()->count())->toBe(0);
+});
+
+test('workspace index resetTaskFocusProgress keeps active session and deletes historical sessions', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create();
+
+    FocusSession::factory()->for($this->user)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => now(),
+    ]);
+
+    $active = FocusSession::factory()->for($this->user)->inProgress()->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => null,
+        'paused_at' => null,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('resetTaskFocusProgress', $task->id)
+        ->assertReturned(true);
+
+    $remaining = FocusSession::query()
+        ->forUser($this->user->id)
+        ->where('focusable_type', Task::class)
+        ->where('focusable_id', $task->id)
+        ->get();
+
+    expect($remaining)->toHaveCount(1)
+        ->and($remaining->first()->id)->toBe($active->id);
+});
+
 test('workspace index abandonFocusSession ends session and dispatches toast', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();

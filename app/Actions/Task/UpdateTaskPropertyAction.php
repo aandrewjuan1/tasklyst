@@ -192,6 +192,9 @@ class UpdateTaskPropertyAction
         $column = Task::propertyToColumn($property);
 
         $oldValue = $task->getPropertyValueForUpdate($property);
+        $shouldResetFocusProgress = $column === 'status'
+            && $oldValue === TaskStatus::Done->value
+            && $validatedValue !== TaskStatus::Done->value;
 
         $attributes = [$column => $validatedValue];
         if ($column === 'duration') {
@@ -221,6 +224,9 @@ class UpdateTaskPropertyAction
 
         try {
             $this->taskService->updateTask($task, $attributes);
+            if ($shouldResetFocusProgress) {
+                $task->focusSessions()->delete();
+            }
         } catch (\Throwable $e) {
             Log::error('Failed to update task property from workspace.', [
                 'task_id' => $task->id,

@@ -145,6 +145,42 @@ trait HandlesFocusSessions
         return $result;
     }
 
+    #[Async]
+    #[Renderless]
+    public function resetTaskFocusProgress(int $taskId): bool
+    {
+        $user = $this->requireAuth(__('You must be logged in to reset task focus progress.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $task = Task::query()->forUser($user->id)->find($taskId);
+        if ($task === null) {
+            $this->dispatch('toast', type: 'error', message: __('Task not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $task);
+
+        try {
+            // Keep any currently active session to avoid deleting a newly-started optimistic restart session.
+            $task->focusSessions()
+                ->where(function ($query): void {
+                    $query->whereNotNull('ended_at')
+                        ->orWhereNotNull('paused_at')
+                        ->orWhere('completed', true);
+                })
+                ->delete();
+        } catch (\Throwable) {
+            $this->dispatch('toast', type: 'error', message: __('Could not reset task progress.'));
+
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * Complete or abandon a focus session (timer reached 0 or user stopped). Payload: ended_at, completed, paused_seconds.
      *
