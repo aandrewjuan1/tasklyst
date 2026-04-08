@@ -138,16 +138,16 @@
 
             if ($initialPreviousUnfinishedSession->ended_at) {
                 $endedAtMs = (int) $initialPreviousUnfinishedSession->ended_at->valueOf();
-                $elapsedSeconds = max(0, intdiv(max(0, $endedAtMs - $startedAtMs), 1000));
+                $elapsedSeconds = max(0, max(0, $endedAtMs - $startedAtMs) / 1000);
             } elseif ($initialPreviousUnfinishedSession->paused_at) {
                 $pausedAtMs = (int) $initialPreviousUnfinishedSession->paused_at->valueOf();
-                $elapsedSeconds = max(0, intdiv(max(0, $pausedAtMs - $startedAtMs), 1000));
+                $elapsedSeconds = max(0, max(0, $pausedAtMs - $startedAtMs) / 1000);
             } else {
                 $nowMs = (int) now()->valueOf();
-                $elapsedSeconds = max(0, intdiv(max(0, $nowMs - $startedAtMs), 1000));
+                $elapsedSeconds = max(0, max(0, $nowMs - $startedAtMs) / 1000);
             }
 
-            $remainingSeconds = max(0, $durationSeconds - $elapsedSeconds + $pausedSeconds);
+            $remainingSeconds = max(0, (int) floor($durationSeconds - $elapsedSeconds + $pausedSeconds));
             $hasInitialPreviousUnfinishedProgress = $remainingSeconds > 0;
 
             if ($hasInitialPreviousUnfinishedProgress) {
