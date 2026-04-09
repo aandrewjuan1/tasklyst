@@ -277,3 +277,92 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
     expect(preg_match('/data-testid="dashboard-no-date-backlog-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('1');
 });
+
+test('dashboard calendar renders selected-day agenda and summary counts', function () {
+    $user = User::factory()->create();
+    $selectedDate = now()->toDateString();
+
+    Task::factory()->for($user)->create([
+        'title' => 'Agenda Urgent Task',
+        'priority' => TaskPriority::Urgent,
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->startOfDay()->addHours(15),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Agenda Timed Event',
+        'status' => 'scheduled',
+        'start_datetime' => now()->startOfDay()->addHours(14),
+        'end_datetime' => now()->startOfDay()->addHours(16),
+        'all_day' => false,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Agenda Conflicting Event',
+        'status' => 'scheduled',
+        'start_datetime' => now()->startOfDay()->addHours(15),
+        'end_datetime' => now()->startOfDay()->addHours(17),
+        'all_day' => false,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('data-testid="calendar-selected-day-agenda"', false);
+    $response->assertSee('Agenda Urgent Task', false);
+    $response->assertSee('Agenda Timed Event', false);
+
+    expect(preg_match('/data-testid="calendar-agenda-summary-tasks"[^>]*>\s*(\d+)\s*</', $response->getContent(), $taskMatches))->toBe(1);
+    expect((int) $taskMatches[1])->toBeGreaterThanOrEqual(1);
+
+    expect(preg_match('/data-testid="calendar-agenda-summary-events"[^>]*>\s*(\d+)\s*</', $response->getContent(), $eventMatches))->toBe(1);
+    expect((int) $eventMatches[1])->toBe(2);
+
+    expect(preg_match('/data-testid="calendar-agenda-summary-conflicts"[^>]*>\s*(\d+)\s*</', $response->getContent(), $conflictMatches))->toBe(1);
+    expect((int) $conflictMatches[1])->toBe(1);
+});
+
+test('dashboard calendar source filter imported limits agenda to imported tasks', function () {
+    $user = User::factory()->create();
+    $selectedDate = now()->toDateString();
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Imported Feed',
+        'feed_url' => 'https://example.com/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Manual Agenda Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => now()->startOfDay()->addHours(13),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Imported Agenda Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Brightspace->value,
+        'source_id' => 'imported-agenda-task-1',
+        'calendar_feed_id' => $feed->id,
+        'end_datetime' => now()->startOfDay()->addHours(14),
+        'completed_at' => null,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', [
+        'date' => $selectedDate,
+        'calendar_source' => 'imported',
+    ]));
+
+    $response->assertSuccessful();
+    $response->assertSee('data-testid="calendar-source-filter-imported"', false);
+    $response->assertSee('Imported Agenda Task', false);
+
+    expect(preg_match('/data-testid="calendar-agenda-summary-tasks"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryMatches))->toBe(1);
+    expect((int) $summaryMatches[1])->toBe(1);
+});

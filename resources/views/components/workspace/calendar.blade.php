@@ -2,6 +2,9 @@
     'selectedDate' => null,
     'currentMonth' => null,
     'currentYear' => null,
+    'monthMeta' => [],
+    'selectedDayAgenda' => [],
+    'sourceFilter' => 'all',
 ])
 
 @php
@@ -74,6 +77,7 @@
     $initialMonth = $currentMonth - 1; // JavaScript months are 0-indexed
     $initialYear = $currentYear;
     $initialMonthLabel = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y');
+    $sourceFilter = in_array($sourceFilter, ['all', 'manual', 'imported'], true) ? $sourceFilter : 'all';
 @endphp
 
 <div
@@ -83,11 +87,15 @@
         year: @js($initialYear),
         selectedDate: @js($selectedDateString),
         today: @js($today),
+        monthMeta: @js($monthMeta),
+        sourceFilter: @js($sourceFilter),
         todayCache: null,
         days: [],
         locale: @js(str_replace('_', '-', app()->getLocale())),
         lastNavAt: 0,
         navThrottleMs: 300,
+        isBusy: false,
+        busyContext: '',
         
         init() {
             // Initialize Alpine store if not already initialized
@@ -120,6 +128,11 @@
                     this.days.forEach(day => {
                         day.isSelected = day.dateString === value;
                     });
+                }
+
+                if (this.isBusy) {
+                    this.isBusy = false;
+                    this.busyContext = '';
                 }
             });
         },
@@ -178,6 +191,7 @@
                     isToday: isToday,
                     isSelected: isSelected,
                     dateString: dateString,
+                    meta: this.getMeta(dateString),
                 });
             }
             
@@ -203,6 +217,12 @@
             this.year = date.getFullYear();
             this.updateMonthLabel();
             this.buildDays();
+            const monthStr = String(this.month + 1).padStart(2, '0');
+            const firstDate = `${this.year}-${monthStr}-01`;
+            this.selectedDate = firstDate;
+            this.isBusy = true;
+            this.busyContext = 'calendar-nav';
+            $wire.set('selectedDate', firstDate);
         },
         
         monthLabel: @js($initialMonthLabel),
@@ -217,34 +237,125 @@
             this.monthLabelCache = cacheKey;
         },
         
-        selectDay(dayData) {
+        async selectDay(dayData) {
             if (!dayData.dateString) return;
-            // Optimistic update: update only selection state without full rebuild
+            const previousSelected = this.selectedDate;
             const oldSelected = this.days.find(d => d.isSelected);
             if (oldSelected) oldSelected.isSelected = false;
             dayData.isSelected = true;
             this.selectedDate = dayData.dateString;
-            // Update Livewire selectedDate (server will sync in background)
-            $wire.set('selectedDate', dayData.dateString);
+
+            try {
+                this.isBusy = true;
+                this.busyContext = 'date-select';
+                await $wire.set('selectedDate', dayData.dateString);
+            } catch (error) {
+                this.selectedDate = previousSelected;
+                this.days.forEach((day) => {
+                    day.isSelected = day.dateString === previousSelected;
+                });
+            } finally {
+                this.isBusy = false;
+                this.busyContext = '';
+            }
         },
         
-        goToday() {
+        async goToday() {
             if (!this.navAllowed()) return;
             // Optimistic update: update month/year/selectedDate and rebuild calendar immediately
             const today = new Date();
+            const previousState = { month: this.month, year: this.year, selectedDate: this.selectedDate };
             this.month = today.getMonth();
             this.year = today.getFullYear();
             this.selectedDate = this.today;
             this.buildDays();
-            // Update Livewire selectedDate (server will sync in background)
-            $wire.set('selectedDate', this.today);
+            try {
+                this.isBusy = true;
+                this.busyContext = 'go-today';
+                await $wire.set('selectedDate', this.today);
+            } catch (error) {
+                this.month = previousState.month;
+                this.year = previousState.year;
+                this.selectedDate = previousState.selectedDate;
+                this.buildDays();
+            } finally {
+                this.isBusy = false;
+                this.busyContext = '';
+            }
+        },
+        async setFilter(filter) {
+            if (filter === this.sourceFilter) return;
+            const previousFilter = this.sourceFilter;
+            this.sourceFilter = filter;
+            try {
+                this.isBusy = true;
+                this.busyContext = 'source-filter';
+                await $wire.$call('setCalendarSourceFilter', filter);
+            } catch (error) {
+                this.sourceFilter = previousFilter;
+            } finally {
+                this.isBusy = false;
+                this.busyContext = '';
+            }
+        },
+        getMeta(dateString) {
+            if (!dateString || !this.monthMeta || typeof this.monthMeta !== 'object') {
+                return { task_count: 0, overdue_count: 0, due_count: 0, urgent_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
+            }
+
+            return this.monthMeta[dateString] ?? { task_count: 0, overdue_count: 0, due_count: 0, urgent_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
+        },
+        handleKeydown(event) {
+            const tag = (event.target?.tagName ?? '').toLowerCase();
+            if (['input', 'textarea', 'select', 'button'].includes(tag)) return;
+            if (this.isBusy) return;
+
+            if (event.key === 'ArrowLeft') {
+                event.preventDefault();
+                $wire.navigateSelectedDate(-1);
+                return;
+            }
+            if (event.key === 'ArrowRight') {
+                event.preventDefault();
+                $wire.navigateSelectedDate(1);
+                return;
+            }
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                $wire.navigateSelectedDate(-7);
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                $wire.navigateSelectedDate(7);
+                return;
+            }
+            if (event.key.toLowerCase() === 't') {
+                event.preventDefault();
+                $wire.jumpSelectedDateToToday();
+                return;
+            }
+            if (event.key.toLowerCase() === 'n') {
+                event.preventDefault();
+                this.changeMonth(1);
+                return;
+            }
+            if (event.key.toLowerCase() === 'p') {
+                event.preventDefault();
+                this.changeMonth(-1);
+            }
         },
     }"
     class="w-full"
+    tabindex="0"
+    @keydown="handleKeydown($event)"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{-- Calendar Container --}}
-    <div class="rounded-xl border border-brand-blue/35 bg-brand-light-lavender/90 shadow-lg backdrop-blur-xs dark:border-brand-blue/25 dark:bg-brand-light-lavender/10">
+    <div
+        class="rounded-xl border border-brand-blue/35 bg-brand-light-lavender/90 shadow-lg backdrop-blur-xs transition-opacity dark:border-brand-blue/25 dark:bg-brand-light-lavender/10"
+        :class="isBusy ? 'opacity-90' : 'opacity-100'"
+    >
         {{-- Header: Month/Year Navigation --}}
         <div class="flex items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
             {{-- Previous Month Button --}}
@@ -283,6 +394,41 @@
             </button>
         </div>
 
+        <div class="px-3 pb-2 sm:px-4">
+            <div class="inline-flex items-center gap-1 rounded-lg bg-muted/60 p-1">
+                <button
+                    type="button"
+                    @click.throttle.250ms="setFilter('all')"
+                    :disabled="isBusy"
+                    class="rounded-md px-2 py-1 text-[11px] font-semibold transition"
+                    :class="sourceFilter === 'all' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
+                    data-testid="calendar-source-filter-all"
+                >
+                    {{ __('All') }}
+                </button>
+                <button
+                    type="button"
+                    @click.throttle.250ms="setFilter('manual')"
+                    :disabled="isBusy"
+                    class="rounded-md px-2 py-1 text-[11px] font-semibold transition"
+                    :class="sourceFilter === 'manual' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
+                    data-testid="calendar-source-filter-manual"
+                >
+                    {{ __('Manual') }}
+                </button>
+                <button
+                    type="button"
+                    @click.throttle.250ms="setFilter('imported')"
+                    :disabled="isBusy"
+                    class="rounded-md px-2 py-1 text-[11px] font-semibold transition"
+                    :class="sourceFilter === 'imported' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
+                    data-testid="calendar-source-filter-imported"
+                >
+                    {{ __('Imported') }}
+                </button>
+            </div>
+        </div>
+
         {{-- Calendar Grid --}}
         <div class="p-2 sm:p-3 md:p-4">
             {{-- Day Names Header --}}
@@ -297,32 +443,65 @@
             </div>
 
             {{-- Calendar Days Grid --}}
-            <div class="grid grid-cols-7 gap-1 sm:gap-1.5">
+            <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
                 {{-- Server-rendered first paint (visible by default) --}}
                 @foreach ($serverDays as $dayData)
                     @if ($dayData['month'] !== 'current')
                         {{-- Previous/Next Month Days (Grayed Out) --}}
                         <div 
                             x-show="!alpineReady"
-                            class="flex aspect-square min-w-0 w-full items-center justify-center"
+                            class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center sm:min-h-11"
                             style="display: flex;"
                         >
                             <span class="text-xs tabular-nums text-muted-foreground/40 dark:text-muted-foreground/30 sm:text-sm">{{ $dayData['day'] }}</span>
                         </div>
                     @else
                         {{-- Current Month Days (Clickable) --}}
+                        @php
+                            $meta = $monthMeta[$dayData['dateString']] ?? [
+                                'task_count' => 0,
+                                'event_count' => 0,
+                                'overdue_count' => 0,
+                                'conflict_count' => 0,
+                                'recurring_count' => 0,
+                            ];
+                        @endphp
                         <button
                             x-show="!alpineReady"
                             type="button"
                             style="display: flex;"
                             @click="if (typeof $wire !== 'undefined') { $wire.set('selectedDate', '{{ $dayData['dateString'] }}'); }"
-                            wire:loading.attr="disabled"
-                            wire:target="selectedDate"
-                            class="group relative flex h-full w-full min-w-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm {{ $dayData['isSelected'] ? 'bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
+                            :disabled="isBusy"
+                            class="group relative flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm {{ $dayData['isSelected'] ? 'bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
                             data-date="{{ $dayData['dateString'] }}"
                             aria-label="{{ __('Select date') }}: {{ \Illuminate\Support\Carbon::parse($dayData['dateString'])->translatedFormat('F j, Y') }}"
                         >
                             <span class="relative z-10">{{ $dayData['day'] }}</span>
+
+                            @php
+                                $hasOverdue = ($meta['overdue_count'] ?? 0) > 0;
+                                $hasUrgent = ($meta['urgent_count'] ?? 0) > 0 || ($meta['conflict_count'] ?? 0) > 0;
+                                $hasScheduled = ($meta['due_count'] ?? 0) > 0 || ($meta['event_count'] ?? 0) > 0;
+                            @endphp
+                            @if ($hasOverdue || $hasUrgent || $hasScheduled)
+                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex items-center gap-1 rounded-full bg-background/90 px-1 py-0.5 shadow-xs dark:bg-zinc-900/90">
+                                    @if ($hasOverdue)
+                                        <flux:tooltip content="{{ __('Overdue items') }}">
+                                            <span class="inline-flex size-2 rounded-full bg-red-500"></span>
+                                        </flux:tooltip>
+                                    @endif
+                                    @if ($hasUrgent)
+                                        <flux:tooltip content="{{ __('Urgent or conflicting') }}">
+                                            <span class="inline-flex size-2 rounded-full bg-amber-500"></span>
+                                        </flux:tooltip>
+                                    @endif
+                                    @if ($hasScheduled)
+                                        <flux:tooltip content="{{ __('Scheduled tasks or events') }}">
+                                            <span class="inline-flex size-2 rounded-full bg-cyan-500"></span>
+                                        </flux:tooltip>
+                                    @endif
+                                </div>
+                            @endif
                             
                             @if (!$dayData['isSelected'] && !$dayData['isToday'])
                                 <span class="absolute inset-0 rounded-lg bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"></span>
@@ -333,7 +512,7 @@
                 
                 {{-- Alpine reactive (shown when Alpine ready) --}}
                 <template x-for="dayData in days" :key="`day-${year}-${month}-${dayData.day}-${dayData.month}`">
-                    <div class="flex aspect-square min-w-0 w-full items-center justify-center" x-show="alpineReady" x-cloak>
+                    <div class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center sm:min-h-11" x-show="alpineReady" x-cloak>
                         {{-- Previous/Next Month Days (Grayed Out) --}}
                         <div 
                             x-show="dayData.month !== 'current'"
@@ -347,9 +526,8 @@
                             x-show="dayData.month === 'current'"
                             type="button"
                             @click="selectDay(dayData)"
-                            wire:loading.attr="disabled"
-                            wire:target="selectedDate"
-                            class="group relative flex h-full w-full min-w-0 items-center justify-center rounded-lg text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:text-sm"
+                            :disabled="isBusy"
+                            class="group relative flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:min-h-11 sm:text-sm"
                             :data-date="dayData.dateString"
                             :aria-label="`{{ __('Select date') }}: ${dayData.dateString}`"
                             :class="{
@@ -359,6 +537,32 @@
                             }"
                         >
                             <span class="relative z-10" x-text="dayData.day"></span>
+
+                            <template x-if="
+                                (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0
+                                || (dayData.meta?.urgent_count ?? getMeta(dayData.dateString).urgent_count) > 0
+                                || (dayData.meta?.conflict_count ?? getMeta(dayData.dateString).conflict_count) > 0
+                                || (dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > 0
+                                || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0
+                            ">
+                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex items-center gap-1 rounded-full bg-background/90 px-1 py-0.5 shadow-xs dark:bg-zinc-900/90">
+                                    <template x-if="(dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0">
+                                        <flux:tooltip content="{{ __('Overdue items') }}">
+                                            <span class="inline-flex size-2 rounded-full bg-red-500"></span>
+                                        </flux:tooltip>
+                                    </template>
+                                    <template x-if="(dayData.meta?.urgent_count ?? getMeta(dayData.dateString).urgent_count) > 0 || (dayData.meta?.conflict_count ?? getMeta(dayData.dateString).conflict_count) > 0">
+                                        <flux:tooltip content="{{ __('Urgent or conflicting') }}">
+                                            <span class="inline-flex size-2 rounded-full bg-amber-500"></span>
+                                        </flux:tooltip>
+                                    </template>
+                                    <template x-if="(dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > 0 || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0">
+                                        <flux:tooltip content="{{ __('Scheduled tasks or events') }}">
+                                            <span class="inline-flex size-2 rounded-full bg-cyan-500"></span>
+                                        </flux:tooltip>
+                                    </template>
+                                </div>
+                            </template>
                             
                             {{-- Hover effect indicator --}}
                             <span 
@@ -371,20 +575,132 @@
             </div>
         </div>
 
+        <div class="border-t border-brand-blue/20 px-3 py-3 sm:px-4" data-testid="calendar-selected-day-agenda">
+            <div class="mb-2 flex items-center justify-between">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ __('Selected day') }}
+                </h3>
+                <span class="text-[11px] text-muted-foreground">
+                    {{ \Illuminate\Support\Carbon::parse($selectedDayAgenda['date'] ?? $today)->translatedFormat('D, M j') }}
+                </span>
+            </div>
+
+            <div class="mb-2 grid grid-cols-4 gap-1 text-center">
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Tasks') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-tasks">{{ $selectedDayAgenda['summary']['tasks'] ?? 0 }}</p>
+                </div>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Events') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-events">{{ $selectedDayAgenda['summary']['events'] ?? 0 }}</p>
+                </div>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Conflicts') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-conflicts">{{ $selectedDayAgenda['summary']['conflicts'] ?? 0 }}</p>
+                </div>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Overdue') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-overdue">{{ $selectedDayAgenda['summary']['overdue'] ?? 0 }}</p>
+                </div>
+            </div>
+
+            <div class="max-h-48 space-y-2 overflow-y-auto pr-1">
+                @if (!empty($selectedDayAgenda['urgentTasks']))
+                    <div>
+                        <p class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-300">{{ __('Urgent tasks') }}</p>
+                        <ul class="space-y-1">
+                            @foreach (($selectedDayAgenda['urgentTasks'] ?? []) as $item)
+                                <li class="rounded-md bg-background/70 px-2 py-1 text-xs">
+                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                        <span class="truncate font-medium text-foreground">{{ $item['title'] }}</span>
+                                        <span class="shrink-0 text-[10px] text-muted-foreground">{{ $item['time'] }}</span>
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
+                @if (!empty($selectedDayAgenda['timedEvents']))
+                    <div>
+                        <p class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{{ __('Timed events') }}</p>
+                        <ul class="space-y-1">
+                            @foreach (($selectedDayAgenda['timedEvents'] ?? []) as $item)
+                                <li class="rounded-md bg-background/70 px-2 py-1 text-xs">
+                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                        <span class="truncate font-medium text-foreground">{{ $item['title'] }}</span>
+                                        <span class="shrink-0 text-[10px] text-muted-foreground">{{ $item['time'] }}</span>
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
+                @if (!empty($selectedDayAgenda['allDayEvents']))
+                    <div>
+                        <p class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">{{ __('All-day events') }}</p>
+                        <ul class="space-y-1">
+                            @foreach (($selectedDayAgenda['allDayEvents'] ?? []) as $item)
+                                <li class="rounded-md bg-background/70 px-2 py-1 text-xs">
+                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="block truncate font-medium text-foreground">
+                                        {{ $item['title'] }}
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
+                @if (!empty($selectedDayAgenda['carryoverTasks']))
+                    <div>
+                        <p class="mb-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">{{ __('Carryover tasks') }}</p>
+                        <ul class="space-y-1">
+                            @foreach (($selectedDayAgenda['carryoverTasks'] ?? []) as $item)
+                                <li class="rounded-md bg-background/70 px-2 py-1 text-xs">
+                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                        <span class="truncate font-medium text-foreground">{{ $item['title'] }}</span>
+                                        <span class="shrink-0 text-[10px] text-muted-foreground">{{ $item['time'] }}</span>
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
+                @if (
+                    empty($selectedDayAgenda['urgentTasks'])
+                    && empty($selectedDayAgenda['timedEvents'])
+                    && empty($selectedDayAgenda['allDayEvents'])
+                    && empty($selectedDayAgenda['carryoverTasks'])
+                )
+                    <p class="text-xs text-muted-foreground">{{ __('No scheduled items for this day.') }}</p>
+                @endif
+            </div>
+        </div>
+
         {{-- Footer: Today Button --}}
         <div class="px-3 py-2.5 sm:px-4 sm:py-3">
             <div class="flex items-center justify-center">
                 <button
                     type="button"
                     @click="goToday()"
-                    wire:loading.attr="disabled"
-                    wire:target="selectedDate"
+                    :disabled="isBusy"
                     class="rounded-lg px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-xs"
                     aria-label="{{ __('Go to today') }}"
                 >
                     {{ __('Today') }}
                 </button>
             </div>
+        </div>
+
+        <div
+            x-show="isBusy"
+            x-cloak
+            class="border-t border-brand-blue/20 px-3 py-1.5 text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:px-4"
+            aria-live="polite"
+        >
+            {{ __('Updating calendar...') }}
         </div>
     </div>
 </div>

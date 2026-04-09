@@ -427,85 +427,6 @@
                         @endauth
 
                         @auth
-                            <div class="{{ $dashboardPanelShell['collab'] }}">
-                                <div class="flex items-center justify-between gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['collab'] }}">
-                                    <div class="flex items-center gap-2">
-                                        <flux:icon name="users" class="size-4 text-violet-600 dark:text-violet-400" />
-                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-collaboration-pulse-heading">
-                                            {{ __('Collaboration Pulse') }}
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-3 gap-2 px-4 py-3">
-                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                        <p class="text-[11px] text-muted-foreground">{{ __('Pending invites') }}</p>
-                                        <p class="text-base font-bold text-foreground" data-testid="dashboard-collab-pending-invites">
-                                            {{ $collaborationPulseCounts['pending_invites'] ?? 0 }}
-                                        </p>
-                                    </div>
-                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                        <p class="text-[11px] text-muted-foreground">{{ __('Active collaborations') }}</p>
-                                        <p class="text-base font-bold text-foreground" data-testid="dashboard-collab-active">
-                                            {{ $collaborationPulseCounts['active_collaborations'] ?? 0 }}
-                                        </p>
-                                    </div>
-                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                        <p class="text-[11px] text-muted-foreground">{{ __('Activity (7d)') }}</p>
-                                        <p class="text-base font-bold text-foreground" data-testid="dashboard-collab-activity-7d">
-                                            {{ $collaborationPulseCounts['activity_last_7d'] ?? 0 }}
-                                        </p>
-                                    </div>
-                                </div>
-                                @if ($collaborationInboxInvites->isNotEmpty())
-                                    <div class="border-t border-border/60 px-4 py-3 dark:border-zinc-800">
-                                        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ __('Pending invitations') }}</p>
-                                        <ul class="space-y-2">
-                                            @foreach ($collaborationInboxInvites as $invite)
-                                                <li class="rounded-lg bg-muted/50 px-3 py-2 text-[11px]">
-                                                    <p class="font-semibold text-foreground">
-                                                        {{ $invite->inviter?->name ?? __('Unknown inviter') }}
-                                                    </p>
-                                                    <p class="truncate text-muted-foreground">
-                                                        {{ __('Shared :type · :title', ['type' => class_basename($invite->collaboratable_type), 'title' => $invite->collaboratable?->title ?? $invite->collaboratable?->name ?? __('Untitled')]) }}
-                                                    </p>
-                                                </li>
-                                            @endforeach
-                                        </ul>
-                                    </div>
-                                @endif
-                                @if ($collaborationPulseRecentActivity->isEmpty())
-                                    <div class="border-t border-border/60 px-4 py-3 dark:border-zinc-800">
-                                        <p class="text-xs text-muted-foreground">{{ __('No recent collaboration activity yet.') }}</p>
-                                        <p class="mt-1 text-[11px] text-muted-foreground">{{ __('Invite collaborators from workspace to start seeing updates here.') }}</p>
-                                        <a
-                                            href="{{ route('workspace', ['date' => now()->toDateString(), 'scope' => 'all']) }}"
-                                            wire:navigate
-                                            class="{{ $panelCtaClass }} mt-2"
-                                        >
-                                            <span>{{ __('Open workspace') }}</span>
-                                            <flux:icon name="arrow-right" class="{{ $panelCtaIconClass }}" />
-                                        </a>
-                                    </div>
-                                @else
-                                    <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
-                                        @foreach ($collaborationPulseRecentActivity as $activity)
-                                            <li class="px-4 py-2.5" data-testid="dashboard-row-collab-activity">
-                                                <p class="text-xs font-semibold text-foreground">
-                                                    {{ $activity['action_label'] }}
-                                                    <span class="font-normal text-muted-foreground">· {{ $activity['item_type'] }}</span>
-                                                </p>
-                                                <p class="truncate text-[11px] text-muted-foreground">{{ $activity['message'] }}</p>
-                                                <p class="mt-0.5 text-[11px] text-muted-foreground" aria-label="{{ __('Activity metadata') }}">
-                                                    {{ __(':actor · :when', ['actor' => $activity['actor'], 'when' => \Carbon\Carbon::parse($activity['created_at'])->diffForHumans()]) }}
-                                                </p>
-                                            </li>
-                                        @endforeach
-                                    </ul>
-                                @endif
-                            </div>
-                        @endauth
-
-                        @auth
                             <div class="rounded-xl border border-fuchsia-200/55 bg-background shadow-sm ring-1 ring-fuchsia-500/10 dark:border-fuchsia-900/40 dark:bg-zinc-900/50 dark:ring-fuchsia-500/10">
                                 <div class="flex items-center justify-between gap-2 border-b border-fuchsia-200/45 px-4 py-3 dark:border-fuchsia-900/45">
                                     <div class="flex items-center gap-2">
@@ -613,18 +534,21 @@
 
         {{-- Right Side: Calendar & Upcoming (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
-            @auth
-                <div class="w-full">
-                    <x-workspace.calendar-feeds-popover />
-                </div>
-            @endauth
-
-            <div class="sticky top-6 mt-4" data-focus-lock-viewport>
+            <div class="sticky top-6" data-focus-lock-viewport>
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
+                    :month-meta="$this->calendarMonthMeta"
+                    :selected-day-agenda="$this->selectedDayAgenda"
+                    :source-filter="$this->calendarSourceFilter"
                 />
+
+                @auth
+                    <div class="mt-4">
+                        <x-workspace.calendar-feeds-popover />
+                    </div>
+                @endauth
 
                 <div class="mt-4">
                     <x-workspace.upcoming
