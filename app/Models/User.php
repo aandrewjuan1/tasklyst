@@ -37,6 +37,21 @@ class User extends Authenticatable
     ];
 
     /**
+     * The user's first given name (first word of the full name).
+     */
+    public function firstName(): string
+    {
+        $name = trim((string) $this->name);
+        if ($name === '') {
+            return '';
+        }
+
+        $parts = preg_split('/\s+/u', $name, -1, PREG_SPLIT_NO_EMPTY);
+
+        return $parts[0] ?? '';
+    }
+
+    /**
      * Get the user's initials.
      */
     public function initials(): string

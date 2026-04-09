@@ -605,7 +605,7 @@ trait HandlesTrash
     private function restoreTrashSuccessMessage(string $kind): string
     {
         return match ($kind) {
-            'task' => __('Restored the task.'),
+            'task' => __('Restored the task. Logged focus time is unchanged.'),
             'project' => __('Restored the project.'),
             'event' => __('Restored the event.'),
             default => __('Restored the item.'),

@@ -14,6 +14,14 @@ class DeleteTaskAction
 
     public function execute(Task $task, ?User $actor = null): bool
     {
+        return $this->taskService->deleteTask($task, $actor)['success'];
+    }
+
+    /**
+     * @return array{success: bool, abandoned_in_progress_focus_session: bool}
+     */
+    public function executeWithFocusMeta(Task $task, ?User $actor = null): array
+    {
         return $this->taskService->deleteTask($task, $actor);
     }
 }

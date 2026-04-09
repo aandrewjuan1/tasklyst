@@ -497,33 +497,15 @@ class Task extends Model
         $total = 0;
 
         foreach ($sessions as $session) {
-            if (! $session instanceof FocusSession || $session->type?->value !== 'work' || $session->started_at === null) {
+            if (! $session instanceof FocusSession) {
                 continue;
             }
 
-            $startedAt = CarbonImmutable::instance($session->started_at);
-            $endedAt = null;
+            $effective = $session->effectiveWorkSeconds($referenceTime);
 
-            if ($session->ended_at !== null) {
-                $endedAt = CarbonImmutable::instance($session->ended_at);
-            } elseif ($session->paused_at !== null) {
-                $endedAt = CarbonImmutable::instance($session->paused_at);
+            if ($effective !== null) {
+                $total += $effective;
             }
-
-            // Active in-progress sessions are excluded from the base total and added live on the frontend.
-            if ($endedAt === null) {
-                continue;
-            }
-
-            if ($endedAt->greaterThan($referenceTime)) {
-                $endedAt = $referenceTime;
-            }
-
-            $elapsedSeconds = max(0, $endedAt->getTimestamp() - $startedAt->getTimestamp());
-            $pausedSeconds = max(0, (int) ($session->paused_seconds ?? 0));
-            $effectiveSeconds = max(0, $elapsedSeconds - $pausedSeconds);
-
-            $total += $effectiveSeconds;
         }
 
         return $total;

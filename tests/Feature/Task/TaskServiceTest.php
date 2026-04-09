@@ -1,9 +1,11 @@
 <?php
 
 use App\Enums\CollaborationPermission;
+use App\Enums\FocusSessionType;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
+use App\Models\FocusSession;
 use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\Tag;
@@ -147,7 +149,8 @@ test('delete task soft deletes and boot removes related records', function (): v
 
     $result = $this->service->deleteTask($task);
 
-    expect($result)->toBeTrue();
+    expect($result['success'])->toBeTrue()
+        ->and($result['abandoned_in_progress_focus_session'])->toBeFalse();
     expect(Task::withTrashed()->find($task->id))->not->toBeNull()
         ->and(Task::withTrashed()->find($task->id)->trashed())->toBeTrue();
     expect(RecurringTask::find($recurring->id))->not->toBeNull();
@@ -167,9 +170,36 @@ test('restore task clears deleted_at and records activity', function (): void {
         ->and($task->fresh()->trashed())->toBeFalse();
 });
 
-test('force delete task removes record permanently', function (): void {
+test('delete task abandons in-progress focus sessions', function (): void {
+    $task = Task::factory()->for($this->user)->create();
+    $session = FocusSession::factory()->for($this->user)->create([
+        'focusable_type' => $task->getMorphClass(),
+        'focusable_id' => $task->id,
+        'type' => FocusSessionType::Work,
+        'ended_at' => null,
+        'completed' => false,
+    ]);
+
+    $result = $this->service->deleteTask($task);
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['abandoned_in_progress_focus_session'])->toBeTrue();
+    $session->refresh();
+    expect($session->ended_at)->not->toBeNull()
+        ->and($session->completed)->toBeFalse();
+});
+
+test('force delete task removes record permanently and deletes focus sessions', function (): void {
     $task = Task::factory()->for($this->user)->create();
     $taskId = $task->id;
+    $morphClass = $task->getMorphClass();
+    FocusSession::factory()->for($this->user)->create([
+        'focusable_type' => $morphClass,
+        'focusable_id' => $task->id,
+        'type' => FocusSessionType::Work,
+        'ended_at' => now()->subMinute(),
+        'completed' => true,
+    ]);
     $task->delete();
     expect(Task::withTrashed()->find($taskId))->not->toBeNull();
 
@@ -177,13 +207,14 @@ test('force delete task removes record permanently', function (): void {
 
     expect($result)->toBeTrue();
     expect(Task::withTrashed()->find($taskId))->toBeNull();
+    expect(FocusSession::query()->where('focusable_id', $taskId)->where('focusable_type', $morphClass)->count())->toBe(0);
 });
 
 test('soft delete recurring task keeps recurring task and restore brings recurrence back', function (): void {
     $task = Task::factory()->for($this->user)->create();
     $recurring = RecurringTask::factory()->create(['task_id' => $task->id]);
 
-    $this->service->deleteTask($task);
+    expect($this->service->deleteTask($task)['success'])->toBeTrue();
 
     expect(RecurringTask::find($recurring->id))->not->toBeNull();
 

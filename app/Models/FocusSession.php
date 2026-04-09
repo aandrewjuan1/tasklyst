@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\FocusModeType;
 use App\Enums\FocusSessionType;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -87,6 +89,41 @@ class FocusSession extends Model
     public function scopeThisWeek(Builder $query): Builder
     {
         return $query->whereBetween('started_at', [now()->startOfWeek(), now()->endOfWeek()]);
+    }
+
+    /**
+     * Effective work seconds for an ended work session: wall elapsed time minus paused time.
+     * Returns null for non-work sessions, missing start, or sessions still in progress (no end boundary).
+     */
+    public function effectiveWorkSeconds(?CarbonInterface $at = null): ?int
+    {
+        if ($this->type !== FocusSessionType::Work || $this->started_at === null) {
+            return null;
+        }
+
+        $referenceTime = $at !== null ? CarbonImmutable::instance($at) : CarbonImmutable::now();
+        $startedAt = CarbonImmutable::instance($this->started_at);
+
+        $endedAt = null;
+
+        if ($this->ended_at !== null) {
+            $endedAt = CarbonImmutable::instance($this->ended_at);
+        } elseif ($this->paused_at !== null) {
+            $endedAt = CarbonImmutable::instance($this->paused_at);
+        }
+
+        if ($endedAt === null) {
+            return null;
+        }
+
+        if ($endedAt->greaterThan($referenceTime)) {
+            $endedAt = $referenceTime;
+        }
+
+        $elapsedSeconds = max(0, $endedAt->getTimestamp() - $startedAt->getTimestamp());
+        $pausedSeconds = max(0, (int) ($this->paused_seconds ?? 0));
+
+        return max(0, $elapsedSeconds - $pausedSeconds);
     }
 
     /**

@@ -15,6 +15,8 @@
     --color-brand-blue: #4786d7;
     --color-brand-light-blue: #e2ecfc;
     --color-brand-light-lavender: #fbf9fc;
+    --color-workspace-panel-lavender: #f5f1fb;
+    --color-workspace-panel-lavender-dark: #2e2a3a;
     --color-brand-navy-blue: #213448;
 
     --color-zinc-50: #fafafa;
@@ -91,6 +93,28 @@ select:focus[data-flux-control] {
 }
 
 /* Focus lock transform is applied inline in layout so sidebar/header don't flicker. */
+
+@layer components {
+    /**
+     * Dashboard / workspace sidebar: calendar & upcoming — lavender surface, no border, soft depth.
+     */
+    .workspace-sidebar-panel {
+        @apply overflow-hidden rounded-xl;
+        background-color: var(--color-workspace-panel-lavender);
+        box-shadow:
+            0 22px 44px -14px rgb(33 52 72 / 0.1),
+            0 10px 22px -10px rgb(33 52 72 / 0.07),
+            0 4px 10px -4px rgb(33 52 72 / 0.05);
+    }
+
+    .dark .workspace-sidebar-panel {
+        background-color: var(--color-workspace-panel-lavender-dark);
+        box-shadow:
+            0 25px 50px -12px rgb(0 0 0 / 0.4),
+            0 12px 28px -10px rgb(0 0 0 / 0.28),
+            0 4px 12px -4px rgb(0 0 0 / 0.2);
+    }
+}
 
 /* Fixed sidebar on desktop: full viewport height on the left, no empty space when scrolling */
 @media (min-width: 1024px) {

@@ -1,11 +1,13 @@
 <?php
 
 use App\Data\Analytics\DashboardAnalyticsOverview;
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use App\Services\UserAnalyticsService;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
@@ -18,6 +20,8 @@ new
 class extends Component
 {
     private const ANALYTICS_PRESETS = ['daily', 'weekly', 'monthly'];
+
+    private const AT_A_GLANCE_LIMIT = 7;
 
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
@@ -98,6 +102,116 @@ class extends Component
     private function analyticsAnchor(): CarbonInterface
     {
         return now();
+    }
+
+    #[Computed]
+    public function workspaceUrlForToday(): string
+    {
+        return route('workspace', ['date' => now()->toDateString()]);
+    }
+
+    /**
+     * @return EloquentCollection<int, Task>
+     */
+    #[Computed]
+    public function dashboardOverdueTasks(): EloquentCollection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return new EloquentCollection;
+        }
+
+        $now = now();
+
+        return Task::query()
+            ->with(['project'])
+            ->forUser($userId)
+            ->incomplete()
+            ->overdue($now)
+            ->whereDoesntHave('recurringTask')
+            ->orderByPriority()
+            ->orderBy('end_datetime')
+            ->limit(self::AT_A_GLANCE_LIMIT)
+            ->get();
+    }
+
+    /**
+     * @return EloquentCollection<int, Task>
+     */
+    #[Computed]
+    public function dashboardDoingTasks(): EloquentCollection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return new EloquentCollection;
+        }
+
+        return Task::query()
+            ->with([
+                'project',
+                'focusSessions' => fn ($query) => $query->work(),
+            ])
+            ->forUser($userId)
+            ->incomplete()
+            ->where('status', TaskStatus::Doing)
+            ->whereDoesntHave('recurringTask')
+            ->orderByPriority()
+            ->orderBy('end_datetime')
+            ->limit(self::AT_A_GLANCE_LIMIT)
+            ->get();
+    }
+
+    /**
+     * @return EloquentCollection<int, Task>
+     */
+    #[Computed]
+    public function dashboardDueTodayTasks(): EloquentCollection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return new EloquentCollection;
+        }
+
+        $startOfDay = now()->startOfDay();
+        $endOfDay = now()->copy()->endOfDay();
+
+        return Task::query()
+            ->with(['project'])
+            ->forUser($userId)
+            ->incomplete()
+            ->whereNotNull('end_datetime')
+            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+            ->whereDoesntHave('recurringTask')
+            ->orderByPriority()
+            ->orderBy('end_datetime')
+            ->limit(self::AT_A_GLANCE_LIMIT)
+            ->get();
+    }
+
+    /**
+     * @return EloquentCollection<int, Event>
+     */
+    #[Computed]
+    public function dashboardTodayEvents(): EloquentCollection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return new EloquentCollection;
+        }
+
+        $startOfDay = now()->startOfDay();
+        $endOfDay = now()->copy()->endOfDay();
+
+        return Event::query()
+            ->forUser($userId)
+            ->notCancelled()
+            ->notCompleted()
+            ->whereDoesntHave('recurringEvent')
+            ->whereNotNull('start_datetime')
+            ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
+            ->orderBy('start_datetime')
+            ->limit(self::AT_A_GLANCE_LIMIT)
+            ->get();
     }
 
     #[Computed]

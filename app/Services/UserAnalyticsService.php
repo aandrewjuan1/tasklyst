@@ -30,13 +30,18 @@ class UserAnalyticsService
         $currentCreatedCount = $this->tasksCreatedBaseQuery($user, $period->currentStart, $period->currentEnd)->count();
         $previousCreatedCount = $this->tasksCreatedBaseQuery($user, $period->previousStart, $period->previousEnd)->count();
 
-        $currentFocusBase = $this->focusWorkBaseQuery($user, $period->currentStart, $period->currentEnd);
-        $previousFocusBase = $this->focusWorkBaseQuery($user, $period->previousStart, $period->previousEnd);
-
-        $currentFocusWorkSecondsTotal = (int) (clone $currentFocusBase)->sum('duration_seconds');
-        $previousFocusWorkSecondsTotal = (int) (clone $previousFocusBase)->sum('duration_seconds');
-        $currentFocusWorkSessionsCount = (int) (clone $currentFocusBase)->count();
-        $previousFocusWorkSessionsCount = (int) (clone $previousFocusBase)->count();
+        [$currentFocusWorkSecondsTotal, $currentFocusWorkSessionsCount] = $this->focusWorkPeriodTotals(
+            $user,
+            $period->currentStart,
+            $period->currentEnd,
+            $period->currentEnd
+        );
+        [$previousFocusWorkSecondsTotal, $previousFocusWorkSessionsCount] = $this->focusWorkPeriodTotals(
+            $user,
+            $period->previousStart,
+            $period->previousEnd,
+            $period->previousEnd
+        );
 
         $currentOverdueCount = $this->overdueCount($user, $period->currentEnd);
         $previousOverdueCount = $this->overdueCount($user, $period->previousEnd);
@@ -117,14 +122,12 @@ class UserAnalyticsService
             ->whereBetween('created_at', [$periodStart, $periodEnd])
             ->count();
 
-        $focusBase = FocusSession::query()
-            ->forUser($user->id)
-            ->work()
-            ->completed()
-            ->whereBetween('started_at', [$periodStart, $periodEnd]);
-
-        $focusWorkSecondsTotal = (int) (clone $focusBase)->sum('duration_seconds');
-        $focusWorkSessionsCount = (int) (clone $focusBase)->count();
+        [$focusWorkSecondsTotal, $focusWorkSessionsCount] = $this->focusWorkPeriodTotals(
+            $user,
+            $periodStart,
+            $periodEnd,
+            $periodEnd
+        );
 
         $tasksCompletedByDay = $this->tasksCompletedByDay($user, $periodStart, $periodEnd);
         $focusWorkSecondsByDay = $this->focusWorkSecondsByDay($user, $periodStart, $periodEnd);
@@ -183,15 +186,46 @@ class UserAnalyticsService
     }
 
     /**
+     * Work sessions that started in the period and have an end boundary (not in-progress with no pause/end).
+     *
      * @return Builder<FocusSession>
      */
-    private function focusWorkBaseQuery(User $user, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
+    private function endedWorkSessionsBaseQuery(User $user, CarbonImmutable $periodStart, CarbonImmutable $periodEnd): Builder
     {
         return FocusSession::query()
             ->forUser($user->id)
             ->work()
-            ->completed()
-            ->whereBetween('started_at', [$periodStart, $periodEnd]);
+            ->whereNotNull('started_at')
+            ->whereBetween('started_at', [$periodStart, $periodEnd])
+            ->where(function (Builder $query): void {
+                $query->whereNotNull('ended_at')
+                    ->orWhereNotNull('paused_at');
+            });
+    }
+
+    /**
+     * @return array{0: int, 1: int}
+     */
+    private function focusWorkPeriodTotals(
+        User $user,
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        CarbonImmutable $referenceTime
+    ): array {
+        $sessions = $this->endedWorkSessionsBaseQuery($user, $periodStart, $periodEnd)->get();
+
+        $seconds = 0;
+        $count = 0;
+
+        foreach ($sessions as $session) {
+            $effective = $session->effectiveWorkSeconds($referenceTime);
+            if ($effective !== null) {
+                $seconds += $effective;
+                $count++;
+            }
+        }
+
+        return [$seconds, $count];
     }
 
     /**
@@ -245,13 +279,17 @@ class UserAnalyticsService
     {
         $timezone = (string) config('app.timezone');
 
-        $sessions = $this->focusWorkBaseQuery($user, $periodStart, $periodEnd)
-            ->get(['started_at', 'duration_seconds']);
+        $sessions = $this->endedWorkSessionsBaseQuery($user, $periodStart, $periodEnd)->get();
 
         $map = [];
         foreach ($sessions as $session) {
+            $effective = $session->effectiveWorkSeconds($periodEnd);
+            if ($effective === null) {
+                continue;
+            }
+
             $day = $session->started_at->timezone($timezone)->format('Y-m-d');
-            $map[$day] = ($map[$day] ?? 0) + (int) $session->duration_seconds;
+            $map[$day] = ($map[$day] ?? 0) + $effective;
         }
         ksort($map);
 
@@ -265,11 +303,14 @@ class UserAnalyticsService
     {
         $timezone = (string) config('app.timezone');
 
-        $sessions = $this->focusWorkBaseQuery($user, $periodStart, $periodEnd)
-            ->get(['started_at']);
+        $sessions = $this->endedWorkSessionsBaseQuery($user, $periodStart, $periodEnd)->get();
 
         $map = [];
         foreach ($sessions as $session) {
+            if ($session->effectiveWorkSeconds($periodEnd) === null) {
+                continue;
+            }
+
             $day = $session->started_at->timezone($timezone)->format('Y-m-d');
             $map[$day] = ($map[$day] ?? 0) + 1;
         }

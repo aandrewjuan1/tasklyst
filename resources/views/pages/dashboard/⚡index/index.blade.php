@@ -36,21 +36,6 @@
 @endphp
 
 <section class="space-y-6">
-    {{-- Header --}}
-    <div class="flex flex-wrap items-start justify-between gap-4">
-        <div class="space-y-1">
-            <div class="w-fit rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground sm:text-sm">
-                {{ now()->translatedFormat('l, F j, Y') }}
-            </div>
-            <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">
-                {{ __('Dashboard') }}
-            </h1>
-            <p class="text-sm text-muted-foreground">
-                {{ __('Your task management area') }}
-            </p>
-        </div>
-    </div>
-
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: Analytics (80%) --}}
@@ -65,8 +50,15 @@
                         @if ($analytics)
                             <div class="relative flex min-h-56 w-full items-center overflow-hidden rounded-2xl border border-brand-blue/20 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15 px-5 py-5 shadow-sm lg:min-h-60 lg:px-7">
                                 <div class="relative z-10 max-w-xl space-y-2">
-                                    <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue/90">
-                                        {{ __('Welcome to Tasklyst') }}
+                                    @php
+                                        $greetingName = auth()->user()->firstName();
+                                    @endphp
+                                    <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue/90 sm:text-sm">
+                                        @if ($greetingName !== '')
+                                            {{ __('Dashboard — Hello, :name!', ['name' => $greetingName]) }}
+                                        @else
+                                            {{ __('Dashboard — Hello!') }}
+                                        @endif
                                     </p>
                                     <h2 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                                         {{ __('Plan smarter, execute faster, and finish what matters.') }}
@@ -132,16 +124,28 @@
                                     @endif
                                 @endforeach
                             </div>
+                        @endif
 
-                            <div class="grid grid-cols-1 gap-4 2xl:grid-cols-12">
+                        @auth
+                            <x-dashboard.at-a-glance
+                                :overdue-tasks="$this->dashboardOverdueTasks"
+                                :doing-tasks="$this->dashboardDoingTasks"
+                                :due-today-tasks="$this->dashboardDueTodayTasks"
+                                :today-events="$this->dashboardTodayEvents"
+                                :workspace-url="$this->workspaceUrlForToday"
+                            />
+                        @endauth
+
+                        @if ($analytics)
+                            <div class="flex flex-col gap-4">
                                 @island(name: 'dashboard-trend')
                                     <div
                                         x-data="dashboardAnalyticsCharts({ analytics: @js($this->trendAnalytics), preset: @js($this->trendPreset) })"
                                         x-effect="sync(@js($this->trendAnalytics), @js($this->trendPreset))"
                                         wire:key="dashboard-trend-{{ $this->selectedDate }}-{{ $this->trendPreset }}"
-                                        class="overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm 2xl:col-span-8"
+                                        class="w-full overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
                                     >
-                                        <div class="flex items-center justify-between border-b border-border/60 px-3 py-2">
+                                        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
                                             <div class="font-primary text-base font-bold text-foreground">{{ __('Trend') }}</div>
                                             <div class="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
                                                 @foreach (['daily' => __('Daily'), 'weekly' => __('Weekly'), 'monthly' => __('Monthly')] as $presetValue => $presetLabel)
@@ -158,8 +162,23 @@
                                                 @endforeach
                                             </div>
                                         </div>
-                                        <div class="px-3 py-3">
-                                            <div x-ref="trendChart" wire:ignore class="h-64 w-full"></div>
+                                        <div class="grid grid-cols-1 gap-4 p-3 lg:grid-cols-2 lg:gap-6">
+                                            <div class="min-w-0 space-y-1">
+                                                <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                    {{ __('Tasks') }}
+                                                </div>
+                                                <div x-ref="trendChart" wire:ignore class="h-64 min-h-[240px] w-full"></div>
+                                            </div>
+                                            <div
+                                                class="min-w-0 space-y-2 border-t border-border/60 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
+                                            >
+                                                <div class="font-primary text-base font-bold text-foreground">{{ __('Focus') }}</div>
+                                                <div
+                                                    x-ref="focusSessionsChart"
+                                                    wire:ignore
+                                                    class="h-64 min-h-[240px] w-full"
+                                                ></div>
+                                            </div>
                                         </div>
                                     </div>
                                 @endisland
@@ -169,14 +188,54 @@
                                         x-data="dashboardAnalyticsCharts({ analytics: @js($this->analytics), preset: @js($this->analyticsPreset) })"
                                         x-effect="sync(@js($this->analytics), @js($this->analyticsPreset))"
                                         wire:key="dashboard-status-{{ $this->selectedDate }}-{{ $this->analyticsPreset }}"
-                                        class="grid grid-cols-1 gap-4 2xl:col-span-4"
+                                        class="grid w-full grid-cols-1 gap-4 md:grid-cols-3"
                                     >
-                                        <div class="overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm">
-                                            <div class="flex items-center justify-between border-b border-border/60 px-3 py-2">
-                                                <div class="font-primary text-base font-bold text-foreground">{{ __('Status breakdown') }}</div>
+                                        <div
+                                            class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
+                                        >
+                                            <div class="border-b border-border/60 px-3 py-2">
+                                                <div class="font-primary text-base font-bold text-foreground">
+                                                    {{ __('Status breakdown') }}
+                                                </div>
                                             </div>
-                                            <div class="px-3 py-3">
-                                                <div x-ref="statusChart" wire:ignore class="h-64 w-full"></div>
+                                            <div class="px-2 py-3 sm:px-3">
+                                                <div
+                                                    x-ref="statusChart"
+                                                    wire:ignore
+                                                    class="mx-auto h-56 min-h-[220px] w-full max-w-md"
+                                                ></div>
+                                            </div>
+                                        </div>
+                                        <div
+                                            class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
+                                        >
+                                            <div class="border-b border-border/60 px-3 py-2">
+                                                <div class="font-primary text-base font-bold text-foreground">
+                                                    {{ __('Priority breakdown') }}
+                                                </div>
+                                            </div>
+                                            <div class="px-2 py-3 sm:px-3">
+                                                <div
+                                                    x-ref="priorityChart"
+                                                    wire:ignore
+                                                    class="h-56 min-h-[220px] w-full"
+                                                ></div>
+                                            </div>
+                                        </div>
+                                        <div
+                                            class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
+                                        >
+                                            <div class="border-b border-border/60 px-3 py-2">
+                                                <div class="font-primary text-base font-bold text-foreground">
+                                                    {{ __('Complexity breakdown') }}
+                                                </div>
+                                            </div>
+                                            <div class="px-2 py-3 sm:px-3">
+                                                <div
+                                                    x-ref="complexityChart"
+                                                    wire:ignore
+                                                    class="h-56 min-h-[220px] w-full"
+                                                ></div>
                                             </div>
                                         </div>
                                     </div>

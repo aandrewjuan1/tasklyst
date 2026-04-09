@@ -67,8 +67,8 @@
 @endphp
 
 <div class="mt-4 w-full">
-    <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+    <div class="workspace-sidebar-panel">
+        <div class="flex items-center gap-2 px-4 py-3">
             <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
             <div class="flex flex-col">
                 <span class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -140,7 +140,7 @@
                                 @endphp
 
                                 <li
-                                    class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5"
+                                    class="flex items-start gap-2 rounded-lg bg-background/55 px-2.5 py-1.5 shadow-sm dark:bg-white/5"
                                 >
                                     <div class="mt-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {{ $accentClass }}">
                                         <div class="flex items-center gap-1">

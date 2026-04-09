@@ -168,6 +168,63 @@ test('overview throws when start is after end', function (): void {
     ))->toThrow(InvalidArgumentException::class, 'Analytics period start must be on or before the period end.');
 });
 
+test('overview aggregates effective focus seconds including abandoned ended work sessions', function (): void {
+    $start = CarbonImmutable::parse('2025-01-10', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-01-16', config('app.timezone'));
+
+    $task = Task::factory()->for($this->user)->create();
+
+    FocusSession::factory()->for($this->user)->for($task, 'focusable')->work()->create([
+        'completed' => false,
+        'duration_seconds' => 999,
+        'started_at' => Carbon::parse('2025-01-12 10:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-12 10:02:00', config('app.timezone')),
+        'paused_seconds' => 0,
+    ]);
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->focusWorkSecondsTotal)->toBe(120)
+        ->and($overview->focusWorkSessionsCount)->toBe(1)
+        ->and($overview->focusWorkSecondsByDay['2025-01-12'])->toBe(120);
+});
+
+test('overview subtracts paused_seconds from effective focus time', function (): void {
+    $start = CarbonImmutable::parse('2025-01-10', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-01-16', config('app.timezone'));
+
+    $task = Task::factory()->for($this->user)->create();
+
+    FocusSession::factory()->for($this->user)->for($task, 'focusable')->work()->completed()->create([
+        'duration_seconds' => 600,
+        'started_at' => Carbon::parse('2025-01-12 10:00:00', config('app.timezone')),
+        'ended_at' => Carbon::parse('2025-01-12 10:10:00', config('app.timezone')),
+        'paused_seconds' => 100,
+    ]);
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->focusWorkSecondsTotal)->toBe(500)
+        ->and($overview->focusWorkSecondsByDay['2025-01-12'])->toBe(500);
+});
+
+test('overview excludes in-progress focus sessions from focus totals', function (): void {
+    $start = CarbonImmutable::parse('2025-01-10', config('app.timezone'));
+    $end = CarbonImmutable::parse('2025-01-16', config('app.timezone'));
+
+    $task = Task::factory()->for($this->user)->create();
+
+    FocusSession::factory()->for($this->user)->for($task, 'focusable')->work()->inProgress()->create([
+        'started_at' => Carbon::parse('2025-01-12 10:00:00', config('app.timezone')),
+    ]);
+
+    $overview = $this->service->overview($this->user, $start, $end);
+
+    expect($overview->focusWorkSecondsTotal)->toBe(0)
+        ->and($overview->focusWorkSessionsCount)->toBe(0)
+        ->and($overview->focusWorkSecondsByDay)->toBe([]);
+});
+
 test('completed tasks bucket by app timezone local calendar day', function (): void {
     config(['app.timezone' => 'Asia/Tokyo']);
 

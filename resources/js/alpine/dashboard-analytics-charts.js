@@ -235,6 +235,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             }
 
             this.applyTrendChartHeight();
+            this.applyFocusChartHeight();
             this.setTrendOption();
             this.setFocusSessionsOption();
             this.setStatusDonutOption();
@@ -259,45 +260,32 @@ export function dashboardAnalyticsCharts(config = {}) {
             const labels = this.analytics?.trends?.labels ?? [];
             const tasksCreated = this.analytics?.trends?.tasks_created ?? [];
             const tasksCompleted = this.analytics?.trends?.tasks_completed ?? [];
-            const focusSeconds = this.analytics?.trends?.focus_work_seconds ?? [];
 
             this.applyChartOption('trend', {
                 tooltip: { trigger: 'axis' },
                 legend: {
-                    data: ['Tasks Created', 'Tasks Completed', 'Focus (seconds)'],
+                    data: ['Tasks Created', 'Tasks Completed'],
                     bottom: 4,
                 },
-                grid: { left: 52, right: 52, top: 36, bottom: 56, containLabel: true },
+                grid: { left: 52, right: 24, top: 36, bottom: 56, containLabel: true },
                 xAxis: {
                     type: 'category',
                     data: labels,
                     axisLabel: { hideOverlap: true },
                 },
-                yAxis: [
-                    { type: 'value', name: 'Tasks', nameLocation: 'middle', nameGap: 42 },
-                    { type: 'value', name: 'Seconds', nameLocation: 'middle', nameGap: 42 },
-                ],
+                yAxis: { type: 'value', name: 'Tasks', nameLocation: 'middle', nameGap: 42 },
                 series: [
                     {
                         name: 'Tasks Created',
                         type: 'line',
                         smooth: true,
                         data: tasksCreated,
-                        yAxisIndex: 0,
                     },
                     {
                         name: 'Tasks Completed',
                         type: 'line',
                         smooth: true,
                         data: tasksCompleted,
-                        yAxisIndex: 0,
-                    },
-                    {
-                        name: 'Focus (seconds)',
-                        type: 'line',
-                        smooth: true,
-                        data: focusSeconds,
-                        yAxisIndex: 1,
                     },
                 ],
             });
@@ -312,6 +300,32 @@ export function dashboardAnalyticsCharts(config = {}) {
             const height = pointCount <= 7 ? 240 : pointCount <= 14 ? 270 : 300;
 
             this.$refs.trendChart.style.height = `${height}px`;
+            this.$refs.trendChart.style.minHeight = `${height}px`;
+        },
+
+        applyFocusChartHeight() {
+            if (!this.$refs.focusSessionsChart) {
+                return;
+            }
+
+            const pointCount = this.analytics?.trends?.labels?.length ?? 0;
+            const height = pointCount <= 7 ? 240 : pointCount <= 14 ? 270 : 300;
+
+            this.$refs.focusSessionsChart.style.height = `${height}px`;
+            this.$refs.focusSessionsChart.style.minHeight = `${height}px`;
+        },
+
+        formatFocusDurationSeconds(totalSeconds) {
+            const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+            if (s >= 3600) {
+                const h = s / 3600;
+                const rounded = Math.round(h * 10) / 10;
+                return `${rounded} h`;
+            }
+            if (s >= 60) {
+                return `${Math.round(s / 60)} min`;
+            }
+            return `${s} s`;
         },
 
         setFocusSessionsOption() {
@@ -320,22 +334,66 @@ export function dashboardAnalyticsCharts(config = {}) {
             }
 
             const labels = this.analytics?.trends?.labels ?? [];
+            const focusSeconds = this.analytics?.trends?.focus_work_seconds ?? [];
             const focusSessions = this.analytics?.trends?.focus_sessions ?? [];
+            const formatDuration = this.formatFocusDurationSeconds.bind(this);
 
             this.applyChartOption('focusSessions', {
-                tooltip: { trigger: 'axis' },
-                grid: { left: 40, right: 20, top: 20, bottom: 30, containLabel: true },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter(params) {
+                        if (!Array.isArray(params) || params.length === 0) {
+                            return '';
+                        }
+                        const axisValue = params[0]?.axisValue ?? '';
+                        const lines = [axisValue];
+                        for (const p of params) {
+                            if (p.seriesName === 'Focus time') {
+                                lines.push(`${p.marker}${p.seriesName}: ${formatDuration(p.value)}`);
+                            } else if (p.seriesName === 'Sessions') {
+                                lines.push(`${p.marker}${p.seriesName}: ${p.value}`);
+                            }
+                        }
+                        return lines.join('<br/>');
+                    },
+                },
+                legend: {
+                    data: ['Focus time', 'Sessions'],
+                    bottom: 4,
+                },
+                grid: { left: 52, right: 52, top: 36, bottom: 56, containLabel: true },
                 xAxis: {
                     type: 'category',
                     data: labels,
                     axisLabel: { hideOverlap: true },
                 },
-                yAxis: { type: 'value' },
+                yAxis: [
+                    {
+                        type: 'value',
+                        name: 'Seconds',
+                        nameLocation: 'middle',
+                        nameGap: 42,
+                    },
+                    {
+                        type: 'value',
+                        name: 'Sessions',
+                        nameLocation: 'middle',
+                        nameGap: 42,
+                    },
+                ],
                 series: [
                     {
-                        name: 'Focus sessions',
+                        name: 'Focus time',
+                        type: 'line',
+                        smooth: true,
+                        data: focusSeconds,
+                        yAxisIndex: 0,
+                    },
+                    {
+                        name: 'Sessions',
                         type: 'bar',
                         data: focusSessions,
+                        yAxisIndex: 1,
                     },
                 ],
             });
@@ -392,9 +450,14 @@ export function dashboardAnalyticsCharts(config = {}) {
 
             this.applyChartOption(chartKey, {
                 tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                grid: { left: 20, right: 20, top: 20, bottom: 20, containLabel: true },
+                grid: { left: 8, right: 10, top: 12, bottom: 8, containLabel: true },
                 xAxis: { type: 'value' },
-                yAxis: { type: 'category', data: labels, inverse: true, axisLabel: { width: 140, overflow: 'truncate' } },
+                yAxis: {
+                    type: 'category',
+                    data: labels,
+                    inverse: true,
+                    axisLabel: { width: 96, overflow: 'truncate', fontSize: 11 },
+                },
                 series: [{ name: seriesName, type: 'bar', data: values }],
             });
         },

@@ -160,11 +160,25 @@ class UpdateTaskPropertyAction
         $oldStatus = $task->status?->value;
         $statusEnum = TaskStatus::tryFrom($validatedValue) ?? $task->status;
 
+        if ($occurrenceDate !== null && $occurrenceDate !== '') {
+            $dateCarbon = Date::parse($occurrenceDate);
+            $priorEffectiveStatus = $this->taskService->getEffectiveStatusForDateResolved($task, $dateCarbon);
+            $shouldResetFocusProgress = $priorEffectiveStatus === TaskStatus::Done
+                && $statusEnum !== TaskStatus::Done;
+        } else {
+            $shouldResetFocusProgress = $oldStatus === TaskStatus::Done->value
+                && $validatedValue !== TaskStatus::Done->value;
+        }
+
         try {
             if ($occurrenceDate !== null && $occurrenceDate !== '') {
                 $this->taskService->updateRecurringOccurrenceStatus($task, Date::parse($occurrenceDate), $statusEnum);
             } else {
                 $this->taskService->updateTask($task, ['status' => $validatedValue]);
+            }
+
+            if ($shouldResetFocusProgress) {
+                $task->focusSessions()->delete();
             }
 
             if ($actor !== null) {
@@ -176,7 +190,7 @@ class UpdateTaskPropertyAction
                 );
             }
 
-            return UpdateTaskPropertyResult::success($oldStatus, $validatedValue);
+            return UpdateTaskPropertyResult::success($oldStatus, $validatedValue, null, null, $shouldResetFocusProgress);
         } catch (\Throwable $e) {
             Log::error('Failed to update recurring task status from workspace.', [
                 'task_id' => $task->id,
@@ -248,6 +262,6 @@ class UpdateTaskPropertyAction
             );
         }
 
-        return UpdateTaskPropertyResult::success($oldValue, $newValue);
+        return UpdateTaskPropertyResult::success($oldValue, $newValue, null, null, $shouldResetFocusProgress);
     }
 }

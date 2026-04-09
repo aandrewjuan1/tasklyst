@@ -136,6 +136,9 @@
         ? $formatCountdown(max(0, $taskDurationSeconds - $taskFocusedSeconds))
         : '';
 
+    // Match task progress: hide Focus when done on first paint; Alpine `status` + x-show keeps updates in sync.
+    $hideFocusButtonInitiallyDone = ($initialStatusValue ?? '') === 'done';
+
 @endphp
 
 <div
@@ -864,12 +867,15 @@
 
     @if($canEdit)
         <div class="w-full basis-full mt-1 flex flex-col gap-2">
-            <div class="flex items-center">
+            <div
+                class="flex items-center"
+                x-show="status !== 'done' && !isFocused && !isBreakFocused"
+                @if($hideFocusButtonInitiallyDone) style="display: none;" @endif
+            >
                 <flux:tooltip :content="__('Start focus mode')">
                     <button
                         type="button"
                         x-ref="focusTrigger"
-                        x-show="!isFocused && !isBreakFocused"
                         @click.stop="setTimeout(() => enterFocusReady(), 120)"
                         class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >

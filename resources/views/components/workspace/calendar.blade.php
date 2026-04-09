@@ -244,9 +244,9 @@
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{-- Calendar Container --}}
-    <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
+    <div class="workspace-sidebar-panel">
         {{-- Header: Month/Year Navigation --}}
-        <div class="flex items-center justify-between border-b border-border/60 px-3 py-3 sm:px-4 sm:py-4 dark:border-zinc-800">
+        <div class="flex items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
             {{-- Previous Month Button --}}
             <button
                 type="button"
@@ -372,7 +372,7 @@
         </div>
 
         {{-- Footer: Today Button --}}
-        <div class="border-t border-border/60 px-3 py-2.5 sm:px-4 sm:py-3 dark:border-zinc-800">
+        <div class="px-3 py-2.5 sm:px-4 sm:py-3">
             <div class="flex items-center justify-center">
                 <button
                     type="button"

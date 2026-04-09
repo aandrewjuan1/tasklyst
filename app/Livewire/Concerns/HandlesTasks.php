@@ -147,7 +147,7 @@ trait HandlesTasks
         $this->authorize('delete', $task);
 
         try {
-            $deleted = $this->deleteTaskAction->execute($task, $user);
+            $deleteResult = $this->deleteTaskAction->executeWithFocusMeta($task, $user);
         } catch (\Throwable $e) {
             Log::error('Failed to delete task from workspace.', [
                 'user_id' => $user->id,
@@ -160,13 +160,21 @@ trait HandlesTasks
             return false;
         }
 
-        if (! $deleted) {
+        if (! $deleteResult['success']) {
             $this->dispatch('toast', ...Task::toastPayload('delete', false, $task->title));
 
             return false;
         }
 
         $this->dispatch('toast', ...Task::toastPayload('delete', true, $task->title));
+
+        if (method_exists($this, 'syncActiveFocusSessionFromDatabase')) {
+            $this->syncActiveFocusSessionFromDatabase();
+        }
+
+        if ($deleteResult['abandoned_in_progress_focus_session']) {
+            $this->dispatch('toast', type: 'info', message: __('Focus stopped because the task was moved to trash.'));
+        }
 
         return true;
     }
@@ -381,6 +389,10 @@ trait HandlesTasks
                 $result->addedTagName,
                 $result->removedTagName
             ));
+
+            if ($property === 'status' && $result->clearedFocusProgress) {
+                $this->dispatch('toast', type: 'info', message: __('Logged focus time was cleared so you can start fresh. Restoring a task from trash does not clear it.'));
+            }
         }
 
         if ($property === 'recurrence') {

@@ -11,16 +11,23 @@ final readonly class UpdateTaskPropertyResult
         public ?string $addedTagName = null,
         public ?string $removedTagName = null,
         public ?string $errorMessage = null,
+        public bool $clearedFocusProgress = false,
     ) {}
 
-    public static function success(mixed $oldValue, mixed $newValue, ?string $addedTagName = null, ?string $removedTagName = null): self
-    {
+    public static function success(
+        mixed $oldValue,
+        mixed $newValue,
+        ?string $addedTagName = null,
+        ?string $removedTagName = null,
+        bool $clearedFocusProgress = false,
+    ): self {
         return new self(
             success: true,
             oldValue: $oldValue,
             newValue: $newValue,
             addedTagName: $addedTagName,
             removedTagName: $removedTagName,
+            clearedFocusProgress: $clearedFocusProgress,
         );
     }
 

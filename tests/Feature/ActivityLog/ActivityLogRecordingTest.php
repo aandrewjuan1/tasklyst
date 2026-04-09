@@ -62,7 +62,7 @@ test('delete task with actor records item deleted activity log', function (): vo
     $task = Task::factory()->for($this->user)->create(['title' => 'Gone']);
     $service = app(TaskService::class);
 
-    $service->deleteTask($task, $this->user);
+    expect($service->deleteTask($task, $this->user)['success'])->toBeTrue();
 
     $log = ActivityLog::query()
         ->where('loggable_type', Task::class)

@@ -16,6 +16,7 @@ use App\Models\FocusSession;
 use App\Models\Task;
 use App\Support\Validation\FocusSessionCompleteValidation;
 use App\Support\Validation\FocusSessionStartValidation;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Async;
 use Livewire\Attributes\Renderless;
@@ -351,6 +352,16 @@ trait HandlesFocusSessions
 
         $this->authorize('view', $session);
 
+        return $this->focusSessionModelToFrontendArray($session);
+    }
+
+    /**
+     * Map a persisted focus session to the shape expected by list-item-card / Alpine.
+     *
+     * @return array{id: int, started_at: string, duration_seconds: int, type: string, focus_mode_type: string, task_id: int|null, sequence_number: int, paused_seconds: int, paused_at: string|null, payload: array}
+     */
+    protected function focusSessionModelToFrontendArray(FocusSession $session): array
+    {
         $focusModeType = $session->focus_mode_type?->value
             ?? ($session->payload['focus_mode_type'] ?? 'sprint');
 
@@ -366,6 +377,37 @@ trait HandlesFocusSessions
             'paused_at' => $session->paused_at?->utc()->format('Y-m-d\TH:i:s.v\Z'),
             'payload' => $session->payload ?? [],
         ];
+    }
+
+    /**
+     * Re-read the current user's active focus session from the database and sync Livewire + browser listeners.
+     * Call after server-side changes that end a session (e.g. task moved to trash).
+     */
+    public function syncActiveFocusSessionFromDatabase(): void
+    {
+        if (! property_exists($this, 'activeFocusSession')) {
+            return;
+        }
+
+        $user = Auth::user();
+        if ($user === null) {
+            $this->activeFocusSession = null;
+            $this->dispatch('focus-session-updated', session: null);
+
+            return;
+        }
+
+        $session = $this->getActiveFocusSessionAction->execute($user);
+        if ($session === null) {
+            $this->activeFocusSession = null;
+            $this->dispatch('focus-session-updated', session: null);
+
+            return;
+        }
+
+        $this->authorize('view', $session);
+        $this->activeFocusSession = $this->focusSessionModelToFrontendArray($session);
+        $this->dispatch('focus-session-updated', session: $this->activeFocusSession);
     }
 
     /**

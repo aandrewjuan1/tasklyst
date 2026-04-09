@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Actions\FocusSession\AbandonFocusSessionAction;
 use App\Enums\ActivityLogAction;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
@@ -21,7 +22,8 @@ class TaskService
 {
     public function __construct(
         private ActivityLogRecorder $activityLogRecorder,
-        private RecurrenceExpander $recurrenceExpander
+        private RecurrenceExpander $recurrenceExpander,
+        private AbandonFocusSessionAction $abandonFocusSessionAction,
     ) {}
 
     /**
@@ -163,14 +165,30 @@ class TaskService
         });
     }
 
-    public function deleteTask(Task $task, ?User $actor = null): bool
+    /**
+     * Soft-delete a task. Abandons any in-progress focus sessions for this task so the global timer is not orphaned.
+     *
+     * @return array{success: bool, abandoned_in_progress_focus_session: bool}
+     */
+    public function deleteTask(Task $task, ?User $actor = null): array
     {
-        return DB::transaction(function () use ($task, $actor): bool {
+        return DB::transaction(function () use ($task, $actor): array {
+            $abandonedInProgressFocusSession = false;
+            foreach ($task->focusSessions()->inProgress()->get() as $session) {
+                $this->abandonFocusSessionAction->execute($session);
+                $abandonedInProgressFocusSession = true;
+            }
+
             $this->activityLogRecorder->record($task, $actor, ActivityLogAction::ItemDeleted, [
                 'title' => $task->title,
             ]);
 
-            return (bool) $task->delete();
+            $success = (bool) $task->delete();
+
+            return [
+                'success' => $success,
+                'abandoned_in_progress_focus_session' => $abandonedInProgressFocusSession,
+            ];
         });
     }
 
@@ -196,6 +214,8 @@ class TaskService
                 ->where('collaboratable_type', $task->getMorphClass())
                 ->where('collaboratable_id', $task->id)
                 ->delete();
+
+            $task->focusSessions()->delete();
 
             return (bool) $task->forceDelete();
         });
