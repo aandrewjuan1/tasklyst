@@ -1,35 +1,35 @@
 @php
     $analytics = $this->analytics;
     $cardOrder = [
-        'overdue',
-        'due_soon',
+        'total_tasks',
+        'todo_tasks',
         'tasks_completed',
         'completion_rate',
     ];
     $cardLabels = [
+        'total_tasks' => __('Total tasks'),
+        'todo_tasks' => __('To-do tasks'),
         'tasks_created' => __('Tasks created'),
         'tasks_completed' => __('Tasks completed'),
         'completion_rate' => __('Completion rate'),
-        'overdue' => __('Overdue'),
-        'due_soon' => __('Due soon'),
         'focus_work_seconds' => __('Focus time'),
         'focus_sessions' => __('Focus sessions'),
     ];
     $cardIcons = [
+        'total_tasks' => 'squares-2x2',
+        'todo_tasks' => 'clipboard-document-list',
         'tasks_created' => 'plus-circle',
         'tasks_completed' => 'check-circle',
         'completion_rate' => 'chart-pie',
-        'overdue' => 'exclamation-triangle',
-        'due_soon' => 'clock',
         'focus_work_seconds' => 'bolt',
         'focus_sessions' => 'circle-stack',
     ];
     $cardIconColorClasses = [
+        'total_tasks' => 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200',
+        'todo_tasks' => 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
         'tasks_created' => 'bg-emerald-100 text-emerald-700',
         'tasks_completed' => 'bg-green-100 text-green-700',
         'completion_rate' => 'bg-violet-100 text-violet-700',
-        'overdue' => 'bg-red-100 text-red-700',
-        'due_soon' => 'bg-amber-100 text-amber-700',
         'focus_work_seconds' => 'bg-orange-100 text-orange-700',
         'focus_sessions' => 'bg-cyan-100 text-cyan-700',
     ];
@@ -92,35 +92,77 @@
 
                             <div class="grid grid-cols-4 gap-3">
                                 @foreach ($cardOrder as $key)
-                                    @php
-                                        $card = $analytics->cards[$key] ?? null;
-                                    @endphp
-                                    @if ($card)
-                                        <div class="rounded-xl border border-brand-blue/20 bg-linear-to-br from-brand-blue/10 via-background to-brand-purple/10 p-3 shadow-sm sm:p-4">
+                                    @if ($key === 'total_tasks')
+                                        <div
+                                            class="rounded-xl border border-brand-blue/20 bg-linear-to-br from-brand-blue/10 via-background to-brand-purple/10 p-3 shadow-sm sm:p-4"
+                                            data-testid="dashboard-summary-total-tasks"
+                                        >
                                             <div class="flex items-center gap-2 text-xs text-muted-foreground">
                                                 @if (isset($cardIcons[$key]))
                                                     <div class="flex size-9 items-center justify-center rounded-lg {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                         <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                     </div>
                                                 @endif
-                                                <span class="text-2xl font-bold tabular-nums text-foreground">
-                                                    @if ($key === 'completion_rate')
-                                                        {{ (int) round($card['current']) }}%
-                                                    @elseif ($key === 'focus_work_seconds')
-                                                        @if (($card['current'] ?? 0) >= 3600)
-                                                            {{ round($card['current'] / 3600, 1) }} {{ __('h') }}
-                                                        @elseif (($card['current'] ?? 0) >= 60)
-                                                            {{ round($card['current'] / 60) }} {{ __('min') }}
-                                                        @else
-                                                            {{ (int) ($card['current'] ?? 0) }} {{ __('s') }}
-                                                        @endif
-                                                    @else
-                                                        {{ $card['current'] }}
-                                                    @endif
+                                                <span
+                                                    class="text-2xl font-bold tabular-nums text-foreground"
+                                                    data-testid="dashboard-summary-total-tasks-value"
+                                                >
+                                                    {{ $this->dashboardIncompleteTasksCount }}
                                                 </span>
-                                                <span class="font-bold">{{ $cardLabels[$key] ?? $key }}</span>
+                                                <span class="font-bold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
                                             </div>
                                         </div>
+                                    @elseif ($key === 'todo_tasks')
+                                        <div
+                                            class="rounded-xl border border-brand-blue/20 bg-linear-to-br from-brand-blue/10 via-background to-brand-purple/10 p-3 shadow-sm sm:p-4"
+                                            data-testid="dashboard-summary-todo-tasks"
+                                        >
+                                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                                @if (isset($cardIcons[$key]))
+                                                    <div class="flex size-9 items-center justify-center rounded-lg {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
+                                                        <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
+                                                    </div>
+                                                @endif
+                                                <span
+                                                    class="text-2xl font-bold tabular-nums text-foreground"
+                                                    data-testid="dashboard-summary-todo-tasks-value"
+                                                >
+                                                    {{ $this->dashboardTodoTasksCount }}
+                                                </span>
+                                                <span class="font-bold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                            </div>
+                                        </div>
+                                    @else
+                                        @php
+                                            $card = $analytics->cards[$key] ?? null;
+                                        @endphp
+                                        @if ($card)
+                                            <div class="rounded-xl border border-brand-blue/20 bg-linear-to-br from-brand-blue/10 via-background to-brand-purple/10 p-3 shadow-sm sm:p-4">
+                                                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                                    @if (isset($cardIcons[$key]))
+                                                        <div class="flex size-9 items-center justify-center rounded-lg {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
+                                                            <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
+                                                        </div>
+                                                    @endif
+                                                    <span class="text-2xl font-bold tabular-nums text-foreground">
+                                                        @if ($key === 'completion_rate')
+                                                            {{ (int) round($card['current']) }}%
+                                                        @elseif ($key === 'focus_work_seconds')
+                                                            @if (($card['current'] ?? 0) >= 3600)
+                                                                {{ round($card['current'] / 3600, 1) }} {{ __('h') }}
+                                                            @elseif (($card['current'] ?? 0) >= 60)
+                                                                {{ round($card['current'] / 60) }} {{ __('min') }}
+                                                            @else
+                                                                {{ (int) ($card['current'] ?? 0) }} {{ __('s') }}
+                                                            @endif
+                                                        @else
+                                                            {{ $card['current'] }}
+                                                        @endif
+                                                    </span>
+                                                    <span class="font-bold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                                </div>
+                                            </div>
+                                        @endif
                                     @endif
                                 @endforeach
                             </div>
@@ -129,9 +171,13 @@
                         @auth
                             <x-dashboard.at-a-glance
                                 :overdue-tasks="$this->dashboardOverdueTasks"
+                                :overdue-count="$this->dashboardOverdueTasksCount"
+                                :due-today-count="$this->dashboardDueTodayTasksCount"
                                 :doing-tasks="$this->dashboardDoingTasks"
+                                :doing-count="$this->dashboardDoingTasksCount"
                                 :due-today-tasks="$this->dashboardDueTodayTasks"
                                 :today-events="$this->dashboardTodayEvents"
+                                :today-events-count="$this->dashboardTodayEventsCount"
                                 :workspace-url="$this->workspaceUrlForToday"
                             />
                         @endauth

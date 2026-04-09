@@ -110,6 +110,35 @@ class extends Component
         return route('workspace', ['date' => now()->toDateString()]);
     }
 
+    #[Computed]
+    public function dashboardIncompleteTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->count();
+    }
+
+    #[Computed]
+    public function dashboardTodoTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->where('status', TaskStatus::ToDo)
+            ->count();
+    }
+
     /**
      * @return EloquentCollection<int, Task>
      */
@@ -133,6 +162,24 @@ class extends Component
             ->orderBy('end_datetime')
             ->limit(self::AT_A_GLANCE_LIMIT)
             ->get();
+    }
+
+    #[Computed]
+    public function dashboardOverdueTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $now = now();
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->overdue($now)
+            ->whereDoesntHave('recurringTask')
+            ->count();
     }
 
     /**
@@ -159,6 +206,22 @@ class extends Component
             ->orderBy('end_datetime')
             ->limit(self::AT_A_GLANCE_LIMIT)
             ->get();
+    }
+
+    #[Computed]
+    public function dashboardDoingTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->where('status', TaskStatus::Doing)
+            ->whereDoesntHave('recurringTask')
+            ->count();
     }
 
     /**
@@ -188,6 +251,26 @@ class extends Component
             ->get();
     }
 
+    #[Computed]
+    public function dashboardDueTodayTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $startOfDay = now()->startOfDay();
+        $endOfDay = now()->copy()->endOfDay();
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->whereNotNull('end_datetime')
+            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+            ->whereDoesntHave('recurringTask')
+            ->count();
+    }
+
     /**
      * @return EloquentCollection<int, Event>
      */
@@ -212,6 +295,27 @@ class extends Component
             ->orderBy('start_datetime')
             ->limit(self::AT_A_GLANCE_LIMIT)
             ->get();
+    }
+
+    #[Computed]
+    public function dashboardTodayEventsCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $startOfDay = now()->startOfDay();
+        $endOfDay = now()->copy()->endOfDay();
+
+        return Event::query()
+            ->forUser($userId)
+            ->notCancelled()
+            ->notCompleted()
+            ->whereDoesntHave('recurringEvent')
+            ->whereNotNull('start_datetime')
+            ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
+            ->count();
     }
 
     #[Computed]
