@@ -1,5 +1,7 @@
 @props([
     'feeds' => [],
+    /** When true, show icon-only trigger (fits narrow sidebars; full label in tooltip). */
+    'compact' => false,
 ])
 
 @php
@@ -216,10 +218,16 @@
             @click="toggle()"
             aria-haspopup="true"
             :aria-expanded="open"
-            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out hover:bg-muted/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-70"
+            @class([
+                'inline-flex items-center justify-center rounded-full border border-border/60 bg-muted text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out hover:bg-muted/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-70',
+                'size-8 shrink-0' => $compact,
+                'gap-1.5 px-2.5 py-0.5 text-[11px] font-medium' => ! $compact,
+            ])
         >
             <flux:icon name="arrow-path" class="size-3.5" />
-            <span>{{ __('Sync with Brightspace calendar') }}</span>
+            @if (! $compact)
+                <span>{{ __('Sync with Brightspace calendar') }}</span>
+            @endif
         </button>
     </flux:tooltip>
 

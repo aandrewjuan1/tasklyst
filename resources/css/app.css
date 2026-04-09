@@ -100,7 +100,7 @@ select:focus[data-flux-control] {
      */
     .workspace-sidebar-panel {
         @apply overflow-hidden rounded-xl;
-        background-color: var(--color-workspace-panel-lavender);
+        background-color: color-mix(in oklab, var(--color-workspace-panel-lavender) 88%, white 12%);
         box-shadow:
             0 22px 44px -14px rgb(33 52 72 / 0.1),
             0 10px 22px -10px rgb(33 52 72 / 0.07),
@@ -108,7 +108,7 @@ select:focus[data-flux-control] {
     }
 
     .dark .workspace-sidebar-panel {
-        background-color: var(--color-workspace-panel-lavender-dark);
+        background-color: color-mix(in oklab, var(--color-workspace-panel-lavender-dark) 90%, white 10%);
         box-shadow:
             0 25px 50px -12px rgb(0 0 0 / 0.4),
             0 12px 28px -10px rgb(0 0 0 / 0.28),

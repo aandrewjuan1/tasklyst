@@ -27,7 +27,6 @@ export function dashboardAnalyticsCharts(config = {}) {
         charts: {
             trend: null,
             focusSessions: null,
-            status: null,
             priority: null,
             complexity: null,
             project: null,
@@ -95,7 +94,6 @@ export function dashboardAnalyticsCharts(config = {}) {
             const refs = [
                 this.$refs.trendChart,
                 this.$refs.focusSessionsChart,
-                this.$refs.statusChart,
                 this.$refs.priorityChart,
                 this.$refs.complexityChart,
                 this.$refs.projectChart,
@@ -117,7 +115,6 @@ export function dashboardAnalyticsCharts(config = {}) {
             const refMap = {
                 trend: this.$refs.trendChart,
                 focusSessions: this.$refs.focusSessionsChart,
-                status: this.$refs.statusChart,
                 priority: this.$refs.priorityChart,
                 complexity: this.$refs.complexityChart,
                 project: this.$refs.projectChart,
@@ -191,7 +188,6 @@ export function dashboardAnalyticsCharts(config = {}) {
 
             this.charts.trend = this.initChartRef(this.$refs.trendChart, this.charts.trend);
             this.charts.focusSessions = this.initChartRef(this.$refs.focusSessionsChart, this.charts.focusSessions);
-            this.charts.status = this.initChartRef(this.$refs.statusChart, this.charts.status);
             this.charts.priority = this.initChartRef(this.$refs.priorityChart, this.charts.priority);
             this.charts.complexity = this.initChartRef(this.$refs.complexityChart, this.charts.complexity);
             this.charts.project = this.initChartRef(this.$refs.projectChart, this.charts.project);
@@ -238,7 +234,6 @@ export function dashboardAnalyticsCharts(config = {}) {
             this.applyFocusChartHeight();
             this.setTrendOption();
             this.setFocusSessionsOption();
-            this.setStatusDonutOption();
             this.setPriorityBarOption();
             this.setComplexityBarOption();
             this.setProjectBarOption();
@@ -394,35 +389,6 @@ export function dashboardAnalyticsCharts(config = {}) {
                         type: 'bar',
                         data: focusSessions,
                         yAxisIndex: 1,
-                    },
-                ],
-            });
-        },
-
-        setStatusDonutOption() {
-            if (!this.charts.status) {
-                return;
-            }
-
-            const rows = this.analytics?.breakdowns?.status ?? [];
-            const seriesData = rows.map((row) => ({ name: row.label, value: row.value }));
-
-            this.applyChartOption('status', {
-                tooltip: { trigger: 'item' },
-                legend: { bottom: 0, left: 'center' },
-                series: [
-                    {
-                        name: 'Status',
-                        type: 'pie',
-                        radius: ['45%', '70%'],
-                        avoidLabelOverlap: true,
-                        label: {
-                            show: true,
-                            formatter: '{d}%',
-                            color: '#6b7280',
-                            fontSize: 11,
-                        },
-                        data: seriesData,
                     },
                 ],
             });

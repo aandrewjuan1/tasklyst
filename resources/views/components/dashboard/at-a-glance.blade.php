@@ -46,14 +46,25 @@
 
         return $event->start_datetime->translatedFormat('M j · H:i');
     };
+
+    $doingTasksForDisplay = $doingTasks
+        ->map(function (\App\Models\Task $task) use ($taskFocusProgressPercent): array {
+            return [
+                'task' => $task,
+                'progress_percent' => $taskFocusProgressPercent($task),
+            ];
+        })
+        ->sortByDesc(fn (array $item): int => $item['progress_percent'] ?? -1)
+        ->take(3)
+        ->values();
 @endphp
 
 <div data-testid="dashboard-at-a-glance" class="flex flex-col gap-4">
     {{-- Row 1: Today's events | Overdue | Due today --}}
     <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
         {{-- Today's events --}}
-        <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+        <div class="rounded-xl border border-indigo-200/55 bg-background shadow-sm ring-1 ring-indigo-500/10 dark:border-indigo-900/40 dark:bg-zinc-900/50 dark:ring-indigo-500/10">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-200/45 px-4 py-3 dark:border-indigo-900/45">
                 <div class="flex flex-wrap items-center gap-2">
                     <flux:icon name="calendar-days" class="size-4 text-[var(--color-brand-navy-blue)]" />
                     <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-today-events-heading">
@@ -101,8 +112,8 @@
         </div>
 
     {{-- Overdue --}}
-    <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+    <div class="rounded-xl border border-red-200/55 bg-background shadow-sm ring-1 ring-red-500/8 dark:border-red-900/40 dark:bg-zinc-900/50 dark:ring-red-500/10">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-red-200/45 px-4 py-3 dark:border-red-900/45">
             <div class="flex flex-wrap items-center gap-2">
                 <flux:icon name="exclamation-triangle" class="size-4 text-red-600 dark:text-red-400" />
                 <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-overdue-heading">
@@ -150,8 +161,8 @@
     </div>
 
     {{-- Due today --}}
-    <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+    <div class="rounded-xl border border-amber-200/60 bg-background shadow-sm ring-1 ring-amber-400/12 dark:border-amber-900/40 dark:bg-zinc-900/50 dark:ring-amber-500/10">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/45 px-4 py-3 dark:border-amber-900/45">
             <div class="flex flex-wrap items-center gap-2">
                 <flux:icon name="sun" class="size-4 text-amber-600 dark:text-amber-400" />
                 <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-due-today-heading">
@@ -199,15 +210,15 @@
     </div>
     </div>
 
-    {{-- Row 2: Doing | Status breakdown --}}
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    {{-- Row 2: Doing | Urgent Now (slot from dashboard) --}}
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {{-- Doing --}}
-        <div class="rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+        <div class="min-w-0 rounded-xl border border-blue-200/55 bg-background shadow-sm ring-1 ring-blue-500/10 dark:border-blue-900/40 dark:bg-zinc-900/50 dark:ring-blue-400/10">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200/45 px-4 py-3 dark:border-blue-900/45">
                 <div class="flex flex-wrap items-center gap-2">
                     <flux:icon name="arrow-path" class="size-4 text-blue-600 dark:text-blue-400" />
                     <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-doing-heading">
-                        {{ __('Doing') }}
+                        {{ __('Doing Tasks') }}
                     </span>
                     <span
                         class="inline-flex min-w-6 items-center justify-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-blue-900 dark:bg-blue-950/60 dark:text-blue-200"
@@ -217,29 +228,25 @@
                     </span>
                 </div>
             </div>
-            @if ($doingTasks->isEmpty())
+            @if ($doingTasksForDisplay->isEmpty())
                 <p class="px-4 py-3 text-xs text-muted-foreground">{{ __('No tasks in progress.') }}</p>
             @else
                 <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
-                    @foreach ($doingTasks as $task)
+                    @foreach ($doingTasksForDisplay as $taskWithProgress)
                         @php
-                            $progressPercent = $taskFocusProgressPercent($task);
+                            /** @var \App\Models\Task $task */
+                            $task = $taskWithProgress['task'];
+                            $progressPercent = $taskWithProgress['progress_percent'];
                         @endphp
                         <li>
                             <a
                                 href="{{ $workspaceUrl }}"
                                 wire:navigate
-                                class="flex items-start gap-2 px-3 py-2.5 transition hover:bg-muted/50"
+                                class="flex items-start px-3 py-2.5 transition hover:bg-muted/50"
                                 data-testid="dashboard-row-doing-task"
                             >
-                                <div class="mt-0.5 shrink-0 rounded-md border border-blue-600/25 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-900 dark:border-blue-500/30 dark:bg-blue-950/40 dark:text-blue-200">
-                                    <div class="flex items-center gap-1">
-                                        <flux:icon name="arrow-path" class="size-3" />
-                                        <span>{{ __('Doing') }}</span>
-                                    </div>
-                                </div>
                                 <div class="min-w-0 flex-1">
-                                    <p class="truncate text-xs font-medium text-foreground">
+                                    <p class="truncate text-sm font-bold text-foreground">
                                         {{ $task->title ?: __('Untitled') }}
                                     </p>
                                     <p class="mt-0.5 text-[11px] text-muted-foreground">
@@ -266,23 +273,21 @@
                         </li>
                     @endforeach
                 </ul>
+                @if ($doingTasks->count() > 3)
+                    <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
+                        <a
+                            href="{{ $workspaceUrl }}"
+                            wire:navigate
+                            class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
+                        >
+                            <span>{{ __('See all in Workspace') }}</span>
+                            <flux:icon name="arrow-right" class="size-3.5" />
+                        </a>
+                    </div>
+                @endif
             @endif
         </div>
 
-        {{-- Status breakdown --}}
-        <div class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm ring-1 ring-border/20 dark:bg-zinc-900/50">
-            <div class="border-b border-border/60 px-3 py-2">
-                <div class="font-primary text-base font-bold text-foreground">
-                    {{ __('Task Status Summary') }}
-                </div>
-            </div>
-            <div class="px-2 py-3 sm:px-3">
-                <div
-                    x-ref="statusChart"
-                    wire:ignore
-                    class="mx-auto h-56 min-h-[220px] w-full"
-                ></div>
-            </div>
-        </div>
+        {{ $urgentNow }}
     </div>
 </div>
