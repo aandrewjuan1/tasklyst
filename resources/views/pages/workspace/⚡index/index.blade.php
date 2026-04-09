@@ -4,184 +4,6 @@
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
-    {{-- Header --}}
-    <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="space-y-1">
-            <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl">
-                {{ __('Workspace') }}
-            </h1>
-            <p class="text-sm text-muted-foreground">
-                {{ __('Plan and manage your day') }}
-            </p>
-        </div>
-
-        <div class="flex w-full flex-col items-end gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-            <div class="flex w-full min-w-0 max-w-[18rem] shrink-0 items-center gap-1 sm:w-[18rem]">
-                <flux:input
-                    type="search"
-                    wire:model.live.debounce.300ms="searchQuery"
-                    :loading="false"
-                    placeholder="{{ __('Search tasks, events, projects…') }}"
-                    aria-label="{{ __('Search tasks, events, and projects') }}"
-                    autocomplete="off"
-                    class="w-full min-w-0"
-                />
-                <flux:tooltip
-                    :content="$this->searchScope === 'selected_date'
-                        ? __('Currently searching selected date only. (Click to search all items.)')
-                        : __('Currently searching all items. (Click to search selected date only.)')"
-                >
-                    <flux:button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        :loading="false"
-                        :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
-                        aria-label="{{ __('Toggle search scope') }}"
-                        class="size-8 shrink-0"
-                        wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
-                        wire:loading.attr="disabled"
-                        wire:target="searchScope"
-                    />
-                </flux:tooltip>
-            </div>
-            <div class="flex shrink-0 items-center">
-                <x-workspace.date-switcher :selected-date="$this->selectedDate" />
-            </div>
-        </div>
-    </div>
-
-    {{-- View mode --}}
-    <div class="flex w-full flex-col gap-3">
-        <div
-            x-data="{
-                pendingViewMode: null,
-                isSwitching: false,
-                switchTimeoutId: null,
-                activeViewMode() {
-                    return this.pendingViewMode ?? $wire.viewMode;
-                },
-                clearSwitchingState() {
-                    this.pendingViewMode = null;
-                    this.isSwitching = false;
-                    if (this.switchTimeoutId !== null) {
-                        clearTimeout(this.switchTimeoutId);
-                        this.switchTimeoutId = null;
-                    }
-                },
-                setSwitchFallbackTimeout() {
-                    if (this.switchTimeoutId !== null) {
-                        clearTimeout(this.switchTimeoutId);
-                    }
-
-                    this.switchTimeoutId = setTimeout(() => {
-                        this.clearSwitchingState();
-                    }, 6000);
-                },
-                setView(mode) {
-                    if (mode === this.activeViewMode()) {
-                        return;
-                    }
-
-                    this.pendingViewMode = mode;
-                    this.isSwitching = true;
-                    this.setSwitchFallbackTimeout();
-
-                    $wire.set('viewMode', mode);
-                    const u = new URL(window.location.href);
-                    u.searchParams.set('view', mode);
-                    history.replaceState(null, '', u.pathname + u.search);
-                    if (window.Alpine?.store) {
-                        let store = Alpine.store('workspaceView');
-                        if (!store || typeof store !== 'object') {
-                            Alpine.store('workspaceView', { mode });
-                        } else {
-                            store.mode = mode;
-                        }
-                    }
-                },
-            }"
-            x-init="
-                if (window.Alpine?.store) {
-                    let store = Alpine.store('workspaceView');
-                    const initialMode = $wire.viewMode;
-                    if (!store || typeof store !== 'object') {
-                        Alpine.store('workspaceView', { mode: initialMode });
-                    } else {
-                        store.mode = initialMode;
-                    }
-                }
-            "
-            x-effect="
-                if (pendingViewMode !== null && $wire.viewMode === pendingViewMode) {
-                    clearSwitchingState();
-                }
-            "
-            class="flex w-full flex-col gap-6"
-        >
-            <div class="flex justify-center">
-                <div class="flex rounded-lg border border-border/60 bg-muted/30 p-0.5" role="tablist" aria-label="{{ __('Workspace view') }}">
-                    <button
-                        type="button"
-                        role="tab"
-                        :aria-selected="activeViewMode() === 'list'"
-                        aria-controls="workspace-list-panel"
-                        id="workspace-view-list"
-                        class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                        :class="activeViewMode() === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-                        @click="setView('list')"
-                    >
-                        {{ __('List') }}
-                    </button>
-                    <button
-                        type="button"
-                        role="tab"
-                        :aria-selected="activeViewMode() === 'kanban'"
-                        aria-controls="workspace-kanban-panel"
-                        id="workspace-view-kanban"
-                        class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                        :class="activeViewMode() === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-                        @click="setView('kanban')"
-                    >
-                        {{ __('Kanban') }}
-                    </button>
-                </div>
-            </div>
-
-    {{-- Search, filters / pending invitations / add filter / trash --}}
-    <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="flex flex-wrap items-center gap-2">
-            @auth
-                <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
-            @endauth
-            <x-workspace.active-filter-pills
-                :filters="$this->getFilters()"
-                :tags="$this->tags"
-            />
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2">
-            <x-workspace.trash-popover />
-            <x-workspace.filter-bar
-                :filters="$this->getFilters()"
-                :tags="$this->tags"
-            />
-            @auth
-                <flux:modal.trigger name="task-assistant-chat">
-                    <flux:button
-                        variant="ghost"
-                        size="sm"
-                        icon="chat-bubble-left-right"
-                        class="shrink-0"
-                        aria-label="{{ __('Open task assistant') }}"
-                    >
-                        {{ __('Assistant') }}
-                    </flux:button>
-                </flux:modal.trigger>
-            @endauth
-        </div>
-    </div>
-
     {{--
         wire:loading targets for the main list/kanban skeleton. Match any Livewire property or method
         that should show the full-area placeholder while the workspace Index re-renders.
@@ -198,7 +20,190 @@
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
-        <div class="relative min-w-0">
+        <div class="relative min-w-0 space-y-6">
+            {{-- Hero Navigation Card --}}
+            <div
+                class="rounded-2xl border border-brand-blue/20 bg-linear-to-r from-brand-blue/12 via-brand-purple/8 to-brand-green/12 p-4 shadow-sm ring-1 ring-brand-purple/12 backdrop-blur sm:p-5"
+            >
+                <div
+                    x-data="{
+                        pendingViewMode: null,
+                        isSwitching: false,
+                        switchTimeoutId: null,
+                        activeViewMode() {
+                            return this.pendingViewMode ?? $wire.viewMode;
+                        },
+                        clearSwitchingState() {
+                            this.pendingViewMode = null;
+                            this.isSwitching = false;
+                            if (this.switchTimeoutId !== null) {
+                                clearTimeout(this.switchTimeoutId);
+                                this.switchTimeoutId = null;
+                            }
+                        },
+                        setSwitchFallbackTimeout() {
+                            if (this.switchTimeoutId !== null) {
+                                clearTimeout(this.switchTimeoutId);
+                            }
+
+                            this.switchTimeoutId = setTimeout(() => {
+                                this.clearSwitchingState();
+                            }, 6000);
+                        },
+                        setView(mode) {
+                            if (mode === this.activeViewMode()) {
+                                return;
+                            }
+
+                            this.pendingViewMode = mode;
+                            this.isSwitching = true;
+                            this.setSwitchFallbackTimeout();
+
+                            $wire.set('viewMode', mode);
+                            const u = new URL(window.location.href);
+                            u.searchParams.set('view', mode);
+                            history.replaceState(null, '', u.pathname + u.search);
+                            if (window.Alpine?.store) {
+                                let store = Alpine.store('workspaceView');
+                                if (!store || typeof store !== 'object') {
+                                    Alpine.store('workspaceView', { mode });
+                                } else {
+                                    store.mode = mode;
+                                }
+                            }
+                        },
+                    }"
+                    x-init="
+                        if (window.Alpine?.store) {
+                            let store = Alpine.store('workspaceView');
+                            const initialMode = $wire.viewMode;
+                            if (!store || typeof store !== 'object') {
+                                Alpine.store('workspaceView', { mode: initialMode });
+                            } else {
+                                store.mode = initialMode;
+                            }
+                        }
+                    "
+                    x-effect="
+                        if (pendingViewMode !== null && $wire.viewMode === pendingViewMode) {
+                            clearSwitchingState();
+                        }
+                    "
+                    class="flex w-full flex-col gap-4"
+                >
+                    <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,34rem)] xl:items-end">
+                        <div class="space-y-1">
+                            <h1 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                                {{ __('Workspace') }}
+                            </h1>
+                            <p class="text-sm text-muted-foreground">
+                                {{ __('Plan and manage your day') }}
+                            </p>
+                        </div>
+
+                        <div class="flex w-full flex-col gap-2">
+                            <div class="flex w-full min-w-0 items-center gap-2">
+                                <flux:input
+                                    type="search"
+                                    wire:model.live.debounce.300ms="searchQuery"
+                                    :loading="false"
+                                    placeholder="{{ __('Search tasks, events, projects…') }}"
+                                    aria-label="{{ __('Search tasks, events, and projects') }}"
+                                    autocomplete="off"
+                                    class="w-full min-w-0"
+                                />
+                                <flux:tooltip
+                                    :content="$this->searchScope === 'selected_date'
+                                        ? __('Currently searching selected date only. (Click to search all items.)')
+                                        : __('Currently searching all items. (Click to search selected date only.)')"
+                                >
+                                    <flux:button
+                                        type="button"
+                                        variant="ghost"
+                                        size="xs"
+                                        :loading="false"
+                                        :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
+                                        aria-label="{{ __('Toggle search scope') }}"
+                                        class="size-8 shrink-0"
+                                        wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
+                                        wire:loading.attr="disabled"
+                                        wire:target="searchScope"
+                                    />
+                                </flux:tooltip>
+                                <div class="shrink-0 self-end">
+                                    <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-brand-blue/20 pt-3">
+                        <div class="flex justify-center xl:justify-start">
+                            <div class="flex rounded-lg border border-border/60 bg-background/55 p-0.5 shadow-xs" role="tablist" aria-label="{{ __('Workspace view') }}">
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    :aria-selected="activeViewMode() === 'list'"
+                                    aria-controls="workspace-list-panel"
+                                    id="workspace-view-list"
+                                    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                                    :class="activeViewMode() === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                                    @click="setView('list')"
+                                >
+                                    {{ __('List') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    role="tab"
+                                    :aria-selected="activeViewMode() === 'kanban'"
+                                    aria-controls="workspace-kanban-panel"
+                                    id="workspace-view-kanban"
+                                    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                                    :class="activeViewMode() === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                                    @click="setView('kanban')"
+                                >
+                                    {{ __('Kanban') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Search, filters / pending invitations / add filter / trash --}}
+                    <div class="flex flex-col gap-3 border-t border-brand-blue/20 pt-3 xl:flex-row xl:items-start xl:justify-between">
+                        <div class="min-w-0 flex flex-wrap items-center gap-2">
+                            @auth
+                                <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
+                            @endauth
+                            <x-workspace.active-filter-pills
+                                :filters="$this->getFilters()"
+                                :tags="$this->tags"
+                            />
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+                            <x-workspace.trash-popover />
+                            <x-workspace.filter-bar
+                                :filters="$this->getFilters()"
+                                :tags="$this->tags"
+                            />
+                            @auth
+                                <flux:modal.trigger name="task-assistant-chat">
+                                    <flux:button
+                                        variant="ghost"
+                                        size="sm"
+                                        icon="chat-bubble-left-right"
+                                        class="shrink-0"
+                                        aria-label="{{ __('Open task assistant') }}"
+                                    >
+                                        {{ __('Assistant') }}
+                                    </flux:button>
+                                </flux:modal.trigger>
+                            @endauth
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             {{-- Real content - hidden during filter/date/view refresh --}}
             <div
                 wire:loading.remove
@@ -437,14 +442,21 @@
 
         {{-- Right Side: Calendar (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
-            <x-workspace.calendar-feeds-popover />
-
             <div class="sticky top-6 mt-4" data-focus-lock-viewport>
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
+                    :month-meta="$this->calendarMonthMeta"
+                    :selected-day-agenda="$this->selectedDayAgenda"
+                    :source-filter="$this->calendarSourceFilter"
                 />
+
+                @auth
+                    <div class="mt-4">
+                        <x-workspace.calendar-feeds-popover />
+                    </div>
+                @endauth
 
                 <div class="mt-4">
                     <x-workspace.upcoming

@@ -46,6 +46,7 @@ use App\Livewire\Concerns\HandlesActivityLogs;
 use App\Actions\Task\CreateTaskExceptionAction;
 use App\Actions\Task\DeleteTaskExceptionAction;
 use App\Livewire\Concerns\HandlesCalendarFeeds;
+use App\Livewire\Concerns\HandlesWorkspaceCalendar;
 use App\Livewire\Concerns\HandlesFocusSessions;
 use App\Actions\Event\UpdateEventPropertyAction;
 use App\Livewire\Concerns\HandlesCollaborations;
@@ -81,6 +82,7 @@ class extends Component
     use HandlesCollaborations;
     use HandlesComments;
     use HandlesCalendarFeeds;
+    use HandlesWorkspaceCalendar;
     use HandlesEvents;
     use HandlesFiltering;
     use HandlesFocusSessions;
@@ -97,6 +99,9 @@ class extends Component
 
     #[Url(as: 'view')]
     public string $viewMode = 'list';
+
+    #[Url(as: 'calendar_source')]
+    public string $calendarSourceFilter = 'all';
 
     /**
      * Global item pagination for the workspace list (across tasks, events, projects).
@@ -344,24 +349,6 @@ class extends Component
     }
 
     /**
-     * Calendar month for the selected date (computed to avoid parsing in Blade).
-     */
-    #[Computed]
-    public function calendarMonth(): int
-    {
-        return $this->getParsedSelectedDate()->month;
-    }
-
-    /**
-     * Calendar year for the selected date (computed to avoid parsing in Blade).
-     */
-    #[Computed]
-    public function calendarYear(): int
-    {
-        return $this->getParsedSelectedDate()->year;
-    }
-
-    /**
      * Mount: restore any in-progress focus session so per-task focus progress
      * remains consistent across reloads and navigation.
      */
@@ -379,6 +366,7 @@ class extends Component
         if (! in_array($this->viewMode, ['list', 'kanban'], true)) {
             $this->viewMode = 'list';
         }
+        $this->calendarSourceFilter = $this->normalizeCalendarSourceFilter($this->calendarSourceFilter);
         $this->syncFilterTagIdFromTagIds();
         $this->activeFocusSession = $this->getActiveFocusSession();
     }

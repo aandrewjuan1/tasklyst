@@ -1,0 +1,84 @@
+<?php
+
+use App\Enums\EventStatus;
+use App\Enums\TaskPriority;
+use App\Enums\TaskSourceType;
+use App\Enums\TaskStatus;
+use App\Models\CalendarFeed;
+use App\Models\Event;
+use App\Models\Task;
+use App\Models\User;
+use Carbon\Carbon;
+use Livewire\Livewire;
+
+afterEach(function (): void {
+    Carbon::setTestNow();
+});
+
+test('workspace calendar supports dashboard contract methods', function (): void {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->call('navigateSelectedDate', 1)
+        ->assertSet('selectedDate', '2026-04-10')
+        ->call('setCalendarSourceFilter', 'imported')
+        ->assertSet('calendarSourceFilter', 'imported')
+        ->call('setCalendarSourceFilter', 'invalid-source')
+        ->assertSet('calendarSourceFilter', 'all')
+        ->call('jumpSelectedDateToToday')
+        ->assertSet('selectedDate', now()->toDateString());
+});
+
+test('workspace calendar renders selected day agenda and imported source filtering', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+
+    $user = User::factory()->create();
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Workspace Imported Feed',
+        'feed_url' => 'https://example.com/workspace-calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Workspace Manual Agenda Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => Carbon::parse('2026-04-09 13:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Workspace Imported Agenda Task',
+        'priority' => TaskPriority::Urgent,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Brightspace->value,
+        'source_id' => 'workspace-imported-1',
+        'calendar_feed_id' => $feed->id,
+        'end_datetime' => Carbon::parse('2026-04-09 14:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Workspace Agenda Event',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => Carbon::parse('2026-04-09 12:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-09 13:00:00'),
+        'all_day' => false,
+    ]);
+
+    $this->actingAs($user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->set('calendarSourceFilter', 'imported')
+        ->assertSee('data-testid="calendar-source-filter-imported"', false)
+        ->assertSee('data-testid="calendar-selected-day-agenda"', false)
+        ->assertSee('Workspace Imported Agenda Task')
+        ->assertSet('selectedDayAgenda.summary.tasks', 1)
+        ->assertSee('Workspace Agenda Event');
+});
