@@ -10,6 +10,7 @@
     $collaborationInboxInvites = $this->collaborationInboxInvites;
     $collaborationPulseRecentActivity = $this->collaborationPulseRecentActivity;
     $llmActivity = $this->llmActivity;
+    $recurringSummary = $this->dashboardRecurringSummary;
     $assistantQuickActions = [
         __('Prioritize my tasks for today'),
         __('Suggest focus blocks around my events'),
@@ -18,8 +19,8 @@
     $cardOrder = [
         'total_tasks',
         'todo_tasks',
+        'recurring_due',
         'tasks_completed',
-        'completion_rate',
     ];
     $cardLabels = [
         'total_tasks' => __('Total tasks'),
@@ -27,6 +28,7 @@
         'tasks_created' => __('Tasks created'),
         'tasks_completed' => __('Tasks completed'),
         'completion_rate' => __('Completion rate'),
+        'recurring_due' => __('Repeating tasks due'),
         'focus_work_seconds' => __('Focus time'),
         'focus_sessions' => __('Focus sessions'),
     ];
@@ -36,6 +38,7 @@
         'tasks_created' => 'plus-circle',
         'tasks_completed' => 'check-circle',
         'completion_rate' => 'chart-pie',
+        'recurring_due' => 'arrow-path',
         'focus_work_seconds' => 'bolt',
         'focus_sessions' => 'circle-stack',
     ];
@@ -45,6 +48,7 @@
         'tasks_created' => 'bg-emerald-100 text-emerald-700',
         'tasks_completed' => 'bg-green-100 text-green-700',
         'completion_rate' => 'bg-violet-100 text-violet-700',
+        'recurring_due' => 'bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-200',
         'focus_work_seconds' => 'bg-orange-100 text-orange-700',
         'focus_sessions' => 'bg-cyan-100 text-cyan-700',
     ];
@@ -66,6 +70,7 @@
         'todo_tasks' => 'rounded-xl border border-zinc-200/80 bg-linear-to-br from-zinc-50/50 via-background to-brand-blue/5 p-3 shadow-sm ring-1 ring-zinc-400/12 sm:p-4 dark:border-zinc-700/55 dark:from-zinc-950/30 dark:ring-zinc-500/8',
         'tasks_completed' => 'rounded-xl border border-emerald-200/65 bg-linear-to-br from-emerald-50/50 via-background to-brand-green/8 p-3 shadow-sm ring-1 ring-emerald-400/15 sm:p-4 dark:border-emerald-800/40 dark:from-emerald-950/20 dark:ring-emerald-500/10',
         'completion_rate' => 'rounded-xl border border-violet-200/60 bg-linear-to-br from-violet-50/45 via-background to-brand-purple/12 p-3 shadow-sm ring-1 ring-violet-400/15 sm:p-4 dark:border-violet-800/40 dark:from-violet-950/20 dark:ring-violet-500/10',
+        'recurring_due' => 'rounded-xl border border-teal-200/65 bg-linear-to-br from-teal-50/45 via-background to-brand-green/10 p-3 shadow-sm ring-1 ring-teal-400/15 sm:p-4 dark:border-teal-800/45 dark:from-teal-950/20 dark:ring-teal-500/10',
     ];
 
     $dashboardPanelShell = [
@@ -139,27 +144,27 @@
                                 <div class="pointer-events-none absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
                             </div>
 
-                            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+                            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                                 @foreach ($cardOrder as $key)
                                     @if ($key === 'total_tasks')
                                         <div
                                             class="{{ $summaryCardShellClasses['total_tasks'] }}"
                                             data-testid="dashboard-summary-total-tasks"
                                         >
-                                            <div class="flex items-start gap-2 text-xs text-muted-foreground sm:items-center">
+                                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
                                                 @if (isset($cardIcons[$key]))
                                                     <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                         <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                     </div>
                                                 @endif
-                                                <div class="min-w-0">
+                                                <div class="flex min-w-0 items-center gap-2">
                                                     <span
-                                                        class="block text-xl font-bold tabular-nums leading-tight text-foreground sm:text-2xl"
+                                                        class="shrink-0 text-xl font-bold tabular-nums leading-none text-foreground sm:text-2xl"
                                                         data-testid="dashboard-summary-total-tasks-value"
                                                     >
                                                         {{ $this->dashboardIncompleteTasksCount }}
                                                     </span>
-                                                    <span class="block truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                    <span class="truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -168,20 +173,42 @@
                                             class="{{ $summaryCardShellClasses['todo_tasks'] }}"
                                             data-testid="dashboard-summary-todo-tasks"
                                         >
-                                            <div class="flex items-start gap-2 text-xs text-muted-foreground sm:items-center">
+                                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
                                                 @if (isset($cardIcons[$key]))
                                                     <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                         <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                     </div>
                                                 @endif
-                                                <div class="min-w-0">
+                                                <div class="flex min-w-0 items-center gap-2">
                                                     <span
-                                                        class="block text-xl font-bold tabular-nums leading-tight text-foreground sm:text-2xl"
+                                                        class="shrink-0 text-xl font-bold tabular-nums leading-none text-foreground sm:text-2xl"
                                                         data-testid="dashboard-summary-todo-tasks-value"
                                                     >
                                                         {{ $this->dashboardTodoTasksCount }}
                                                     </span>
-                                                    <span class="block truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                    <span class="truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @elseif ($key === 'recurring_due')
+                                        <div
+                                            class="{{ $summaryCardShellClasses['recurring_due'] }}"
+                                            data-testid="dashboard-summary-recurring-due"
+                                        >
+                                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                                @if (isset($cardIcons[$key]))
+                                                    <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
+                                                        <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
+                                                    </div>
+                                                @endif
+                                                <div class="flex min-w-0 items-center gap-2">
+                                                    <span
+                                                        class="shrink-0 text-xl font-bold tabular-nums leading-none text-foreground sm:text-2xl"
+                                                        data-testid="dashboard-summary-recurring-due-value"
+                                                    >
+                                                        {{ $recurringSummary['due'] }}
+                                                    </span>
+                                                    <span class="truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -191,14 +218,14 @@
                                         @endphp
                                         @if ($card)
                                             <div class="{{ $summaryCardShellClasses[$key] ?? 'rounded-xl border border-brand-blue/20 bg-linear-to-br from-brand-blue/10 via-background to-brand-purple/10 p-3 shadow-sm ring-1 ring-brand-blue/10 sm:p-4' }}">
-                                                <div class="flex items-start gap-2 text-xs text-muted-foreground sm:items-center">
+                                                <div class="flex items-center gap-2 text-xs text-muted-foreground">
                                                     @if (isset($cardIcons[$key]))
                                                         <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                             <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                         </div>
                                                     @endif
-                                                    <div class="min-w-0">
-                                                        <span class="block text-xl font-bold tabular-nums leading-tight text-foreground sm:text-2xl">
+                                                    <div class="flex min-w-0 items-center gap-2">
+                                                        <span class="shrink-0 text-xl font-bold tabular-nums leading-none text-foreground sm:text-2xl">
                                                             @if ($key === 'completion_rate')
                                                                 {{ (int) round($card['current']) }}%
                                                             @elseif ($key === 'focus_work_seconds')
@@ -213,7 +240,7 @@
                                                                 {{ $card['current'] }}
                                                             @endif
                                                         </span>
-                                                        <span class="block truncate text-xs font-bold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                        <span class="truncate text-xs font-bold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -283,7 +310,47 @@
                         @endauth
 
                         @auth
-                            <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                            <div class="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                                <div class="rounded-xl border border-teal-200/60 bg-background shadow-sm ring-1 ring-teal-500/10 dark:border-teal-900/40 dark:bg-zinc-900/50 dark:ring-teal-500/10">
+                                    <div class="flex items-center gap-2 border-b border-teal-200/45 px-4 py-3 dark:border-teal-900/45">
+                                        <flux:icon name="arrow-path" class="size-4 text-teal-600 dark:text-teal-400" />
+                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-recurring-heading">{{ __('Repeating tasks on selected day') }}</span>
+                                        <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-due-count">{{ $recurringSummary['due'] }}</span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-2 border-b border-teal-200/45 px-4 py-3 dark:border-teal-900/45">
+                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Due') }}</p>
+                                            <p class="text-base font-bold text-foreground" data-testid="dashboard-recurring-due-count-value">{{ $recurringSummary['due'] }}</p>
+                                        </div>
+                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Completed') }}</p>
+                                            <p class="text-base font-bold text-foreground" data-testid="dashboard-recurring-completed-count-value">{{ $recurringSummary['completed'] }}</p>
+                                        </div>
+                                    </div>
+                                    <div class="border-b border-teal-200/45 px-4 py-2 dark:border-teal-900/45">
+                                        <p class="text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-streak-days-value">
+                                            {{ __('Completion streak: :days day(s)', ['days' => $recurringSummary['streak_days']]) }}
+                                        </p>
+                                    </div>
+                                    @if ($this->dashboardRecurringDueTasks->isEmpty())
+                                        <p class="px-4 py-3 text-xs text-muted-foreground">{{ __('No repeating tasks due on selected day.') }}</p>
+                                    @else
+                                        <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
+                                            @foreach ($this->dashboardRecurringDueTasks as $task)
+                                                <li class="px-4 py-2.5" data-testid="dashboard-row-recurring-task">
+                                                    <a href="{{ route('workspace', ['date' => $this->selectedDate, 'type' => 'tasks', 'q' => $task->title]) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                        <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
+                                                        <p class="text-[11px] text-muted-foreground">
+                                                            {{ __('Due: :time', ['time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time')]) }}
+                                                            ·
+                                                            {{ ucfirst($task->recurringTask?->recurrence_type?->value ?? __('Repeating')) }}
+                                                        </p>
+                                                    </a>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
+                                </div>
                                 <div class="rounded-xl border border-zinc-200/70 bg-background shadow-sm ring-1 ring-zinc-500/10 dark:border-zinc-700/50 dark:bg-zinc-900/50">
                                     <div class="flex items-center gap-2 border-b border-zinc-200/45 px-4 py-3 dark:border-zinc-700/50">
                                         <flux:icon name="clock" class="size-4 text-zinc-600 dark:text-zinc-300" />
@@ -312,7 +379,7 @@
                                     </div>
                                     <div class="grid grid-cols-2 gap-2 px-4 py-3">
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-[11px] text-muted-foreground">{{ __('Focus today') }}</p>
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Focus on selected day') }}</p>
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['daily_focus_minutes'] }} {{ __('min') }}</p>
                                         </div>
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
@@ -320,7 +387,7 @@
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['weekly_focus_minutes'] }} {{ __('min') }}</p>
                                         </div>
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-[11px] text-muted-foreground">{{ __('Completed today') }}</p>
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Completed on selected day') }}</p>
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['completed_today'] }}</p>
                                         </div>
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
@@ -332,7 +399,7 @@
                                 <div class="rounded-xl border border-indigo-200/55 bg-background shadow-sm ring-1 ring-indigo-500/10 dark:border-indigo-900/40 dark:bg-zinc-900/50 dark:ring-indigo-500/10">
                                     <div class="flex items-center gap-2 border-b border-indigo-200/45 px-4 py-3 dark:border-indigo-900/45">
                                         <flux:icon name="calendar-days" class="size-4 text-indigo-600 dark:text-indigo-400" />
-                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-calendar-load-heading">{{ __('Calendar Load (24h)') }}</span>
+                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-calendar-load-heading">{{ __('Calendar Load (next 24h)') }}</span>
                                     </div>
                                     <div class="space-y-2 px-4 py-3">
                                         <div class="grid grid-cols-2 gap-2 text-xs">
@@ -541,7 +608,6 @@
                     :current-year="$this->calendarYear"
                     :month-meta="$this->calendarMonthMeta"
                     :selected-day-agenda="$this->selectedDayAgenda"
-                    :source-filter="$this->calendarSourceFilter"
                 />
 
                 @auth

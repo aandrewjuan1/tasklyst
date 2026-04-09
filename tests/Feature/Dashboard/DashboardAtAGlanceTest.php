@@ -94,6 +94,6 @@ it('shows empty state copy when there are no matching items', function () {
     expect($matches[1])->toBe('0');
 
     $response->assertSee(__('No tasks in progress.'), false);
-    $response->assertSee(__('Nothing due today.'), false);
+    $response->assertSee(__('Nothing due on selected day.'), false);
     $response->assertSee(__('No events today.'), false);
 });

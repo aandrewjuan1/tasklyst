@@ -449,7 +449,6 @@
                     :current-year="$this->calendarYear"
                     :month-meta="$this->calendarMonthMeta"
                     :selected-day-agenda="$this->selectedDayAgenda"
-                    :source-filter="$this->calendarSourceFilter"
                 />
 
                 @auth

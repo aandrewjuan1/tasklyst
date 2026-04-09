@@ -9,8 +9,7 @@
     /** @var \Illuminate\Support\Collection $items */
     $items = $items instanceof \Illuminate\Support\Collection ? $items : collect($items);
 
-    // Always base "upcoming" on today, independent of the selected date, filters, and search.
-    $baseDate = now()->startOfDay();
+    $baseDate = $selectedDate ? Carbon::parse($selectedDate)->startOfDay() : now()->startOfDay();
 
     $grouped = $items->groupBy(function (array $entry) {
         /** @var \App\Models\Task|\App\Models\Event|\App\Models\Project $item */
@@ -75,7 +74,7 @@
                     {{ __('Upcoming (next :days days)', ['days' => 7]) }}
                 </span>
                 <span class="text-[11px] text-muted-foreground/80">
-                    {{ __('Starting today') }}
+                    {{ __('Starting from selected day') }}
                 </span>
             </div>
         </div>

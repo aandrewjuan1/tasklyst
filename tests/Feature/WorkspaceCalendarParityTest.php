@@ -23,15 +23,11 @@ test('workspace calendar supports dashboard contract methods', function (): void
         ->set('selectedDate', '2026-04-09')
         ->call('navigateSelectedDate', 1)
         ->assertSet('selectedDate', '2026-04-10')
-        ->call('setCalendarSourceFilter', 'imported')
-        ->assertSet('calendarSourceFilter', 'imported')
-        ->call('setCalendarSourceFilter', 'invalid-source')
-        ->assertSet('calendarSourceFilter', 'all')
         ->call('jumpSelectedDateToToday')
         ->assertSet('selectedDate', now()->toDateString());
 });
 
-test('workspace calendar renders selected day agenda and imported source filtering', function (): void {
+test('workspace calendar renders selected day agenda without source filtering', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
 
     $user = User::factory()->create();
@@ -75,10 +71,9 @@ test('workspace calendar renders selected day agenda and imported source filteri
 
     Livewire::test('pages::workspace.index')
         ->set('selectedDate', '2026-04-09')
-        ->set('calendarSourceFilter', 'imported')
-        ->assertSee('data-testid="calendar-source-filter-imported"', false)
         ->assertSee('data-testid="calendar-selected-day-agenda"', false)
+        ->assertSee('Workspace Manual Agenda Task')
         ->assertSee('Workspace Imported Agenda Task')
-        ->assertSet('selectedDayAgenda.summary.tasks', 1)
+        ->assertSet('selectedDayAgenda.summary.tasks', 2)
         ->assertSee('Workspace Agenda Event');
 });

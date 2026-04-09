@@ -3,11 +3,9 @@
 namespace App\Livewire\Concerns;
 
 use App\Enums\TaskPriority;
-use App\Enums\TaskSourceType;
 use App\Models\Event;
 use App\Models\Task;
 use Carbon\CarbonInterface;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 
@@ -18,16 +16,6 @@ trait HandlesWorkspaceCalendar
     private const SELECTED_DAY_AGENDA_TASK_LIMIT = 120;
 
     private const SELECTED_DAY_AGENDA_EVENT_LIMIT = 120;
-
-    public function updatedCalendarSourceFilter(string $value): void
-    {
-        $this->calendarSourceFilter = $this->normalizeCalendarSourceFilter($value);
-    }
-
-    public function setCalendarSourceFilter(string $filter): void
-    {
-        $this->calendarSourceFilter = $this->normalizeCalendarSourceFilter($filter);
-    }
 
     public function navigateSelectedDate(int $offsetDays): void
     {
@@ -94,12 +82,10 @@ trait HandlesWorkspaceCalendar
         $gridEndAt = $gridEnd->copy()->endOfDay();
         $now = now();
 
-        $tasks = $this->applyTaskSourceFilter(
-            Task::query()
-                ->forUser($userId)
-                ->incomplete()
-                ->with('recurringTask')
-        )
+        $tasks = Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->with('recurringTask')
             ->whereNotNull('end_datetime')
             ->whereBetween('end_datetime', [$gridStartAt, $gridEndAt])
             ->orderBy('end_datetime')
@@ -214,21 +200,19 @@ trait HandlesWorkspaceCalendar
             ];
         }
 
-        $tasks = $this->applyTaskSourceFilter(
-            Task::query()
-                ->forUser($userId)
-                ->incomplete()
-                ->where(function ($query) use ($start, $end): void {
-                    $query->whereBetween('start_datetime', [$start, $end])
-                        ->orWhereBetween('end_datetime', [$start, $end])
-                        ->orWhere(function ($overlap) use ($start, $end): void {
-                            $overlap->whereNotNull('start_datetime')
-                                ->whereNotNull('end_datetime')
-                                ->where('start_datetime', '<=', $start)
-                                ->where('end_datetime', '>=', $end);
-                        });
-                })
-        )
+        $tasks = Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->where(function ($query) use ($start, $end): void {
+                $query->whereBetween('start_datetime', [$start, $end])
+                    ->orWhereBetween('end_datetime', [$start, $end])
+                    ->orWhere(function ($overlap) use ($start, $end): void {
+                        $overlap->whereNotNull('start_datetime')
+                            ->whereNotNull('end_datetime')
+                            ->where('start_datetime', '<=', $start)
+                            ->where('end_datetime', '>=', $end);
+                    });
+            })
             ->orderByPriority()
             ->orderBy('end_datetime')
             ->limit(self::SELECTED_DAY_AGENDA_TASK_LIMIT)
@@ -352,26 +336,6 @@ trait HandlesWorkspaceCalendar
             'allDayEvents' => $allDayEvents,
             'carryoverTasks' => $carryoverTasks,
         ];
-    }
-
-    protected function normalizeCalendarSourceFilter(string $filter): string
-    {
-        $normalized = strtolower(trim($filter));
-
-        return in_array($normalized, ['all', 'manual', 'imported'], true) ? $normalized : 'all';
-    }
-
-    protected function applyTaskSourceFilter(Builder $query): Builder
-    {
-        return match ($this->calendarSourceFilter) {
-            'manual' => $query->where(function ($sourceQuery): void {
-                $sourceQuery->whereNull('source_type')
-                    ->orWhere('source_type', TaskSourceType::Manual->value);
-            }),
-            'imported' => $query->whereNotNull('source_type')
-                ->where('source_type', '!=', TaskSourceType::Manual->value),
-            default => $query,
-        };
     }
 
     abstract protected function getParsedSelectedDate(): CarbonInterface;

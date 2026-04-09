@@ -13,9 +13,11 @@ use App\Models\Event;
 use App\Models\FocusSession;
 use App\Models\LlmToolCall;
 use App\Models\Project;
+use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -142,7 +144,7 @@ test('dashboard phase 1 sections render with seeded data', function () {
     $response->assertSee('Phase 1 Project', false);
 });
 
-test('dashboard phase 2 sections render with collaboration pulse and calendar feed health data', function () {
+test('dashboard phase 2 sections render with calendar feed health data', function () {
     $user = User::factory()->create();
     $inviter = User::factory()->create();
 
@@ -198,13 +200,8 @@ test('dashboard phase 2 sections render with collaboration pulse and calendar fe
     $response = $this->actingAs($user)->get(route('dashboard'));
 
     $response->assertSuccessful();
-    $response->assertSee('Collaboration Pulse', false);
     $response->assertSee('BRIGHTSPACE CALENDAR FEED', false);
     $response->assertSee('Sync Brightspace Calendar', false);
-    $response->assertSee('Collaboration Target Task', false);
-
-    expect(preg_match('/data-testid="dashboard-collab-pending-invites"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('1');
 });
 
 test('dashboard rich sections render focus, calendar load, no-date backlog, and llm activity', function () {
@@ -269,7 +266,7 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
     $response->assertSuccessful();
     $response->assertSee('No-date Backlog', false);
     $response->assertSee('Focus + Throughput', false);
-    $response->assertSee('Calendar Load (24h)', false);
+    $response->assertSee('Calendar Load (next 24h)', false);
     $response->assertSee('LLM Assistant Activity', false);
     $response->assertSee('Quick actions', false);
     $response->assertSee('No Date Backlog Task', false);
@@ -323,7 +320,7 @@ test('dashboard calendar renders selected-day agenda and summary counts', functi
     expect((int) $conflictMatches[1])->toBe(1);
 });
 
-test('dashboard calendar source filter imported limits agenda to imported tasks', function () {
+test('dashboard calendar agenda includes manual and imported tasks without source filtering', function () {
     $user = User::factory()->create();
     $selectedDate = now()->toDateString();
     $feed = CalendarFeed::query()->create([
@@ -354,15 +351,233 @@ test('dashboard calendar source filter imported limits agenda to imported tasks'
         'completed_at' => null,
     ]);
 
-    $response = $this->actingAs($user)->get(route('dashboard', [
-        'date' => $selectedDate,
-        'calendar_source' => 'imported',
-    ]));
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
 
     $response->assertSuccessful();
-    $response->assertSee('data-testid="calendar-source-filter-imported"', false);
+    $response->assertSee('Manual Agenda Task', false);
     $response->assertSee('Imported Agenda Task', false);
 
     expect(preg_match('/data-testid="calendar-agenda-summary-tasks"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryMatches))->toBe(1);
-    expect((int) $summaryMatches[1])->toBe(1);
+    expect((int) $summaryMatches[1])->toBe(2);
+});
+
+test('dashboard upcoming excludes completed tasks and completed events', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->create([
+        'title' => 'Upcoming Active Task',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-10 11:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Upcoming Completed Task',
+        'status' => TaskStatus::Done,
+        'end_datetime' => Carbon::parse('2026-04-10 13:00:00'),
+        'completed_at' => Carbon::parse('2026-04-09 08:30:00'),
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Upcoming Active Event',
+        'status' => 'scheduled',
+        'start_datetime' => Carbon::parse('2026-04-10 09:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-10 10:00:00'),
+        'all_day' => false,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Upcoming Completed Event',
+        'status' => 'completed',
+        'start_datetime' => Carbon::parse('2026-04-10 12:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-10 13:00:00'),
+        'all_day' => false,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => '2026-04-09']));
+
+    $response->assertSuccessful();
+    $response->assertSee('Upcoming Active Task', false);
+    $response->assertSee('Upcoming Active Event', false);
+    $response->assertDontSee('Upcoming Completed Task', false);
+    $response->assertDontSee('Upcoming Completed Event', false);
+
+    Carbon::setTestNow();
+});
+
+test('dashboard selected date drives due and events panels', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->create([
+        'title' => 'Due On Selected Day',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 15:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Event On Selected Day',
+        'status' => 'scheduled',
+        'start_datetime' => Carbon::parse('2026-04-12 09:30:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 10:30:00'),
+        'all_day' => false,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => '2026-04-12']));
+
+    $response->assertSuccessful();
+    $response->assertSee('Due On Selected Day', false);
+    $response->assertSee('Event On Selected Day', false);
+
+    expect(preg_match('/data-testid="dashboard-due-today-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $dueMatches))->toBe(1);
+    expect($dueMatches[1])->toBe('1');
+
+    expect(preg_match('/data-testid="dashboard-today-events-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $eventMatches))->toBe(1);
+    expect($eventMatches[1])->toBe('1');
+
+    Carbon::setTestNow();
+});
+
+test('dashboard recurring section shows selected-day due and completed counts', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 08:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    $dueRecurringTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Due Task',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 13:00:00'),
+        'completed_at' => null,
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $dueRecurringTask->id,
+    ]);
+
+    $completedRecurringTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Completed Task',
+        'status' => TaskStatus::Done,
+        'end_datetime' => Carbon::parse('2026-04-12 10:00:00'),
+        'completed_at' => Carbon::parse('2026-04-12 11:30:00'),
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $completedRecurringTask->id,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Repeating tasks on selected day', false);
+    $response->assertSee('Recurring Due Task', false);
+    $response->assertDontSee('Recurring Completed Task', false);
+
+    expect(preg_match('/data-testid="dashboard-summary-recurring-due-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryDueMatches))->toBe(1);
+    expect($summaryDueMatches[1])->toBe('1');
+
+    expect(preg_match('/data-testid="dashboard-recurring-due-count-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $panelDueMatches))->toBe(1);
+    expect($panelDueMatches[1])->toBe('1');
+
+    expect(preg_match('/data-testid="dashboard-recurring-completed-count-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $completedMatches))->toBe(1);
+    expect($completedMatches[1])->toBe('1');
+
+    Carbon::setTestNow();
+});
+
+test('dashboard recurring section excludes non-recurring and off-date tasks', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 08:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    $recurringOnDate = Task::factory()->for($user)->create([
+        'title' => 'Recurring On Date',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 09:00:00'),
+        'completed_at' => null,
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $recurringOnDate->id,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Non Recurring On Date',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 12:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $recurringOffDate = Task::factory()->for($user)->create([
+        'title' => 'Recurring Off Date',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-13 09:00:00'),
+        'completed_at' => null,
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $recurringOffDate->id,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Recurring On Date', false);
+    expect(preg_match('/data-testid="dashboard-summary-recurring-due-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryDueMatches))->toBe(1);
+    expect($summaryDueMatches[1])->toBe('1');
+
+    expect(substr_count((string) $response->getContent(), 'data-testid="dashboard-row-recurring-task"'))->toBe(1);
+
+    Carbon::setTestNow();
+});
+
+test('dashboard recurring section computes completion streak anchored to selected date', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 08:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    $dayOneTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Completed Day 1',
+        'status' => TaskStatus::Done,
+        'end_datetime' => Carbon::parse('2026-04-10 09:00:00'),
+        'completed_at' => Carbon::parse('2026-04-10 11:00:00'),
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $dayOneTask->id,
+    ]);
+
+    $dayTwoTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Completed Day 2',
+        'status' => TaskStatus::Done,
+        'end_datetime' => Carbon::parse('2026-04-11 09:00:00'),
+        'completed_at' => Carbon::parse('2026-04-11 12:00:00'),
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $dayTwoTask->id,
+    ]);
+
+    $dayThreeTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Completed Day 3',
+        'status' => TaskStatus::Done,
+        'end_datetime' => Carbon::parse('2026-04-12 09:00:00'),
+        'completed_at' => Carbon::parse('2026-04-12 10:00:00'),
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $dayThreeTask->id,
+    ]);
+
+    $olderTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Completed Older',
+        'status' => TaskStatus::Done,
+        'end_datetime' => Carbon::parse('2026-04-08 09:00:00'),
+        'completed_at' => Carbon::parse('2026-04-08 10:00:00'),
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $olderTask->id,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Completion streak: 3 day(s)', false);
+    $response->assertSee('Streak: 3 day(s)', false);
+
+    Carbon::setTestNow();
 });

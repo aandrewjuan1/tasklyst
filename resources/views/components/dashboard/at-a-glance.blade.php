@@ -60,15 +60,15 @@
 @endphp
 
 <div data-testid="dashboard-at-a-glance" class="flex flex-col gap-4">
-    {{-- Row 1: Today's events | Overdue | Due today --}}
+    {{-- Row 1: Selected-day events | Overdue | Due on selected day --}}
     <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {{-- Today's events --}}
+        {{-- Selected-day events --}}
         <div class="rounded-xl border border-indigo-200/55 bg-background shadow-sm ring-1 ring-indigo-500/10 dark:border-indigo-900/40 dark:bg-zinc-900/50 dark:ring-indigo-500/10">
             <div class="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-200/45 px-4 py-3 dark:border-indigo-900/45">
                 <div class="flex flex-wrap items-center gap-2">
                     <flux:icon name="calendar-days" class="size-4 text-[var(--color-brand-navy-blue)]" />
                     <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-today-events-heading">
-                        {{ __("Today's Events") }}
+                        {{ __('Selected-day Events') }}
                     </span>
                     <span
                         class="inline-flex min-w-6 items-center justify-center rounded-full bg-[var(--color-brand-light-lavender)] px-2 py-0.5 text-[11px] font-bold tabular-nums text-[var(--color-brand-navy-blue)] dark:bg-indigo-950/50 dark:text-indigo-200"
@@ -160,13 +160,13 @@
         @endif
     </div>
 
-    {{-- Due today --}}
+    {{-- Due on selected day --}}
     <div class="rounded-xl border border-amber-200/60 bg-background shadow-sm ring-1 ring-amber-400/12 dark:border-amber-900/40 dark:bg-zinc-900/50 dark:ring-amber-500/10">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/45 px-4 py-3 dark:border-amber-900/45">
             <div class="flex flex-wrap items-center gap-2">
                 <flux:icon name="sun" class="size-4 text-amber-600 dark:text-amber-400" />
                 <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-due-today-heading">
-                    {{ __('Due Today') }}
+                    {{ __('Due on selected day') }}
                 </span>
                 <span
                     class="inline-flex min-w-6 items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold tabular-nums text-amber-900 dark:bg-amber-950/60 dark:text-amber-200"
@@ -177,7 +177,7 @@
             </div>
         </div>
         @if ($dueTodayTasks->isEmpty())
-            <p class="px-4 py-3 text-xs text-muted-foreground">{{ __('Nothing due today.') }}</p>
+            <p class="px-4 py-3 text-xs text-muted-foreground">{{ __('Nothing due on selected day.') }}</p>
         @else
             <ul class="max-h-64 space-y-1.5 overflow-y-auto px-3 py-3">
                 @foreach ($dueTodayTasks as $task)

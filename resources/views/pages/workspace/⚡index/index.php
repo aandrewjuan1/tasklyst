@@ -100,9 +100,6 @@ class extends Component
     #[Url(as: 'view')]
     public string $viewMode = 'list';
 
-    #[Url(as: 'calendar_source')]
-    public string $calendarSourceFilter = 'all';
-
     /**
      * Global item pagination for the workspace list (across tasks, events, projects).
      * Controls how many combined item cards are visible in the list component.
@@ -366,7 +363,6 @@ class extends Component
         if (! in_array($this->viewMode, ['list', 'kanban'], true)) {
             $this->viewMode = 'list';
         }
-        $this->calendarSourceFilter = $this->normalizeCalendarSourceFilter($this->calendarSourceFilter);
         $this->syncFilterTagIdFromTagIds();
         $this->activeFocusSession = $this->getActiveFocusSession();
     }

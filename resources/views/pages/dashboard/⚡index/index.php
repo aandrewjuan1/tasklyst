@@ -52,6 +52,7 @@ class extends Component
     private const COLLAB_INVITES_LIMIT = 5;
     private const FEED_HEALTH_LIMIT = 5;
     private const NO_DATE_BACKLOG_LIMIT = 7;
+    private const RECURRING_DUE_LIMIT = 7;
     private const CALENDAR_LOAD_WINDOW_HOURS = 24;
     private const LLM_RECENT_THREADS_LIMIT = 5;
     private const UPCOMING_LIMIT_PER_KIND = 25;
@@ -63,9 +64,6 @@ class extends Component
     public string $analyticsPreset = 'daily';
 
     public string $trendPreset = 'daily';
-
-    #[Url(as: 'calendar_source')]
-    public string $calendarSourceFilter = 'all';
 
     /**
      * Cached parsed date to avoid parsing multiple times.
@@ -96,7 +94,6 @@ class extends Component
 
         $this->analyticsPreset = $this->normalizeAnalyticsPreset($this->analyticsPreset);
         $this->trendPreset = $this->normalizeAnalyticsPreset($this->trendPreset);
-        $this->calendarSourceFilter = $this->normalizeCalendarSourceFilter($this->calendarSourceFilter);
     }
 
     public function updatedSelectedDate(): void
@@ -152,7 +149,7 @@ class extends Component
     #[Computed]
     public function workspaceUrlForToday(): string
     {
-        return route('workspace', ['date' => now()->toDateString()]);
+        return route('workspace', ['date' => $this->getParsedSelectedDate()->toDateString()]);
     }
 
     #[Computed]
@@ -280,8 +277,8 @@ class extends Component
             return new EloquentCollection;
         }
 
-        $startOfDay = now()->startOfDay();
-        $endOfDay = now()->copy()->endOfDay();
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
 
         return Task::query()
             ->with(['project'])
@@ -304,8 +301,8 @@ class extends Component
             return 0;
         }
 
-        $startOfDay = now()->startOfDay();
-        $endOfDay = now()->copy()->endOfDay();
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
 
         return Task::query()
             ->forUser($userId)
@@ -314,6 +311,132 @@ class extends Component
             ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
             ->whereDoesntHave('recurringTask')
             ->count();
+    }
+
+    /**
+     * @return EloquentCollection<int, Task>
+     */
+    #[Computed]
+    public function dashboardRecurringDueTasks(): EloquentCollection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return new EloquentCollection;
+        }
+
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
+
+        return Task::query()
+            ->with(['project', 'recurringTask'])
+            ->forUser($userId)
+            ->incomplete()
+            ->whereHas('recurringTask')
+            ->whereNotNull('end_datetime')
+            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+            ->orderByPriority()
+            ->orderBy('end_datetime')
+            ->limit(self::RECURRING_DUE_LIMIT)
+            ->get();
+    }
+
+    #[Computed]
+    public function dashboardRecurringDueCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->whereHas('recurringTask')
+            ->whereNotNull('end_datetime')
+            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+            ->count();
+    }
+
+    #[Computed]
+    public function dashboardRecurringCompletedCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
+
+        return Task::query()
+            ->forUser($userId)
+            ->whereHas('recurringTask')
+            ->whereNotNull('completed_at')
+            ->whereBetween('completed_at', [$startOfDay, $endOfDay])
+            ->count();
+    }
+
+    /**
+     * @return array{due:int,completed:int,completion_rate:int,streak_days:int}
+     */
+    #[Computed]
+    public function dashboardRecurringSummary(): array
+    {
+        $dueCount = $this->dashboardRecurringDueCount;
+        $completedCount = $this->dashboardRecurringCompletedCount;
+        $total = $dueCount + $completedCount;
+        $completionRate = $total > 0 ? (int) round(($completedCount / $total) * 100) : 0;
+        $streakDays = $this->dashboardRecurringCompletionStreakDays;
+
+        return [
+            'due' => $dueCount,
+            'completed' => $completedCount,
+            'completion_rate' => $completionRate,
+            'streak_days' => $streakDays,
+        ];
+    }
+
+    #[Computed]
+    public function dashboardRecurringCompletionStreakDays(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $selectedDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+
+        /** @var Collection<int, string> $completionDates */
+        $completionDates = Task::query()
+            ->forUser($userId)
+            ->whereHas('recurringTask')
+            ->whereNotNull('completed_at')
+            ->whereDate('completed_at', '<=', $selectedDay->toDateString())
+            ->orderByDesc('completed_at')
+            ->get(['completed_at'])
+            ->pluck('completed_at')
+            ->filter()
+            ->map(fn ($completedAt): string => \Carbon\Carbon::parse($completedAt)->toDateString())
+            ->unique()
+            ->values();
+
+        if ($completionDates->isEmpty()) {
+            return 0;
+        }
+
+        $completionDateLookup = array_fill_keys($completionDates->all(), true);
+        $streakDays = 0;
+        $cursor = $selectedDay->copy();
+
+        while (isset($completionDateLookup[$cursor->toDateString()])) {
+            $streakDays++;
+            $cursor->subDay();
+        }
+
+        return $streakDays;
     }
 
     /**
@@ -366,8 +489,8 @@ class extends Component
             return new EloquentCollection;
         }
 
-        $startOfDay = now()->startOfDay();
-        $endOfDay = now()->copy()->endOfDay();
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
 
         return Event::query()
             ->forUser($userId)
@@ -389,8 +512,8 @@ class extends Component
             return 0;
         }
 
-        $startOfDay = now()->startOfDay();
-        $endOfDay = now()->copy()->endOfDay();
+        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
 
         return Event::query()
             ->forUser($userId)
@@ -414,13 +537,14 @@ class extends Component
             return collect();
         }
 
-        $fromDate = now()->startOfDay();
+        $fromDate = $this->getParsedSelectedDate()->copy()->startOfDay();
         $days = 7;
 
         $entries = collect();
 
         $upcomingTasks = Task::query()
             ->forUser($userId)
+            ->incomplete()
             ->dueSoon($fromDate, $days)
             ->whereDoesntHave('recurringTask')
             ->orderBy('end_datetime')
@@ -432,6 +556,7 @@ class extends Component
 
         $upcomingEvents = Event::query()
             ->forUser($userId)
+            ->notCompleted()
             ->startingSoon($fromDate, $days)
             ->whereDoesntHave('recurringEvent')
             ->notCancelled()
@@ -670,15 +795,17 @@ class extends Component
             ];
         }
 
-        $todayStart = now()->startOfDay();
-        $weekStart = now()->startOfWeek();
-        $weekEnd = now()->endOfWeek();
+        $selectedDate = $this->getParsedSelectedDate()->copy();
+        $dayStart = $selectedDate->copy()->startOfDay();
+        $dayEnd = $selectedDate->copy()->endOfDay();
+        $weekStart = $selectedDate->copy()->startOfWeek();
+        $weekEnd = $selectedDate->copy()->endOfWeek();
 
         $dailyWorkSeconds = FocusSession::query()
             ->forUser($userId)
             ->work()
             ->completed()
-            ->whereBetween('started_at', [$todayStart, now()])
+            ->whereBetween('started_at', [$dayStart, $dayEnd])
             ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
             ->value('aggregate');
 
@@ -693,7 +820,7 @@ class extends Component
         $completedToday = Task::query()
             ->forUser($userId)
             ->whereNotNull('completed_at')
-            ->whereBetween('completed_at', [$todayStart, now()->endOfDay()])
+            ->whereBetween('completed_at', [$dayStart, $dayEnd])
             ->count();
 
         $dailyMinutes = (int) floor(((int) $dailyWorkSeconds) / 60);
@@ -966,12 +1093,11 @@ class extends Component
         $allDayCount = $events->where('all_day', true)->count();
 
         $overlapConflicts = 0;
-        $busyMinutes = 0;
         $eventWindows = [];
 
         foreach ($events as $event) {
             if ($event->all_day) {
-                $busyMinutes += self::CALENDAR_LOAD_WINDOW_HOURS * 60;
+                $eventWindows[] = [$windowStart->copy(), $windowEnd->copy()];
                 continue;
             }
 
@@ -987,9 +1113,6 @@ class extends Component
 
             $clampedStart = $start->lessThan($windowStart) ? $windowStart->copy() : $start;
             $clampedEnd = $end->greaterThan($windowEnd) ? $windowEnd->copy() : $end;
-            $minutes = max(0, (int) $clampedEnd->diffInMinutes($clampedStart));
-            $busyMinutes += $minutes;
-
             $eventWindows[] = [$clampedStart, $clampedEnd];
         }
 
@@ -1004,7 +1127,29 @@ class extends Component
         }
 
         $windowMinutes = self::CALENDAR_LOAD_WINDOW_HOURS * 60;
-        $busyMinutes = min($busyMinutes, $windowMinutes);
+        $busyMinutes = 0;
+        if ($eventWindows !== []) {
+            $mergedStart = $eventWindows[0][0]->copy();
+            $mergedEnd = $eventWindows[0][1]->copy();
+
+            for ($i = 1; $i < count($eventWindows); $i++) {
+                $candidateStart = $eventWindows[$i][0];
+                $candidateEnd = $eventWindows[$i][1];
+
+                if ($candidateStart->lessThanOrEqualTo($mergedEnd)) {
+                    if ($candidateEnd->greaterThan($mergedEnd)) {
+                        $mergedEnd = $candidateEnd->copy();
+                    }
+                    continue;
+                }
+
+                $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
+                $mergedStart = $candidateStart->copy();
+                $mergedEnd = $candidateEnd->copy();
+            }
+
+            $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
+        }
 
         return [
             'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,

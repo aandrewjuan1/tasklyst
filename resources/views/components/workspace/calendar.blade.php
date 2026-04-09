@@ -4,7 +4,6 @@
     'currentYear' => null,
     'monthMeta' => [],
     'selectedDayAgenda' => [],
-    'sourceFilter' => 'all',
 ])
 
 @php
@@ -77,7 +76,6 @@
     $initialMonth = $currentMonth - 1; // JavaScript months are 0-indexed
     $initialYear = $currentYear;
     $initialMonthLabel = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y');
-    $sourceFilter = in_array($sourceFilter, ['all', 'manual', 'imported'], true) ? $sourceFilter : 'all';
 @endphp
 
 <div
@@ -88,7 +86,6 @@
         selectedDate: @js($selectedDateString),
         today: @js($today),
         monthMeta: @js($monthMeta),
-        sourceFilter: @js($sourceFilter),
         todayCache: null,
         days: [],
         locale: @js(str_replace('_', '-', app()->getLocale())),
@@ -283,21 +280,6 @@
                 this.busyContext = '';
             }
         },
-        async setFilter(filter) {
-            if (filter === this.sourceFilter) return;
-            const previousFilter = this.sourceFilter;
-            this.sourceFilter = filter;
-            try {
-                this.isBusy = true;
-                this.busyContext = 'source-filter';
-                await $wire.$call('setCalendarSourceFilter', filter);
-            } catch (error) {
-                this.sourceFilter = previousFilter;
-            } finally {
-                this.isBusy = false;
-                this.busyContext = '';
-            }
-        },
         getMeta(dateString) {
             if (!dateString || !this.monthMeta || typeof this.monthMeta !== 'object') {
                 return { task_count: 0, overdue_count: 0, due_count: 0, urgent_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
@@ -395,37 +377,20 @@
         </div>
 
         <div class="px-3 pb-2 sm:px-4">
-            <div class="inline-flex items-center gap-1 rounded-lg bg-muted/60 p-1">
-                <button
-                    type="button"
-                    @click.throttle.250ms="setFilter('all')"
-                    :disabled="isBusy"
-                    class="rounded-md px-2 py-1 text-[11px] font-semibold transition"
-                    :class="sourceFilter === 'all' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
-                    data-testid="calendar-source-filter-all"
-                >
-                    {{ __('All') }}
-                </button>
-                <button
-                    type="button"
-                    @click.throttle.250ms="setFilter('manual')"
-                    :disabled="isBusy"
-                    class="rounded-md px-2 py-1 text-[11px] font-semibold transition"
-                    :class="sourceFilter === 'manual' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
-                    data-testid="calendar-source-filter-manual"
-                >
-                    {{ __('Manual') }}
-                </button>
-                <button
-                    type="button"
-                    @click.throttle.250ms="setFilter('imported')"
-                    :disabled="isBusy"
-                    class="rounded-md px-2 py-1 text-[11px] font-semibold transition"
-                    :class="sourceFilter === 'imported' ? 'bg-background text-foreground shadow-xs' : 'text-muted-foreground hover:text-foreground'"
-                    data-testid="calendar-source-filter-imported"
-                >
-                    {{ __('Imported') }}
-                </button>
+            <div class="mb-2 flex items-center justify-center">
+                <flux:tooltip content="{{ __('Go back to today') }}">
+                    <button
+                        type="button"
+                        @click="goToday()"
+                        :disabled="isBusy"
+                        class="inline-flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-brand-blue/90 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="{{ __('Go back to today') }}"
+                        data-testid="calendar-go-today-top"
+                    >
+                        <flux:icon name="calendar-days" class="size-3.5" />
+                        <span>{{ __('Today') }}</span>
+                    </button>
+                </flux:tooltip>
             </div>
         </div>
 
@@ -676,21 +641,6 @@
                 )
                     <p class="text-xs text-muted-foreground">{{ __('No scheduled items for this day.') }}</p>
                 @endif
-            </div>
-        </div>
-
-        {{-- Footer: Today Button --}}
-        <div class="px-3 py-2.5 sm:px-4 sm:py-3">
-            <div class="flex items-center justify-center">
-                <button
-                    type="button"
-                    @click="goToday()"
-                    :disabled="isBusy"
-                    class="rounded-lg px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-xs"
-                    aria-label="{{ __('Go to today') }}"
-                >
-                    {{ __('Today') }}
-                </button>
             </div>
         </div>
 
