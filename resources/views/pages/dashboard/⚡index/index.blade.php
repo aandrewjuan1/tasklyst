@@ -4,9 +4,17 @@
     $urgentNowDisplayed = $this->urgentNowDisplayed;
     $urgentNowHasMore = $this->urgentNowHasMore;
     $projectHealth = $this->projectHealth;
+    $focusThroughput = $this->focusThroughput;
+    $calendarLoadInsights = $this->calendarLoadInsights;
     $collaborationPulseCounts = $this->collaborationPulseCounts;
+    $collaborationInboxInvites = $this->collaborationInboxInvites;
     $collaborationPulseRecentActivity = $this->collaborationPulseRecentActivity;
-    $calendarFeedHealth = $this->calendarFeedHealth;
+    $llmActivity = $this->llmActivity;
+    $assistantQuickActions = [
+        __('Prioritize my tasks for today'),
+        __('Suggest focus blocks around my events'),
+        __('Summarize what I should do next'),
+    ];
     $cardOrder = [
         'total_tasks',
         'todo_tasks',
@@ -49,25 +57,6 @@
         };
     };
 
-    $feedStatusClass = static function (string $status): string {
-        return match ($status) {
-            'fresh' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200',
-            'stale' => 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200',
-            'critical' => 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-200',
-            'sync_off' => 'bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-            default => 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200',
-        };
-    };
-
-    $feedStatusLabel = static function (string $status): string {
-        return match ($status) {
-            'fresh' => __('Fresh'),
-            'stale' => __('Stale'),
-            'critical' => __('Critical'),
-            'sync_off' => __('Sync Off'),
-            default => __('Never Synced'),
-        };
-    };
 
     $panelCtaClass = 'inline-flex items-center gap-1 rounded-md px-1 text-xs font-semibold text-brand-blue transition hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50';
     $panelCtaIconClass = 'size-3.5';
@@ -150,26 +139,28 @@
                                 <div class="pointer-events-none absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
                             </div>
 
-                            <div class="grid grid-cols-4 gap-3">
+                            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                                 @foreach ($cardOrder as $key)
                                     @if ($key === 'total_tasks')
                                         <div
                                             class="{{ $summaryCardShellClasses['total_tasks'] }}"
                                             data-testid="dashboard-summary-total-tasks"
                                         >
-                                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                            <div class="flex items-start gap-2 text-xs text-muted-foreground sm:items-center">
                                                 @if (isset($cardIcons[$key]))
-                                                    <div class="flex size-9 items-center justify-center rounded-lg {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
+                                                    <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                         <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                     </div>
                                                 @endif
-                                                <span
-                                                    class="text-2xl font-bold tabular-nums text-foreground"
-                                                    data-testid="dashboard-summary-total-tasks-value"
-                                                >
-                                                    {{ $this->dashboardIncompleteTasksCount }}
-                                                </span>
-                                                <span class="text-sm font-semibold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                                <div class="min-w-0">
+                                                    <span
+                                                        class="block text-xl font-bold tabular-nums leading-tight text-foreground sm:text-2xl"
+                                                        data-testid="dashboard-summary-total-tasks-value"
+                                                    >
+                                                        {{ $this->dashboardIncompleteTasksCount }}
+                                                    </span>
+                                                    <span class="block truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     @elseif ($key === 'todo_tasks')
@@ -177,19 +168,21 @@
                                             class="{{ $summaryCardShellClasses['todo_tasks'] }}"
                                             data-testid="dashboard-summary-todo-tasks"
                                         >
-                                            <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                            <div class="flex items-start gap-2 text-xs text-muted-foreground sm:items-center">
                                                 @if (isset($cardIcons[$key]))
-                                                    <div class="flex size-9 items-center justify-center rounded-lg {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
+                                                    <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                         <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                     </div>
                                                 @endif
-                                                <span
-                                                    class="text-2xl font-bold tabular-nums text-foreground"
-                                                    data-testid="dashboard-summary-todo-tasks-value"
-                                                >
-                                                    {{ $this->dashboardTodoTasksCount }}
-                                                </span>
-                                                <span class="text-sm font-semibold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                                <div class="min-w-0">
+                                                    <span
+                                                        class="block text-xl font-bold tabular-nums leading-tight text-foreground sm:text-2xl"
+                                                        data-testid="dashboard-summary-todo-tasks-value"
+                                                    >
+                                                        {{ $this->dashboardTodoTasksCount }}
+                                                    </span>
+                                                    <span class="block truncate text-xs font-semibold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     @else
@@ -198,28 +191,30 @@
                                         @endphp
                                         @if ($card)
                                             <div class="{{ $summaryCardShellClasses[$key] ?? 'rounded-xl border border-brand-blue/20 bg-linear-to-br from-brand-blue/10 via-background to-brand-purple/10 p-3 shadow-sm ring-1 ring-brand-blue/10 sm:p-4' }}">
-                                                <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                                                <div class="flex items-start gap-2 text-xs text-muted-foreground sm:items-center">
                                                     @if (isset($cardIcons[$key]))
-                                                        <div class="flex size-9 items-center justify-center rounded-lg {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
+                                                        <div class="flex size-8 shrink-0 items-center justify-center rounded-lg sm:size-9 {{ $cardIconColorClasses[$key] ?? 'bg-zinc-100 text-zinc-700' }}">
                                                             <flux:icon name="{{ $cardIcons[$key] }}" class="size-6" />
                                                         </div>
                                                     @endif
-                                                    <span class="text-2xl font-bold tabular-nums text-foreground">
-                                                        @if ($key === 'completion_rate')
-                                                            {{ (int) round($card['current']) }}%
-                                                        @elseif ($key === 'focus_work_seconds')
-                                                            @if (($card['current'] ?? 0) >= 3600)
-                                                                {{ round($card['current'] / 3600, 1) }} {{ __('h') }}
-                                                            @elseif (($card['current'] ?? 0) >= 60)
-                                                                {{ round($card['current'] / 60) }} {{ __('min') }}
+                                                    <div class="min-w-0">
+                                                        <span class="block text-xl font-bold tabular-nums leading-tight text-foreground sm:text-2xl">
+                                                            @if ($key === 'completion_rate')
+                                                                {{ (int) round($card['current']) }}%
+                                                            @elseif ($key === 'focus_work_seconds')
+                                                                @if (($card['current'] ?? 0) >= 3600)
+                                                                    {{ round($card['current'] / 3600, 1) }} {{ __('h') }}
+                                                                @elseif (($card['current'] ?? 0) >= 60)
+                                                                    {{ round($card['current'] / 60) }} {{ __('min') }}
+                                                                @else
+                                                                    {{ (int) ($card['current'] ?? 0) }} {{ __('s') }}
+                                                                @endif
                                                             @else
-                                                                {{ (int) ($card['current'] ?? 0) }} {{ __('s') }}
+                                                                {{ $card['current'] }}
                                                             @endif
-                                                        @else
-                                                            {{ $card['current'] }}
-                                                        @endif
-                                                    </span>
-                                                    <span class="font-bold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                                        </span>
+                                                        <span class="block truncate text-xs font-bold text-foreground sm:text-sm">{{ $cardLabels[$key] ?? $key }}</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         @endif
@@ -285,6 +280,77 @@
                                     </div>
                                 </x-slot>
                             </x-dashboard.at-a-glance>
+                        @endauth
+
+                        @auth
+                            <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                                <div class="rounded-xl border border-zinc-200/70 bg-background shadow-sm ring-1 ring-zinc-500/10 dark:border-zinc-700/50 dark:bg-zinc-900/50">
+                                    <div class="flex items-center gap-2 border-b border-zinc-200/45 px-4 py-3 dark:border-zinc-700/50">
+                                        <flux:icon name="clock" class="size-4 text-zinc-600 dark:text-zinc-300" />
+                                        <span class="text-sm font-semibold text-foreground">{{ __('No-date Backlog') }}</span>
+                                        <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-no-date-backlog-count">{{ $this->dashboardNoDateBacklogCount }}</span>
+                                    </div>
+                                    @if ($this->dashboardNoDateBacklogTasks->isEmpty())
+                                        <p class="px-4 py-3 text-xs text-muted-foreground">{{ __('No no-date tasks right now.') }}</p>
+                                    @else
+                                        <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
+                                            @foreach ($this->dashboardNoDateBacklogTasks as $task)
+                                                <li class="px-4 py-2.5">
+                                                    <a href="{{ route('workspace', ['date' => now()->toDateString(), 'type' => 'tasks']) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                        <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
+                                                        <p class="text-[11px] text-muted-foreground">{{ $task->project?->name ?? __('No project') }}</p>
+                                                    </a>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
+                                </div>
+                                <div class="rounded-xl border border-orange-200/55 bg-background shadow-sm ring-1 ring-orange-500/10 dark:border-orange-900/40 dark:bg-zinc-900/50 dark:ring-orange-500/10">
+                                    <div class="flex items-center gap-2 border-b border-orange-200/45 px-4 py-3 dark:border-orange-900/45">
+                                        <flux:icon name="bolt" class="size-4 text-orange-600 dark:text-orange-400" />
+                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-focus-throughput-heading">{{ __('Focus + Throughput') }}</span>
+                                    </div>
+                                    <div class="grid grid-cols-2 gap-2 px-4 py-3">
+                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Focus today') }}</p>
+                                            <p class="text-base font-bold text-foreground">{{ $focusThroughput['daily_focus_minutes'] }} {{ __('min') }}</p>
+                                        </div>
+                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Focus this week') }}</p>
+                                            <p class="text-base font-bold text-foreground">{{ $focusThroughput['weekly_focus_minutes'] }} {{ __('min') }}</p>
+                                        </div>
+                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Completed today') }}</p>
+                                            <p class="text-base font-bold text-foreground">{{ $focusThroughput['completed_today'] }}</p>
+                                        </div>
+                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                            <p class="text-[11px] text-muted-foreground">{{ __('Focus / completion') }}</p>
+                                            <p class="text-base font-bold text-foreground">{{ $focusThroughput['focus_per_completed_minutes'] }} {{ __('min') }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="rounded-xl border border-indigo-200/55 bg-background shadow-sm ring-1 ring-indigo-500/10 dark:border-indigo-900/40 dark:bg-zinc-900/50 dark:ring-indigo-500/10">
+                                    <div class="flex items-center gap-2 border-b border-indigo-200/45 px-4 py-3 dark:border-indigo-900/45">
+                                        <flux:icon name="calendar-days" class="size-4 text-indigo-600 dark:text-indigo-400" />
+                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-calendar-load-heading">{{ __('Calendar Load (24h)') }}</span>
+                                    </div>
+                                    <div class="space-y-2 px-4 py-3">
+                                        <div class="grid grid-cols-2 gap-2 text-xs">
+                                            <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                                <p class="text-muted-foreground">{{ __('Events') }}</p>
+                                                <p class="text-base font-bold text-foreground">{{ $calendarLoadInsights['events_in_window'] }}</p>
+                                            </div>
+                                            <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                                <p class="text-muted-foreground">{{ __('Conflicts') }}</p>
+                                                <p class="text-base font-bold text-foreground">{{ $calendarLoadInsights['overlap_conflicts'] }}</p>
+                                            </div>
+                                        </div>
+                                        <p class="text-[11px] text-muted-foreground">
+                                            {{ __('Busy :busy min · Free :free min · All-day :allDay', ['busy' => $calendarLoadInsights['busy_minutes'], 'free' => $calendarLoadInsights['free_minutes'], 'allDay' => $calendarLoadInsights['all_day_events']]) }}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         @endauth
 
                         @auth
@@ -390,6 +456,23 @@
                                         </p>
                                     </div>
                                 </div>
+                                @if ($collaborationInboxInvites->isNotEmpty())
+                                    <div class="border-t border-border/60 px-4 py-3 dark:border-zinc-800">
+                                        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ __('Pending invitations') }}</p>
+                                        <ul class="space-y-2">
+                                            @foreach ($collaborationInboxInvites as $invite)
+                                                <li class="rounded-lg bg-muted/50 px-3 py-2 text-[11px]">
+                                                    <p class="font-semibold text-foreground">
+                                                        {{ $invite->inviter?->name ?? __('Unknown inviter') }}
+                                                    </p>
+                                                    <p class="truncate text-muted-foreground">
+                                                        {{ __('Shared :type · :title', ['type' => class_basename($invite->collaboratable_type), 'title' => $invite->collaboratable?->title ?? $invite->collaboratable?->name ?? __('Untitled')]) }}
+                                                    </p>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                @endif
                                 @if ($collaborationPulseRecentActivity->isEmpty())
                                     <div class="border-t border-border/60 px-4 py-3 dark:border-zinc-800">
                                         <p class="text-xs text-muted-foreground">{{ __('No recent collaboration activity yet.') }}</p>
@@ -419,6 +502,56 @@
                                         @endforeach
                                     </ul>
                                 @endif
+                            </div>
+                        @endauth
+
+                        @auth
+                            <div class="rounded-xl border border-fuchsia-200/55 bg-background shadow-sm ring-1 ring-fuchsia-500/10 dark:border-fuchsia-900/40 dark:bg-zinc-900/50 dark:ring-fuchsia-500/10">
+                                <div class="flex items-center justify-between gap-2 border-b border-fuchsia-200/45 px-4 py-3 dark:border-fuchsia-900/45">
+                                    <div class="flex items-center gap-2">
+                                        <flux:icon name="sparkles" class="size-4 text-fuchsia-600 dark:text-fuchsia-400" />
+                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-llm-activity-heading">{{ __('LLM Assistant Activity') }}</span>
+                                    </div>
+                                    <flux:modal.trigger name="task-assistant-chat">
+                                        <button type="button" class="{{ $panelCtaClass }}">
+                                            <span>{{ __('Open assistant') }}</span>
+                                            <flux:icon name="arrow-right" class="{{ $panelCtaIconClass }}" />
+                                        </button>
+                                    </flux:modal.trigger>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 px-4 py-3">
+                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                        <p class="text-[11px] text-muted-foreground">{{ __('Threads') }}</p>
+                                        <p class="text-base font-bold text-foreground">{{ $llmActivity['total_threads'] }}</p>
+                                    </div>
+                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                        <p class="text-[11px] text-muted-foreground">{{ __('Recent threads') }}</p>
+                                        <p class="text-base font-bold text-foreground">{{ $llmActivity['recent_threads'] }}</p>
+                                    </div>
+                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                        <p class="text-[11px] text-muted-foreground">{{ __('Tool calls success') }}</p>
+                                        <p class="text-base font-bold text-foreground">{{ $llmActivity['successful_tool_calls'] }}</p>
+                                    </div>
+                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
+                                        <p class="text-[11px] text-muted-foreground">{{ __('Tool calls pending/failed') }}</p>
+                                        <p class="text-base font-bold text-foreground">{{ $llmActivity['pending_tool_calls'] }} / {{ $llmActivity['failed_tool_calls'] }}</p>
+                                    </div>
+                                </div>
+                                <div class="border-t border-border/60 px-4 py-3 dark:border-zinc-800">
+                                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ __('Quick actions') }}</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        @foreach ($assistantQuickActions as $action)
+                                            <flux:modal.trigger name="task-assistant-chat">
+                                                <button
+                                                    type="button"
+                                                    class="inline-flex items-center rounded-full border border-zinc-300/80 px-2.5 py-1 text-[11px] font-semibold text-foreground transition hover:bg-muted/70 dark:border-zinc-700"
+                                                >
+                                                    {{ $action }}
+                                                </button>
+                                            </flux:modal.trigger>
+                                        @endforeach
+                                    </div>
+                                </div>
                             </div>
                         @endauth
 
@@ -480,104 +613,25 @@
 
         {{-- Right Side: Calendar & Upcoming (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
-            <div class="sticky top-6 space-y-3" data-focus-lock-viewport>
-                @auth
-                    <div class="w-full">
-                        <div class="workspace-sidebar-panel">
-                            {{-- Header: match upcoming rhythm (px-4 py-3) + room for logo + actions --}}
-                            <div class="border-b border-border/15 px-4 py-4 dark:border-white/10">
-                                <div class="flex items-start gap-3.5">
-                                    <img
-                                        src="{{ asset('images/brightspace-icon.png') }}"
-                                        alt=""
-                                        width="44"
-                                        height="44"
-                                        decoding="async"
-                                        class="mt-0.5 size-11 shrink-0 rounded-xl bg-white/90 object-contain p-1 shadow-sm ring-1 ring-black/5 dark:bg-white/10 dark:ring-white/10"
-                                    />
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                                            <div class="min-w-0 space-y-1.5">
-                                                <div class="flex items-start gap-2">
-                                                    <flux:icon name="link" class="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                                                    <div class="min-w-0 space-y-1">
-                                                        <span class="block text-xs font-semibold uppercase leading-snug tracking-wide text-muted-foreground" data-testid="dashboard-section-calendar-feed-health-heading">
-                                                            {{ __('Calendar Feed Health') }}
-                                                        </span>
-                                                        <p class="text-[11px] leading-relaxed text-muted-foreground/80">
-                                                            {{ __('Brightspace · sync status and quick connect') }}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="flex shrink-0 justify-start sm:justify-end sm:pt-0.5">
-                                                <x-workspace.calendar-feeds-popover compact />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            @if ($calendarFeedHealth->isEmpty())
-                                <div class="space-y-2 px-4 py-4">
-                                    <p class="text-sm leading-relaxed text-muted-foreground">{{ __('No calendar feeds connected yet.') }}</p>
-                                    <p class="text-[11px] leading-relaxed text-muted-foreground">{{ __('Use the sync button above to paste your Brightspace calendar URL, or open the workspace for full feed settings.') }}</p>
-                                    <a
-                                        href="{{ route('workspace', ['date' => now()->toDateString(), 'scope' => 'all']) }}"
-                                        wire:navigate
-                                        class="{{ $panelCtaClass }} inline-flex pt-1"
-                                    >
-                                        <span>{{ __('Open calendar feeds') }}</span>
-                                        <flux:icon name="arrow-right" class="{{ $panelCtaIconClass }}" />
-                                    </a>
-                                </div>
-                            @else
-                                <ul class="max-h-80 divide-y divide-border/40 overflow-y-auto dark:divide-white/10">
-                                    @foreach ($calendarFeedHealth as $feed)
-                                        <li class="space-y-2 px-4 py-3.5" data-testid="dashboard-row-calendar-feed-health">
-                                            <div class="flex items-start justify-between gap-3">
-                                                <div class="min-w-0 space-y-0.5">
-                                                    <p class="text-sm font-semibold leading-snug text-foreground">{{ $feed['name'] }}</p>
-                                                    <p class="text-[11px] leading-relaxed text-muted-foreground">{{ ucfirst($feed['source']) }}</p>
-                                                </div>
-                                                <span
-                                                    class="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none {{ $feedStatusClass($feed['status']) }}"
-                                                    role="status"
-                                                    aria-label="{{ __('Feed status: :status', ['status' => $feedStatusLabel($feed['status'])]) }}"
-                                                >
-                                                    {{ $feedStatusLabel($feed['status']) }}
-                                                </span>
-                                            </div>
-                                            <div class="space-y-1 text-[11px] leading-relaxed text-muted-foreground">
-                                                <p>
-                                                    {{ __('Last sync: :value', ['value' => $feed['last_synced_at'] ? \Carbon\Carbon::parse($feed['last_synced_at'])->diffForHumans() : __('Never')]) }}
-                                                </p>
-                                                <p>
-                                                    {{ __('Updated 24h: :updates · Total imported: :total', ['updates' => $feed['updated_last_24h'], 'total' => $feed['total_imported']]) }}
-                                                </p>
-                                                @if ($feed['latest_import_activity_at'])
-                                                    <p title="{{ \Carbon\Carbon::parse($feed['latest_import_activity_at'])->translatedFormat('M j, Y · H:i') }}">
-                                                        {{ __('Latest import activity: :when', ['when' => \Carbon\Carbon::parse($feed['latest_import_activity_at'])->diffForHumans()]) }}
-                                                    </p>
-                                                @endif
-                                            </div>
-                                        </li>
-                                    @endforeach
-                                </ul>
-                            @endif
-                        </div>
-                    </div>
-                @endauth
+            @auth
+                <div class="w-full">
+                    <x-workspace.calendar-feeds-popover />
+                </div>
+            @endauth
 
+            <div class="sticky top-6 mt-4" data-focus-lock-viewport>
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
                 />
 
-                <x-workspace.upcoming
-                    :items="$this->upcoming"
-                    :selected-date="$this->selectedDate"
-                />
+                <div class="mt-4">
+                    <x-workspace.upcoming
+                        :items="$this->upcoming"
+                        :selected-date="$this->selectedDate"
+                    />
+                </div>
             </div>
         </div>
     </div>

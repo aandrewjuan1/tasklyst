@@ -66,8 +66,8 @@
     };
 @endphp
 
-<div class="mt-4 w-full">
-    <div class="workspace-sidebar-panel">
+<div class="w-full">
+    <div class="rounded-xl border border-brand-blue/35 bg-brand-light-lavender/90 shadow-lg backdrop-blur-xs dark:border-brand-blue/25 dark:bg-brand-light-lavender/10">
         <div class="flex items-center gap-2 px-4 py-3">
             <flux:icon name="calendar-days" class="size-4 text-muted-foreground" />
             <div class="flex flex-col">

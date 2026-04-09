@@ -169,6 +169,51 @@ trait HandlesCalendarFeeds
         return true;
     }
 
+    public function updateCalendarFeedName(int $feedId, string $name): bool
+    {
+        /** @var User|null $user */
+        $user = $this->requireAuth(__('You must be logged in to update a calendar feed.'));
+        if ($user === null) {
+            return false;
+        }
+
+        $feed = CalendarFeed::query()
+            ->where('user_id', $user->id)
+            ->find($feedId);
+
+        if ($feed === null) {
+            $this->dispatch('toast', type: 'error', message: __('Calendar feed not found.'));
+
+            return false;
+        }
+
+        $this->authorize('update', $feed);
+
+        $trimmedName = trim($name);
+        if ($trimmedName === '') {
+            $this->dispatch('toast', type: 'error', message: __('Please enter a feed name.'));
+
+            return false;
+        }
+
+        try {
+            $feed->update(['name' => $trimmedName]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update calendar feed name.', [
+                'user_id' => $user->id,
+                'feed_id' => $feedId,
+                'name' => $trimmedName,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t update the calendar feed name. Try again.'));
+
+            return false;
+        }
+
+        return true;
+    }
+
     /**
      * @return array<int, array<string, mixed>>
      */

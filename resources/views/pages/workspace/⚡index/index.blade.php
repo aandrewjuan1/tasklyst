@@ -437,21 +437,21 @@
 
         {{-- Right Side: Calendar (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
-            <div class="sticky top-6 space-y-3" data-focus-lock-viewport>
-                <div class="flex flex-wrap items-center justify-end gap-2">
-                    <x-workspace.calendar-feeds-popover />
-                </div>
+            <x-workspace.calendar-feeds-popover />
 
+            <div class="sticky top-6 mt-4" data-focus-lock-viewport>
                 <x-workspace.calendar
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
                 />
 
-                <x-workspace.upcoming
-                    :items="$this->upcoming"
-                    :selected-date="$this->selectedDate"
-                />
+                <div class="mt-4">
+                    <x-workspace.upcoming
+                        :items="$this->upcoming"
+                        :selected-date="$this->selectedDate"
+                    />
+                </div>
             </div>
         </div>
     </div>

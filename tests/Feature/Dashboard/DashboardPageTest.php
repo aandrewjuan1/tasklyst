@@ -9,8 +9,12 @@ use App\Models\ActivityLog;
 use App\Models\CalendarFeed;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
+use App\Models\Event;
+use App\Models\FocusSession;
+use App\Models\LlmToolCall;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\TaskAssistantThread;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -195,10 +199,81 @@ test('dashboard phase 2 sections render with collaboration pulse and calendar fe
 
     $response->assertSuccessful();
     $response->assertSee('Collaboration Pulse', false);
-    $response->assertSee('Calendar Feed Health', false);
-    $response->assertSee('Brightspace Feed', false);
+    $response->assertSee('BRIGHTSPACE CALENDAR FEED', false);
+    $response->assertSee('Sync Brightspace Calendar', false);
     $response->assertSee('Collaboration Target Task', false);
 
     expect(preg_match('/data-testid="dashboard-collab-pending-invites"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
+    expect($matches[1])->toBe('1');
+});
+
+test('dashboard rich sections render focus, calendar load, no-date backlog, and llm activity', function () {
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->create([
+        'title' => 'No Date Backlog Task',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'completed_at' => null,
+    ]);
+
+    FocusSession::query()->create([
+        'user_id' => $user->id,
+        'focusable_type' => Task::class,
+        'focusable_id' => null,
+        'type' => 'work',
+        'focus_mode_type' => 'sprint',
+        'sequence_number' => 1,
+        'duration_seconds' => 1500,
+        'completed' => true,
+        'started_at' => now()->subHours(2),
+        'ended_at' => now()->subHours(1)->subMinutes(35),
+        'paused_seconds' => 0,
+        'payload' => [],
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Conflict Event A',
+        'start_datetime' => now()->addHours(2),
+        'end_datetime' => now()->addHours(3),
+        'status' => 'scheduled',
+    ]);
+
+    Event::factory()->for($user)->create([
+        'title' => 'Conflict Event B',
+        'start_datetime' => now()->addHours(2)->addMinutes(30),
+        'end_datetime' => now()->addHours(4),
+        'status' => 'scheduled',
+    ]);
+
+    $thread = TaskAssistantThread::query()->create([
+        'user_id' => $user->id,
+        'title' => 'Planner thread',
+        'metadata' => [],
+    ]);
+
+    LlmToolCall::query()->create([
+        'thread_id' => $thread->id,
+        'message_id' => null,
+        'tool_name' => 'update_task',
+        'params_json' => ['taskId' => 1],
+        'result_json' => ['ok' => true],
+        'status' => 'success',
+        'operation_token' => null,
+        'user_id' => $user->id,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard'));
+
+    $response->assertSuccessful();
+    $response->assertSee('No-date Backlog', false);
+    $response->assertSee('Focus + Throughput', false);
+    $response->assertSee('Calendar Load (24h)', false);
+    $response->assertSee('LLM Assistant Activity', false);
+    $response->assertSee('Quick actions', false);
+    $response->assertSee('No Date Backlog Task', false);
+
+    expect(preg_match('/data-testid="dashboard-no-date-backlog-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('1');
 });

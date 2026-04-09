@@ -244,7 +244,7 @@
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{-- Calendar Container --}}
-    <div class="workspace-sidebar-panel">
+    <div class="rounded-xl border border-brand-blue/35 bg-brand-light-lavender/90 shadow-lg backdrop-blur-xs dark:border-brand-blue/25 dark:bg-brand-light-lavender/10">
         {{-- Header: Month/Year Navigation --}}
         <div class="flex items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
             {{-- Previous Month Button --}}

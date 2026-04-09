@@ -9,8 +9,11 @@ use App\Models\CalendarFeed;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Event;
+use App\Models\FocusSession;
+use App\Models\LlmToolCall;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\TaskAssistantThread;
 use App\Livewire\Concerns\HandlesCalendarFeeds;
 use App\Models\User;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
@@ -43,7 +46,11 @@ class extends Component
     private const URGENT_NOW_PREVIEW_LIMIT = 4;
     private const PROJECT_HEALTH_LIMIT = 5;
     private const COLLAB_ACTIVITY_LIMIT = 6;
+    private const COLLAB_INVITES_LIMIT = 5;
     private const FEED_HEALTH_LIMIT = 5;
+    private const NO_DATE_BACKLOG_LIMIT = 7;
+    private const CALENDAR_LOAD_WINDOW_HOURS = 24;
+    private const LLM_RECENT_THREADS_LIMIT = 5;
 
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
@@ -297,6 +304,45 @@ class extends Component
             ->incomplete()
             ->whereNotNull('end_datetime')
             ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+            ->whereDoesntHave('recurringTask')
+            ->count();
+    }
+
+    /**
+     * @return EloquentCollection<int, Task>
+     */
+    #[Computed]
+    public function dashboardNoDateBacklogTasks(): EloquentCollection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return new EloquentCollection;
+        }
+
+        return Task::query()
+            ->with(['project'])
+            ->forUser($userId)
+            ->incomplete()
+            ->withNoDate()
+            ->whereDoesntHave('recurringTask')
+            ->orderByPriority()
+            ->orderByDesc('updated_at')
+            ->limit(self::NO_DATE_BACKLOG_LIMIT)
+            ->get();
+    }
+
+    #[Computed]
+    public function dashboardNoDateBacklogCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        return Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->withNoDate()
             ->whereDoesntHave('recurringTask')
             ->count();
     }
@@ -606,6 +652,64 @@ class extends Component
 
     /**
      * @return array{
+     *   daily_focus_minutes: int,
+     *   weekly_focus_minutes: int,
+     *   completed_today: int,
+     *   focus_per_completed_minutes: int
+     * }
+     */
+    #[Computed]
+    public function focusThroughput(): array
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return [
+                'daily_focus_minutes' => 0,
+                'weekly_focus_minutes' => 0,
+                'completed_today' => 0,
+                'focus_per_completed_minutes' => 0,
+            ];
+        }
+
+        $todayStart = now()->startOfDay();
+        $weekStart = now()->startOfWeek();
+        $weekEnd = now()->endOfWeek();
+
+        $dailyWorkSeconds = FocusSession::query()
+            ->forUser($userId)
+            ->work()
+            ->completed()
+            ->whereBetween('started_at', [$todayStart, now()])
+            ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
+            ->value('aggregate');
+
+        $weeklyWorkSeconds = FocusSession::query()
+            ->forUser($userId)
+            ->work()
+            ->completed()
+            ->whereBetween('started_at', [$weekStart, $weekEnd])
+            ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
+            ->value('aggregate');
+
+        $completedToday = Task::query()
+            ->forUser($userId)
+            ->whereNotNull('completed_at')
+            ->whereBetween('completed_at', [$todayStart, now()->endOfDay()])
+            ->count();
+
+        $dailyMinutes = (int) floor(((int) $dailyWorkSeconds) / 60);
+        $weeklyMinutes = (int) floor(((int) $weeklyWorkSeconds) / 60);
+
+        return [
+            'daily_focus_minutes' => $dailyMinutes,
+            'weekly_focus_minutes' => $weeklyMinutes,
+            'completed_today' => $completedToday,
+            'focus_per_completed_minutes' => $completedToday > 0 ? (int) floor($dailyMinutes / $completedToday) : 0,
+        ];
+    }
+
+    /**
+     * @return array{
      *   pending_invites: int,
      *   active_collaborations: int,
      *   activity_last_7d: int
@@ -698,6 +802,25 @@ class extends Component
     }
 
     /**
+     * @return Collection<int, CollaborationInvitation>
+     */
+    #[Computed]
+    public function collaborationInboxInvites(): Collection
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return collect();
+        }
+
+        return CollaborationInvitation::query()
+            ->with(['inviter', 'collaboratable'])
+            ->pendingForUser($user)
+            ->latest()
+            ->limit(self::COLLAB_INVITES_LIMIT)
+            ->get();
+    }
+
+    /**
      * @return Collection<int, array{
      *   id: int,
      *   name: string,
@@ -763,6 +886,184 @@ class extends Component
                 $row['last_synced_at'] ? -\Carbon\Carbon::parse($row['last_synced_at'])->getTimestamp() : PHP_INT_MAX,
             ])
             ->values();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function loadCalendarFeedHealth(): array
+    {
+        return $this->calendarFeedHealth
+            ->map(function (array $feed): array {
+                $lastSyncedAt = $feed['last_synced_at'] ? \Carbon\Carbon::parse($feed['last_synced_at']) : null;
+                $latestImportAt = $feed['latest_import_activity_at'] ? \Carbon\Carbon::parse($feed['latest_import_activity_at']) : null;
+
+                return [
+                    'id' => (int) $feed['id'],
+                    'name' => (string) $feed['name'],
+                    'source' => (string) $feed['source'],
+                    'source_label' => ucfirst((string) $feed['source']),
+                    'status' => (string) $feed['status'],
+                    'status_label' => match ((string) $feed['status']) {
+                        'fresh' => __('Fresh'),
+                        'stale' => __('Stale'),
+                        'critical' => __('Critical'),
+                        'sync_off' => __('Sync Off'),
+                        default => __('Never Synced'),
+                    },
+                    'total_imported' => (int) ($feed['total_imported'] ?? 0),
+                    'updated_last_24h' => (int) ($feed['updated_last_24h'] ?? 0),
+                    'last_synced_human' => $lastSyncedAt?->diffForHumans() ?? __('Never'),
+                    'latest_import_activity_human' => $latestImportAt?->diffForHumans(),
+                    'latest_import_activity_title' => $latestImportAt?->translatedFormat('M j, Y · H:i'),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array{
+     *   window_hours: int,
+     *   events_in_window: int,
+     *   all_day_events: int,
+     *   overlap_conflicts: int,
+     *   busy_minutes: int,
+     *   free_minutes: int
+     * }
+     */
+    #[Computed]
+    public function calendarLoadInsights(): array
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return [
+                'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,
+                'events_in_window' => 0,
+                'all_day_events' => 0,
+                'overlap_conflicts' => 0,
+                'busy_minutes' => 0,
+                'free_minutes' => self::CALENDAR_LOAD_WINDOW_HOURS * 60,
+            ];
+        }
+
+        $windowStart = now();
+        $windowEnd = now()->copy()->addHours(self::CALENDAR_LOAD_WINDOW_HOURS);
+
+        $events = Event::query()
+            ->forUser($userId)
+            ->notCancelled()
+            ->notCompleted()
+            ->whereNotNull('start_datetime')
+            ->where('start_datetime', '<', $windowEnd)
+            ->where(function ($query) use ($windowStart): void {
+                $query->whereNull('end_datetime')
+                    ->orWhere('end_datetime', '>', $windowStart);
+            })
+            ->orderBy('start_datetime')
+            ->get(['id', 'start_datetime', 'end_datetime', 'all_day']);
+
+        $eventsCount = $events->count();
+        $allDayCount = $events->where('all_day', true)->count();
+
+        $overlapConflicts = 0;
+        $busyMinutes = 0;
+        $eventWindows = [];
+
+        foreach ($events as $event) {
+            if ($event->all_day) {
+                $busyMinutes += self::CALENDAR_LOAD_WINDOW_HOURS * 60;
+                continue;
+            }
+
+            $start = $event->start_datetime?->copy();
+            $end = $event->end_datetime?->copy() ?? $event->start_datetime?->copy()->addHour();
+            if ($start === null || $end === null) {
+                continue;
+            }
+
+            if ($end->lessThanOrEqualTo($windowStart) || $start->greaterThanOrEqualTo($windowEnd)) {
+                continue;
+            }
+
+            $clampedStart = $start->lessThan($windowStart) ? $windowStart->copy() : $start;
+            $clampedEnd = $end->greaterThan($windowEnd) ? $windowEnd->copy() : $end;
+            $minutes = max(0, (int) $clampedEnd->diffInMinutes($clampedStart));
+            $busyMinutes += $minutes;
+
+            $eventWindows[] = [$clampedStart, $clampedEnd];
+        }
+
+        usort($eventWindows, static function (array $left, array $right): int {
+            return $left[0]->getTimestamp() <=> $right[0]->getTimestamp();
+        });
+
+        for ($i = 1; $i < count($eventWindows); $i++) {
+            if ($eventWindows[$i][0]->lessThan($eventWindows[$i - 1][1])) {
+                $overlapConflicts++;
+            }
+        }
+
+        $windowMinutes = self::CALENDAR_LOAD_WINDOW_HOURS * 60;
+        $busyMinutes = min($busyMinutes, $windowMinutes);
+
+        return [
+            'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,
+            'events_in_window' => $eventsCount,
+            'all_day_events' => $allDayCount,
+            'overlap_conflicts' => $overlapConflicts,
+            'busy_minutes' => $busyMinutes,
+            'free_minutes' => max(0, $windowMinutes - $busyMinutes),
+        ];
+    }
+
+    /**
+     * @return array{
+     *   total_threads: int,
+     *   recent_threads: int,
+     *   pending_tool_calls: int,
+     *   successful_tool_calls: int,
+     *   failed_tool_calls: int
+     * }
+     */
+    #[Computed]
+    public function llmActivity(): array
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return [
+                'total_threads' => 0,
+                'recent_threads' => 0,
+                'pending_tool_calls' => 0,
+                'successful_tool_calls' => 0,
+                'failed_tool_calls' => 0,
+            ];
+        }
+
+        $totalThreads = TaskAssistantThread::query()
+            ->where('user_id', $userId)
+            ->count();
+
+        $recentThreads = TaskAssistantThread::query()
+            ->where('user_id', $userId)
+            ->latest('updated_at')
+            ->limit(self::LLM_RECENT_THREADS_LIMIT)
+            ->count();
+
+        $toolCallCounts = LlmToolCall::query()
+            ->selectRaw('status, COUNT(*) as aggregate')
+            ->where('user_id', $userId)
+            ->whereIn('status', ['pending', 'success', 'failed'])
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        return [
+            'total_threads' => $totalThreads,
+            'recent_threads' => $recentThreads,
+            'pending_tool_calls' => (int) ($toolCallCounts['pending'] ?? 0),
+            'successful_tool_calls' => (int) ($toolCallCounts['success'] ?? 0),
+            'failed_tool_calls' => (int) ($toolCallCounts['failed'] ?? 0),
+        ];
     }
 
     private function getParsedSelectedDate(): CarbonInterface

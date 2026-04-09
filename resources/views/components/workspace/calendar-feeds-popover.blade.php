@@ -1,13 +1,3 @@
-@props([
-    'feeds' => [],
-    /** When true, show icon-only trigger (fits narrow sidebars; full label in tooltip). */
-    'compact' => false,
-])
-
-@php
-    $feeds = $feeds instanceof \Illuminate\Support\Collection ? $feeds->all() : (is_array($feeds) ? $feeds : []);
-@endphp
-
 <div
     wire:ignore
     x-data="{
@@ -18,17 +8,52 @@
         panelWidthEst: 320,
         panelPlacementClassesValue: 'absolute top-full right-0 mt-1',
 
-        // Form state
         feedUrl: '',
         feedName: '',
         connecting: false,
         inlineError: '',
 
-        // Feeds state
-        feeds: @js($feeds),
-        loadingFeeds: false,
+        feedHealth: [],
+        loadingFeedHealth: false,
         syncingIds: new Set(),
         disconnectingIds: new Set(),
+        editingFeedId: null,
+        editingFeedName: '',
+        editingFeedNameSnapshot: '',
+        savingFeedName: false,
+        savedFeedNameViaEnter: false,
+        justCanceledFeedName: false,
+
+        init() {
+            this.ensureFeedHealthLoaded();
+        },
+
+        statusClass(status) {
+            if (status === 'fresh') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200';
+            if (status === 'stale') return 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200';
+            if (status === 'critical') return 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-200';
+            if (status === 'sync_off') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
+            return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
+        },
+
+        async ensureFeedHealthLoaded(force = false) {
+            if (!force && this.feedHealth && this.feedHealth.length > 0) {
+                return;
+            }
+            if (this.loadingFeedHealth) {
+                return;
+            }
+
+            this.loadingFeedHealth = true;
+            try {
+                const result = await $wire.$call('loadCalendarFeedHealth');
+                this.feedHealth = Array.isArray(result) ? result : [];
+            } catch (error) {
+                this.feedHealth = [];
+            } finally {
+                this.loadingFeedHealth = false;
+            }
+        },
 
         toggle() {
             if (this.open) {
@@ -38,14 +63,12 @@
             const vh = window.innerHeight;
             const vw = window.innerWidth;
 
-            // Mobile: bottom sheet
             if (vw <= 480) {
                 this.placementVertical = 'bottom';
                 this.placementHorizontal = 'center';
                 this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
                 this.open = true;
                 this.$dispatch('dropdown-opened');
-                this.ensureFeedsLoaded();
                 this.$nextTick(() => this.$refs.urlInput && this.$refs.urlInput.focus());
 
                 return;
@@ -54,15 +77,10 @@
             const rect = this.$refs.button.getBoundingClientRect();
             const contentLeft = vw < 768 ? 16 : 320;
             const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
-
             const spaceBelow = vh - rect.bottom;
             const spaceAbove = rect.top;
 
-            if (spaceBelow >= this.panelHeightEst || spaceBelow >= spaceAbove) {
-                this.placementVertical = 'bottom';
-            } else {
-                this.placementVertical = 'top';
-            }
+            this.placementVertical = (spaceBelow >= this.panelHeightEst || spaceBelow >= spaceAbove) ? 'bottom' : 'top';
 
             const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
             const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
@@ -93,7 +111,6 @@
 
             this.open = true;
             this.$dispatch('dropdown-opened');
-            this.ensureFeedsLoaded();
             this.$nextTick(() => this.$refs.urlInput && this.$refs.urlInput.focus());
         },
 
@@ -103,27 +120,6 @@
             this.open = false;
             setTimeout(() => this.$dispatch('dropdown-closed'), 50);
             focusAfter && focusAfter.focus && focusAfter.focus();
-        },
-
-        async ensureFeedsLoaded(force = false) {
-            if (!force && this.feeds && this.feeds.length > 0) {
-                return;
-            }
-
-            if (this.loadingFeeds) {
-                return;
-            }
-
-            this.loadingFeeds = true;
-
-            try {
-                const result = await $wire.$call('loadCalendarFeeds');
-                this.feeds = Array.isArray(result) ? result : [];
-            } catch (error) {
-                this.feeds = [];
-            } finally {
-                this.loadingFeeds = false;
-            }
         },
 
         async connectFeed() {
@@ -138,14 +134,12 @@
             if (!url) {
                 this.inlineError = @js(__('Please enter your Brightspace calendar URL.'));
                 this.$refs.urlInput && this.$refs.urlInput.focus();
-
                 return;
             }
 
             if (!brightspacePattern.test(url)) {
                 this.inlineError = @js(__('Please use a Brightspace calendar link that starts with https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics'));
                 this.$refs.urlInput && this.$refs.urlInput.focus();
-
                 return;
             }
 
@@ -161,9 +155,9 @@
                 this.feedName = '';
                 this.inlineError = '';
 
-                await this.ensureFeedsLoaded(true);
+                await this.ensureFeedHealthLoaded(true);
+                this.$dispatch('calendar-feed-updated');
             } catch (error) {
-                // Trait already dispatches a toast on failure; keep inline error generic.
                 this.inlineError = error?.message || @js(__('Couldn’t connect the calendar feed. Try again.'));
             } finally {
                 this.connecting = false;
@@ -176,12 +170,16 @@
             if (this.syncingIds.has(id)) return;
 
             this.syncingIds.add(id);
+            const previousFeedHealth = Array.isArray(this.feedHealth)
+                ? this.feedHealth.map((feed) => ({ ...feed }))
+                : [];
 
             try {
                 await $wire.$call('syncCalendarFeed', Number(id));
-                await this.ensureFeedsLoaded(true);
+                await this.ensureFeedHealthLoaded(true);
+                this.$dispatch('calendar-feed-updated');
             } catch (error) {
-                // Errors are surfaced via toasts in the Livewire trait.
+                this.feedHealth = previousFeedHealth;
             } finally {
                 this.syncingIds.delete(id);
             }
@@ -193,218 +191,372 @@
             if (this.disconnectingIds.has(id)) return;
 
             this.disconnectingIds.add(id);
+            const previousFeedHealth = Array.isArray(this.feedHealth)
+                ? this.feedHealth.map((feed) => ({ ...feed }))
+                : [];
+
+            // Optimistic remove for instant UI feedback.
+            this.feedHealth = (this.feedHealth || []).filter((feed) => Number(feed.id) !== Number(id));
 
             try {
                 await $wire.$call('disconnectCalendarFeed', Number(id));
-                this.feeds = (this.feeds || []).filter((feed) => Number(feed.id) !== Number(id));
+                await this.ensureFeedHealthLoaded(true);
+                this.$dispatch('calendar-feed-updated');
             } catch (error) {
-                // Errors are surfaced via toasts in the Livewire trait.
+                this.feedHealth = previousFeedHealth;
             } finally {
                 this.disconnectingIds.delete(id);
+            }
+        },
+
+        startEditingFeedName(feed) {
+            if (!feed || this.savingFeedName) {
+                return;
+            }
+
+            this.editingFeedId = Number(feed.id);
+            this.editingFeedNameSnapshot = String(feed.name || '');
+            this.editingFeedName = this.editingFeedNameSnapshot;
+            this.savedFeedNameViaEnter = false;
+            this.justCanceledFeedName = false;
+
+            this.$nextTick(() => {
+                const input = this.$refs?.feedNameInput;
+                if (input && input.focus) {
+                    input.focus();
+                    const len = input.value?.length ?? 0;
+                    if (input.setSelectionRange) {
+                        input.setSelectionRange(len, len);
+                    }
+                }
+            });
+        },
+
+        cancelEditingFeedName() {
+            this.justCanceledFeedName = true;
+            this.savedFeedNameViaEnter = false;
+            this.editingFeedName = this.editingFeedNameSnapshot;
+            this.editingFeedId = null;
+
+            setTimeout(() => {
+                this.justCanceledFeedName = false;
+            }, 100);
+        },
+
+        async saveEditingFeedName(feed) {
+            if (!feed || this.savingFeedName || this.justCanceledFeedName) {
+                return;
+            }
+
+            const trimmedName = String(this.editingFeedName || '').trim();
+            const previousName = String(this.editingFeedNameSnapshot || '').trim();
+
+            if (trimmedName === '') {
+                this.cancelEditingFeedName();
+                return;
+            }
+
+            if (trimmedName === previousName) {
+                this.editingFeedId = null;
+                return;
+            }
+
+            const feedId = Number(feed.id);
+            const previousFeedHealth = Array.isArray(this.feedHealth)
+                ? this.feedHealth.map((row) => ({ ...row }))
+                : [];
+
+            this.savingFeedName = true;
+            try {
+                // Optimistic update for immediate visual feedback.
+                this.feedHealth = (this.feedHealth || []).map((row) => (
+                    Number(row.id) === feedId ? { ...row, name: trimmedName } : row
+                ));
+
+                const ok = await $wire.$call('updateCalendarFeedName', feedId, trimmedName);
+                if (!ok) {
+                    this.feedHealth = previousFeedHealth;
+                } else {
+                    this.editingFeedId = null;
+                    this.$dispatch('calendar-feed-updated');
+                }
+            } catch (error) {
+                this.feedHealth = previousFeedHealth;
+            } finally {
+                this.savingFeedName = false;
+                if (this.savedFeedNameViaEnter) {
+                    setTimeout(() => {
+                        this.savedFeedNameViaEnter = false;
+                    }, 100);
+                }
+            }
+        },
+
+        handleFeedNameEnter(feed) {
+            this.savedFeedNameViaEnter = true;
+            this.saveEditingFeedName(feed);
+        },
+
+        handleFeedNameBlur(feed) {
+            if (!this.savedFeedNameViaEnter && !this.justCanceledFeedName) {
+                this.saveEditingFeedName(feed);
             }
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
-    @calendar-feed-connected.window="ensureFeedsLoaded(true)"
-    class="relative inline-block"
-    {{ $attributes }}
+    @calendar-feed-connected.window="ensureFeedHealthLoaded(true)"
+    @calendar-feed-updated.window="ensureFeedHealthLoaded(true)"
+    class="relative w-full"
+    :class="open ? 'z-9999' : 'z-10'"
 >
-    <flux:tooltip content="{{ __('Sync with Brightspace calendar') }}">
-        <button
-            x-ref="button"
-            type="button"
-            :disabled="open"
-            @click="toggle()"
-            aria-haspopup="true"
-            :aria-expanded="open"
-            @class([
-                'inline-flex items-center justify-center rounded-full border border-border/60 bg-muted text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out hover:bg-muted/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-70',
-                'size-8 shrink-0' => $compact,
-                'gap-1.5 px-2.5 py-0.5 text-[11px] font-medium' => ! $compact,
-            ])
-        >
-            <flux:icon name="arrow-path" class="size-3.5" />
-            @if (! $compact)
-                <span>{{ __('Sync with Brightspace calendar') }}</span>
-            @endif
-        </button>
-    </flux:tooltip>
-
-    <div
-        x-ref="panel"
-        x-show="open"
-        x-transition:enter="transition ease-out duration-100"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-        x-transition:leave="transition ease-in duration-75"
-        x-transition:leave-start="opacity-100"
-        x-transition:leave-end="opacity-0"
-        x-cloak
-        @click.outside="close($refs.button)"
-        @click.stop
-        :class="panelPlacementClassesValue"
-        class="z-50 w-fit min-w-[260px] max-w-[min(360px,calc(100vw-2rem))] flex flex-col rounded-lg border border-border bg-white text-foreground shadow-lg dark:bg-zinc-900"
-    >
-        <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
-            <div class="flex items-center gap-2 min-w-0">
-                <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                    <flux:icon name="calendar-days" class="size-3" />
-                </div>
-                <div class="min-w-0">
-                    <p class="truncate text-xs font-semibold tracking-wide text-muted-foreground">
-                        {{ __('Connect Brightspace calendar') }}
-                    </p>
-                    <p class="text-[11px] text-muted-foreground/80">
-                        {{ __('Paste your Brightspace calendar subscribe URL to sync assignments and exams as tasks.') }}
-                    </p>
+    <div class="overflow-visible rounded-xl border border-brand-blue/30 bg-brand-light-lavender/90 shadow-lg backdrop-blur-xs dark:border-brand-blue/25 dark:bg-brand-light-lavender/10">
+        <div class="border-b border-brand-blue/20 px-4 py-4 dark:border-brand-blue/20">
+            <div class="flex items-center gap-3">
+                <img
+                    src="{{ asset('images/brightspace-icon.png') }}"
+                    alt=""
+                    width="44"
+                    height="44"
+                    decoding="async"
+                    class="size-11 shrink-0 rounded-xl bg-white/90 object-contain p-1 shadow-sm ring-1 ring-black/5 dark:bg-white/10 dark:ring-white/10"
+                />
+                <div class="min-w-0 flex-1">
+                    <span class="block text-xs font-semibold uppercase leading-none tracking-wide text-muted-foreground">
+                        {{ __('BRIGHTSPACE CALENDAR FEED') }}
+                    </span>
                 </div>
             </div>
-
-            <button
-                type="button"
-                class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                aria-label="{{ __('Close Brightspace calendar popover') }}"
-                @click="close($refs.button)"
-            >
-                <flux:icon name="x-mark" class="size-3" />
-            </button>
         </div>
 
-        <div class="flex flex-col gap-3 px-3 py-3 text-[11px]">
-            <div class="space-y-2">
-                <div class="space-y-1">
-                    <label class="block text-[11px] font-medium text-muted-foreground">
-                        {{ __('Feed URL') }}
-                    </label>
-                    <flux:input
-                        x-ref="urlInput"
-                        x-model="feedUrl"
-                        type="url"
-                        name="brightspace_feed_url"
-                        autocomplete="off"
-                        placeholder="https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=…"
-                        class="w-full"
-                        @keydown.enter.prevent="connectFeed()"
-                    />
-                    <p class="text-[10px] text-muted-foreground/80">
-                        {{ __('Use the Brightspace “Subscribe” URL for your All Courses calendar.') }}
-                    </p>
-                </div>
+        <template x-if="loadingFeedHealth">
+            <div class="px-4 py-4 text-xs text-muted-foreground">{{ __('Loading feed health…') }}</div>
+        </template>
 
-                <div class="space-y-1">
-                    <label class="block text-[11px] font-medium text-muted-foreground">
-                        {{ __('Name (optional)') }}
-                    </label>
-                    <flux:input
-                        x-model="feedName"
-                        type="text"
-                        name="brightspace_feed_name"
-                        autocomplete="off"
-                        placeholder="{{ __('e.g. Brightspace – All Courses') }}"
-                        class="w-full"
-                        @keydown.enter.prevent="connectFeed()"
-                    />
-                </div>
-
-                <template x-if="inlineError">
-                    <div class="flex items-center gap-1.5 rounded-md bg-red-500/5 px-2 py-1 text-[10px] text-red-600 dark:text-red-400">
-                        <flux:icon name="exclamation-triangle" class="size-3" />
-                        <p x-text="inlineError"></p>
-                    </div>
-                </template>
-
-                <div class="flex flex-wrap items-center gap-2 pt-1">
-                    <flux:button
-                        type="button"
-                        size="xs"
-                        variant="primary"
-                        icon="plus"
-                        class="shrink-0"
-                        x-bind:disabled="connecting || !feedUrl"
-                        @click="connectFeed()"
-                    >
-                        <span x-text="connecting ? '{{ __('Connecting…') }}' : '{{ __('Connect') }}'"></span>
-                    </flux:button>
-
-                    <button
-                        type="button"
-                        class="text-[11px] font-medium text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
-                    >
-                        {{ __('How do I get this link?') }}
-                    </button>
-                </div>
+        <template x-if="!loadingFeedHealth && (!feedHealth || feedHealth.length === 0)">
+            <div class="px-4 py-4">
+                <p class="text-sm leading-relaxed text-muted-foreground">{{ __('No calendar feeds connected yet.') }}</p>
             </div>
+        </template>
 
-            <div class="h-px w-full bg-border/70"></div>
-
-            <div class="space-y-2">
-                <div class="flex items-center justify-between">
-                    <p class="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {{ __('Connected calendars') }}
-                    </p>
-                </div>
-
-                <template x-if="loadingFeeds">
-                    <div class="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-4 text-center">
-                        <flux:icon name="arrow-path" class="size-4 animate-spin text-muted-foreground" />
-                        <p class="text-[11px] text-muted-foreground">
-                            {{ __('Loading calendars…') }}
-                        </p>
-                    </div>
-                </template>
-
-                <template x-if="!loadingFeeds && (!feeds || feeds.length === 0)">
-                    <div class="rounded-md border border-dashed border-border/60 bg-muted/30 px-3 py-3 text-center">
-                        <p class="text-[11px] text-muted-foreground">
-                            {{ __('No Brightspace calendars connected yet.') }}
-                        </p>
-                        <p class="mt-1 text-[10px] text-muted-foreground/80">
-                            {{ __('Paste a feed URL above to start syncing tasks from Brightspace.') }}
-                        </p>
-                    </div>
-                </template>
-
-                <template x-if="!loadingFeeds && feeds && feeds.length > 0">
-                    <ul class="max-h-64 space-y-2 overflow-y-auto">
-                        <template x-for="feed in feeds" :key="feed.id">
-                            <li class="flex items-start justify-between gap-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-2">
-                                <div class="min-w-0 flex-1">
-                                    <p class="truncate text-[11px] font-medium text-foreground" x-text="feed.name || '{{ __('Brightspace calendar') }}'"></p>
-                                    <p class="mt-0.5 text-[10px] text-muted-foreground/80">
-                                        <span>{{ __('Last synced') }} </span>
-                                        <span x-text="feed.last_synced_at || '{{ __('Never synced') }}'"></span>
-                                    </p>
-                                </div>
-                                <div class="flex shrink-0 flex-col items-end gap-1">
+        <template x-if="!loadingFeedHealth && feedHealth && feedHealth.length > 0">
+            <ul class="max-h-80 divide-y divide-border/40 overflow-y-auto dark:divide-white/10">
+                <template x-for="feed in feedHealth" :key="feed.id">
+                    <li class="space-y-2 px-4 py-3.5" data-testid="dashboard-row-calendar-feed-health">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <template x-if="editingFeedId !== Number(feed.id)">
                                     <div class="flex items-center gap-1.5">
-                                        <flux:tooltip content="{{ __('Sync again') }}">
-                                            <flux:button
-                                                type="button"
-                                                size="xs"
-                                                variant="outline"
-                                                icon="arrow-path"
-                                                x-bind:disabled="syncingIds?.has(feed.id)"
-                                                @click="syncFeed(feed.id)"
-                                            />
-                                        </flux:tooltip>
-                                        <flux:tooltip content="{{ __('Disconnect this calendar') }}">
-                                            <flux:button
-                                                type="button"
-                                                size="xs"
-                                                variant="ghost"
-                                                icon="link-slash"
-                                                class="text-red-600 hover:text-red-600 hover:bg-red-500/10 dark:text-red-400"
-                                                x-bind:disabled="disconnectingIds?.has(feed.id)"
-                                                @click="disconnectFeed(feed.id)"
-                                            />
-                                        </flux:tooltip>
+                                        <p class="truncate text-sm font-semibold leading-snug text-foreground" x-text="feed.name"></p>
+                                        <button
+                                            type="button"
+                                            class="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                                            @click="startEditingFeedName(feed)"
+                                            :disabled="savingFeedName || syncingIds?.has(feed.id) || disconnectingIds?.has(feed.id)"
+                                            aria-label="{{ __('Edit feed name') }}"
+                                        >
+                                            <flux:icon name="pencil-square" class="size-3.5" />
+                                        </button>
                                     </div>
+                                </template>
+                                <template x-if="editingFeedId === Number(feed.id)">
+                                    <div class="flex items-center gap-1.5">
+                                        <input
+                                            x-ref="feedNameInput"
+                                            type="text"
+                                            x-model="editingFeedName"
+                                            class="w-full rounded-md border border-border/70 bg-background px-2 py-1 text-xs text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40"
+                                            @keydown.enter.prevent="handleFeedNameEnter(feed)"
+                                            @keydown.escape.prevent="cancelEditingFeedName()"
+                                            @blur="handleFeedNameBlur(feed)"
+                                        />
+                                        <button
+                                            type="button"
+                                            class="inline-flex h-5 w-5 items-center justify-center rounded text-emerald-600 transition hover:bg-emerald-500/10"
+                                            :disabled="savingFeedName"
+                                            @click="saveEditingFeedName(feed)"
+                                            aria-label="{{ __('Save feed name') }}"
+                                        >
+                                            <flux:icon name="check" class="size-3.5" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+                                            :disabled="savingFeedName"
+                                            @click="cancelEditingFeedName()"
+                                            aria-label="{{ __('Cancel feed name editing') }}"
+                                        >
+                                            <flux:icon name="x-mark" class="size-3.5" />
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
+                            <div class="flex shrink-0 items-center gap-2">
+                                <span
+                                    class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold leading-none"
+                                    :class="statusClass(feed.status)"
+                                    role="status"
+                                >
+                                    <span x-text="syncingIds?.has(feed.id) ? '{{ __('Syncing…') }}' : feed.status_label"></span>
+                                </span>
+                                <div class="flex items-center gap-1.5">
+                                    <flux:tooltip content="{{ __('Sync again') }}">
+                                        <flux:button
+                                            type="button"
+                                            size="xs"
+                                            variant="outline"
+                                            icon="arrow-path"
+                                            x-bind:disabled="syncingIds?.has(feed.id)"
+                                            @click="syncFeed(feed.id)"
+                                        />
+                                    </flux:tooltip>
+                                    <flux:tooltip content="{{ __('Disconnect this calendar') }}">
+                                        <flux:button
+                                            type="button"
+                                            size="xs"
+                                            variant="ghost"
+                                            icon="link-slash"
+                                            class="text-red-600 hover:bg-red-500/10 hover:text-red-600 dark:text-red-400"
+                                            x-bind:disabled="disconnectingIds?.has(feed.id)"
+                                            @click="disconnectFeed(feed.id)"
+                                        />
+                                    </flux:tooltip>
                                 </div>
-                            </li>
-                        </template>
-                    </ul>
+                            </div>
+                        </div>
+                        <div class="space-y-1 text-[11px] leading-relaxed text-muted-foreground">
+                            <p>
+                                <span>{{ __('Last sync: ') }}</span><span x-text="feed.last_synced_human"></span>
+                            </p>
+                            <p>
+                                <span>{{ __('Updated 24h: ') }}</span><span x-text="feed.updated_last_24h"></span>
+                                <span> · </span>
+                                <span>{{ __('Total imported: ') }}</span><span x-text="feed.total_imported"></span>
+                            </p>
+                            <template x-if="feed.latest_import_activity_human">
+                                <p :title="feed.latest_import_activity_title">
+                                    <span>{{ __('Latest import activity: ') }}</span><span x-text="feed.latest_import_activity_human"></span>
+                                </p>
+                            </template>
+                        </div>
+                    </li>
                 </template>
+            </ul>
+        </template>
+
+        <div class="border-t border-brand-blue/20 px-4 py-3 dark:border-brand-blue/20">
+            <div class="relative z-120 inline-block">
+                <flux:tooltip content="Sync Brightspace Calendar">
+                    <button
+                        x-ref="button"
+                        type="button"
+                        :disabled="open"
+                        @click="toggle()"
+                        aria-haspopup="true"
+                        :aria-expanded="open"
+                        class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-70"
+                    >
+                        <span>Sync Brightspace Calendar</span>
+                        <flux:icon name="link" class="size-3.5" />
+                    </button>
+                </flux:tooltip>
+
+                <div
+                    x-ref="panel"
+                    x-show="open"
+                    x-transition:enter="transition ease-out duration-100"
+                    x-transition:enter-start="opacity-0"
+                    x-transition:enter-end="opacity-100"
+                    x-transition:leave="transition ease-in duration-75"
+                    x-transition:leave-start="opacity-100"
+                    x-transition:leave-end="opacity-0"
+                    x-cloak
+                    @click.outside="close($refs.button)"
+                    @click.stop
+                    :class="panelPlacementClassesValue"
+                    class="z-9999 flex w-fit min-w-[260px] max-w-[min(360px,calc(100vw-2rem))] flex-col rounded-xl border border-brand-blue/25 bg-brand-light-lavender/95 text-foreground shadow-lg shadow-brand-navy-blue/10 backdrop-blur-xs dark:border-brand-blue/20 dark:bg-brand-light-lavender/10 dark:shadow-black/35"
+                >
+                    <div class="flex items-center justify-between gap-2 border-b border-brand-blue/20 px-3 py-2.5 dark:border-brand-blue/20">
+                        <div class="flex min-w-0 items-center gap-2">
+                            <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                <flux:icon name="calendar-days" class="size-3" />
+                            </div>
+                            <div class="min-w-0">
+                                <p class="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    {{ __('Connect Brightspace calendar') }}
+                                </p>
+                                <p class="text-[11px] text-muted-foreground/80">
+                                    {{ __('Paste your Brightspace calendar subscribe URL to sync assignments and exams as tasks.') }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <button
+                            type="button"
+                            class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                            aria-label="{{ __('Close Brightspace calendar popover') }}"
+                            @click="close($refs.button)"
+                        >
+                            <flux:icon name="x-mark" class="size-3" />
+                        </button>
+                    </div>
+
+                    <div class="flex flex-col gap-3 px-3 py-3 text-[11px]">
+                        <div class="space-y-2">
+                            <div class="space-y-1">
+                                <label class="block text-[11px] font-medium text-muted-foreground">{{ __('Feed URL') }}</label>
+                                <div class="grid grid-cols-[minmax(0,4fr)_auto] items-center gap-2">
+                                    <flux:input
+                                        x-ref="urlInput"
+                                        x-model="feedUrl"
+                                        type="url"
+                                        name="brightspace_feed_url"
+                                        autocomplete="off"
+                                        placeholder="https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics?token=…"
+                                        class="w-full"
+                                        @keydown.enter.prevent="connectFeed()"
+                                    />
+                                    <flux:tooltip content="{{ __('Connect or sync') }}">
+                                        <flux:button
+                                            type="button"
+                                            size="xs"
+                                            variant="primary"
+                                            icon="plus"
+                                            class="shrink-0"
+                                            aria-label="{{ __('Connect or sync') }}"
+                                            x-bind:disabled="connecting || !feedUrl"
+                                            @click="connectFeed()"
+                                        />
+                                    </flux:tooltip>
+                                </div>
+                                <p class="text-[10px] text-muted-foreground/80">
+                                    {{ __('Use the Brightspace “Subscribe” URL for your All Courses calendar.') }}
+                                </p>
+                            </div>
+
+                            <div class="space-y-1">
+                                <label class="block text-[11px] font-medium text-muted-foreground">{{ __('Name (optional)') }}</label>
+                                <flux:input
+                                    x-model="feedName"
+                                    type="text"
+                                    name="brightspace_feed_name"
+                                    autocomplete="off"
+                                    placeholder="{{ __('e.g. Brightspace – All Courses') }}"
+                                    class="w-full"
+                                    @keydown.enter.prevent="connectFeed()"
+                                />
+                            </div>
+
+                            <template x-if="inlineError">
+                                <div class="flex items-center gap-1.5 rounded-md bg-red-500/5 px-2 py-1 text-[10px] text-red-600 dark:text-red-400">
+                                    <flux:icon name="exclamation-triangle" class="size-3" />
+                                    <p x-text="inlineError"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+</div>
