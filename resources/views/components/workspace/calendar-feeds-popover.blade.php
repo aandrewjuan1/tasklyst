@@ -446,20 +446,18 @@
 
         <div class="border-t border-brand-blue/20 px-4 py-3 dark:border-brand-blue/20">
             <div class="relative z-120 inline-block">
-                <flux:tooltip content="Sync Brightspace Calendar">
-                    <button
-                        x-ref="button"
-                        type="button"
-                        :disabled="open"
-                        @click="toggle()"
-                        aria-haspopup="true"
-                        :aria-expanded="open"
-                        class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-70"
-                    >
-                        <span>Sync Brightspace Calendar</span>
-                        <flux:icon name="link" class="size-3.5" />
-                    </button>
-                </flux:tooltip>
+                <button
+                    x-ref="button"
+                    type="button"
+                    :disabled="open"
+                    @click="toggle()"
+                    aria-haspopup="true"
+                    :aria-expanded="open"
+                    class="inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-brand-blue transition hover:bg-brand-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-70"
+                >
+                    <span>Sync Brightspace Calendar</span>
+                    <flux:icon name="link" class="size-3.5" />
+                </button>
 
                 <div
                     x-ref="panel"
@@ -532,19 +530,6 @@
                                 <p class="text-[10px] text-muted-foreground/80">
                                     {{ __('Use the Brightspace “Subscribe” URL for your All Courses calendar.') }}
                                 </p>
-                            </div>
-
-                            <div class="space-y-1">
-                                <label class="block text-[11px] font-medium text-muted-foreground">{{ __('Name (optional)') }}</label>
-                                <flux:input
-                                    x-model="feedName"
-                                    type="text"
-                                    name="brightspace_feed_name"
-                                    autocomplete="off"
-                                    placeholder="{{ __('e.g. Brightspace – All Courses') }}"
-                                    class="w-full"
-                                    @keydown.enter.prevent="connectFeed()"
-                                />
                             </div>
 
                             <template x-if="inlineError">
