@@ -8,7 +8,7 @@
     ];
     $cardLabels = [
         'total_tasks' => __('Total tasks'),
-        'todo_tasks' => __('To-do tasks'),
+        'todo_tasks' => __('To-Do Tasks'),
         'tasks_created' => __('Tasks created'),
         'tasks_completed' => __('Tasks completed'),
         'completion_rate' => __('Completion rate'),
@@ -109,7 +109,7 @@
                                                 >
                                                     {{ $this->dashboardIncompleteTasksCount }}
                                                 </span>
-                                                <span class="font-bold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                                <span class="text-sm font-semibold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
                                             </div>
                                         </div>
                                     @elseif ($key === 'todo_tasks')
@@ -129,7 +129,7 @@
                                                 >
                                                     {{ $this->dashboardTodoTasksCount }}
                                                 </span>
-                                                <span class="font-bold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
+                                                <span class="text-sm font-semibold text-foreground">{{ $cardLabels[$key] ?? $key }}</span>
                                             </div>
                                         </div>
                                     @else
@@ -192,7 +192,7 @@
                                         class="w-full overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
                                     >
                                         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
-                                            <div class="font-primary text-base font-bold text-foreground">{{ __('Trend') }}</div>
+                                            <div class="text-sm font-semibold text-foreground">{{ __('Trend') }}</div>
                                             <div class="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
                                                 @foreach (['daily' => __('Daily'), 'weekly' => __('Weekly'), 'monthly' => __('Monthly')] as $presetValue => $presetLabel)
                                                     <button
@@ -210,7 +210,7 @@
                                         </div>
                                         <div class="grid grid-cols-1 gap-4 p-3 lg:grid-cols-2 lg:gap-6">
                                             <div class="min-w-0 space-y-1">
-                                                <div class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                                <div class="text-sm font-semibold text-foreground">
                                                     {{ __('Tasks') }}
                                                 </div>
                                                 <div x-ref="trendChart" wire:ignore class="h-64 min-h-[240px] w-full"></div>
@@ -218,7 +218,7 @@
                                             <div
                                                 class="min-w-0 space-y-2 border-t border-border/60 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
                                             >
-                                                <div class="font-primary text-base font-bold text-foreground">{{ __('Focus') }}</div>
+                                                <div class="text-sm font-semibold text-foreground">{{ __('Focus') }}</div>
                                                 <div
                                                     x-ref="focusSessionsChart"
                                                     wire:ignore
@@ -229,63 +229,6 @@
                                     </div>
                                 @endisland
 
-                                @island(name: 'dashboard-status')
-                                    <div
-                                        x-data="dashboardAnalyticsCharts({ analytics: @js($this->analytics), preset: @js($this->analyticsPreset) })"
-                                        x-effect="sync(@js($this->analytics), @js($this->analyticsPreset))"
-                                        wire:key="dashboard-status-{{ $this->selectedDate }}-{{ $this->analyticsPreset }}"
-                                        class="grid w-full grid-cols-1 gap-4 md:grid-cols-3"
-                                    >
-                                        <div
-                                            class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
-                                        >
-                                            <div class="border-b border-border/60 px-3 py-2">
-                                                <div class="font-primary text-base font-bold text-foreground">
-                                                    {{ __('Status breakdown') }}
-                                                </div>
-                                            </div>
-                                            <div class="px-2 py-3 sm:px-3">
-                                                <div
-                                                    x-ref="statusChart"
-                                                    wire:ignore
-                                                    class="mx-auto h-56 min-h-[220px] w-full max-w-md"
-                                                ></div>
-                                            </div>
-                                        </div>
-                                        <div
-                                            class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
-                                        >
-                                            <div class="border-b border-border/60 px-3 py-2">
-                                                <div class="font-primary text-base font-bold text-foreground">
-                                                    {{ __('Priority breakdown') }}
-                                                </div>
-                                            </div>
-                                            <div class="px-2 py-3 sm:px-3">
-                                                <div
-                                                    x-ref="priorityChart"
-                                                    wire:ignore
-                                                    class="h-56 min-h-[220px] w-full"
-                                                ></div>
-                                            </div>
-                                        </div>
-                                        <div
-                                            class="min-w-0 overflow-hidden rounded-xl border border-border/60 bg-background shadow-sm"
-                                        >
-                                            <div class="border-b border-border/60 px-3 py-2">
-                                                <div class="font-primary text-base font-bold text-foreground">
-                                                    {{ __('Complexity breakdown') }}
-                                                </div>
-                                            </div>
-                                            <div class="px-2 py-3 sm:px-3">
-                                                <div
-                                                    x-ref="complexityChart"
-                                                    wire:ignore
-                                                    class="h-56 min-h-[220px] w-full"
-                                                ></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                @endisland
                             </div>
                         @else
                             <p class="text-sm text-muted-foreground">{{ __('No analytics to show.') }}</p>

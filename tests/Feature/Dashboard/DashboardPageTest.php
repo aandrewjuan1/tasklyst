@@ -53,7 +53,7 @@ test('dashboard summary shows to-do tasks count', function () {
     $response = $this->actingAs($user)->get(route('dashboard'));
 
     $response->assertSuccessful();
-    $response->assertSee(__('To-do tasks'), false);
+    $response->assertSee(__('To-Do Tasks'), false);
 
     expect(preg_match('/data-testid="dashboard-summary-todo-tasks-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('2');

@@ -416,6 +416,12 @@ export function dashboardAnalyticsCharts(config = {}) {
                         type: 'pie',
                         radius: ['45%', '70%'],
                         avoidLabelOverlap: true,
+                        label: {
+                            show: true,
+                            formatter: '{d}%',
+                            color: '#6b7280',
+                            fontSize: 11,
+                        },
                         data: seriesData,
                     },
                 ],
