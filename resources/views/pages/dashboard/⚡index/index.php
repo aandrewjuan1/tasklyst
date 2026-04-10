@@ -415,12 +415,12 @@ class extends Component
             ->whereHas('recurringTask')
             ->whereNotNull('completed_at')
             ->whereDate('completed_at', '<=', $selectedDay->toDateString())
-            ->orderByDesc('completed_at')
-            ->get(['completed_at'])
-            ->pluck('completed_at')
+            ->selectRaw('DATE(completed_at) as completed_date')
+            ->distinct()
+            ->orderByDesc('completed_date')
+            ->pluck('completed_date')
             ->filter()
-            ->map(fn ($completedAt): string => \Carbon\Carbon::parse($completedAt)->toDateString())
-            ->unique()
+            ->map(fn (mixed $completedAt): string => (string) $completedAt)
             ->values();
 
         if ($completionDates->isEmpty()) {
@@ -641,7 +641,7 @@ class extends Component
                 $priority = is_string($raw['priority'] ?? null) ? (string) $raw['priority'] : null;
                 $endsAt = is_string($raw['ends_at'] ?? null) ? (string) $raw['ends_at'] : null;
                 $urgencyLevel = $this->resolveUrgencyLevel($priority, $endsAt);
-                $workspaceParams = ['date' => now()->toDateString(), 'type' => 'tasks'];
+                $workspaceParams = ['date' => $this->getParsedSelectedDate()->toDateString(), 'type' => 'tasks'];
                 if ($priority !== null && $priority !== '') {
                     $workspaceParams['priority'] = $priority;
                 }
@@ -765,7 +765,7 @@ class extends Component
                     'risk' => $risk,
                     'risk_reason' => $riskReason,
                     'workspace_url' => route('workspace', [
-                        'date' => now()->toDateString(),
+                        'date' => $this->getParsedSelectedDate()->toDateString(),
                         'type' => 'projects',
                         'q' => $project->name,
                     ]),

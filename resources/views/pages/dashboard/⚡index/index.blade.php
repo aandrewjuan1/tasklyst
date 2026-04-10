@@ -121,7 +121,7 @@
                                     </p>
                                     <div class="pt-2 flex flex-wrap items-center gap-2">
                                         <a
-                                            href="{{ route('workspace') }}"
+                                            href="{{ $this->workspaceUrlForToday }}"
                                             wire:navigate
                                             class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
                                         >
@@ -293,7 +293,7 @@
                                             @if ($urgentNowHasMore)
                                                 <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
                                                     <a
-                                                        href="{{ route('workspace', ['date' => now()->toDateString()]) }}"
+                                                        href="{{ $this->workspaceUrlForToday }}"
                                                         wire:navigate
                                                         class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
                                                         data-testid="dashboard-urgent-now-see-all"
@@ -363,7 +363,7 @@
                                         <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
                                             @foreach ($this->dashboardNoDateBacklogTasks as $task)
                                                 <li class="px-4 py-2.5">
-                                                    <a href="{{ route('workspace', ['date' => now()->toDateString(), 'type' => 'tasks']) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                    <a href="{{ route('workspace', ['date' => $this->selectedDate, 'type' => 'tasks']) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
                                                         <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
                                                         <p class="text-[11px] text-muted-foreground">{{ $task->project?->name ?? __('No project') }}</p>
                                                     </a>
@@ -430,7 +430,7 @@
                                         </span>
                                     </div>
                                     <a
-                                        href="{{ route('workspace', ['date' => now()->toDateString()]) }}"
+                                        href="{{ $this->workspaceUrlForToday }}"
                                         wire:navigate
                                         class="{{ $panelCtaClass }}"
                                     >

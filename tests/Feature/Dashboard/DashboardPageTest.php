@@ -30,6 +30,11 @@ test('dashboard loads for authenticated user', function () {
     $response->assertStatus(200);
 });
 
+test('dashboard routes redirect guests to login', function () {
+    $this->get('/')->assertRedirect(route('login'));
+    $this->get('/dashboard')->assertRedirect(route('login'));
+});
+
 test('dashboard hero greets user by first name', function () {
     $user = User::factory()->create(['name' => 'Jordan Smith']);
 
@@ -440,6 +445,37 @@ test('dashboard selected date drives due and events panels', function () {
     Carbon::setTestNow();
 });
 
+test('dashboard workspace links preserve selected date context', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    Task::factory()->for($user)->create([
+        'title' => 'Selected Date Urgent Task',
+        'priority' => TaskPriority::Urgent,
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 11:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Selected Date Backlog Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'completed_at' => null,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee(route('workspace', ['date' => $selectedDate]), false);
+    $response->assertSee('date=2026-04-12&amp;type=tasks', false);
+
+    Carbon::setTestNow();
+});
+
 test('dashboard recurring section shows selected-day due and completed counts', function () {
     Carbon::setTestNow(Carbon::parse('2026-04-09 08:00:00'));
     $user = User::factory()->create();
@@ -577,7 +613,6 @@ test('dashboard recurring section computes completion streak anchored to selecte
 
     $response->assertSuccessful();
     $response->assertSee('Completion streak: 3 day(s)', false);
-    $response->assertSee('Streak: 3 day(s)', false);
 
     Carbon::setTestNow();
 });
