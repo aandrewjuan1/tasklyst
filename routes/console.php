@@ -15,3 +15,7 @@ Schedule::command('workos:warm-jwk')
 Schedule::command('calendar:sync-feeds')
     ->everyThirtyMinutes()
     ->withoutOverlapping();
+
+Schedule::command('reminders:dispatch-due')
+    ->everyMinute()
+    ->withoutOverlapping();

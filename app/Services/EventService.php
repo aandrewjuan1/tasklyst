@@ -11,6 +11,7 @@ use App\Models\EventException;
 use App\Models\EventInstance;
 use App\Models\RecurringEvent;
 use App\Models\User;
+use App\Services\Reminders\ReminderSchedulerService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,8 @@ class EventService
 {
     public function __construct(
         private ActivityLogRecorder $activityLogRecorder,
-        private RecurrenceExpander $recurrenceExpander
+        private RecurrenceExpander $recurrenceExpander,
+        private ReminderSchedulerService $reminderSchedulerService,
     ) {}
 
     /**
@@ -50,6 +52,8 @@ class EventService
             $this->activityLogRecorder->record($event, $user, ActivityLogAction::ItemCreated, [
                 'title' => $event->title,
             ]);
+
+            $this->reminderSchedulerService->syncEventReminders($event);
 
             return $event;
         });
@@ -148,6 +152,8 @@ class EventService
 
             $this->syncRecurringEventDatesIfNeeded($event, $attributes);
 
+            $this->reminderSchedulerService->syncEventReminders($event);
+
             return $event;
         });
     }
@@ -159,7 +165,11 @@ class EventService
                 'title' => $event->title,
             ]);
 
-            return (bool) $event->delete();
+            $deleted = (bool) $event->delete();
+
+            $this->reminderSchedulerService->cancelForRemindable($event);
+
+            return $deleted;
         });
     }
 
@@ -170,7 +180,13 @@ class EventService
                 'title' => $event->title,
             ]);
 
-            return (bool) $event->restore();
+            $restored = (bool) $event->restore();
+
+            if ($restored) {
+                $this->reminderSchedulerService->syncEventReminders($event);
+            }
+
+            return $restored;
         });
     }
 
@@ -185,6 +201,8 @@ class EventService
                 ->where('collaboratable_type', $event->getMorphClass())
                 ->where('collaboratable_id', $event->id)
                 ->delete();
+
+            $this->reminderSchedulerService->cancelForRemindable($event);
 
             return (bool) $event->forceDelete();
         });

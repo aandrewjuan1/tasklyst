@@ -177,6 +177,8 @@
 
             <flux:spacer />
 
+            <livewire:notifications.bell-dropdown />
+
             <flux:dropdown position="top" align="end">
                 <flux:profile
                     :initials="auth()->user()->initials()"

@@ -3,8 +3,11 @@
 namespace App\Services;
 
 use App\Enums\ActivityLogAction;
+use App\Enums\ReminderStatus;
+use App\Enums\ReminderType;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
+use App\Models\Reminder;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -33,6 +36,34 @@ class CollaborationInvitationService
                         'permission' => $invitation->permission?->value,
                     ]
                 );
+            }
+
+            $invitee = $invitation->invitee_user_id !== null
+                ? User::query()->find((int) $invitation->invitee_user_id)
+                : User::query()->where('email', $invitation->invitee_email)->first();
+
+            if ($invitee instanceof User) {
+                if ($invitation->invitee_user_id === null) {
+                    $invitation->invitee_user_id = $invitee->id;
+                    $invitation->save();
+                }
+
+                // Persist as a reminder (immediate) so it also appears in the reminders pipeline.
+                Reminder::query()->create([
+                    'user_id' => $invitee->id,
+                    'remindable_type' => $invitation->getMorphClass(),
+                    'remindable_id' => $invitation->id,
+                    'type' => ReminderType::CollaborationInviteReceived,
+                    'scheduled_at' => now(),
+                    'status' => ReminderStatus::Pending,
+                    'payload' => [
+                        'invitation_id' => $invitation->id,
+                        'invitee_email' => $invitation->invitee_email,
+                        'collaboratable_type' => $invitation->collaboratable_type,
+                        'collaboratable_id' => $invitation->collaboratable_id,
+                        'permission' => $invitation->permission?->value,
+                    ],
+                ]);
             }
 
             return $invitation;

@@ -3,9 +3,12 @@
 namespace App\Tools\LLM\TaskAssistant;
 
 use App\Enums\LlmToolCallStatus;
+use App\Enums\ReminderStatus;
+use App\Enums\ReminderType;
 use App\Events\TaskAssistantToolCall;
 use App\Events\TaskAssistantToolResult;
 use App\Models\LlmToolCall;
+use App\Models\Reminder;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Tool;
@@ -108,6 +111,33 @@ abstract class DelegatingTool extends Tool
                 'user_id' => $this->user->id,
                 'status' => 'failed',
             ]);
+
+            $existingReminder = $operationToken !== null && $operationToken !== ''
+                ? Reminder::query()
+                    ->where('user_id', $this->user->id)
+                    ->where('type', ReminderType::AssistantToolCallFailed->value)
+                    ->where('payload->operation_token', $operationToken)
+                    ->exists()
+                : false;
+
+            if (! $existingReminder) {
+                Reminder::query()->create([
+                    'user_id' => $this->user->id,
+                    'remindable_type' => $call->getMorphClass(),
+                    'remindable_id' => $call->id,
+                    'type' => ReminderType::AssistantToolCallFailed,
+                    'scheduled_at' => now(),
+                    'status' => ReminderStatus::Pending,
+                    'payload' => [
+                        'tool_call_id' => $call->id,
+                        'tool_name' => $toolName,
+                        'operation_token' => $operationToken,
+                        'thread_id' => $threadId,
+                        'message_id' => $messageId,
+                        'error' => $e->getMessage(),
+                    ],
+                ]);
+            }
 
             broadcast(new TaskAssistantToolResult(
                 userId: $this->user->id,

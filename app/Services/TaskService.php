@@ -14,6 +14,7 @@ use App\Models\Task;
 use App\Models\TaskException;
 use App\Models\TaskInstance;
 use App\Models\User;
+use App\Services\Reminders\ReminderSchedulerService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,7 @@ class TaskService
         private ActivityLogRecorder $activityLogRecorder,
         private RecurrenceExpander $recurrenceExpander,
         private AbandonFocusSessionAction $abandonFocusSessionAction,
+        private ReminderSchedulerService $reminderSchedulerService,
     ) {}
 
     /**
@@ -54,6 +56,8 @@ class TaskService
             $this->activityLogRecorder->record($task, $user, ActivityLogAction::ItemCreated, [
                 'title' => $task->title,
             ]);
+
+            $this->reminderSchedulerService->syncTaskReminders($task);
 
             return $task;
         });
@@ -161,6 +165,8 @@ class TaskService
 
             $this->syncRecurringTaskDatesIfNeeded($task, $attributes);
 
+            $this->reminderSchedulerService->syncTaskReminders($task);
+
             return $task;
         });
     }
@@ -185,6 +191,8 @@ class TaskService
 
             $success = (bool) $task->delete();
 
+            $this->reminderSchedulerService->cancelForRemindable($task);
+
             return [
                 'success' => $success,
                 'abandoned_in_progress_focus_session' => $abandonedInProgressFocusSession,
@@ -199,7 +207,13 @@ class TaskService
                 'title' => $task->title,
             ]);
 
-            return (bool) $task->restore();
+            $restored = (bool) $task->restore();
+
+            if ($restored) {
+                $this->reminderSchedulerService->syncTaskReminders($task);
+            }
+
+            return $restored;
         });
     }
 
@@ -216,6 +230,8 @@ class TaskService
                 ->delete();
 
             $task->focusSessions()->delete();
+
+            $this->reminderSchedulerService->cancelForRemindable($task);
 
             return (bool) $task->forceDelete();
         });

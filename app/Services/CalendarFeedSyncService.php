@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Enums\ReminderStatus;
+use App\Enums\ReminderType;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Models\CalendarFeed;
+use App\Models\Reminder;
 use App\Models\Task;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +32,8 @@ class CalendarFeedSyncService
             /** @var Response $response */
             $response = Http::timeout(15)->get($feed->feed_url);
             if (! $response->successful()) {
+                $this->createSyncFailedReminderIfAllowed($feed, 'http_'.$response->status());
+
                 return;
             }
 
@@ -44,6 +49,8 @@ class CalendarFeedSyncService
                 'user_id' => $feed->user_id,
                 'exception' => $e,
             ]);
+
+            $this->createSyncFailedReminderIfAllowed($feed, 'exception');
 
             return;
         }
@@ -135,6 +142,38 @@ class CalendarFeedSyncService
 
             $feed->update(['last_synced_at' => now()]);
         });
+    }
+
+    private function createSyncFailedReminderIfAllowed(CalendarFeed $feed, string $reason): void
+    {
+        $cooldownMinutes = (int) config('reminders.calendar_feed_sync_failed_cooldown_minutes', 60);
+        $cooldownMinutes = max(1, $cooldownMinutes);
+
+        $recentExists = Reminder::query()
+            ->where('user_id', $feed->user_id)
+            ->where('remindable_type', $feed->getMorphClass())
+            ->where('remindable_id', $feed->id)
+            ->where('type', ReminderType::CalendarFeedSyncFailed->value)
+            ->where('created_at', '>=', now()->subMinutes($cooldownMinutes))
+            ->exists();
+
+        if ($recentExists) {
+            return;
+        }
+
+        Reminder::query()->create([
+            'user_id' => $feed->user_id,
+            'remindable_type' => $feed->getMorphClass(),
+            'remindable_id' => $feed->id,
+            'type' => ReminderType::CalendarFeedSyncFailed,
+            'scheduled_at' => now(),
+            'status' => ReminderStatus::Pending,
+            'payload' => [
+                'feed_id' => $feed->id,
+                'feed_name' => $feed->name,
+                'reason' => $reason,
+            ],
+        ]);
     }
 
     /**

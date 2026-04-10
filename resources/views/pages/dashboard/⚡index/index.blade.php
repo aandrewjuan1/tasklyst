@@ -89,6 +89,15 @@
 @endphp
 
 <section class="space-y-6">
+    <div class="flex items-center justify-end">
+        <div class="inline-flex items-center gap-2 rounded-xl border border-zinc-200/70 bg-background px-2 py-1.5 shadow-sm dark:border-zinc-700/60 dark:bg-zinc-900/50">
+            <span class="px-1 text-xs font-semibold text-muted-foreground">
+                {{ __('Notifications') }}
+            </span>
+            <livewire:notifications.bell-dropdown />
+        </div>
+    </div>
+
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: Analytics (80%) --}}
