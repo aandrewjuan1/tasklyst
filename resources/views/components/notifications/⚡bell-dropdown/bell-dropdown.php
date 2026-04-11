@@ -1,8 +1,14 @@
 <?php
 
-use App\Actions\Notification\MarkNotificationReadForUserAction;
-use App\Actions\Notification\MarkNotificationUnreadForUserAction;
+use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
+use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
+use App\Actions\Notification\FindOwnedDatabaseNotificationAction;
+use App\Actions\Notification\MarkVisibleNotificationsReadForUserAction;
 use App\Actions\Notification\PrepareNotificationOpenRedirectForUserAction;
+use App\Enums\CollaborationInviteNotificationState;
+use App\Models\CollaborationInvitation;
+use App\Models\DatabaseNotification;
+use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Support\NotificationBellState;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
@@ -21,12 +27,15 @@ new class extends Component
     /**
      * @var array<int, array{
      *   id: string,
+     *   notification_kind: string,
      *   title: string,
      *   message: string,
      *   route: string,
      *   params: array<string, mixed>,
      *   read_at: string|null,
-     *   created_at_human: string
+     *   created_at_human: string,
+     *   click_opens_workspace: bool,
+     *   collaboration_invite?: array<string, mixed>
      * }>
      */
     public array $notifications = [];
@@ -67,26 +76,19 @@ new class extends Component
         $this->notifications = $payload['notifications'];
     }
 
-    public function markAsRead(string $notificationId): void
+    public function markAllVisibleAsRead(): void
     {
         $user = Auth::user();
         if ($user === null) {
             return;
         }
 
-        app(MarkNotificationReadForUserAction::class)->execute($user, $notificationId);
+        $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user);
         $this->syncNotificationStateFromDatabase();
-    }
 
-    public function markAsUnread(string $notificationId): void
-    {
-        $user = Auth::user();
-        if ($user === null) {
-            return;
+        if ($count > 0) {
+            $this->dispatch('toast', type: 'success', message: __('Notifications marked as read.'));
         }
-
-        app(MarkNotificationUnreadForUserAction::class)->execute($user, $notificationId);
-        $this->syncNotificationStateFromDatabase();
     }
 
     public function openNotification(string $notificationId): void
@@ -104,5 +106,143 @@ new class extends Component
         $this->syncNotificationStateFromDatabase();
 
         $this->redirect($url, navigate: true);
+    }
+
+    public function acceptCollaborationInvite(string $notificationId): void
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return;
+        }
+
+        $notification = app(FindOwnedDatabaseNotificationAction::class)->execute($user, $notificationId);
+        if (! $this->assertCollaborationInviteActionable($notification)) {
+            return;
+        }
+
+        $invitation = $this->resolveInvitationForCollaborationNotification($notification);
+        if ($invitation === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found or already handled.'));
+            $this->syncNotificationStateFromDatabase();
+
+            return;
+        }
+
+        $this->authorize('accept', $invitation);
+
+        app(AcceptCollaborationInvitationAction::class)->execute($invitation, $user);
+        $invitation->refresh();
+
+        if ($invitation->status !== 'accepted') {
+            $this->dispatch('toast', type: 'error', message: __('Could not accept invitation. Please try again.'));
+            $this->syncNotificationStateFromDatabase();
+
+            return;
+        }
+
+        $this->markCollaborationInviteNotificationHandled($notification->fresh(), CollaborationInviteNotificationState::Accepted);
+        $this->dispatch('collaboration-invitation-accepted');
+        $this->dispatch('toast', type: 'success', message: __('Invitation accepted.'));
+        $this->syncNotificationStateFromDatabase();
+    }
+
+    public function declineCollaborationInvite(string $notificationId): void
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return;
+        }
+
+        $notification = app(FindOwnedDatabaseNotificationAction::class)->execute($user, $notificationId);
+        if (! $this->assertCollaborationInviteActionable($notification)) {
+            return;
+        }
+
+        $invitation = $this->resolveInvitationForCollaborationNotification($notification);
+        if ($invitation === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found or already handled.'));
+            $this->syncNotificationStateFromDatabase();
+
+            return;
+        }
+
+        $this->authorize('decline', $invitation);
+
+        $ok = app(DeclineCollaborationInvitationAction::class)->execute($invitation, $user);
+        if (! $ok) {
+            $this->dispatch('toast', type: 'error', message: __('Could not decline invitation. Please try again.'));
+            $this->syncNotificationStateFromDatabase();
+
+            return;
+        }
+
+        $this->markCollaborationInviteNotificationHandled($notification->fresh(), CollaborationInviteNotificationState::Declined);
+        $this->dispatch('collaboration-invitation-declined');
+        $this->dispatch('toast', type: 'success', message: __('Invitation declined.'));
+        $this->syncNotificationStateFromDatabase();
+    }
+
+    private function assertCollaborationInviteActionable(?DatabaseNotification $notification): bool
+    {
+        if ($notification === null) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found or already handled.'));
+            $this->syncNotificationStateFromDatabase();
+
+            return false;
+        }
+
+        if ($notification->type !== CollaborationInvitationReceivedNotification::class) {
+            return false;
+        }
+
+        $state = $notification->collaboration_invite_state;
+        if ($state === CollaborationInviteNotificationState::Accepted
+            || $state === CollaborationInviteNotificationState::Declined) {
+            $this->dispatch('toast', type: 'error', message: __('Invitation not found or already handled.'));
+            $this->syncNotificationStateFromDatabase();
+
+            return false;
+        }
+
+        return true;
+    }
+
+    private function resolveInvitationForCollaborationNotification(DatabaseNotification $notification): ?CollaborationInvitation
+    {
+        $data = NotificationBellState::notificationDataAsArray($notification);
+        $entity = $data['entity'] ?? null;
+        $invitationId = is_array($entity) && isset($entity['id']) ? (int) $entity['id'] : null;
+        if ($invitationId === null || $invitationId === 0) {
+            return null;
+        }
+
+        return CollaborationInvitation::query()
+            ->whereKey($invitationId)
+            ->with('collaboratable')
+            ->first();
+    }
+
+    private function markCollaborationInviteNotificationHandled(
+        ?DatabaseNotification $notification,
+        CollaborationInviteNotificationState $state,
+    ): void {
+        if ($notification === null) {
+            return;
+        }
+
+        $data = is_array($notification->data) ? $notification->data : [];
+        if ($state === CollaborationInviteNotificationState::Accepted) {
+            $data['title'] = __('Collaboration invite accepted');
+            $data['message'] = __('You accepted this collaboration invitation.');
+        } else {
+            $data['title'] = __('Collaboration invite declined');
+            $data['message'] = __('You declined this collaboration invitation.');
+        }
+
+        $notification->forceFill([
+            'data' => $data,
+            'collaboration_invite_state' => $state,
+            'read_at' => now(),
+        ])->save();
     }
 };

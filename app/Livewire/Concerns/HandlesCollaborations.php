@@ -11,66 +11,13 @@ use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Validation\CollaborationPayloadValidation;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Livewire\Attributes\Async;
-use Livewire\Attributes\Computed;
 use Livewire\Attributes\Renderless;
 
 trait HandlesCollaborations
 {
-    /**
-     * Pending collaboration invitations for the current user (invitee).
-     * Used by the pending-invitations popover for accept/decline UI.
-     *
-     * @return \Illuminate\Support\Collection<int, array{token: string, id: int, item_title: string, item_type: string, inviter_name: string, permission: string}>
-     */
-    #[Computed]
-    public function pendingInvitationsForUser(): Collection
-    {
-        $user = Auth::user();
-        if ($user === null) {
-            return collect();
-        }
-
-        $invitations = CollaborationInvitation::query()
-            ->pendingForUser($user)
-            ->whereHas('collaboratable')
-            ->with(['collaboratable', 'inviter'])
-            ->get();
-
-        return $invitations->map(function (CollaborationInvitation $invitation): array {
-            $collaboratable = $invitation->collaboratable;
-            $itemTitle = $collaboratable !== null
-                ? ($collaboratable->title ?? $collaboratable->name ?? (string) $collaboratable->id)
-                : (string) $invitation->id;
-            $itemType = match ($invitation->collaboratable_type) {
-                Task::class => 'task',
-                Event::class => 'event',
-                Project::class => 'project',
-                default => 'item',
-            };
-            $inviterName = $invitation->inviter?->name ?? $invitation->inviter?->email ?? __('Someone');
-
-            $permissionEnum = $invitation->permission;
-            $permissionLabel = match ($permissionEnum) {
-                CollaborationPermission::Edit => __('Can edit'),
-                CollaborationPermission::View, null => __('Can view'),
-            };
-
-            return [
-                'token' => $invitation->token,
-                'id' => $invitation->id,
-                'item_title' => $itemTitle,
-                'item_type' => $itemType,
-                'inviter_name' => $inviterName,
-                'permission' => $permissionLabel,
-            ];
-        })->values();
-    }
-
     /**
      * Invite a collaborator to a task, project, or event.
      *

@@ -6,11 +6,13 @@ use App\Enums\ActivityLogAction;
 use App\Models\CollaborationInvitation;
 use App\Models\User;
 use App\Services\ActivityLogRecorder;
+use App\Services\CollaborationInvitationOwnerResponseNotifier;
 
 class DeclineCollaborationInvitationAction
 {
     public function __construct(
-        private ActivityLogRecorder $activityLogRecorder
+        private ActivityLogRecorder $activityLogRecorder,
+        private CollaborationInvitationOwnerResponseNotifier $collaborationInvitationOwnerResponseNotifier,
     ) {}
 
     public function execute(CollaborationInvitation $invitation, User $user): bool
@@ -42,6 +44,8 @@ class DeclineCollaborationInvitationAction
                 ['invitee_email' => $invitation->invitee_email]
             );
         }
+
+        $this->collaborationInvitationOwnerResponseNotifier->notifyInviterOfResponse($invitation, false, $user);
 
         return true;
     }

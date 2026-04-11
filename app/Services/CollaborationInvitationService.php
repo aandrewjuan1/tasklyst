@@ -17,6 +17,7 @@ class CollaborationInvitationService
     public function __construct(
         private ActivityLogRecorder $activityLogRecorder,
         private ReminderDispatcherService $reminderDispatcherService,
+        private CollaborationInvitationOwnerResponseNotifier $collaborationInvitationOwnerResponseNotifier,
     ) {}
 
     /**
@@ -104,6 +105,8 @@ class CollaborationInvitationService
                     ]
                 );
             }
+
+            $this->collaborationInvitationOwnerResponseNotifier->notifyInviterOfResponse($invitation, true, $invitee);
 
             return $collaboration;
         });

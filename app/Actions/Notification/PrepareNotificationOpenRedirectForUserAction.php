@@ -18,6 +18,11 @@ final class PrepareNotificationOpenRedirectForUserAction
             return null;
         }
 
+        $data = NotificationBellState::notificationDataAsArray($notification);
+        if (! NotificationBellState::notificationDataOpensWorkspaceRow($data)) {
+            return null;
+        }
+
         if ($notification->read_at === null) {
             $notification->markAsRead();
         }

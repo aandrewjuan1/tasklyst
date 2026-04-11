@@ -39,10 +39,27 @@
             role="region"
             aria-label="{{ __('Notifications') }}"
         >
-            <div class="flex items-center justify-between border-b border-zinc-100 px-3 py-2 dark:border-zinc-600/80">
-                <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ __('Notifications') }}</h2>
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-600/80">
+                <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                    <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ __('Notifications') }}</h2>
+                    @if ($unreadCount > 0)
+                        <p class="text-xs text-zinc-500 dark:text-zinc-400">{{ $unreadLabel }}</p>
+                    @endif
+                </div>
                 @if ($unreadCount > 0)
-                    <p class="text-xs text-zinc-500 dark:text-zinc-400">{{ $unreadLabel }}</p>
+                    <flux:button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        class="shrink-0 text-zinc-700 dark:text-zinc-200"
+                        wire:click="markAllVisibleAsRead"
+                        wire:target="markAllVisibleAsRead"
+                        wire:loading.attr="disabled"
+                        data-test="notifications-mark-all-read"
+                    >
+                        <span wire:loading.remove wire:target="markAllVisibleAsRead">{{ __('Mark all as read') }}</span>
+                        <span wire:loading wire:target="markAllVisibleAsRead">{{ __('Mark all as read') }}…</span>
+                    </flux:button>
                 @endif
             </div>
 
@@ -51,55 +68,123 @@
                     @php
                         $nid = $notification['id'];
                         $isUnread = ($notification['read_at'] ?? null) === null || $notification['read_at'] === '';
+                        $kind = $notification['notification_kind'] ?? 'standard';
                     @endphp
-                    <div
-                        wire:key="notification-bell-row-{{ $nid }}"
-                        class="flex items-start gap-2 border-b border-zinc-100 px-3 py-2.5 last:border-b-0 dark:border-zinc-600/60"
-                    >
-                        <button
-                            type="button"
-                            wire:click="openNotification('{{ $nid }}')"
-                            wire:loading.attr="disabled"
-                            class="flex min-w-0 flex-1 flex-col gap-1 rounded-md px-1 py-0.5 text-left text-zinc-900 transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 disabled:opacity-60 dark:text-zinc-50 dark:hover:bg-zinc-700/40"
+                    @if ($kind === 'collaboration_invite')
+                        @php
+                            $invite = $notification['collaboration_invite'] ?? [];
+                            $interaction = $invite['interaction'] ?? 'unavailable';
+                            $itemType = $invite['item_type'] ?? 'item';
+                            $itemTypeLabel = match ($itemType) {
+                                'task' => __('Task'),
+                                'event' => __('Event'),
+                                'project' => __('Project'),
+                                default => __('Item'),
+                            };
+                            $inviterName = $invite['inviter_name'] ?? __('Someone');
+                            $itemTitle = $invite['item_title'] ?? '';
+                            $permissionLabel = $invite['permission_label'] ?? __('Can view');
+                        @endphp
+                        <div
+                            wire:key="notification-bell-row-{{ $nid }}"
+                            class="flex flex-col gap-2 border-b border-zinc-100 px-3 py-2.5 last:border-b-0 dark:border-zinc-600/60"
                         >
-                            <div class="flex min-w-0 items-center gap-2">
-                                @if ($isUnread)
-                                    <span class="inline-block size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true"></span>
+                            <div class="flex min-w-0 flex-col gap-1.5">
+                                <div
+                                    class="flex min-w-0 cursor-default flex-col gap-1 rounded-md px-1 py-0.5 text-left text-zinc-900 dark:text-zinc-50"
+                                >
+                                    <div class="flex min-w-0 items-center gap-2">
+                                        @if ($isUnread)
+                                            <span class="inline-block size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true"></span>
+                                        @endif
+                                        <span class="min-w-0 text-sm font-semibold leading-snug">{{ $notification['title'] }}</span>
+                                    </div>
+                                    @if ($interaction === 'pending')
+                                        <span class="text-xs leading-snug text-zinc-700 dark:text-zinc-200">
+                                            {{ $inviterName }} {{ __('invited you to') }} {{ $itemTypeLabel }}: {{ $itemTitle }}
+                                        </span>
+                                    @elseif (($notification['message'] ?? '') !== '')
+                                        <span class="line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-300">{{ $notification['message'] }}</span>
+                                    @endif
+                                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ $notification['created_at_human'] }}</span>
+                                </div>
+                                @if ($interaction === 'pending')
+                                    <p class="px-1 text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
+                                        {{ __('If you accept, you\'ll get') }}
+                                        <span class="font-medium text-zinc-800 dark:text-zinc-100">{{ $permissionLabel }}</span>
+                                        {{ __('permission.') }}
+                                    </p>
+                                    <div class="flex flex-wrap items-center gap-2 px-1 pt-0.5">
+                                        <flux:button
+                                            size="xs"
+                                            variant="primary"
+                                            class="shrink-0"
+                                            wire:click.stop="acceptCollaborationInvite('{{ $nid }}')"
+                                            wire:target="acceptCollaborationInvite"
+                                            wire:loading.attr="disabled"
+                                        >
+                                            <span wire:loading.remove wire:target="acceptCollaborationInvite">{{ __('Accept') }}</span>
+                                            <span wire:loading wire:target="acceptCollaborationInvite">{{ __('Accept') }}…</span>
+                                        </flux:button>
+                                        <flux:button
+                                            size="xs"
+                                            variant="ghost"
+                                            class="shrink-0 text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                                            wire:click.stop="declineCollaborationInvite('{{ $nid }}')"
+                                            wire:target="declineCollaborationInvite"
+                                            wire:loading.attr="disabled"
+                                        >
+                                            <span wire:loading.remove wire:target="declineCollaborationInvite">{{ __('Decline') }}</span>
+                                            <span wire:loading wire:target="declineCollaborationInvite">{{ __('Decline') }}…</span>
+                                        </flux:button>
+                                    </div>
                                 @endif
-                                <span class="min-w-0 truncate text-sm font-semibold">{{ $notification['title'] }}</span>
                             </div>
-                            @if (($notification['message'] ?? '') !== '')
-                                <span class="line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-300">{{ $notification['message'] }}</span>
+                        </div>
+                    @else
+                        @php
+                            $opensWorkspace = (bool) ($notification['click_opens_workspace'] ?? false);
+                        @endphp
+                        <div
+                            wire:key="notification-bell-row-{{ $nid }}"
+                            class="border-b border-zinc-100 px-3 py-2.5 last:border-b-0 dark:border-zinc-600/60"
+                        >
+                            @if ($opensWorkspace)
+                                <button
+                                    type="button"
+                                    wire:click="openNotification('{{ $nid }}')"
+                                    wire:loading.attr="disabled"
+                                    class="flex min-w-0 w-full flex-col gap-1 rounded-md px-1 py-0.5 text-left text-zinc-900 transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 disabled:opacity-60 dark:text-zinc-50 dark:hover:bg-zinc-700/40"
+                                >
+                                    <div class="flex min-w-0 items-center gap-2">
+                                        @if ($isUnread)
+                                            <span class="inline-block size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true"></span>
+                                        @endif
+                                        <span class="min-w-0 truncate text-sm font-semibold">{{ $notification['title'] }}</span>
+                                    </div>
+                                    @if (($notification['message'] ?? '') !== '')
+                                        <span class="line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-300">{{ $notification['message'] }}</span>
+                                    @endif
+                                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ $notification['created_at_human'] }}</span>
+                                </button>
+                            @else
+                                <div
+                                    class="flex min-w-0 cursor-default flex-col gap-1 rounded-md px-1 py-0.5 text-left text-zinc-900 dark:text-zinc-50"
+                                >
+                                    <div class="flex min-w-0 items-center gap-2">
+                                        @if ($isUnread)
+                                            <span class="inline-block size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true"></span>
+                                        @endif
+                                        <span class="min-w-0 truncate text-sm font-semibold">{{ $notification['title'] }}</span>
+                                    </div>
+                                    @if (($notification['message'] ?? '') !== '')
+                                        <span class="line-clamp-2 text-xs leading-snug text-zinc-600 dark:text-zinc-300">{{ $notification['message'] }}</span>
+                                    @endif
+                                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ $notification['created_at_human'] }}</span>
+                                </div>
                             @endif
-                            <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ $notification['created_at_human'] }}</span>
-                        </button>
-
-                        @if ($isUnread)
-                            <button
-                                type="button"
-                                wire:click.stop="markAsRead('{{ $nid }}')"
-                                wire:loading.attr="disabled"
-                                class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-800 shadow-sm transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-                            >
-                                <svg class="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                                </svg>
-                                <span class="whitespace-nowrap">{{ __('Mark read') }}</span>
-                            </button>
-                        @else
-                            <button
-                                type="button"
-                                wire:click.stop="markAsUnread('{{ $nid }}')"
-                                wire:loading.attr="disabled"
-                                class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-800 shadow-sm transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-                            >
-                                <svg class="size-4 shrink-0 text-sky-600 dark:text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" />
-                                </svg>
-                                <span class="whitespace-nowrap">{{ __('Mark unread') }}</span>
-                            </button>
-                        @endif
-                    </div>
+                        </div>
+                    @endif
                 @empty
                     <p class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
                         {{ __('No notifications yet.') }}

@@ -9,12 +9,12 @@
         that should show the full-area placeholder while the workspace Index re-renders.
 
         Covered: date (selectedDate), search (searchQuery, searchScope), filters (filter* and set/clear helpers),
-        collaboration accept, trash restore.
+        trash restore.
 
         Intentionally omitted: viewMode (tab switch stays snappy), loadMoreItems / getMoreItemsHtml (append-only, no full flash).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,acceptCollaborationInvitation,restoreTrashItem,restoreTrashItems';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,restoreTrashItem,restoreTrashItems';
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
@@ -168,12 +168,9 @@
                         </div>
                     </div>
 
-                    {{-- Search, filters / pending invitations / add filter / trash --}}
+                    {{-- Search, filters / add filter / trash --}}
                     <div class="flex flex-col gap-3 border-t border-brand-blue/20 pt-3 xl:flex-row xl:items-start xl:justify-between">
                         <div class="min-w-0 flex flex-wrap items-center gap-2">
-                            @auth
-                                <x-workspace.pending-invitations-popover :invitations="$this->pendingInvitationsForUser" />
-                            @endauth
                             <x-workspace.active-filter-pills
                                 :filters="$this->getFilters()"
                                 :tags="$this->tags"

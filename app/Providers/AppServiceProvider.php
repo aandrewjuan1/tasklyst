@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\DatabaseNotification;
+use App\Observers\DatabaseNotificationObserver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +28,8 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureWorkOS();
+
+        DatabaseNotification::observe(DatabaseNotificationObserver::class);
     }
 
     protected function configureWorkOS(): void

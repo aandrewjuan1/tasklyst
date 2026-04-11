@@ -1,10 +1,14 @@
 <?php
 
+use App\Enums\CollaborationInviteNotificationState;
 use App\Http\Middleware\ValidateWorkOSSession;
+use App\Models\CollaborationInvitation;
+use App\Models\DatabaseNotification;
+use App\Models\Task;
 use App\Models\User;
+use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Support\NotificationBellState;
 use Carbon\Carbon;
-use Illuminate\Notifications\DatabaseNotification;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -102,32 +106,65 @@ test('bell dropdown shows unread count and latest 10 notifications only', functi
         ->and($component->get('notifications'))->toHaveCount(10);
 });
 
-test('mark read and unread actions update notification read state', function (): void {
+test('mark all visible as read marks unread items in latest ten and refreshes bell state', function (): void {
     $user = $this->user;
 
-    $notification = DatabaseNotification::query()->create([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
-        'type' => 'App\\Notifications\\TestNotification',
-        'notifiable_type' => User::class,
-        'notifiable_id' => $user->id,
-        'data' => [
-            'title' => 'Unread notification',
-            'message' => 'Message',
-            'route' => 'dashboard',
-            'params' => [],
-        ],
-        'read_at' => null,
-    ]);
+    foreach (range(1, 3) as $index) {
+        DatabaseNotification::query()->create([
+            'id' => (string) \Illuminate\Support\Str::uuid(),
+            'type' => 'App\\Notifications\\TestNotification',
+            'notifiable_type' => User::class,
+            'notifiable_id' => $user->id,
+            'data' => [
+                'title' => 'Unread '.$index,
+                'message' => 'Message',
+                'route' => 'dashboard',
+                'params' => [],
+            ],
+            'read_at' => null,
+        ]);
+    }
 
     $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
 
-    $component->call('markAsRead', $notification->id);
-    expect($notification->fresh()->read_at)->not->toBeNull()
-        ->and($component->get('unreadCount'))->toBe(0);
+    expect($component->get('unreadCount'))->toBe(3);
 
-    $component->call('markAsUnread', $notification->id);
-    expect($notification->fresh()->read_at)->toBeNull()
-        ->and($component->get('unreadCount'))->toBe(1);
+    $component->call('markAllVisibleAsRead');
+
+    expect($user->fresh()->unreadNotifications()->count())->toBe(0)
+        ->and($component->get('unreadCount'))->toBe(0);
+});
+
+test('mark all visible as read leaves older unread notifications when more than ten exist', function (): void {
+    $user = $this->user;
+    $base = now()->startOfMinute();
+
+    foreach (range(1, 12) as $index) {
+        DatabaseNotification::query()->create([
+            'id' => (string) \Illuminate\Support\Str::uuid(),
+            'type' => 'App\\Notifications\\TestNotification',
+            'notifiable_type' => User::class,
+            'notifiable_id' => $user->id,
+            'data' => [
+                'title' => 'N '.$index,
+                'message' => '',
+                'route' => 'dashboard',
+                'params' => [],
+            ],
+            'read_at' => null,
+            'created_at' => $base->copy()->addMinutes($index),
+            'updated_at' => $base->copy()->addMinutes($index),
+        ]);
+    }
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+
+    expect($component->get('unreadCount'))->toBe(12);
+
+    $component->call('markAllVisibleAsRead');
+
+    expect($user->fresh()->unreadNotifications()->count())->toBe(2)
+        ->and($component->get('unreadCount'))->toBe(2);
 });
 
 test('open notification marks it as read and redirects to target route', function (): void {
@@ -140,6 +177,7 @@ test('open notification marks it as read and redirects to target route', functio
         'notifiable_type' => User::class,
         'notifiable_id' => $user->id,
         'data' => [
+            'type' => 'task_due_soon',
             'title' => 'Open me',
             'message' => 'Go to workspace',
             'route' => 'workspace',
@@ -159,9 +197,23 @@ test('open notification marks it as read and redirects to target route', functio
     expect($notification->fresh()->read_at)->not->toBeNull();
 });
 
-test('user cannot mutate another users notification', function (): void {
+test('mark all visible as read does not affect another users notifications', function (): void {
     $user = $this->user;
     $otherUser = User::factory()->create();
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Mine',
+            'message' => '',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
 
     $otherNotification = DatabaseNotification::query()->create([
         'id' => (string) \Illuminate\Support\Str::uuid(),
@@ -179,7 +231,201 @@ test('user cannot mutate another users notification', function (): void {
 
     Livewire::actingAs($user)
         ->test('notifications.bell-dropdown')
-        ->call('markAsRead', $otherNotification->id);
+        ->call('markAllVisibleAsRead');
 
     expect($otherNotification->fresh()->read_at)->toBeNull();
+});
+
+test('collaboration invite notification row shows accept and decline in the bell panel', function (): void {
+    $owner = User::factory()->create(['name' => 'Inviter Bell Person']);
+    $invitee = User::factory()->create();
+    $task = Task::factory()->create([
+        'user_id' => $owner->id,
+        'title' => 'Unique collab bell task title',
+    ]);
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'status' => 'pending',
+    ]);
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => CollaborationInvitationReceivedNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $invitee->id,
+        'data' => [
+            'type' => 'collaboration_invite_received',
+            'title' => __('Collaboration invite'),
+            'message' => __('You received a collaboration invitation.'),
+            'entity' => [
+                'kind' => 'collaboration_invitation',
+                'id' => $invitation->id,
+                'model' => CollaborationInvitation::class,
+            ],
+            'route' => 'workspace',
+            'params' => [],
+            'meta' => [
+                'invitee_email' => $invitee->email,
+                'collaboratable_type' => Task::class,
+                'collaboratable_id' => $task->id,
+                'permission' => 'view',
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($invitee)
+        ->test('notifications.bell-dropdown')
+        ->call('togglePanel')
+        ->assertSee(__('Accept'))
+        ->assertSee(__('Decline'))
+        ->assertSee('Unique collab bell task title');
+});
+
+test('bell accept collaboration invite updates invitation and notification state', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->create(['user_id' => $owner->id, 'title' => 'Accept me']);
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'status' => 'pending',
+    ]);
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => CollaborationInvitationReceivedNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $invitee->id,
+        'data' => [
+            'type' => 'collaboration_invite_received',
+            'title' => __('Collaboration invite'),
+            'message' => __('You received a collaboration invitation.'),
+            'entity' => [
+                'kind' => 'collaboration_invitation',
+                'id' => $invitation->id,
+                'model' => CollaborationInvitation::class,
+            ],
+            'route' => 'workspace',
+            'params' => [],
+            'meta' => [
+                'invitee_email' => $invitee->email,
+                'collaboratable_type' => Task::class,
+                'collaboratable_id' => $task->id,
+                'permission' => 'view',
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($invitee)
+        ->test('notifications.bell-dropdown')
+        ->call('acceptCollaborationInvite', $notification->id);
+
+    expect($invitation->fresh()->status)->toBe('accepted')
+        ->and($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Accepted)
+        ->and($notification->fresh()->read_at)->not->toBeNull();
+});
+
+test('bell decline collaboration invite updates invitation and notification state', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->create(['user_id' => $owner->id]);
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'status' => 'pending',
+    ]);
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => CollaborationInvitationReceivedNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $invitee->id,
+        'data' => [
+            'type' => 'collaboration_invite_received',
+            'title' => __('Collaboration invite'),
+            'message' => __('You received a collaboration invitation.'),
+            'entity' => [
+                'kind' => 'collaboration_invitation',
+                'id' => $invitation->id,
+                'model' => CollaborationInvitation::class,
+            ],
+            'route' => 'workspace',
+            'params' => [],
+            'meta' => [
+                'invitee_email' => $invitee->email,
+                'collaboratable_type' => Task::class,
+                'collaboratable_id' => $task->id,
+                'permission' => 'view',
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($invitee)
+        ->test('notifications.bell-dropdown')
+        ->call('declineCollaborationInvite', $notification->id);
+
+    expect($invitation->fresh()->status)->toBe('declined')
+        ->and($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Declined)
+        ->and($notification->fresh()->read_at)->not->toBeNull();
+});
+
+test('bell accept collaboration invite does nothing for another users notification', function (): void {
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $stranger = User::factory()->create();
+    $task = Task::factory()->create(['user_id' => $owner->id]);
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'status' => 'pending',
+    ]);
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => CollaborationInvitationReceivedNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $invitee->id,
+        'data' => [
+            'type' => 'collaboration_invite_received',
+            'title' => __('Collaboration invite'),
+            'message' => __('You received a collaboration invitation.'),
+            'entity' => [
+                'kind' => 'collaboration_invitation',
+                'id' => $invitation->id,
+                'model' => CollaborationInvitation::class,
+            ],
+            'route' => 'workspace',
+            'params' => [],
+            'meta' => [
+                'invitee_email' => $invitee->email,
+                'collaboratable_type' => Task::class,
+                'collaboratable_id' => $task->id,
+                'permission' => 'view',
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($stranger)
+        ->test('notifications.bell-dropdown')
+        ->call('acceptCollaborationInvite', $notification->id);
+
+    expect($invitation->fresh()->status)->toBe('pending')
+        ->and($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Pending);
 });

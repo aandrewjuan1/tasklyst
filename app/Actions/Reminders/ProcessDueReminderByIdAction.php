@@ -3,9 +3,9 @@
 namespace App\Actions\Reminders;
 
 use App\Enums\ReminderStatus;
-use App\Events\UserNotificationCreated;
 use App\Models\Reminder;
 use App\Models\User;
+use App\Services\UserNotificationBroadcastService;
 use App\Support\Reminders\ReminderNotificationFactory;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +14,7 @@ final class ProcessDueReminderByIdAction
 {
     public function __construct(
         private ReminderNotificationFactory $reminderNotificationFactory,
+        private UserNotificationBroadcastService $userNotificationBroadcastService,
     ) {}
 
     public function execute(int $reminderId, CarbonInterface $now): bool
@@ -54,10 +55,7 @@ final class ProcessDueReminderByIdAction
 
             try {
                 $user->notify($notification);
-                event(new UserNotificationCreated(
-                    userId: (int) $user->id,
-                    unreadCount: $user->unreadNotifications()->count(),
-                ));
+                $this->userNotificationBroadcastService->broadcastInboxUpdated($user);
             } catch (\Throwable $exception) {
                 $payload = is_array($reminder->payload ?? null) ? $reminder->payload : [];
                 $attempts = (int) ($payload['dispatch_attempts'] ?? 0) + 1;

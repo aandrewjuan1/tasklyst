@@ -2,8 +2,8 @@
 
 namespace App\Actions\Notification;
 
+use App\Models\DatabaseNotification;
 use App\Models\User;
-use Illuminate\Notifications\DatabaseNotification;
 
 final class FindOwnedDatabaseNotificationAction
 {
