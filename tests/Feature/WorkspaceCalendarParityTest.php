@@ -22,9 +22,7 @@ test('workspace calendar supports dashboard contract methods', function (): void
     Livewire::test('pages::workspace.index')
         ->set('selectedDate', '2026-04-09')
         ->call('navigateSelectedDate', 1)
-        ->assertSet('selectedDate', '2026-04-10')
-        ->call('jumpSelectedDateToToday')
-        ->assertSet('selectedDate', now()->toDateString());
+        ->assertSet('selectedDate', '2026-04-10');
 });
 
 test('workspace calendar renders selected day agenda without source filtering', function (): void {

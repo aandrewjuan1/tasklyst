@@ -406,6 +406,7 @@ class extends Component
     public function updatedSelectedDate(): void
     {
         $this->parsedSelectedDate = null;
+        $this->resetCalendarViewForSelectedDateChange();
         $this->resetListPagination();
     }
 

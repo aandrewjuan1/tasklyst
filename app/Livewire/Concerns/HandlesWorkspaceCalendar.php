@@ -17,26 +17,81 @@ trait HandlesWorkspaceCalendar
 
     private const SELECTED_DAY_AGENDA_EVENT_LIMIT = 120;
 
+    /**
+     * When set together, the sidebar calendar grid shows this month/year without changing the workspace selected date.
+     * Cleared whenever the selected date changes so the grid follows the active day again.
+     */
+    public ?int $calendarViewYear = null;
+
+    public ?int $calendarViewMonth = null;
+
+    /**
+     * Latest month meta for the calendar grid, mirrored for Alpine after {@see browseCalendarMonth()}.
+     * (Blade still receives calendarMonthMeta via computed; this keeps $wire and Alpine in sync.)
+     *
+     * @var array<string, array<string, int>>
+     */
+    public array $calendarGridMetaForJs = [];
+
     public function navigateSelectedDate(int $offsetDays): void
     {
         $this->selectedDate = $this->getParsedSelectedDate()->copy()->addDays($offsetDays)->toDateString();
     }
 
-    public function jumpSelectedDateToToday(): void
+    /**
+     * Move the calendar grid to another month without updating the workspace selected date.
+     */
+    public function browseCalendarMonth(int $delta): void
     {
-        $this->selectedDate = now()->toDateString();
+        $year = $this->getCalendarGridYear();
+        $month = $this->getCalendarGridMonth();
+
+        $next = $this->getParsedSelectedDate()
+            ->copy()
+            ->setDate($year, $month, 1)
+            ->addMonths($delta);
+
+        $this->calendarViewYear = (int) $next->year;
+        $this->calendarViewMonth = (int) $next->month;
+
+        $this->calendarGridMetaForJs = $this->calendarMonthMeta;
+    }
+
+    protected function resetCalendarViewForSelectedDateChange(): void
+    {
+        $this->calendarViewYear = null;
+        $this->calendarViewMonth = null;
+        $this->calendarGridMetaForJs = [];
+    }
+
+    protected function getCalendarGridMonth(): int
+    {
+        if ($this->calendarViewYear !== null && $this->calendarViewMonth !== null) {
+            return $this->calendarViewMonth;
+        }
+
+        return $this->getParsedSelectedDate()->month;
+    }
+
+    protected function getCalendarGridYear(): int
+    {
+        if ($this->calendarViewYear !== null && $this->calendarViewMonth !== null) {
+            return $this->calendarViewYear;
+        }
+
+        return $this->getParsedSelectedDate()->year;
     }
 
     #[Computed]
     public function calendarMonth(): int
     {
-        return $this->getParsedSelectedDate()->month;
+        return $this->getCalendarGridMonth();
     }
 
     #[Computed]
     public function calendarYear(): int
     {
-        return $this->getParsedSelectedDate()->year;
+        return $this->getCalendarGridYear();
     }
 
     /**
@@ -59,7 +114,10 @@ trait HandlesWorkspaceCalendar
             return [];
         }
 
-        $monthStart = $this->getParsedSelectedDate()->copy()->startOfMonth();
+        $monthStart = $this->getParsedSelectedDate()
+            ->copy()
+            ->setDate($this->getCalendarGridYear(), $this->getCalendarGridMonth(), 1)
+            ->startOfMonth();
         $gridStart = $monthStart->copy()->startOfWeek();
         $gridEnd = $monthStart->copy()->endOfMonth()->endOfWeek();
 

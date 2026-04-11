@@ -89,8 +89,6 @@
         todayCache: null,
         days: [],
         locale: @js(str_replace('_', '-', app()->getLocale())),
-        lastNavAt: 0,
-        navThrottleMs: 300,
         isBusy: false,
         busyContext: '',
         
@@ -126,18 +124,7 @@
                         day.isSelected = day.dateString === value;
                     });
                 }
-
-                if (this.isBusy) {
-                    this.isBusy = false;
-                    this.busyContext = '';
-                }
             });
-        },
-        
-        navAllowed() {
-            if (Date.now() - this.lastNavAt < this.navThrottleMs) return false;
-            this.lastNavAt = Date.now();
-            return true;
         },
         
         buildDays() {
@@ -160,7 +147,7 @@
                 days = [];
             }
             
-            // Previous month days (grayed out)
+            // Leading padding cells (no labels; keeps weekday alignment)
             for (let i = daysInPreviousMonth - daysToShowFromPreviousMonth + 1; i <= daysInPreviousMonth; i++) {
                 days.push({
                     day: i,
@@ -192,7 +179,7 @@
                 });
             }
             
-            // Next month days to fill last week (only fill to complete the week, not always 6 rows)
+            // Trailing padding cells (no labels)
             for (let day = 1; day <= blanksNeeded; day++) {
                 days.push({
                     day: day,
@@ -206,20 +193,24 @@
             this.days = days;
         },
         
-        changeMonth(offset) {
-            if (!this.navAllowed()) return;
-            const newMonth = this.month + offset;
-            const date = new Date(this.year, newMonth, 1);
-            this.month = date.getMonth();
-            this.year = date.getFullYear();
-            this.updateMonthLabel();
-            this.buildDays();
-            const monthStr = String(this.month + 1).padStart(2, '0');
-            const firstDate = `${this.year}-${monthStr}-01`;
-            this.selectedDate = firstDate;
+        async changeMonth(offset) {
             this.isBusy = true;
             this.busyContext = 'calendar-nav';
-            $wire.set('selectedDate', firstDate);
+            try {
+                await $wire.browseCalendarMonth(offset);
+                if ($wire.calendarViewYear != null && $wire.calendarViewMonth != null) {
+                    this.year = $wire.calendarViewYear;
+                    this.month = $wire.calendarViewMonth - 1;
+                }
+                if ($wire.calendarGridMetaForJs && typeof $wire.calendarGridMetaForJs === 'object') {
+                    this.monthMeta = $wire.calendarGridMetaForJs;
+                }
+                this.updateMonthLabel();
+                this.buildDays();
+            } finally {
+                this.isBusy = false;
+                this.busyContext = '';
+            }
         },
         
         monthLabel: @js($initialMonthLabel),
@@ -236,6 +227,9 @@
         
         async selectDay(dayData) {
             if (!dayData.dateString) return;
+            if (dayData.dateString === this.selectedDate) {
+                return;
+            }
             const previousSelected = this.selectedDate;
             const oldSelected = this.days.find(d => d.isSelected);
             if (oldSelected) oldSelected.isSelected = false;
@@ -251,30 +245,6 @@
                 this.days.forEach((day) => {
                     day.isSelected = day.dateString === previousSelected;
                 });
-            } finally {
-                this.isBusy = false;
-                this.busyContext = '';
-            }
-        },
-        
-        async goToday() {
-            if (!this.navAllowed()) return;
-            // Optimistic update: update month/year/selectedDate and rebuild calendar immediately
-            const today = new Date();
-            const previousState = { month: this.month, year: this.year, selectedDate: this.selectedDate };
-            this.month = today.getMonth();
-            this.year = today.getFullYear();
-            this.selectedDate = this.today;
-            this.buildDays();
-            try {
-                this.isBusy = true;
-                this.busyContext = 'go-today';
-                await $wire.set('selectedDate', this.today);
-            } catch (error) {
-                this.month = previousState.month;
-                this.year = previousState.year;
-                this.selectedDate = previousState.selectedDate;
-                this.buildDays();
             } finally {
                 this.isBusy = false;
                 this.busyContext = '';
@@ -312,11 +282,6 @@
                 $wire.navigateSelectedDate(7);
                 return;
             }
-            if (event.key.toLowerCase() === 't') {
-                event.preventDefault();
-                $wire.jumpSelectedDateToToday();
-                return;
-            }
             if (event.key.toLowerCase() === 'n') {
                 event.preventDefault();
                 this.changeMonth(1);
@@ -344,8 +309,9 @@
             <button
                 type="button"
                 @click="changeMonth(-1)"
+                :disabled="isBusy"
                 wire:loading.attr="disabled"
-                wire:target="selectedDate"
+                wire:target="browseCalendarMonth,selectedDate"
                 class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
                 aria-label="{{ __('Previous month') }}"
             >
@@ -365,8 +331,9 @@
             <button
                 type="button"
                 @click="changeMonth(1)"
+                :disabled="isBusy"
                 wire:loading.attr="disabled"
-                wire:target="selectedDate"
+                wire:target="browseCalendarMonth,selectedDate"
                 class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
                 aria-label="{{ __('Next month') }}"
             >
@@ -374,24 +341,6 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
                 </svg>
             </button>
-        </div>
-
-        <div class="px-3 pb-2 sm:px-4">
-            <div class="mb-2 flex items-center justify-center">
-                <flux:tooltip content="{{ __('Go back to today') }}">
-                    <button
-                        type="button"
-                        @click="goToday()"
-                        :disabled="isBusy"
-                        class="inline-flex items-center gap-1.5 rounded-lg bg-brand-blue px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm transition hover:bg-brand-blue/90 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label="{{ __('Go back to today') }}"
-                        data-testid="calendar-go-today-top"
-                    >
-                        <flux:icon name="calendar-days" class="size-3.5" />
-                        <span>{{ __('Today') }}</span>
-                    </button>
-                </flux:tooltip>
-            </div>
         </div>
 
         {{-- Calendar Grid --}}
@@ -412,14 +361,13 @@
                 {{-- Server-rendered first paint (visible by default) --}}
                 @foreach ($serverDays as $dayData)
                     @if ($dayData['month'] !== 'current')
-                        {{-- Previous/Next Month Days (Grayed Out) --}}
-                        <div 
+                        {{-- Grid padding only (no adjacent-month day labels) --}}
+                        <div
                             x-show="!alpineReady"
-                            class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center sm:min-h-11"
+                            class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35 sm:min-h-11"
                             style="display: flex;"
-                        >
-                            <span class="text-xs tabular-nums text-muted-foreground/40 dark:text-muted-foreground/30 sm:text-sm">{{ $dayData['day'] }}</span>
-                        </div>
+                            aria-hidden="true"
+                        ></div>
                     @else
                         {{-- Current Month Days (Clickable) --}}
                         @php
@@ -437,7 +385,7 @@
                             style="display: flex;"
                             @click="if (typeof $wire !== 'undefined') { $wire.set('selectedDate', '{{ $dayData['dateString'] }}'); }"
                             :disabled="isBusy"
-                            class="group relative flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm {{ $dayData['isSelected'] ? 'bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
+                            class="group relative box-border flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm {{ $dayData['isSelected'] ? 'border-white/25 bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'border-brand-blue/30 bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:border-brand-blue/35 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
                             data-date="{{ $dayData['dateString'] }}"
                             aria-label="{{ __('Select date') }}: {{ \Illuminate\Support\Carbon::parse($dayData['dateString'])->translatedFormat('F j, Y') }}"
                         >
@@ -478,13 +426,12 @@
                 {{-- Alpine reactive (shown when Alpine ready) --}}
                 <template x-for="dayData in days" :key="`day-${year}-${month}-${dayData.day}-${dayData.month}`">
                     <div class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center sm:min-h-11" x-show="alpineReady" x-cloak>
-                        {{-- Previous/Next Month Days (Grayed Out) --}}
-                        <div 
+                        {{-- Grid padding only (no adjacent-month day labels) --}}
+                        <div
                             x-show="dayData.month !== 'current'"
-                            class="flex h-full w-full min-w-0 items-center justify-center"
-                        >
-                            <span class="text-xs tabular-nums text-muted-foreground/40 dark:text-muted-foreground/30 sm:text-sm" x-text="dayData.day"></span>
-                        </div>
+                            class="flex h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35"
+                            aria-hidden="true"
+                        ></div>
                         
                         {{-- Current Month Days (Clickable) --}}
                         <button
@@ -492,12 +439,12 @@
                             type="button"
                             @click="selectDay(dayData)"
                             :disabled="isBusy"
-                            class="group relative flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:focus:ring-offset-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed sm:min-h-11 sm:text-sm"
+                            class="group relative box-border flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm"
                             :data-date="dayData.dateString"
                             :aria-label="`{{ __('Select date') }}: ${dayData.dateString}`"
                             :class="{
-                                'bg-brand-blue text-white shadow-md': dayData.isSelected,
-                                'bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25': !dayData.isSelected && dayData.isToday,
+                                'border-white/25 bg-brand-blue text-white shadow-md': dayData.isSelected,
+                                'border-brand-blue/30 bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:border-brand-blue/35 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25': !dayData.isSelected && dayData.isToday,
                                 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300': !dayData.isSelected && !dayData.isToday,
                             }"
                         >

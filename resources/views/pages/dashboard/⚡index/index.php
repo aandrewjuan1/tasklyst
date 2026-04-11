@@ -99,6 +99,7 @@ class extends Component
     public function updatedSelectedDate(): void
     {
         $this->parsedSelectedDate = null;
+        $this->resetCalendarViewForSelectedDateChange();
     }
 
     public function setAnalyticsPreset(string $preset): void
