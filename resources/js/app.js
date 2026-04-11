@@ -1,10 +1,8 @@
-import * as echarts from 'echarts';
-
 import { listItemCard } from './alpine/list-item-card.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
 import { dashboardAnalyticsCharts } from './alpine/dashboard-analytics-charts.js';
 
-window.echarts = echarts;
+// ECharts is lazy-loaded from dashboard-analytics-charts.js (dynamic import) to keep the main bundle smaller.
 
 // listItemCard registers itself in Alpine.store('listItemCards')[itemId] for focus-session escape handler etc.
 document.addEventListener('livewire:init', () => {

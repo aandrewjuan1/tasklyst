@@ -20,6 +20,8 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function (): void {
+    config(['broadcasting.default' => 'null']);
+
     $this->user = User::factory()->create();
 });
 

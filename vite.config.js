@@ -12,6 +12,18 @@ export default defineConfig({
         }),
         tailwindcss(),
     ],
+    build: {
+        chunkSizeWarningLimit: 1200,
+        rollupOptions: {
+            output: {
+                manualChunks(id) {
+                    if (id.includes('node_modules/echarts')) {
+                        return 'echarts';
+                    }
+                },
+            },
+        },
+    },
     server: {
         cors: true,
         host: 'tasklyst.test',

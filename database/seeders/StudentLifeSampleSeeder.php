@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
+use App\Enums\ReminderType;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
@@ -17,6 +18,11 @@ use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskInstance;
 use App\Models\User;
+use App\Notifications\EventStartSoonNotification;
+use App\Notifications\TaskDueSoonNotification;
+use App\Services\Reminders\ReminderDispatcherService;
+use App\Services\Reminders\ReminderSchedulerService;
+use Database\Factories\ReminderFactory;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 
@@ -549,6 +555,85 @@ class StudentLifeSampleSeeder extends Seeder
         $this->attachTagsToItems($user, $tags);
         $this->seedStudentEvents($user, $now);
         $this->seedRecurringEvents($user, $now);
+        $this->seedRemindersAndNotifications($user);
+    }
+
+    private function seedRemindersAndNotifications(User $user): void
+    {
+        $scheduler = app(ReminderSchedulerService::class);
+        $dispatcher = app(ReminderDispatcherService::class);
+
+        Task::query()
+            ->where('user_id', $user->id)
+            ->whereNull('completed_at')
+            ->each(static function (Task $task) use ($scheduler): void {
+                $scheduler->syncTaskReminders($task);
+            });
+
+        Event::query()
+            ->where('user_id', $user->id)
+            ->where('status', EventStatus::Scheduled)
+            ->each(static function (Event $event) use ($scheduler): void {
+                $scheduler->syncEventReminders($event);
+            });
+
+        $limit = (int) config('reminders.dispatch.default_limit', 200);
+        $dispatcher->dispatchDue(max(1, $limit));
+
+        $this->seedShowcaseInboxNotifications($user, $scheduler);
+
+        $completedLabTask = Task::query()
+            ->where('user_id', $user->id)
+            ->where('title', 'ITCS 101 – Lab 3: Loops')
+            ->first();
+
+        if ($completedLabTask !== null) {
+            ReminderFactory::new()
+                ->forUserTask($user, $completedLabTask, ReminderType::TaskDueSoon)
+                ->sent()
+                ->create();
+        }
+    }
+
+    /**
+     * Curated inbox samples: cancel scheduler-generated reminders for these items first so the
+     * dispatcher does not duplicate the same message later, then insert realistic notifications.
+     */
+    private function seedShowcaseInboxNotifications(User $user, ReminderSchedulerService $scheduler): void
+    {
+        $libraryTask = Task::query()
+            ->where('user_id', $user->id)
+            ->where('title', 'Library research for history essay')
+            ->first();
+
+        if ($libraryTask !== null) {
+            $scheduler->cancelForRemindable($libraryTask, ReminderType::TaskDueSoon);
+
+            $user->notify(new TaskDueSoonNotification(
+                taskId: (int) $libraryTask->id,
+                taskTitle: (string) $libraryTask->title,
+                dueAtIso: $libraryTask->end_datetime?->toIso8601String(),
+                offsetMinutes: 60,
+            ));
+        }
+
+        $meetup = Event::query()
+            ->where('user_id', $user->id)
+            ->where('title', 'CS group project meetup')
+            ->first();
+
+        if ($meetup !== null) {
+            $scheduler->cancelForRemindable($meetup, ReminderType::EventStartSoon);
+
+            $user->notify(new EventStartSoonNotification(
+                eventId: (int) $meetup->id,
+                eventTitle: (string) $meetup->title,
+                startAtIso: $meetup->start_datetime?->toIso8601String(),
+                offsetMinutes: 60,
+            ));
+        }
+
+        $user->notifications()->latest()->skip(1)->first()?->markAsRead();
     }
 
     private function seedBrightspaceTasks(User $user, Carbon $now, Carbon $dueDateFloor): void

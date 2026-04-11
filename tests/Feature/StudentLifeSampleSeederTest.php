@@ -3,6 +3,7 @@
 use App\Enums\TaskSourceType;
 use App\Models\Event;
 use App\Models\RecurringTask;
+use App\Models\Reminder;
 use App\Models\Task;
 use App\Models\User;
 use Database\Seeders\StudentLifeSampleSeeder;
@@ -87,4 +88,16 @@ it('seeds brightspace tasks chores extra tasks and events for the demo user', fu
         ->values();
 
     expect($uniqueDueDates->count())->toBeGreaterThan(1);
+
+    expect(Reminder::query()->where('user_id', $user->id)->count())->toBeGreaterThan(0);
+
+    $user->refresh();
+
+    expect($user->notifications()->count())->toBeGreaterThan(0);
+
+    $notificationTypes = $user->notifications->map(fn ($n) => data_get($n->data, 'type'))->filter()->values();
+
+    expect($notificationTypes)->toContain('task_overdue');
+    expect($notificationTypes)->toContain('task_due_soon');
+    expect($notificationTypes)->toContain('event_start_soon');
 });

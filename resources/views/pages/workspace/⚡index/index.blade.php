@@ -20,77 +20,77 @@
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
-        <div class="relative min-w-0 space-y-6">
+        <div
+            class="relative min-w-0 space-y-6"
+            x-data="{
+                pendingViewMode: null,
+                isSwitching: false,
+                switchTimeoutId: null,
+                activeViewMode() {
+                    return this.pendingViewMode ?? $wire.viewMode;
+                },
+                clearSwitchingState() {
+                    this.pendingViewMode = null;
+                    this.isSwitching = false;
+                    if (this.switchTimeoutId !== null) {
+                        clearTimeout(this.switchTimeoutId);
+                        this.switchTimeoutId = null;
+                    }
+                },
+                setSwitchFallbackTimeout() {
+                    if (this.switchTimeoutId !== null) {
+                        clearTimeout(this.switchTimeoutId);
+                    }
+
+                    this.switchTimeoutId = setTimeout(() => {
+                        this.clearSwitchingState();
+                    }, 6000);
+                },
+                setView(mode) {
+                    if (mode === this.activeViewMode()) {
+                        return;
+                    }
+
+                    this.pendingViewMode = mode;
+                    this.isSwitching = true;
+                    this.setSwitchFallbackTimeout();
+
+                    $wire.set('viewMode', mode);
+                    const u = new URL(window.location.href);
+                    u.searchParams.set('view', mode);
+                    history.replaceState(null, '', u.pathname + u.search);
+                    if (window.Alpine?.store) {
+                        let store = Alpine.store('workspaceView');
+                        if (!store || typeof store !== 'object') {
+                            Alpine.store('workspaceView', { mode });
+                        } else {
+                            store.mode = mode;
+                        }
+                    }
+                },
+            }"
+            x-init="
+                if (window.Alpine?.store) {
+                    let store = Alpine.store('workspaceView');
+                    const initialMode = $wire.viewMode;
+                    if (!store || typeof store !== 'object') {
+                        Alpine.store('workspaceView', { mode: initialMode });
+                    } else {
+                        store.mode = initialMode;
+                    }
+                }
+            "
+            x-effect="
+                if (this.pendingViewMode !== null && $wire.viewMode === this.pendingViewMode) {
+                    this.clearSwitchingState();
+                }
+            "
+        >
             {{-- Hero Navigation Card --}}
             <div
                 class="rounded-2xl border border-brand-blue/20 bg-linear-to-r from-brand-blue/12 via-brand-purple/8 to-brand-green/12 p-4 shadow-sm ring-1 ring-brand-purple/12 backdrop-blur sm:p-5"
             >
-                <div
-                    x-data="{
-                        pendingViewMode: null,
-                        isSwitching: false,
-                        switchTimeoutId: null,
-                        activeViewMode() {
-                            return this.pendingViewMode ?? $wire.viewMode;
-                        },
-                        clearSwitchingState() {
-                            this.pendingViewMode = null;
-                            this.isSwitching = false;
-                            if (this.switchTimeoutId !== null) {
-                                clearTimeout(this.switchTimeoutId);
-                                this.switchTimeoutId = null;
-                            }
-                        },
-                        setSwitchFallbackTimeout() {
-                            if (this.switchTimeoutId !== null) {
-                                clearTimeout(this.switchTimeoutId);
-                            }
-
-                            this.switchTimeoutId = setTimeout(() => {
-                                this.clearSwitchingState();
-                            }, 6000);
-                        },
-                        setView(mode) {
-                            if (mode === this.activeViewMode()) {
-                                return;
-                            }
-
-                            this.pendingViewMode = mode;
-                            this.isSwitching = true;
-                            this.setSwitchFallbackTimeout();
-
-                            $wire.set('viewMode', mode);
-                            const u = new URL(window.location.href);
-                            u.searchParams.set('view', mode);
-                            history.replaceState(null, '', u.pathname + u.search);
-                            if (window.Alpine?.store) {
-                                let store = Alpine.store('workspaceView');
-                                if (!store || typeof store !== 'object') {
-                                    Alpine.store('workspaceView', { mode });
-                                } else {
-                                    store.mode = mode;
-                                }
-                            }
-                        },
-                    }"
-                    x-init="
-                        if (window.Alpine?.store) {
-                            let store = Alpine.store('workspaceView');
-                            const initialMode = $wire.viewMode;
-                            if (!store || typeof store !== 'object') {
-                                Alpine.store('workspaceView', { mode: initialMode });
-                            } else {
-                                store.mode = initialMode;
-                            }
-                        }
-                    "
-                    x-effect="
-                        if (pendingViewMode !== null && $wire.viewMode === pendingViewMode) {
-                            clearSwitchingState();
-                        }
-                    "
-                    class="flex w-full flex-col gap-4"
-                >
+                <div class="flex w-full flex-col gap-4">
                     <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,34rem)] xl:items-end">
                         <div class="space-y-1">
                             <h1 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
@@ -466,9 +466,6 @@
             </div>
         </div>
     </div>
-
-        </div>
-    {{-- /viewMode Alpine scope --}}
 
     @auth
         <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">

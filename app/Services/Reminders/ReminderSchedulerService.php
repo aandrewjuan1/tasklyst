@@ -2,6 +2,7 @@
 
 namespace App\Services\Reminders;
 
+use App\Actions\Reminders\CancelPendingRemindersForRemindableAction;
 use App\Enums\EventStatus;
 use App\Enums\ReminderStatus;
 use App\Enums\ReminderType;
@@ -14,6 +15,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class ReminderSchedulerService
 {
+    public function __construct(
+        private CancelPendingRemindersForRemindableAction $cancelPendingRemindersForRemindable,
+    ) {}
+
     public function syncTaskReminders(Task $task): void
     {
         $task->refresh();
@@ -43,19 +48,7 @@ class ReminderSchedulerService
 
     public function cancelForRemindable(Model $model, ?ReminderType $type = null): void
     {
-        $q = Reminder::query()
-            ->where('remindable_type', $model->getMorphClass())
-            ->where('remindable_id', $model->getKey())
-            ->where('status', ReminderStatus::Pending->value);
-
-        if ($type !== null) {
-            $q->where('type', $type->value);
-        }
-
-        $q->update([
-            'status' => ReminderStatus::Cancelled->value,
-            'cancelled_at' => now(),
-        ]);
+        $this->cancelPendingRemindersForRemindable->execute($model, $type);
     }
 
     private function syncTaskDueSoonReminders(Task $task): void

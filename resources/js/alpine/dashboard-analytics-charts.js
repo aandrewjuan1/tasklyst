@@ -1,5 +1,32 @@
 const ANALYTICS_SECTIONS = ['summary', 'trends', 'breakdowns'];
 
+/** @type {Promise<unknown>|null} */
+let echartsLoadPromise = null;
+
+/**
+ * Load ECharts once (code-split chunk) and expose on window for this component.
+ */
+async function ensureEchartsLoaded() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    if (window.echarts) {
+        return;
+    }
+
+    if (!echartsLoadPromise) {
+        echartsLoadPromise = import('echarts').then((mod) => {
+            const echarts = mod.default ?? mod;
+            window.echarts = echarts;
+
+            return echarts;
+        });
+    }
+
+    await echartsLoadPromise;
+}
+
 /**
  * @returns {string}
  */
@@ -38,9 +65,12 @@ export function dashboardAnalyticsCharts(config = {}) {
             this.activeAnalyticsSection = resolveSectionFromUrl();
             this.resizeHandler = () => this.resizeCharts();
             window.addEventListener('resize', this.resizeHandler);
-            this.$nextTick(() => {
-                this.safeRenderCharts();
-            });
+            void (async () => {
+                await ensureEchartsLoaded();
+                this.$nextTick(() => {
+                    this.safeRenderCharts();
+                });
+            })();
         },
 
         setSection(section) {
@@ -56,17 +86,23 @@ export function dashboardAnalyticsCharts(config = {}) {
                 window.history.replaceState({}, '', url);
             }
 
-            this.$nextTick(() => {
-                this.safeRenderCharts();
-            });
+            void (async () => {
+                await ensureEchartsLoaded();
+                this.$nextTick(() => {
+                    this.safeRenderCharts();
+                });
+            })();
         },
 
         sync(nextAnalytics, nextPreset) {
             this.analytics = nextAnalytics ?? null;
             this.preset = nextPreset ?? this.preset;
-            this.$nextTick(() => {
-                this.safeRenderCharts();
-            });
+            void (async () => {
+                await ensureEchartsLoaded();
+                this.$nextTick(() => {
+                    this.safeRenderCharts();
+                });
+            })();
         },
 
         safeRenderCharts() {
