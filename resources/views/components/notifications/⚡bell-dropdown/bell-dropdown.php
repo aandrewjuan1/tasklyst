@@ -40,6 +40,8 @@ new class extends Component
      */
     public array $notifications = [];
 
+    public bool $hasMoreNotifications = false;
+
     public function mount(): void
     {
         $this->userId = (int) Auth::id();
@@ -67,6 +69,7 @@ new class extends Component
         if ($user === null) {
             $this->unreadCount = 0;
             $this->notifications = [];
+            $this->hasMoreNotifications = false;
 
             return;
         }
@@ -74,6 +77,20 @@ new class extends Component
         $payload = NotificationBellState::payloadForUser($user);
         $this->unreadCount = $payload['unread_count'];
         $this->notifications = $payload['notifications'];
+        $this->hasMoreNotifications = $payload['has_more'];
+    }
+
+    public function loadMoreNotifications(): void
+    {
+        $user = Auth::user();
+        if ($user === null || ! $this->hasMoreNotifications) {
+            return;
+        }
+
+        $offset = count($this->notifications);
+        $page = NotificationBellState::notificationsPage($user, $offset, NotificationBellState::BELL_PAGE_SIZE);
+        $this->notifications = array_merge($this->notifications, $page['notifications']);
+        $this->hasMoreNotifications = $page['has_more'];
     }
 
     public function markAllVisibleAsRead(): void
@@ -83,7 +100,8 @@ new class extends Component
             return;
         }
 
-        $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user);
+        $ids = array_column($this->notifications, 'id');
+        $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user, $ids);
         $this->syncNotificationStateFromDatabase();
 
         if ($count > 0) {

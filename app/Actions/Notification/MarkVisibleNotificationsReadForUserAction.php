@@ -8,19 +8,20 @@ use Illuminate\Support\Carbon;
 final class MarkVisibleNotificationsReadForUserAction
 {
     /**
-     * Mark as read any unread notifications in the same window as the bell popover (latest 10).
+     * Mark as read any unread notifications whose IDs are currently shown in the bell panel.
+     *
+     * @param  array<int, string>  $notificationIds
      */
-    public function execute(User $user, ?Carbon $readAt = null): int
+    public function execute(User $user, array $notificationIds, ?Carbon $readAt = null): int
     {
-        $readAt ??= now();
-
-        $ids = $user->notifications()->latest()->limit(10)->pluck('id');
-        if ($ids->isEmpty()) {
+        if ($notificationIds === []) {
             return 0;
         }
 
+        $readAt ??= now();
+
         return $user->notifications()
-            ->whereIn('id', $ids)
+            ->whereIn('id', $notificationIds)
             ->whereNull('read_at')
             ->update(['read_at' => $readAt]);
     }

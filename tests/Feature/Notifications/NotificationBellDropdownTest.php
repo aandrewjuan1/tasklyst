@@ -41,7 +41,8 @@ test('mounted bell state matches NotificationBellState payload for user', functi
         $payload = NotificationBellState::payloadForUser($user->fresh());
 
         expect($component->get('unreadCount'))->toBe($payload['unread_count'])
-            ->and($component->get('notifications'))->toEqual($payload['notifications']);
+            ->and($component->get('notifications'))->toEqual($payload['notifications'])
+            ->and($component->get('hasMoreNotifications'))->toBe($payload['has_more']);
     } finally {
         Carbon::setTestNow();
     }
@@ -54,7 +55,8 @@ test('bell exposes notifications and unreadCount with expected types', function 
 
     expect($component->get('notifications'))->toBeArray()
         ->and($component->get('unreadCount'))->toBeInt()
-        ->and($component->get('panelOpen'))->toBeBool();
+        ->and($component->get('panelOpen'))->toBeBool()
+        ->and($component->get('hasMoreNotifications'))->toBeBool();
 });
 
 test('bell dropdown renders notification title and message in the dom', function (): void {
@@ -81,7 +83,7 @@ test('bell dropdown renders notification title and message in the dom', function
         ->assertSee('Bell message body unique');
 });
 
-test('bell dropdown shows unread count and latest 10 notifications only', function (): void {
+test('bell dropdown shows full unread count and first page of five notifications with load more', function (): void {
     $user = $this->user;
 
     foreach (range(1, 12) as $index) {
@@ -103,10 +105,21 @@ test('bell dropdown shows unread count and latest 10 notifications only', functi
     $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
 
     expect($component->get('unreadCount'))->toBe(10)
-        ->and($component->get('notifications'))->toHaveCount(10);
+        ->and($component->get('notifications'))->toHaveCount(5)
+        ->and($component->get('hasMoreNotifications'))->toBeTrue();
+
+    $component->call('loadMoreNotifications');
+
+    expect($component->get('notifications'))->toHaveCount(10)
+        ->and($component->get('hasMoreNotifications'))->toBeTrue();
+
+    $component->call('loadMoreNotifications');
+
+    expect($component->get('notifications'))->toHaveCount(12)
+        ->and($component->get('hasMoreNotifications'))->toBeFalse();
 });
 
-test('mark all visible as read marks unread items in latest ten and refreshes bell state', function (): void {
+test('mark all visible as read marks unread items currently in the bell list and refreshes bell state', function (): void {
     $user = $this->user;
 
     foreach (range(1, 3) as $index) {
@@ -135,7 +148,7 @@ test('mark all visible as read marks unread items in latest ten and refreshes be
         ->and($component->get('unreadCount'))->toBe(0);
 });
 
-test('mark all visible as read leaves older unread notifications when more than ten exist', function (): void {
+test('mark all visible as read leaves unread notifications not loaded in the bell panel', function (): void {
     $user = $this->user;
     $base = now()->startOfMinute();
 
@@ -160,6 +173,40 @@ test('mark all visible as read leaves older unread notifications when more than 
     $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
 
     expect($component->get('unreadCount'))->toBe(12);
+
+    $component->call('markAllVisibleAsRead');
+
+    expect($user->fresh()->unreadNotifications()->count())->toBe(7)
+        ->and($component->get('unreadCount'))->toBe(7);
+});
+
+test('mark all visible as read marks up to loaded notifications after load more', function (): void {
+    $user = $this->user;
+    $base = now()->startOfMinute();
+
+    foreach (range(1, 12) as $index) {
+        DatabaseNotification::query()->create([
+            'id' => (string) \Illuminate\Support\Str::uuid(),
+            'type' => 'App\\Notifications\\TestNotification',
+            'notifiable_type' => User::class,
+            'notifiable_id' => $user->id,
+            'data' => [
+                'title' => 'N '.$index,
+                'message' => '',
+                'route' => 'dashboard',
+                'params' => [],
+            ],
+            'read_at' => null,
+            'created_at' => $base->copy()->addMinutes($index),
+            'updated_at' => $base->copy()->addMinutes($index),
+        ]);
+    }
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+
+    $component->call('loadMoreNotifications');
+
+    expect($component->get('notifications'))->toHaveCount(10);
 
     $component->call('markAllVisibleAsRead');
 

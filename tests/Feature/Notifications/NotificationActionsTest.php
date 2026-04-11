@@ -58,7 +58,30 @@ test('mark read action returns false for another users notification', function (
         ->and($notification->fresh()->read_at)->toBeNull();
 });
 
-test('mark visible notifications read only updates unread rows in latest ten', function (): void {
+test('mark visible notifications read returns zero when id list is empty', function (): void {
+    $user = User::factory()->create();
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Unread',
+            'message' => '',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user, []);
+
+    expect($count)->toBe(0)
+        ->and($user->fresh()->unreadNotifications()->count())->toBe(1);
+});
+
+test('mark visible notifications read only updates unread rows among given ids', function (): void {
     $user = User::factory()->create();
 
     $readInWindow = DatabaseNotification::query()->create([
@@ -89,19 +112,23 @@ test('mark visible notifications read only updates unread rows in latest ten', f
         'read_at' => null,
     ]);
 
-    $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user);
+    $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user, [
+        $readInWindow->id,
+        $unreadInWindow->id,
+    ]);
 
     expect($count)->toBe(1)
         ->and($readInWindow->fresh()->read_at)->not->toBeNull()
         ->and($unreadInWindow->fresh()->read_at)->not->toBeNull();
 });
 
-test('mark visible notifications read updates at most ten newest unread rows', function (): void {
+test('mark visible notifications read updates only unread rows matching the id list', function (): void {
     $user = User::factory()->create();
     $base = now()->startOfMinute();
 
+    $ids = [];
     foreach (range(1, 12) as $index) {
-        DatabaseNotification::query()->create([
+        $row = DatabaseNotification::query()->create([
             'id' => (string) \Illuminate\Support\Str::uuid(),
             'type' => 'App\\Notifications\\TestNotification',
             'notifiable_type' => User::class,
@@ -116,9 +143,12 @@ test('mark visible notifications read updates at most ten newest unread rows', f
             'created_at' => $base->copy()->addMinutes($index),
             'updated_at' => $base->copy()->addMinutes($index),
         ]);
+        $ids[] = $row->id;
     }
 
-    $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user);
+    $newestTenIds = array_slice(array_reverse($ids), 0, 10);
+
+    $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user, $newestTenIds);
 
     expect($count)->toBe(10)
         ->and($user->fresh()->unreadNotifications()->count())->toBe(2);

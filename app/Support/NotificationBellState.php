@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Route;
 
 final class NotificationBellState
 {
+    public const BELL_PAGE_SIZE = 5;
+
     public static function resolveTargetUrl(DatabaseNotification $notification): string
     {
         $data = self::notificationDataAsArray($notification);
@@ -50,6 +52,7 @@ final class NotificationBellState
     /**
      * @return array{
      *   notifications: array<int, array<string, mixed>>,
+     *   has_more: bool,
      *   unread_count: int,
      *   unread_label: string
      * }
@@ -58,21 +61,46 @@ final class NotificationBellState
     {
         $unreadCount = $user->unreadNotifications()->count();
 
-        $notifications = $user->notifications()
-            ->latest()
-            ->limit(10)
-            ->get()
-            ->map(fn (DatabaseNotification $notification): array => self::normalizeNotification($notification))
-            ->all();
+        $page = self::notificationsPage($user, 0, self::BELL_PAGE_SIZE);
 
         $unreadLabel = $unreadCount > 0
             ? trans_choice(':count unread', $unreadCount, ['count' => $unreadCount])
             : '';
 
         return [
-            'notifications' => $notifications,
+            'notifications' => $page['notifications'],
+            'has_more' => $page['has_more'],
             'unread_count' => $unreadCount,
             'unread_label' => $unreadLabel,
+        ];
+    }
+
+    /**
+     * @return array{
+     *   notifications: array<int, array<string, mixed>>,
+     *   has_more: bool
+     * }
+     */
+    public static function notificationsPage(User $user, int $offset, int $pageSize): array
+    {
+        $rows = $user->notifications()
+            ->latest()
+            ->skip($offset)
+            ->take($pageSize + 1)
+            ->get();
+
+        $hasMore = $rows->count() > $pageSize;
+        if ($hasMore) {
+            $rows = $rows->take($pageSize);
+        }
+
+        $notifications = $rows
+            ->map(fn (DatabaseNotification $notification): array => self::normalizeNotification($notification))
+            ->all();
+
+        return [
+            'notifications' => $notifications,
+            'has_more' => $hasMore,
         ];
     }
 
