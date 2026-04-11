@@ -37,6 +37,7 @@ return [
 
     'dispatch' => [
         'default_limit' => 200,
+        'per_remindable_limit' => 25,
         'retry_delay_minutes' => 5,
         'max_attempts' => 3,
     ],

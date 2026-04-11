@@ -13,7 +13,7 @@ beforeEach(function (): void {
     $this->user = User::factory()->create();
 });
 
-test('pullStateForClient matches NotificationBellState payload for user', function (): void {
+test('mounted bell state matches NotificationBellState payload for user', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-11 12:00:00'));
 
     try {
@@ -33,30 +33,24 @@ test('pullStateForClient matches NotificationBellState payload for user', functi
             'read_at' => null,
         ]);
 
-        $fromLivewire = Livewire::actingAs($user)
-            ->test('notifications.bell-dropdown')
-            ->instance()
-            ->pullStateForClient();
+        $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+        $payload = NotificationBellState::payloadForUser($user->fresh());
 
-        $fromSupport = NotificationBellState::payloadForUser($user->fresh());
-
-        expect($fromLivewire)->toEqual($fromSupport);
+        expect($component->get('unreadCount'))->toBe($payload['unread_count'])
+            ->and($component->get('notifications'))->toEqual($payload['notifications']);
     } finally {
         Carbon::setTestNow();
     }
 });
 
-test('pullStateForClient returns Alpine payload shape', function (): void {
+test('bell exposes notifications and unreadCount with expected types', function (): void {
     $user = $this->user;
 
     $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
 
-    $payload = $component->instance()->pullStateForClient();
-
-    expect($payload)->toHaveKeys(['notifications', 'unread_count', 'unread_label'])
-        ->and($payload['notifications'])->toBeArray()
-        ->and($payload['unread_count'])->toBeInt()
-        ->and($payload['unread_label'])->toBeString();
+    expect($component->get('notifications'))->toBeArray()
+        ->and($component->get('unreadCount'))->toBeInt()
+        ->and($component->get('panelOpen'))->toBeBool();
 });
 
 test('bell dropdown renders notification title and message in the dom', function (): void {
@@ -78,6 +72,7 @@ test('bell dropdown renders notification title and message in the dom', function
 
     Livewire::actingAs($user)
         ->test('notifications.bell-dropdown')
+        ->call('togglePanel')
         ->assertSee('Bell title seed unique')
         ->assertSee('Bell message body unique');
 });

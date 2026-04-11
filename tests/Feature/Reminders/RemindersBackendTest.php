@@ -132,12 +132,14 @@ test('task due-soon fallback creates immediate reminder when configured offsets 
         ->where('remindable_type', $task->getMorphClass())
         ->where('remindable_id', $task->id)
         ->where('type', ReminderType::TaskDueSoon->value)
-        ->where('status', ReminderStatus::Pending->value)
         ->get();
 
     expect($dueSoon)->toHaveCount(1)
+        ->and($dueSoon->first()->status)->toBe(ReminderStatus::Sent)
         ->and((bool) data_get($dueSoon->first()->payload, 'fallback_immediate'))->toBeTrue()
         ->and($dueSoon->first()->scheduled_at->lte(now()))->toBeTrue();
+
+    expect($this->user->notifications()->count())->toBe(1);
 });
 
 test('event create and update schedule start-soon reminders correctly', function (): void {
@@ -188,6 +190,88 @@ test('event create and update schedule start-soon reminders correctly', function
         ->and($cancelledAfterUpdate)->toBeGreaterThanOrEqual(2)
         ->and($scheduledAts)->toContain($newStartAt->copy()->subMinutes(15)->timestamp)
         ->and($scheduledAts)->toContain($newStartAt->copy()->subMinutes(60)->timestamp);
+});
+
+test('dispatchDueForRemindable only processes reminders for that remindable', function (): void {
+    /** @var ReminderDispatcherService $dispatcher */
+    $dispatcher = app(ReminderDispatcherService::class);
+
+    $taskA = Task::factory()->for($this->user)->create([
+        'title' => 'Task A',
+        'end_datetime' => now()->addMinute(),
+        'completed_at' => null,
+    ]);
+
+    $taskB = Task::factory()->for($this->user)->create([
+        'title' => 'Task B',
+        'end_datetime' => now()->addMinute(),
+        'completed_at' => null,
+    ]);
+
+    Reminder::query()->create([
+        'user_id' => $this->user->id,
+        'remindable_type' => $taskA->getMorphClass(),
+        'remindable_id' => $taskA->id,
+        'type' => ReminderType::TaskOverdue,
+        'scheduled_at' => now()->subMinute(),
+        'status' => ReminderStatus::Pending,
+        'payload' => [
+            'task_id' => $taskA->id,
+            'task_title' => $taskA->title,
+            'due_at' => now()->subMinute()->toIso8601String(),
+        ],
+    ]);
+
+    Reminder::query()->create([
+        'user_id' => $this->user->id,
+        'remindable_type' => $taskB->getMorphClass(),
+        'remindable_id' => $taskB->id,
+        'type' => ReminderType::TaskOverdue,
+        'scheduled_at' => now()->subMinute(),
+        'status' => ReminderStatus::Pending,
+        'payload' => [
+            'task_id' => $taskB->id,
+            'task_title' => $taskB->title,
+            'due_at' => now()->subMinute()->toIso8601String(),
+        ],
+    ]);
+
+    $count = $dispatcher->dispatchDueForRemindable($taskA->getMorphClass(), (int) $taskA->id);
+
+    expect($count)->toBe(1)
+        ->and($this->user->notifications()->count())->toBe(1);
+});
+
+test('task update to past due processes overdue reminder immediately via queued job', function (): void {
+    Event::fake([UserNotificationCreated::class]);
+
+    /** @var TaskService $service */
+    $service = app(TaskService::class);
+
+    $task = $service->createTask($this->user, [
+        'title' => 'Later due',
+        'status' => TaskStatus::ToDo->value,
+        'end_datetime' => now()->addWeek(),
+    ]);
+
+    $service->updateTask($task, [
+        'end_datetime' => now()->subHour(),
+    ]);
+
+    $this->user->refresh();
+
+    expect($this->user->notifications()->count())->toBe(1);
+
+    expect(
+        Reminder::query()
+            ->where('remindable_type', $task->getMorphClass())
+            ->where('remindable_id', $task->id)
+            ->where('type', ReminderType::TaskOverdue)
+            ->where('status', ReminderStatus::Sent)
+            ->exists(),
+    )->toBeTrue();
+
+    Event::assertDispatched(UserNotificationCreated::class);
 });
 
 test('dispatcher creates database notifications and marks reminders sent', function (): void {

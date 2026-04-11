@@ -9,12 +9,14 @@ use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Reminder;
 use App\Models\User;
+use App\Services\Reminders\ReminderDispatcherService;
 use Illuminate\Support\Facades\DB;
 
 class CollaborationInvitationService
 {
     public function __construct(
-        private ActivityLogRecorder $activityLogRecorder
+        private ActivityLogRecorder $activityLogRecorder,
+        private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
     /**
@@ -64,6 +66,8 @@ class CollaborationInvitationService
                         'permission' => $invitation->permission?->value,
                     ],
                 ]);
+
+                $this->reminderDispatcherService->queueProcessDueForRemindable($invitation);
             }
 
             return $invitation;

@@ -5,7 +5,6 @@ use App\Models\CalendarFeed;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\CalendarFeedSyncService;
-use App\Services\IcsParserService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 
@@ -41,7 +40,7 @@ ICS;
         $feed->feed_url => Http::response($ics, 200),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 
@@ -101,7 +100,7 @@ ICS;
         $feed->feed_url => Http::response($ics, 200),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 
@@ -163,7 +162,7 @@ ICS;
         $feed->feed_url => Http::response($ics, 200),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 
@@ -193,7 +192,7 @@ it('does not change tasks when http fails', function () {
         $feed->feed_url => Http::response('', 500),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 
@@ -242,7 +241,7 @@ ICS;
         $feed->feed_url => Http::response($ics, 200),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 
@@ -279,7 +278,7 @@ ICS;
         $feed->feed_url => Http::response($ics, 200),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 
@@ -319,7 +318,7 @@ ICS;
         $feed->feed_url => Http::response($ics, 200),
     ]);
 
-    $service = new CalendarFeedSyncService(new IcsParserService);
+    $service = app(CalendarFeedSyncService::class);
 
     $service->sync($feed);
 

@@ -14,6 +14,8 @@ new class extends Component
     #[Locked]
     public int $userId = 0;
 
+    public bool $panelOpen = false;
+
     public int $unreadCount = 0;
 
     /**
@@ -39,41 +41,15 @@ new class extends Component
     public function onNotificationCreated(): void
     {
         $this->syncNotificationStateFromDatabase();
-        $this->dispatch('notification-bell-sync');
     }
 
-    /**
-     * @return array{
-     *   notifications: array<int, array<string, mixed>>,
-     *   unread_count: int,
-     *   unread_label: string
-     * }
-     */
-    public function pullStateForClient(): array
+    public function togglePanel(): void
     {
-        $this->syncNotificationStateFromDatabase();
+        $this->panelOpen = ! $this->panelOpen;
 
-        return $this->clientStatePayload();
-    }
-
-    /**
-     * @return array{
-     *   notifications: array<int, array<string, mixed>>,
-     *   unread_count: int,
-     *   unread_label: string
-     * }
-     */
-    private function clientStatePayload(): array
-    {
-        $unreadLabel = $this->unreadCount > 0
-            ? trans_choice(':count unread', $this->unreadCount, ['count' => $this->unreadCount])
-            : '';
-
-        return [
-            'notifications' => $this->notifications,
-            'unread_count' => $this->unreadCount,
-            'unread_label' => $unreadLabel,
-        ];
+        if ($this->panelOpen) {
+            $this->syncNotificationStateFromDatabase();
+        }
     }
 
     private function syncNotificationStateFromDatabase(): void
@@ -91,44 +67,26 @@ new class extends Component
         $this->notifications = $payload['notifications'];
     }
 
-    /**
-     * @return array{
-     *   notifications: array<int, array<string, mixed>>,
-     *   unread_count: int,
-     *   unread_label: string
-     * }
-     */
-    public function markAsRead(string $notificationId): array
+    public function markAsRead(string $notificationId): void
     {
         $user = Auth::user();
         if ($user === null) {
-            return $this->clientStatePayload();
+            return;
         }
 
         app(MarkNotificationReadForUserAction::class)->execute($user, $notificationId);
         $this->syncNotificationStateFromDatabase();
-
-        return $this->clientStatePayload();
     }
 
-    /**
-     * @return array{
-     *   notifications: array<int, array<string, mixed>>,
-     *   unread_count: int,
-     *   unread_label: string
-     * }
-     */
-    public function markAsUnread(string $notificationId): array
+    public function markAsUnread(string $notificationId): void
     {
         $user = Auth::user();
         if ($user === null) {
-            return $this->clientStatePayload();
+            return;
         }
 
         app(MarkNotificationUnreadForUserAction::class)->execute($user, $notificationId);
         $this->syncNotificationStateFromDatabase();
-
-        return $this->clientStatePayload();
     }
 
     public function openNotification(string $notificationId): void

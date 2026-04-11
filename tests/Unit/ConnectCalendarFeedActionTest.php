@@ -20,7 +20,7 @@ it('connects a feed and triggers initial sync', function () {
     ]);
 
     $service = new CalendarFeedService;
-    $syncService = new CalendarFeedSyncService(new \App\Services\IcsParserService);
+    $syncService = app(CalendarFeedSyncService::class);
 
     $action = new ConnectCalendarFeedAction($service, $syncService);
 
@@ -46,7 +46,7 @@ it('reuses existing feed and resyncs when connecting the same url again', functi
     ]);
 
     $service = new CalendarFeedService;
-    $syncService = new CalendarFeedSyncService(new \App\Services\IcsParserService);
+    $syncService = app(CalendarFeedSyncService::class);
 
     $action = new ConnectCalendarFeedAction($service, $syncService);
 

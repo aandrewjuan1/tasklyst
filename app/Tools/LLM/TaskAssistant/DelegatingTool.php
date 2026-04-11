@@ -10,6 +10,7 @@ use App\Events\TaskAssistantToolResult;
 use App\Models\LlmToolCall;
 use App\Models\Reminder;
 use App\Models\User;
+use App\Services\Reminders\ReminderDispatcherService;
 use Illuminate\Support\Facades\Log;
 use Prism\Prism\Tool;
 
@@ -137,6 +138,8 @@ abstract class DelegatingTool extends Tool
                         'error' => $e->getMessage(),
                     ],
                 ]);
+
+                app(ReminderDispatcherService::class)->queueProcessDueForRemindable($call);
             }
 
             broadcast(new TaskAssistantToolResult(

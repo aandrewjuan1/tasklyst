@@ -11,6 +11,7 @@ use App\Models\EventException;
 use App\Models\EventInstance;
 use App\Models\RecurringEvent;
 use App\Models\User;
+use App\Services\Reminders\ReminderDispatcherService;
 use App\Services\Reminders\ReminderSchedulerService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -22,6 +23,7 @@ class EventService
         private ActivityLogRecorder $activityLogRecorder,
         private RecurrenceExpander $recurrenceExpander,
         private ReminderSchedulerService $reminderSchedulerService,
+        private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
     /**
@@ -54,6 +56,7 @@ class EventService
             ]);
 
             $this->reminderSchedulerService->syncEventReminders($event);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($event);
 
             return $event;
         });
@@ -153,6 +156,7 @@ class EventService
             $this->syncRecurringEventDatesIfNeeded($event, $attributes);
 
             $this->reminderSchedulerService->syncEventReminders($event);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($event);
 
             return $event;
         });
@@ -184,6 +188,7 @@ class EventService
 
             if ($restored) {
                 $this->reminderSchedulerService->syncEventReminders($event);
+                $this->reminderDispatcherService->queueProcessDueForRemindable($event);
             }
 
             return $restored;

@@ -11,6 +11,7 @@ use App\Enums\TaskStatus;
 use App\Models\CalendarFeed;
 use App\Models\Reminder;
 use App\Models\Task;
+use App\Services\Reminders\ReminderDispatcherService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -19,7 +20,8 @@ use Illuminate\Support\Facades\Log;
 class CalendarFeedSyncService
 {
     public function __construct(
-        private IcsParserService $icsParserService
+        private IcsParserService $icsParserService,
+        private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
     public function sync(CalendarFeed $feed): void
@@ -174,6 +176,8 @@ class CalendarFeedSyncService
                 'reason' => $reason,
             ],
         ]);
+
+        $this->reminderDispatcherService->queueProcessDueForRemindable($feed);
     }
 
     /**

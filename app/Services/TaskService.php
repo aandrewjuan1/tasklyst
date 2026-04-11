@@ -14,6 +14,7 @@ use App\Models\Task;
 use App\Models\TaskException;
 use App\Models\TaskInstance;
 use App\Models\User;
+use App\Services\Reminders\ReminderDispatcherService;
 use App\Services\Reminders\ReminderSchedulerService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
@@ -26,6 +27,7 @@ class TaskService
         private RecurrenceExpander $recurrenceExpander,
         private AbandonFocusSessionAction $abandonFocusSessionAction,
         private ReminderSchedulerService $reminderSchedulerService,
+        private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
     /**
@@ -58,6 +60,7 @@ class TaskService
             ]);
 
             $this->reminderSchedulerService->syncTaskReminders($task);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($task);
 
             return $task;
         });
@@ -166,6 +169,7 @@ class TaskService
             $this->syncRecurringTaskDatesIfNeeded($task, $attributes);
 
             $this->reminderSchedulerService->syncTaskReminders($task);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($task);
 
             return $task;
         });
@@ -211,6 +215,7 @@ class TaskService
 
             if ($restored) {
                 $this->reminderSchedulerService->syncTaskReminders($task);
+                $this->reminderDispatcherService->queueProcessDueForRemindable($task);
             }
 
             return $restored;
