@@ -73,10 +73,11 @@ test('workspace calendar renders selected day agenda without source filtering', 
         ->assertSee('Workspace Manual Agenda Task')
         ->assertSee('Workspace Imported Agenda Task')
         ->assertSet('selectedDayAgenda.summary.tasks', 2)
+        ->assertCount('selectedDayAgenda.dueDayTasks', 2)
         ->assertSee('Workspace Agenda Event');
 });
 
-test('selected day agenda lists overdue tasks in overdue section and not in urgent', function (): void {
+test('selected day agenda lists overdue tasks in overdue section and not in due-day tasks', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
 
     $user = User::factory()->create();
@@ -97,7 +98,7 @@ test('selected day agenda lists overdue tasks in overdue section and not in urge
         ->assertSet('selectedDayAgenda.summary.overdue', 1)
         ->assertCount('selectedDayAgenda.overdueTasks', 1)
         ->assertSet('selectedDayAgenda.overdueTasks.0.title', 'Past Due High Priority Task')
-        ->assertCount('selectedDayAgenda.urgentTasks', 0)
+        ->assertCount('selectedDayAgenda.dueDayTasks', 0)
         ->assertSee('data-testid="calendar-agenda-overdue-tasks"', false)
         ->assertSee('Past Due High Priority Task');
 });

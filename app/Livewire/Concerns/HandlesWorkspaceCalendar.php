@@ -2,7 +2,6 @@
 
 namespace App\Livewire\Concerns;
 
-use App\Enums\TaskPriority;
 use App\Models\Event;
 use App\Models\Task;
 use Carbon\CarbonInterface;
@@ -99,7 +98,6 @@ trait HandlesWorkspaceCalendar
      *   task_count:int,
      *   overdue_count:int,
      *   due_count:int,
-     *   urgent_count:int,
      *   event_count:int,
      *   conflict_count:int,
      *   recurring_count:int,
@@ -121,14 +119,13 @@ trait HandlesWorkspaceCalendar
         $gridStart = $monthStart->copy()->startOfWeek();
         $gridEnd = $monthStart->copy()->endOfMonth()->endOfWeek();
 
-        /** @var array<string, array{task_count:int,overdue_count:int,due_count:int,urgent_count:int,event_count:int,conflict_count:int,recurring_count:int,all_day_count:int}> $meta */
+        /** @var array<string, array{task_count:int,overdue_count:int,due_count:int,event_count:int,conflict_count:int,recurring_count:int,all_day_count:int}> $meta */
         $meta = [];
         for ($cursor = $gridStart->copy(); $cursor->lte($gridEnd); $cursor->addDay()) {
             $meta[$cursor->toDateString()] = [
                 'task_count' => 0,
                 'overdue_count' => 0,
                 'due_count' => 0,
-                'urgent_count' => 0,
                 'event_count' => 0,
                 'conflict_count' => 0,
                 'recurring_count' => 0,
@@ -158,10 +155,6 @@ trait HandlesWorkspaceCalendar
 
             $meta[$key]['task_count']++;
             $meta[$key]['due_count']++;
-
-            if (in_array($task->priority?->value, [TaskPriority::Urgent->value, TaskPriority::High->value], true)) {
-                $meta[$key]['urgent_count']++;
-            }
 
             if ($task->end_datetime !== null && $task->end_datetime->lt($now)) {
                 $meta[$key]['overdue_count']++;
@@ -234,7 +227,7 @@ trait HandlesWorkspaceCalendar
      *   date:string,
      *   summary:array{tasks:int,events:int,conflicts:int,overdue:int},
      *   overdueTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
-     *   urgentTasks:array<int, array{id:int,title:string,time:string,priority:string,workspace_url:string}>,
+     *   dueDayTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
      *   timedEvents:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
      *   allDayEvents:array<int, array{id:int,title:string,workspace_url:string}>,
      *   carryoverTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>
@@ -253,7 +246,7 @@ trait HandlesWorkspaceCalendar
                 'date' => $selectedDate->toDateString(),
                 'summary' => ['tasks' => 0, 'events' => 0, 'conflicts' => 0, 'overdue' => 0],
                 'overdueTasks' => [],
-                'urgentTasks' => [],
+                'dueDayTasks' => [],
                 'timedEvents' => [],
                 'allDayEvents' => [],
                 'carryoverTasks' => [],
@@ -304,21 +297,19 @@ trait HandlesWorkspaceCalendar
             ->values()
             ->all();
 
-        $urgentTasks = $tasks
+        $dueDayTasks = $tasks
             ->filter(function (Task $task) use ($selectedDate, $overdueIds): bool {
                 if (in_array($task->id, $overdueIds, true)) {
                     return false;
                 }
 
-                return in_array($task->priority?->value, [TaskPriority::Urgent->value, TaskPriority::High->value], true)
-                    && $task->end_datetime !== null
+                return $task->end_datetime !== null
                     && $task->end_datetime->isSameDay($selectedDate);
             })
             ->map(fn (Task $task): array => [
                 'id' => $task->id,
                 'title' => (string) $task->title,
                 'time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time'),
-                'priority' => (string) ($task->priority?->value ?? 'medium'),
                 'workspace_url' => route('workspace', [
                     'date' => $selectedDate->toDateString(),
                     'type' => 'tasks',
@@ -424,7 +415,7 @@ trait HandlesWorkspaceCalendar
                 'overdue' => $overdueCount,
             ],
             'overdueTasks' => $overdueTasks,
-            'urgentTasks' => $urgentTasks,
+            'dueDayTasks' => $dueDayTasks,
             'timedEvents' => $timedEvents,
             'allDayEvents' => $allDayEvents,
             'carryoverTasks' => $carryoverTasks,
