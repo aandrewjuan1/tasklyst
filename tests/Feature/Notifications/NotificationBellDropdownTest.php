@@ -119,7 +119,7 @@ test('bell dropdown shows full unread count and first page of five notifications
         ->and($component->get('hasMoreNotifications'))->toBeFalse();
 });
 
-test('mark all visible as read marks unread items currently in the bell list and refreshes bell state', function (): void {
+test('mark all as read marks unread items and refreshes bell state', function (): void {
     $user = $this->user;
 
     foreach (range(1, 3) as $index) {
@@ -142,13 +142,13 @@ test('mark all visible as read marks unread items currently in the bell list and
 
     expect($component->get('unreadCount'))->toBe(3);
 
-    $component->call('markAllVisibleAsRead');
+    $component->call('markAllAsRead');
 
     expect($user->fresh()->unreadNotifications()->count())->toBe(0)
         ->and($component->get('unreadCount'))->toBe(0);
 });
 
-test('mark all visible as read leaves unread notifications not loaded in the bell panel', function (): void {
+test('mark all as read marks every unread notification including rows not yet loaded in the bell panel', function (): void {
     $user = $this->user;
     $base = now()->startOfMinute();
 
@@ -174,13 +174,13 @@ test('mark all visible as read leaves unread notifications not loaded in the bel
 
     expect($component->get('unreadCount'))->toBe(12);
 
-    $component->call('markAllVisibleAsRead');
+    $component->call('markAllAsRead');
 
-    expect($user->fresh()->unreadNotifications()->count())->toBe(7)
-        ->and($component->get('unreadCount'))->toBe(7);
+    expect($user->fresh()->unreadNotifications()->count())->toBe(0)
+        ->and($component->get('unreadCount'))->toBe(0);
 });
 
-test('mark all visible as read marks up to loaded notifications after load more', function (): void {
+test('mark all as read marks every unread notification after load more expanded the list', function (): void {
     $user = $this->user;
     $base = now()->startOfMinute();
 
@@ -208,10 +208,10 @@ test('mark all visible as read marks up to loaded notifications after load more'
 
     expect($component->get('notifications'))->toHaveCount(10);
 
-    $component->call('markAllVisibleAsRead');
+    $component->call('markAllAsRead');
 
-    expect($user->fresh()->unreadNotifications()->count())->toBe(2)
-        ->and($component->get('unreadCount'))->toBe(2);
+    expect($user->fresh()->unreadNotifications()->count())->toBe(0)
+        ->and($component->get('unreadCount'))->toBe(0);
 });
 
 test('open notification marks it as read and redirects to target route', function (): void {
@@ -244,7 +244,7 @@ test('open notification marks it as read and redirects to target route', functio
     expect($notification->fresh()->read_at)->not->toBeNull();
 });
 
-test('mark all visible as read does not affect another users notifications', function (): void {
+test('mark all as read does not affect another users notifications', function (): void {
     $user = $this->user;
     $otherUser = User::factory()->create();
 
@@ -278,7 +278,7 @@ test('mark all visible as read does not affect another users notifications', fun
 
     Livewire::actingAs($user)
         ->test('notifications.bell-dropdown')
-        ->call('markAllVisibleAsRead');
+        ->call('markAllAsRead');
 
     expect($otherNotification->fresh()->read_at)->toBeNull();
 });

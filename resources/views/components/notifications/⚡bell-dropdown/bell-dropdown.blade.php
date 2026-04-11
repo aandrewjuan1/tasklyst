@@ -52,13 +52,13 @@
                         size="xs"
                         variant="ghost"
                         class="shrink-0 text-zinc-700 dark:text-zinc-200"
-                        wire:click="markAllVisibleAsRead"
-                        wire:target="markAllVisibleAsRead"
+                        wire:click="markAllAsRead"
+                        wire:target="markAllAsRead"
                         wire:loading.attr="disabled"
                         data-test="notifications-mark-all-read"
                     >
-                        <span wire:loading.remove wire:target="markAllVisibleAsRead">{{ __('Mark all as read') }}</span>
-                        <span wire:loading wire:target="markAllVisibleAsRead">{{ __('Mark all as read') }}…</span>
+                        <span wire:loading.remove wire:target="markAllAsRead">{{ __('Mark all as read') }}</span>
+                        <span wire:loading wire:target="markAllAsRead">{{ __('Mark all as read') }}…</span>
                     </flux:button>
                 @endif
             </div>

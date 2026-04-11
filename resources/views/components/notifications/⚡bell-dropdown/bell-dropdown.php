@@ -3,7 +3,7 @@
 use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Actions\Notification\FindOwnedDatabaseNotificationAction;
-use App\Actions\Notification\MarkVisibleNotificationsReadForUserAction;
+use App\Actions\Notification\MarkAllUnreadNotificationsReadForUserAction;
 use App\Actions\Notification\PrepareNotificationOpenRedirectForUserAction;
 use App\Enums\CollaborationInviteNotificationState;
 use App\Models\CollaborationInvitation;
@@ -93,15 +93,14 @@ new class extends Component
         $this->hasMoreNotifications = $page['has_more'];
     }
 
-    public function markAllVisibleAsRead(): void
+    public function markAllAsRead(): void
     {
         $user = Auth::user();
         if ($user === null) {
             return;
         }
 
-        $ids = array_column($this->notifications, 'id');
-        $count = app(MarkVisibleNotificationsReadForUserAction::class)->execute($user, $ids);
+        $count = app(MarkAllUnreadNotificationsReadForUserAction::class)->execute($user);
         $this->syncNotificationStateFromDatabase();
 
         if ($count > 0) {

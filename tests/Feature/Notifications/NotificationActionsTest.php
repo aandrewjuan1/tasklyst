@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Notification\MarkAllUnreadNotificationsReadForUserAction;
 use App\Actions\Notification\MarkNotificationReadForUserAction;
 use App\Actions\Notification\MarkVisibleNotificationsReadForUserAction;
 use App\Actions\Notification\PrepareNotificationOpenRedirectForUserAction;
@@ -56,6 +57,77 @@ test('mark read action returns false for another users notification', function (
 
     expect($ok)->toBeFalse()
         ->and($notification->fresh()->read_at)->toBeNull();
+});
+
+test('mark all unread notifications read updates every unread row for the user', function (): void {
+    $user = User::factory()->create();
+
+    foreach (range(1, 3) as $index) {
+        DatabaseNotification::query()->create([
+            'id' => (string) \Illuminate\Support\Str::uuid(),
+            'type' => 'App\\Notifications\\TestNotification',
+            'notifiable_type' => User::class,
+            'notifiable_id' => $user->id,
+            'data' => [
+                'title' => 'U '.$index,
+                'message' => '',
+                'route' => 'dashboard',
+                'params' => [],
+            ],
+            'read_at' => null,
+        ]);
+    }
+
+    $count = app(MarkAllUnreadNotificationsReadForUserAction::class)->execute($user);
+
+    expect($count)->toBe(3)
+        ->and($user->fresh()->unreadNotifications()->count())->toBe(0);
+});
+
+test('mark all unread notifications read returns zero when nothing is unread', function (): void {
+    $user = User::factory()->create();
+
+    $count = app(MarkAllUnreadNotificationsReadForUserAction::class)->execute($user);
+
+    expect($count)->toBe(0);
+});
+
+test('mark all unread notifications read does not affect another users notifications', function (): void {
+    $user = User::factory()->create();
+    $otherUser = User::factory()->create();
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Mine',
+            'message' => '',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $otherNotification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $otherUser->id,
+        'data' => [
+            'title' => 'Theirs',
+            'message' => '',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $count = app(MarkAllUnreadNotificationsReadForUserAction::class)->execute($user);
+
+    expect($count)->toBe(1)
+        ->and($otherNotification->fresh()->read_at)->toBeNull();
 });
 
 test('mark visible notifications read returns zero when id list is empty', function (): void {

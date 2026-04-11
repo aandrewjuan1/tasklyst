@@ -75,3 +75,29 @@ test('workspace calendar renders selected day agenda without source filtering', 
         ->assertSet('selectedDayAgenda.summary.tasks', 2)
         ->assertSee('Workspace Agenda Event');
 });
+
+test('selected day agenda lists overdue tasks in overdue section and not in urgent', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
+
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->create([
+        'title' => 'Past Due High Priority Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => Carbon::parse('2026-04-09 12:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $this->actingAs($user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->assertSet('selectedDayAgenda.summary.overdue', 1)
+        ->assertCount('selectedDayAgenda.overdueTasks', 1)
+        ->assertSet('selectedDayAgenda.overdueTasks.0.title', 'Past Due High Priority Task')
+        ->assertCount('selectedDayAgenda.urgentTasks', 0)
+        ->assertSee('data-testid="calendar-agenda-overdue-tasks"', false)
+        ->assertSee('Past Due High Priority Task');
+});
