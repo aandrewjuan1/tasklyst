@@ -98,6 +98,7 @@ trait HandlesWorkspaceCalendar
      *   task_count:int,
      *   overdue_count:int,
      *   due_count:int,
+     *   task_starts_count:int,
      *   event_count:int,
      *   conflict_count:int,
      *   recurring_count:int,
@@ -119,13 +120,14 @@ trait HandlesWorkspaceCalendar
         $gridStart = $monthStart->copy()->startOfWeek();
         $gridEnd = $monthStart->copy()->endOfMonth()->endOfWeek();
 
-        /** @var array<string, array{task_count:int,overdue_count:int,due_count:int,event_count:int,conflict_count:int,recurring_count:int,all_day_count:int}> $meta */
+        /** @var array<string, array{task_count:int,overdue_count:int,due_count:int,task_starts_count:int,event_count:int,conflict_count:int,recurring_count:int,all_day_count:int}> $meta */
         $meta = [];
         for ($cursor = $gridStart->copy(); $cursor->lte($gridEnd); $cursor->addDay()) {
             $meta[$cursor->toDateString()] = [
                 'task_count' => 0,
                 'overdue_count' => 0,
                 'due_count' => 0,
+                'task_starts_count' => 0,
                 'event_count' => 0,
                 'conflict_count' => 0,
                 'recurring_count' => 0,
@@ -219,6 +221,24 @@ trait HandlesWorkspaceCalendar
             }
         }
 
+        $tasksStartingInGrid = Task::query()
+            ->forUser($userId)
+            ->incomplete()
+            ->whereNotNull('start_datetime')
+            ->whereBetween('start_datetime', [$gridStartAt, $gridEndAt])
+            ->orderBy('start_datetime')
+            ->limit(self::CALENDAR_META_MAX_ITEMS)
+            ->get(['id', 'start_datetime']);
+
+        foreach ($tasksStartingInGrid as $task) {
+            $key = $task->start_datetime?->toDateString();
+            if ($key === null || ! array_key_exists($key, $meta)) {
+                continue;
+            }
+
+            $meta[$key]['task_starts_count']++;
+        }
+
         return $meta;
     }
 
@@ -228,6 +248,7 @@ trait HandlesWorkspaceCalendar
      *   summary:array{tasks:int,events:int,conflicts:int,overdue:int},
      *   overdueTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
      *   dueDayTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
+     *   scheduledStarts:array<int, array{title:string,time:string,workspace_url:string}>,
      *   timedEvents:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
      *   allDayEvents:array<int, array{id:int,title:string,workspace_url:string}>,
      *   carryoverTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>
@@ -247,6 +268,7 @@ trait HandlesWorkspaceCalendar
                 'summary' => ['tasks' => 0, 'events' => 0, 'conflicts' => 0, 'overdue' => 0],
                 'overdueTasks' => [],
                 'dueDayTasks' => [],
+                'scheduledStarts' => [],
                 'timedEvents' => [],
                 'allDayEvents' => [],
                 'carryoverTasks' => [],
@@ -363,8 +385,62 @@ trait HandlesWorkspaceCalendar
             ->limit(self::SELECTED_DAY_AGENDA_EVENT_LIMIT)
             ->get(['id', 'title', 'all_day', 'start_datetime', 'end_datetime']);
 
+        $startsSameDay = fn (Event $event): bool => $event->start_datetime !== null
+            && $event->start_datetime->isSameDay($selectedDate);
+
+        $scheduledStartsRows = [];
+
+        foreach ($tasks as $task) {
+            if ($task->start_datetime === null || ! $task->start_datetime->isSameDay($selectedDate)) {
+                continue;
+            }
+
+            $scheduledStartsRows[] = [
+                'sort' => $task->start_datetime->getTimestamp(),
+                'title' => (string) $task->title,
+                'time' => $task->start_datetime->translatedFormat('H:i'),
+                'workspace_url' => route('workspace', [
+                    'date' => $selectedDate->toDateString(),
+                    'type' => 'tasks',
+                    'q' => $task->title,
+                ]),
+            ];
+        }
+
+        foreach ($events as $event) {
+            if (! $startsSameDay($event)) {
+                continue;
+            }
+
+            $time = $event->all_day
+                ? __('All day')
+                : ($event->start_datetime !== null
+                    ? $event->start_datetime->translatedFormat('H:i').' - '.($event->end_datetime?->translatedFormat('H:i') ?? __('No end'))
+                    : __('No time'));
+
+            $scheduledStartsRows[] = [
+                'sort' => $event->start_datetime?->getTimestamp() ?? 0,
+                'title' => (string) $event->title,
+                'time' => $time,
+                'workspace_url' => route('workspace', [
+                    'date' => $selectedDate->toDateString(),
+                    'type' => 'events',
+                    'q' => $event->title,
+                ]),
+            ];
+        }
+
+        usort($scheduledStartsRows, static fn (array $left, array $right): int => $left['sort'] <=> $right['sort']);
+
+        $scheduledStarts = array_values(array_map(static fn (array $row): array => [
+            'title' => $row['title'],
+            'time' => $row['time'],
+            'workspace_url' => $row['workspace_url'],
+        ], $scheduledStartsRows));
+
         $timedEvents = $events
             ->where('all_day', false)
+            ->filter(fn (Event $event): bool => ! $startsSameDay($event))
             ->map(fn (Event $event): array => [
                 'id' => $event->id,
                 'title' => (string) $event->title,
@@ -382,6 +458,7 @@ trait HandlesWorkspaceCalendar
 
         $allDayEvents = $events
             ->where('all_day', true)
+            ->filter(fn (Event $event): bool => ! $startsSameDay($event))
             ->map(fn (Event $event): array => [
                 'id' => $event->id,
                 'title' => (string) $event->title,
@@ -397,10 +474,10 @@ trait HandlesWorkspaceCalendar
         $overdueCount = count($overdueIds);
 
         $conflictCount = 0;
-        $timedCollection = $events->where('all_day', false)->values();
-        for ($i = 1; $i < $timedCollection->count(); $i++) {
-            $previous = $timedCollection[$i - 1];
-            $current = $timedCollection[$i];
+        $timedForConflicts = $events->where('all_day', false)->values();
+        for ($i = 1; $i < $timedForConflicts->count(); $i++) {
+            $previous = $timedForConflicts[$i - 1];
+            $current = $timedForConflicts[$i];
             if ($current->start_datetime !== null && $previous->end_datetime !== null && $current->start_datetime->lt($previous->end_datetime)) {
                 $conflictCount++;
             }
@@ -416,6 +493,7 @@ trait HandlesWorkspaceCalendar
             ],
             'overdueTasks' => $overdueTasks,
             'dueDayTasks' => $dueDayTasks,
+            'scheduledStarts' => $scheduledStarts,
             'timedEvents' => $timedEvents,
             'allDayEvents' => $allDayEvents,
             'carryoverTasks' => $carryoverTasks,

@@ -312,6 +312,7 @@ test('dashboard calendar renders selected-day agenda and summary counts', functi
 
     $response->assertSuccessful();
     $response->assertSee('data-testid="calendar-selected-day-agenda"', false);
+    $response->assertSee('data-testid="calendar-agenda-scheduled-starts"', false);
     $response->assertSee('Agenda Urgent Task', false);
     $response->assertSee('Agenda Timed Event', false);
 

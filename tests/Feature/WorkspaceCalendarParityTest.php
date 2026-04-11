@@ -70,6 +70,7 @@ test('workspace calendar renders selected day agenda without source filtering', 
     Livewire::test('pages::workspace.index')
         ->set('selectedDate', '2026-04-09')
         ->assertSee('data-testid="calendar-selected-day-agenda"', false)
+        ->assertSee('data-testid="calendar-agenda-scheduled-starts"', false)
         ->assertSee('Workspace Manual Agenda Task')
         ->assertSee('Workspace Imported Agenda Task')
         ->assertSet('selectedDayAgenda.summary.tasks', 2)

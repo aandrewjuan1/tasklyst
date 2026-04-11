@@ -256,10 +256,10 @@
         },
         getMeta(dateString) {
             if (!dateString || !this.monthMeta || typeof this.monthMeta !== 'object') {
-                return { task_count: 0, overdue_count: 0, due_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
+                return { task_count: 0, overdue_count: 0, due_count: 0, task_starts_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
             }
 
-            return this.monthMeta[dateString] ?? { task_count: 0, overdue_count: 0, due_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
+            return this.monthMeta[dateString] ?? { task_count: 0, overdue_count: 0, due_count: 0, task_starts_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
         },
         handleKeydown(event) {
             const tag = (event.target?.tagName ?? '').toLowerCase();
@@ -395,18 +395,24 @@
                                 $hasOverdue = ($meta['overdue_count'] ?? 0) > 0;
                                 $dueCount = (int) ($meta['due_count'] ?? 0);
                                 $overdueCount = (int) ($meta['overdue_count'] ?? 0);
-                                $hasDueOrScheduled = $dueCount > $overdueCount || (($meta['event_count'] ?? 0) > 0);
+                                $hasDueToday = $dueCount > $overdueCount;
+                                $hasStartsToday = (($meta['task_starts_count'] ?? 0) > 0) || (($meta['event_count'] ?? 0) > 0);
                             @endphp
-                            @if ($hasOverdue || $hasDueOrScheduled)
-                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex items-center gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
+                            @if ($hasOverdue || $hasDueToday || $hasStartsToday)
+                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
                                     @if ($hasOverdue)
                                         <flux:tooltip content="{{ __('Overdue items') }}">
-                                            <span class="inline-flex size-1.5 rounded-full bg-red-500"></span>
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500"></span>
                                         </flux:tooltip>
                                     @endif
-                                    @if ($hasDueOrScheduled)
-                                        <flux:tooltip content="{{ __('Tasks or events due or scheduled this day (not yet overdue).') }}">
-                                            <span class="inline-flex size-1.5 rounded-full bg-amber-500"></span>
+                                    @if ($hasDueToday)
+                                        <flux:tooltip content="{{ __('Tasks due this day (not yet overdue).') }}">
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-amber-500"></span>
+                                        </flux:tooltip>
+                                    @endif
+                                    @if ($hasStartsToday)
+                                        <flux:tooltip content="{{ __('Tasks or events starting or scheduled this day.') }}">
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500"></span>
                                         </flux:tooltip>
                                     @endif
                                 </div>
@@ -449,20 +455,26 @@
                             <template x-if="
                                 (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0
                                 || (dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count)
+                                || (dayData.meta?.task_starts_count ?? getMeta(dayData.dateString).task_starts_count) > 0
                                 || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0
                             ">
-                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex items-center gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
+                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
                                     <template x-if="(dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0">
                                         <flux:tooltip content="{{ __('Overdue items') }}">
-                                            <span class="inline-flex size-1.5 rounded-full bg-red-500"></span>
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500"></span>
+                                        </flux:tooltip>
+                                    </template>
+                                    <template x-if="(dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count)">
+                                        <flux:tooltip content="{{ __('Tasks due this day (not yet overdue).') }}">
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-amber-500"></span>
                                         </flux:tooltip>
                                     </template>
                                     <template x-if="
-                                        (dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count)
+                                        (dayData.meta?.task_starts_count ?? getMeta(dayData.dateString).task_starts_count) > 0
                                         || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0
                                     ">
-                                        <flux:tooltip content="{{ __('Tasks or events due or scheduled this day (not yet overdue).') }}">
-                                            <span class="inline-flex size-1.5 rounded-full bg-amber-500"></span>
+                                        <flux:tooltip content="{{ __('Tasks or events starting or scheduled this day.') }}">
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500"></span>
                                         </flux:tooltip>
                                     </template>
                                 </div>
@@ -549,6 +561,22 @@
                     </div>
                 @endif
 
+                @if (!empty($selectedDayAgenda['scheduledStarts'] ?? []))
+                    <div data-testid="calendar-agenda-scheduled-starts">
+                        <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">{{ __('Starting this day') }}</p>
+                        <ul class="space-y-1">
+                            @foreach (($selectedDayAgenda['scheduledStarts'] ?? []) as $item)
+                                <li class="rounded-md border border-green-600/30 bg-green-600/10 px-2 py-1 text-xs dark:border-green-500/35 dark:bg-green-950/40">
+                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                        <span class="truncate font-medium text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
+                                        <span class="shrink-0 text-[10px] text-green-900/90 dark:text-green-200/90">{{ $item['time'] }}</span>
+                                    </a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
                 @if (!empty($selectedDayAgenda['timedEvents'] ?? []))
                     <div data-testid="calendar-agenda-timed-events">
                         <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{{ __('Timed events') }}</p>
@@ -599,6 +627,7 @@
                 @if (
                     empty($selectedDayAgenda['overdueTasks'] ?? [])
                     && empty($selectedDayAgenda['dueDayTasks'] ?? [])
+                    && empty($selectedDayAgenda['scheduledStarts'] ?? [])
                     && empty($selectedDayAgenda['timedEvents'] ?? [])
                     && empty($selectedDayAgenda['allDayEvents'] ?? [])
                     && empty($selectedDayAgenda['carryoverTasks'] ?? [])
