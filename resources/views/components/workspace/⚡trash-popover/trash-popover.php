@@ -1,7 +1,5 @@
 <?php
 
-namespace App\Livewire\Workspace;
-
 use App\Actions\Event\ForceDeleteEventAction;
 use App\Actions\Event\RestoreEventAction;
 use App\Actions\Project\ForceDeleteProjectAction;
@@ -14,7 +12,7 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
-class TrashPopover extends Component
+new class extends Component
 {
     use AuthorizesRequests;
     use HandlesTrash;
@@ -66,9 +64,4 @@ class TrashPopover extends Component
 
         return $user;
     }
-
-    public function render()
-    {
-        return view('livewire.workspace.trash-popover');
-    }
-}
+};
