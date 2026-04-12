@@ -136,7 +136,7 @@
                         <span
                             class="{{ $kanbanColumnTheme['count'] }}"
                             x-text="columns['{{ $status->value }}']?.count ?? {{ $columnTasks->count() }}"
-                        ></span>
+                        >{{ $columnTasks->count() }}</span>
                     </div>
                     <div data-kanban-column-cards class="flex min-h-[160px] flex-1 flex-col gap-2.5 overflow-visible p-2.5 sm:min-h-[180px] sm:gap-3 sm:p-3 {{ $kanbanColumnTheme['body'] }}">
                         @foreach($columnTasks as $task)
@@ -170,7 +170,9 @@
                         <div
                             class="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl px-4 py-8 text-center sm:py-10 {{ $kanbanEmptyVisual['panel'] }}"
                             x-show="(columns['{{ $status->value }}']?.count ?? {{ $columnTasks->count() }}) === 0"
-                            x-cloak
+                            @if($columnTasks->isNotEmpty())
+                            style="display: none"
+                            @endif
                             role="status"
                             aria-label="{{ __('Empty column') }}"
                         >

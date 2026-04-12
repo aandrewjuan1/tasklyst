@@ -1,4 +1,5 @@
         showItemCreation: false,
+        itemTypePickerOpen: false,
         creationKind: 'task',
         showItemLoading: false,
         loadingStartedAt: null,
@@ -113,6 +114,65 @@
                 this.formData.project.description = null;
                 this.formData.project.startDatetime = null;
                 this.formData.project.endDatetime = null;
+            }
+        },
+        onPlusToolbarClick() {
+            if (this.showItemCreation || this.showItemLoading) {
+                return;
+            }
+
+            this.itemTypePickerOpen = !this.itemTypePickerOpen;
+        },
+        beginItemCreation(kind) {
+            this.itemTypePickerOpen = false;
+
+            if (kind === 'task') {
+                if (this.showItemCreation && this.creationKind === 'task') {
+                    this.showItemCreation = false;
+
+                    return;
+                }
+                this.creationKind = 'task';
+                this.formData.item.status = 'to_do';
+                this.formData.item.priority = 'medium';
+                this.formData.item.complexity = 'moderate';
+                this.formData.item.duration = null;
+                this.formData.item.allDay = false;
+                this.formData.item.projectId = null;
+                this.showItemCreation = true;
+                this.$nextTick(() => this.$refs.taskTitle?.focus());
+
+                return;
+            }
+
+            if (kind === 'event') {
+                if (this.showItemCreation && this.creationKind === 'event') {
+                    this.showItemCreation = false;
+
+                    return;
+                }
+                this.creationKind = 'event';
+                this.formData.item.status = 'scheduled';
+                this.formData.item.allDay = false;
+                this.showItemCreation = true;
+                this.$nextTick(() => this.$refs.taskTitle?.focus());
+
+                return;
+            }
+
+            if (kind === 'project') {
+                if (this.showItemCreation && this.creationKind === 'project') {
+                    this.showItemCreation = false;
+
+                    return;
+                }
+                this.creationKind = 'project';
+                this.formData.project.name = '';
+                this.formData.project.description = null;
+                this.formData.project.startDatetime = null;
+                this.formData.project.endDatetime = null;
+                this.showItemCreation = true;
+                this.$nextTick(() => this.$refs.projectName?.focus());
             }
         },
         toggleTag(tagId) {

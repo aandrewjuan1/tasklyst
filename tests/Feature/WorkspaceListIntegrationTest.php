@@ -56,3 +56,15 @@ test('workspace list dedupes overdue task that also matches selected date', func
 
     expect($taskRows)->toHaveCount(1);
 });
+
+test('workspace list view shows empty state when there are no items for the selected day', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace', ['view' => 'list']))
+        ->assertSuccessful()
+        ->assertSee('data-workspace-list-empty', false)
+        ->assertSee(
+            __('No tasks, projects, or events for :date', ['date' => __('today')]),
+            false
+        );
+});

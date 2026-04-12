@@ -8,6 +8,7 @@
     'showOverdueVisual' => null,
     'layout' => 'list',
     'embedInFocusModal' => false,
+    'showFocusTrigger' => true,
 ])
 
 @php
@@ -872,7 +873,59 @@
     @endif
 
     @if($item->status && ! $useKanbanCompact)
-        @if($canEdit)
+        @if(($layout ?? 'list') === 'list' && $showFocusTrigger && $canEdit && ! ($embedInFocusModal ?? false))
+            <div class="flex flex-wrap items-center gap-2">
+                <div
+                    x-show="status !== 'done' && (!listItemCard || (!listItemCard.isFocused && !listItemCard.isBreakFocused))"
+                    @if($hideFocusButtonInitiallyDone) style="display: none;" @endif
+                    class="shrink-0"
+                >
+                    <flux:tooltip :content="__('Start focus mode')">
+                        <button
+                            type="button"
+                            x-ref="focusTrigger"
+                            @click.stop="listItemCard && listItemCard.enterFocusReady()"
+                            class="workspace-focus-trigger"
+                        >
+                            <flux:icon name="bolt" class="size-4 shrink-0" />
+                            <span>{{ __('Focus') }}</span>
+                        </button>
+                    </flux:tooltip>
+                </div>
+                <x-simple-select-dropdown position="top" align="end">
+                    <x-slot:trigger>
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out {{ $statusInitialClass }}"
+                            x-effect="$el.className = 'inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold transition-[box-shadow,transform] duration-150 ease-out ' + (getOption(statusOptions, status) ? 'bg-' + getOption(statusOptions, status).color + '/10 text-' + getOption(statusOptions, status).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                            aria-haspopup="menu"
+                        >
+                            <flux:icon name="check-circle" class="size-3" />
+                            <span class="inline-flex items-baseline gap-1">
+                                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                    {{ __('Status') }}:
+                                </span>
+                                <span class="uppercase" x-text="getOption(statusOptions, status) ? getOption(statusOptions, status).label : (status || '')">{{ $statusInitialOption ? $statusInitialOption['label'] : '' }}</span>
+                            </span>
+                            <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
+                        </button>
+                    </x-slot:trigger>
+
+                    <div class="flex flex-col py-1">
+                        @foreach ($statusOptions as $opt)
+                            <button
+                                type="button"
+                                class="{{ $dropdownItemClass }}"
+                                :class="{ 'font-semibold text-foreground': status === '{{ $opt['value'] }}' }"
+                                @click="updateProperty('status', '{{ $opt['value'] }}')"
+                            >
+                                {{ $opt['label'] }}
+                            </button>
+                        @endforeach
+                    </div>
+                </x-simple-select-dropdown>
+            </div>
+        @elseif($canEdit)
             <x-simple-select-dropdown position="top" align="end">
                 <x-slot:trigger>
                     <button

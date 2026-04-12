@@ -84,6 +84,30 @@ test('invalid view mode is normalized to list on mount', function (): void {
         ->assertSet('viewMode', 'list');
 });
 
+test('workspace view mode tab buttons include selected classes on first paint', function (): void {
+    $this->actingAs($this->user);
+
+    $listHtml = $this->get(route('workspace', ['view' => 'list']))->assertSuccessful()->getContent();
+
+    preg_match('/id="workspace-view-list"[\s\S]*?class="([^"]*)"/', $listHtml, $listTabClass);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?class="([^"]*)"/', $listHtml, $kanbanTabClass);
+
+    expect($listTabClass[1] ?? '')->toContain('bg-brand-blue')
+        ->not->toContain('text-muted-foreground');
+    expect($kanbanTabClass[1] ?? '')->toContain('text-muted-foreground')
+        ->not->toContain('bg-brand-blue');
+
+    $kanbanHtml = $this->get(route('workspace', ['view' => 'kanban']))->assertSuccessful()->getContent();
+
+    preg_match('/id="workspace-view-list"[\s\S]*?class="([^"]*)"/', $kanbanHtml, $listTabClassK);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?class="([^"]*)"/', $kanbanHtml, $kanbanTabClassK);
+
+    expect($listTabClassK[1] ?? '')->toContain('text-muted-foreground')
+        ->not->toContain('bg-brand-blue');
+    expect($kanbanTabClassK[1] ?? '')->toContain('bg-brand-blue')
+        ->not->toContain('text-muted-foreground');
+});
+
 test('workspace list view mounts only the nested list livewire component', function (): void {
     $this->actingAs($this->user);
 

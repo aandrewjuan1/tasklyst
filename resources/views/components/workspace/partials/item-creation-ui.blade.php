@@ -1,91 +1,128 @@
-<div class="relative z-10">
-    @if (($mode ?? 'list') === 'kanban')
-        <flux:button
-            icon:trailing="plus-circle"
-            data-item-creation-safe
-            x-bind:disabled="showItemLoading"
-            @click="
-                if (showItemCreation && creationKind === 'task') {
-                    showItemCreation = false;
-                } else {
-                    creationKind = 'task';
-                    formData.item.status = 'to_do';
-                    formData.item.priority = 'medium';
-                    formData.item.complexity = 'moderate';
-                    formData.item.duration = null;
-                    formData.item.allDay = false;
-                    formData.item.projectId = null;
-                    showItemCreation = true;
-                    $nextTick(() => $refs.taskTitle?.focus());
-                }
-            "
-        >
-            {{ __('Add') }}
-        </flux:button>
-    @else
-        <flux:dropdown position="right" align="start">
-            <flux:button icon:trailing="plus-circle" data-item-creation-safe x-bind:disabled="showItemLoading">
-                {{ __('Add') }}
-            </flux:button>
+@php
+    $isKanbanMode = ($mode ?? 'list') === 'kanban';
+@endphp
 
-            <flux:menu>
-                <flux:menu.item
-                    icon="rectangle-stack"
-                    @click="
-                        if (showItemCreation && creationKind === 'task') {
-                            showItemCreation = false;
-                        } else {
-                            creationKind = 'task';
-                            formData.item.status = 'to_do';
-                            formData.item.priority = 'medium';
-                            formData.item.complexity = 'moderate';
-                            formData.item.duration = null;
-                            formData.item.allDay = false;
-                            formData.item.projectId = null;
-                            showItemCreation = true;
-                            $nextTick(() => $refs.taskTitle?.focus());
-                        }
-                    "
+<div class="relative z-10 w-full">
+    <div
+        class="relative w-full overflow-hidden rounded-2xl border border-brand-blue/25 shadow-sm ring-1 ring-brand-purple/15 dark:border-zinc-600/55 dark:ring-brand-purple/20"
+        data-item-creation-safe
+        @click.outside="itemTypePickerOpen = false"
+    >
+        <div
+            class="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
+            aria-hidden="true"
+        >
+            <div class="absolute inset-0 bg-linear-to-r from-brand-blue/12 via-brand-purple/[0.07] to-brand-green/10 dark:from-zinc-900/90 dark:via-zinc-900/55 dark:to-zinc-950/70"></div>
+            <div class="absolute -right-8 -top-10 size-36 rounded-full bg-brand-blue/12 blur-3xl dark:bg-brand-blue/[0.08]"></div>
+            <div class="absolute -bottom-10 -left-8 size-28 rounded-full bg-brand-purple/10 blur-2xl dark:bg-brand-purple/[0.06]"></div>
+        </div>
+
+        <div class="relative z-10 p-2 sm:p-2.5">
+            @if ($isKanbanMode)
+                <button
+                    type="button"
+                    data-item-creation-safe
+                    class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 sm:gap-4 sm:px-4 sm:py-3.5 dark:hover:bg-zinc-800/45"
+                    x-bind:disabled="showItemLoading"
+                    aria-label="{{ __('Create task') }}"
+                    @click="beginItemCreation('task')"
                 >
-                    {{ __('Task') }}
-                </flux:menu.item>
-                <flux:menu.item
-                    icon="calendar-days"
-                    @click="
-                        if (showItemCreation && creationKind === 'event') {
-                            showItemCreation = false;
-                        } else {
-                            creationKind = 'event';
-                            formData.item.status = 'scheduled';
-                            formData.item.allDay = false;
-                            showItemCreation = true;
-                            $nextTick(() => $refs.taskTitle?.focus());
-                        }
-                    "
+                    <span
+                        class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/70 shadow-sm ring-1 ring-brand-blue/20 dark:bg-zinc-800/70 dark:ring-brand-blue/25"
+                        aria-hidden="true"
+                    >
+                        <flux:icon
+                            name="plus-circle"
+                            class="size-6 text-brand-navy-blue dark:text-brand-light-blue"
+                        />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('New task') }}</span>
+                        <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap to open the quick-add form') }}</span>
+                    </span>
+                </button>
+            @else
+                <button
+                    type="button"
+                    data-item-creation-safe
+                    class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-white/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 sm:gap-4 sm:px-4 sm:py-3.5 dark:hover:bg-zinc-800/45"
+                    x-bind:class="(showItemCreation || showItemLoading) ? 'cursor-not-allowed opacity-40' : ''"
+                    x-bind:disabled="showItemLoading || showItemCreation"
+                    aria-label="{{ __('Create item') }}"
+                    x-bind:aria-expanded="itemTypePickerOpen"
+                    @click="onPlusToolbarClick()"
                 >
-                    {{ __('Event') }}
-                </flux:menu.item>
-                <flux:menu.item
-                    icon="clipboard-document-list"
-                    @click="
-                        if (showItemCreation && creationKind === 'project') {
-                            showItemCreation = false;
-                        } else {
-                            creationKind = 'project';
-                            formData.project.name = '';
-                            formData.project.description = null;
-                            formData.project.startDatetime = null;
-                            formData.project.endDatetime = null;
-                            showItemCreation = true;
-                            $nextTick(() => $refs.projectName?.focus());
-                        }
-                    "
+                    <span
+                        class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/70 shadow-sm ring-1 ring-brand-blue/20 dark:bg-zinc-800/70 dark:ring-brand-blue/25"
+                        aria-hidden="true"
+                    >
+                        <flux:icon
+                            name="plus-circle"
+                            class="size-6 text-brand-navy-blue dark:text-brand-light-blue"
+                        />
+                    </span>
+                    <span class="min-w-0 flex-1">
+                        <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('Create something new') }}</span>
+                        <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap, then pick task, event, or project') }}</span>
+                    </span>
+                </button>
+
+                <div
+                    x-show="itemTypePickerOpen"
+                    x-cloak
+                    x-transition:enter="transition ease-out duration-150"
+                    x-transition:enter-start="opacity-0 -translate-y-1"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                    x-transition:leave="transition ease-in duration-100"
+                    x-transition:leave-start="opacity-100 translate-y-0"
+                    x-transition:leave-end="opacity-0 -translate-y-1"
+                    class="mt-2 grid grid-cols-3 gap-2 sm:mt-2.5 sm:gap-2.5"
+                    role="group"
+                    aria-label="{{ __('Item type') }}"
                 >
-                    {{ __('Project') }}
-                </flux:menu.item>
-            </flux:menu>
-        </flux:dropdown>
-    @endif
+                    <button
+                        type="button"
+                        data-item-creation-safe
+                        class="flex min-h-[5rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200/80 border-l-4 border-l-brand-navy-blue/45 bg-white/70 px-1.5 py-2.5 shadow-sm ring-1 ring-zinc-200/35 transition hover:bg-brand-light-lavender/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-700/70 dark:border-l-zinc-500/55 dark:bg-zinc-900/50 dark:ring-zinc-700/40 dark:hover:bg-zinc-800/70"
+                        @click="beginItemCreation('task')"
+                    >
+                        <flux:icon
+                            name="rectangle-stack"
+                            class="size-8 text-brand-navy-blue dark:text-brand-light-blue"
+                            aria-hidden="true"
+                        />
+                        <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Task') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        data-item-creation-safe
+                        class="flex min-h-[5rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200/80 border-l-4 border-l-indigo-500/50 bg-white/70 px-1.5 py-2.5 shadow-sm ring-1 ring-zinc-200/35 transition hover:bg-indigo-50/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/40 dark:border-zinc-700/70 dark:border-l-indigo-400/45 dark:bg-zinc-900/50 dark:hover:bg-indigo-950/30"
+                        @click="beginItemCreation('event')"
+                    >
+                        <flux:icon
+                            name="calendar-days"
+                            class="size-8 text-indigo-600 dark:text-indigo-300"
+                            aria-hidden="true"
+                        />
+                        <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Event') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        data-item-creation-safe
+                        class="flex min-h-[5rem] flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-200/80 border-l-4 border-l-emerald-500/55 bg-white/70 px-1.5 py-2.5 shadow-sm ring-1 ring-zinc-200/35 transition hover:bg-emerald-50/45 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/35 dark:border-zinc-700/70 dark:border-l-emerald-500/45 dark:bg-zinc-900/50 dark:hover:bg-emerald-950/25"
+                        @click="beginItemCreation('project')"
+                    >
+                        <flux:icon
+                            name="clipboard-document-list"
+                            class="size-8 text-emerald-700 dark:text-emerald-300"
+                            aria-hidden="true"
+                        />
+                        <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Project') }}</span>
+                    </button>
+                </div>
+            @endif
+        </div>
+    </div>
 
     <template x-if="showItemCreation">
     <div

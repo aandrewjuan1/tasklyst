@@ -58,8 +58,11 @@
         loadingMore: false,
         hasMore: @js($initialHasMore),
         loadMoreErrorToast: @js(__('Could not load more activity. Please try again.')),
-        panelPlacementClassesValue: 'absolute bottom-full right-0 mb-1',
+        panelStyle: {},
         openedAt: 0,
+        alignPreference: @js(($align ?? 'end') === 'end' ? 'end' : 'start'),
+        panelWidthEst: 384,
+        panelHeightEst: 320,
 
         openFromMenu() {
             if (this.open) {
@@ -68,6 +71,16 @@
 
             const button = this.$refs.button;
             if (!button) {
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+                const margin = 12;
+                const maxW = Math.min(this.panelWidthEst, vw - 2 * margin);
+                this.panelStyle = {
+                    top: `${margin}px`,
+                    left: `${margin}px`,
+                    width: `${Math.round(maxW)}px`,
+                    maxHeight: `${Math.round(vh - 2 * margin)}px`,
+                };
                 this.open = true;
                 this.openedAt = Date.now();
                 this.$dispatch('dropdown-opened');
@@ -75,35 +88,53 @@
                 return;
             }
 
+            const rect = button.getBoundingClientRect();
             const vh = window.innerHeight;
             const vw = window.innerWidth;
-            const rect = button.getBoundingClientRect();
-            const panelHeightEst = 320;
+            const margin = 12;
+            const gap = 8;
+            const contentLeft = vw < 768 ? 16 : 320;
 
-            const spaceBelow = vh - rect.bottom;
-            const spaceAbove = rect.top;
+            const maxW = Math.min(this.panelWidthEst, vw - 2 * margin);
+            const maxH = vh - 2 * margin;
+            const estH = Math.min(this.panelHeightEst, maxH);
 
-            const verticalSpaceInsufficient = spaceBelow < panelHeightEst && spaceAbove < panelHeightEst;
-
-            let placementVertical;
-            if (spaceBelow >= panelHeightEst || spaceBelow >= spaceAbove) {
-                placementVertical = 'bottom';
+            let top;
+            if (rect.bottom + this.panelHeightEst > vh && rect.top > this.panelHeightEst) {
+                top = rect.top - estH - gap;
             } else {
-                placementVertical = 'top';
+                top = rect.bottom + gap;
+            }
+            const minTop = margin;
+            const maxTop = vh - margin - estH;
+            top = Math.max(minTop, Math.min(top, maxTop));
+
+            const endFits = rect.right <= vw && rect.right - maxW >= contentLeft;
+            const startFits = rect.left >= contentLeft && rect.left + maxW <= vw;
+
+            let horizontal = this.alignPreference;
+            if (horizontal === 'end' && !endFits && startFits) {
+                horizontal = 'start';
+            } else if (horizontal === 'start' && !startFits && endFits) {
+                horizontal = 'end';
+            } else if (!endFits && !startFits) {
+                horizontal = rect.left + rect.width / 2 < vw / 2 ? 'start' : 'end';
             }
 
-            const v = placementVertical;
-            if (vw <= 480) {
-                this.panelPlacementClassesValue = 'fixed inset-x-3 top-1/2 -translate-y-1/2 max-h-[80vh] transform';
-            } else if (vw <= 640 || verticalSpaceInsufficient) {
-                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[80vh]';
-            } else if (v === 'top') {
-                this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
-            } else if (v === 'bottom') {
-                this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
+            let left;
+            if (horizontal === 'end') {
+                left = rect.right - maxW;
             } else {
-                this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
+                left = rect.left;
             }
+            left = Math.max(margin, Math.min(left, vw - margin - maxW));
+
+            this.panelStyle = {
+                top: `${Math.round(top)}px`,
+                left: `${Math.round(left)}px`,
+                width: `${Math.round(maxW)}px`,
+                maxHeight: `${Math.round(maxH)}px`,
+            };
 
             this.open = true;
             this.openedAt = Date.now();
@@ -115,8 +146,11 @@
 
             this.open = false;
 
-            const leaveMs = 50;
-            setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
+            const leaveMs = 100;
+            setTimeout(() => {
+                this.panelStyle = {};
+                this.$dispatch('dropdown-closed');
+            }, leaveMs);
 
             focusAfter && focusAfter.focus();
         },
@@ -193,18 +227,18 @@
         x-transition:enter="transition ease-out duration-100"
         x-transition:enter-start="opacity-0"
         x-transition:enter-end="opacity-100"
-        x-transition:leave="transition ease-in duration-75"
+        x-transition:leave="transition ease-in duration-100"
         x-transition:leave-start="opacity-100"
         x-transition:leave-end="opacity-0"
         x-cloak
         @click.outside="close($refs.button)"
         @click.stop
-        :class="panelPlacementClassesValue"
-        class="z-50 flex min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
+        :style="panelStyle"
+        class="fixed z-50 flex min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
         role="dialog"
         aria-modal="true"
     >
-        <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
+        <div class="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
             <div class="flex items-center gap-2">
                 <div class="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] text-muted-foreground">
                     <flux:icon name="clock" class="size-3" />
@@ -226,7 +260,8 @@
             </button>
         </div>
 
-        <div class="max-h-80 space-y-2 overflow-y-auto px-3 py-2.5 text-[11px]">
+        {{-- ~4 log rows visible; rest scrolls (avoids huge panel + keeps load-more footer visible). --}}
+        <div class="min-h-0 max-h-56 flex-1 overflow-y-auto overscroll-contain px-3 py-2.5 text-[11px] [scrollbar-gutter:stable]">
             <template x-if="logs.length === 0">
                 <p class="text-muted-foreground/80">
                     {{ __('No activity yet.') }}
@@ -250,17 +285,17 @@
             </template>
         </div>
 
-        <div class="border-t border-border/60 px-3 py-1.5">
+        <div class="shrink-0 border-t border-border/60 bg-white px-3 py-2 dark:bg-zinc-900">
             <button
                 type="button"
-                class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-primary hover:text-primary/80 disabled:opacity-70"
+                class="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[11px] font-medium text-foreground transition-colors hover:bg-muted/70 disabled:opacity-70 dark:border-zinc-600/60 dark:bg-zinc-800/80 dark:hover:bg-zinc-800"
                 :class="{ 'animate-pulse': loadingMore }"
                 x-show="hasMore"
                 x-cloak
                 :disabled="loadingMore"
                 @click="loadMore()"
             >
-                <flux:icon name="chevron-down" class="size-3" />
+                <flux:icon name="chevron-down" class="size-3.5 shrink-0" />
                 <span x-text="loadingMore ? '{{ __('Loading...') }}' : '{{ __('Load more activity') }}'"></span>
             </button>
         </div>

@@ -54,31 +54,13 @@
 
     @endphp
     @if ($allItems->isEmpty())
-        <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
-            <div class="flex items-center gap-2">
-                <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
-                <flux:text class="text-sm font-medium text-muted-foreground">
-                    {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
-                </flux:text>
-            </div>
-            @if ($hasActiveSearch && $searchQueryDisplay)
-                <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('No results for “:query”. Try a different search or clear the search.', ['query' => $searchQueryDisplay]) }}
-                </flux:text>
-            @endif
-            @if ($hasActiveFilters && $activeFilterParts !== [])
-                <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
-                </flux:text>
-                <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('Try adjusting filters or add a new task, project, or event for this day') }}
-                </flux:text>
-            @elseif (!$hasActiveSearch)
-                <flux:text class="text-xs text-muted-foreground/70">
-                    {{ __('Add a task, project, or event for this day to get started') }}
-                </flux:text>
-            @endif
-        </div>
+        <x-workspace.list-empty-state
+            :empty-date-label="$emptyDateLabel"
+            :has-active-search="$hasActiveSearch"
+            :search-query-display="$searchQueryDisplay"
+            :has-active-filters="$hasActiveFilters"
+            :active-filter-parts="$activeFilterParts"
+        />
     @else
         <div
             class="space-y-4"
@@ -125,31 +107,14 @@
                 x-transition:leave="transition ease-in duration-150"
                 x-transition:leave-start="opacity-100 scale-100"
                 x-transition:leave-end="opacity-0 scale-[0.98]"
-                class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur"
             >
-                <div class="flex items-center gap-2">
-                    <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
-                    <flux:text class="text-sm font-medium text-muted-foreground">
-                        {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
-                    </flux:text>
-                </div>
-                @if ($hasActiveSearch && $searchQueryDisplay)
-                    <flux:text class="text-xs text-muted-foreground/70">
-                        {{ __('No results for “:query”. Try a different search or clear the search.', ['query' => $searchQueryDisplay]) }}
-                    </flux:text>
-                @endif
-                @if ($hasActiveFilters && $activeFilterParts !== [])
-                    <flux:text class="text-xs text-muted-foreground/70">
-                        {{ __('Active filters') }}: {{ implode(', ', $activeFilterParts) }}
-                    </flux:text>
-                    <flux:text class="text-xs text-muted-foreground/70">
-                        {{ __('Try adjusting filters or add a new task, project, or event for this day') }}
-                    </flux:text>
-                @elseif (!$hasActiveSearch)
-                    <flux:text class="text-xs text-muted-foreground/70">
-                        {{ __('Add a task, project, or event for this day to get started') }}
-                    </flux:text>
-                @endif
+                <x-workspace.list-empty-state
+                    :empty-date-label="$emptyDateLabel"
+                    :has-active-search="$hasActiveSearch"
+                    :search-query-display="$searchQueryDisplay"
+                    :has-active-filters="$hasActiveFilters"
+                    :active-filter-parts="$activeFilterParts"
+                />
             </div>
             @php
                 $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));

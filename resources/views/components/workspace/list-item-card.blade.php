@@ -138,7 +138,6 @@
                 >
                     @include('components.workspace.list-item-card.header', [
                         'layout' => 'list',
-                        'showFocusTrigger' => false,
                     ])
                     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
                         @if($kind === 'project')
@@ -168,6 +167,7 @@
                                 :show-overdue-visual="$showOverdueVisual"
                                 layout="list"
                                 :embed-in-focus-modal="true"
+                                :show-focus-trigger="false"
                             />
                         @endif
                     </div>

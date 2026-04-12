@@ -235,7 +235,9 @@ export function listItemCard(config) {
         /** Return focus to the in-list Focus trigger without scrolling (used on any modal close). */
         restoreFocusAfterModalClose() {
             this.$nextTick(() => {
-                const el = this.$refs?.focusTrigger;
+                const el =
+                    this.$refs?.focusTrigger ??
+                    this.$el?.querySelector?.('.workspace-focus-trigger');
                 if (el?.focus) el.focus({ preventScroll: true });
             });
         },

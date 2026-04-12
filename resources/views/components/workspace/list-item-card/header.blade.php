@@ -2,9 +2,12 @@
 @php
     $layout = $layout ?? 'list';
     $isKanbanLayout = $layout === 'kanban';
-    $showFocusTrigger = $showFocusTrigger ?? true;
-    $hideFocusTriggerInitiallyDone = ($kind ?? null) === 'task'
-        && (($effectiveStatus ?? null)?->value ?? $item->status?->value ?? '') === 'done';
+    $cardTitleViewClass = $isKanbanLayout
+        ? 'text-lg leading-snug md:text-xl'
+        : 'text-xl leading-tight md:text-2xl';
+    $cardTitleEditClass = $isKanbanLayout
+        ? 'text-lg font-bold leading-snug md:text-xl'
+        : 'text-xl font-bold leading-tight md:text-2xl';
     $itemTypePillKindClass = match ($kind ?? '') {
         'event' => 'lic-item-type-pill--event',
         'project' => 'lic-item-type-pill--project',
@@ -17,7 +20,7 @@
             <p
                 x-show="!isEditingTitle"
                 @click="canEdit && startEditingTitle()"
-                class="truncate font-semibold transition-opacity {{ $isKanbanLayout ? 'text-sm leading-snug md:text-base' : 'text-lg leading-tight' }}"
+                class="truncate font-bold transition-opacity {{ $cardTitleViewClass }}"
                 :class="canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default'"
                 x-text="editedTitle"
             >
@@ -29,7 +32,7 @@
                 class="relative inline-block min-w-full"
             >
                 <span
-                    class="invisible inline-block whitespace-pre px-1 py-0.5 text-lg font-semibold leading-tight"
+                    class="invisible inline-block whitespace-pre px-1 py-0.5 {{ $cardTitleEditClass }}"
                     aria-hidden="true"
                     x-text="editedTitle || '\u00A0'"
                 ></span>
@@ -40,7 +43,7 @@
                     @keydown.escape="cancelEditingTitle()"
                     @blur="handleBlur()"
                     wire:ignore
-                    class="absolute inset-0 w-full min-w-0 text-lg font-semibold leading-tight rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
+                    class="absolute inset-0 w-full min-w-0 {{ $cardTitleEditClass }} rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
                     type="text"
                 />
             </div>
@@ -110,7 +113,7 @@
         </div>
 
         {{-- Right-side actions: inline with title in list layout; ellipsis only in kanban layout --}}
-        @if(! $isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod) || ($kind === 'task' && $canEdit && $showFocusTrigger)))
+        @if(! $isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
             <div class="ml-2 flex flex-wrap items-center justify-end gap-1.5 shrink-0">
                 @include('components.workspace.list-item-card._item-type-pill')
 
@@ -149,26 +152,6 @@
                     />
                 </div>
 
-                @if($kind === 'task' && $canEdit && $showFocusTrigger)
-                    <div
-                        x-show="taskStatus !== 'done' && !isFocused && !isBreakFocused"
-                        @if($hideFocusTriggerInitiallyDone) style="display: none;" @endif
-                        class="shrink-0"
-                    >
-                        <flux:tooltip :content="__('Start focus mode')">
-                            <button
-                                type="button"
-                                x-ref="focusTrigger"
-                                @click.stop="enterFocusReady()"
-                                class="workspace-focus-trigger"
-                            >
-                                <flux:icon name="bolt" class="size-4 shrink-0" />
-                                <span>{{ __('Focus') }}</span>
-                            </button>
-                        </flux:tooltip>
-                    </div>
-                @endif
-
                 @if($currentUserIsOwner && $deleteMethod)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
@@ -181,6 +164,16 @@
                                     @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
                                 >
                                     {{ __('Activity Logs') }}
+                                </flux:menu.item>
+                            </flux:tooltip>
+
+                            <flux:tooltip :content="__('Collaborators')">
+                                <flux:menu.item
+                                    icon="share"
+                                    class="cursor-pointer"
+                                    @click.stop.prevent="$dispatch('workspace-open-collaborators', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
+                                >
+                                    {{ __('Collaborators') }}
                                 </flux:menu.item>
                             </flux:tooltip>
 
@@ -224,6 +217,23 @@
 
         @if($isKanbanLayout && $currentUserIsOwner && $deleteMethod)
             <div class="ml-2 flex items-center gap-1.5 shrink-0">
+                {{-- Invisible popover anchors beside ellipsis so menu-opened panels position like list view (not the row below). --}}
+                <div class="flex flex-wrap items-center justify-end gap-1.5">
+                    <x-workspace.collaborators-popover
+                        :item="$item"
+                        :kind="$kind"
+                        position="top"
+                        align="end"
+                    />
+                    <div class="relative">
+                        <x-workspace.activity-logs-popover
+                            :item="$item"
+                            :kind="$kind"
+                            position="top"
+                            align="end"
+                        />
+                    </div>
+                </div>
                 <flux:dropdown>
                     <flux:button size="xs" icon="ellipsis-horizontal" />
 
@@ -235,6 +245,16 @@
                                 @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
                             >
                                 {{ __('Activity Logs') }}
+                            </flux:menu.item>
+                        </flux:tooltip>
+
+                        <flux:tooltip :content="__('Collaborators')">
+                            <flux:menu.item
+                                icon="share"
+                                class="cursor-pointer"
+                                @click.stop.prevent="$dispatch('workspace-open-collaborators', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
+                            >
+                                {{ __('Collaborators') }}
                             </flux:menu.item>
                         </flux:tooltip>
 
@@ -299,23 +319,25 @@
                     </div>
                 @endif
 
-                <div class="hidden sm:block">
-                    <x-workspace.collaborators-popover
-                        :item="$item"
-                        :kind="$kind"
-                        position="top"
-                        align="start"
-                    />
-                </div>
+                @unless($currentUserIsOwner && $deleteMethod)
+                    <div class="hidden sm:block">
+                        <x-workspace.collaborators-popover
+                            :item="$item"
+                            :kind="$kind"
+                            position="top"
+                            align="start"
+                        />
+                    </div>
 
-                <div class="relative">
-                    <x-workspace.activity-logs-popover
-                        :item="$item"
-                        :kind="$kind"
-                        position="top"
-                        align="start"
-                    />
-                </div>
+                    <div class="relative">
+                        <x-workspace.activity-logs-popover
+                            :item="$item"
+                            :kind="$kind"
+                            position="top"
+                            align="start"
+                        />
+                    </div>
+                @endunless
             </div>
 
             {{-- Ellipsis is rendered in the title row for kanban layout --}}

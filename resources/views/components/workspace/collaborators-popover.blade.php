@@ -107,13 +107,6 @@
 
     $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out';
 
-    $labelByKind = match ($kind) {
-        'task' => __('Task collaborators'),
-        'event' => __('Event collaborators'),
-        'project' => __('Project collaborators'),
-        default => __('Collaborators'),
-    };
-
     $collaboratableType = match ($kind) {
         'task' => 'task',
         'event' => 'event',
@@ -168,10 +161,11 @@
         savedInviteViaEnter: false,
         inviteValidationToast: @js(__('Please enter a valid email address.')),
         inviteErrorToast: @js(__('Could not send invitation. Please try again.')),
+        openedAt: 0,
 
-        toggle() {
+        openPanel() {
             if (this.open) {
-                return this.close(this.$refs.button);
+                return;
             }
 
             this.$refs.button && this.$refs.button.focus();
@@ -179,12 +173,12 @@
             const vh = window.innerHeight;
             const vw = window.innerWidth;
 
-            // On very small viewports, use a viewport-fixed mobile sheet instead of anchoring to the trigger
             if (vw <= 480) {
                 this.placementVertical = 'bottom';
                 this.placementHorizontal = 'center';
                 this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
                 this.open = true;
+                this.openedAt = Date.now();
                 this.$dispatch('dropdown-opened');
 
                 return;
@@ -225,7 +219,55 @@
             else this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
 
             this.open = true;
+            this.openedAt = Date.now();
             this.$dispatch('dropdown-opened');
+        },
+
+        toggle() {
+            if (this.open) {
+                return this.close(this.$refs.button);
+            }
+
+            this.openPanel();
+        },
+
+        openFromMenu() {
+            if (this.open) {
+                return;
+            }
+
+            const button = this.$refs.button;
+            if (!button) {
+                const vw = window.innerWidth;
+                if (vw <= 480) {
+                    this.placementVertical = 'bottom';
+                    this.placementHorizontal = 'center';
+                    this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
+                    this.open = true;
+                    this.openedAt = Date.now();
+                    this.$dispatch('dropdown-opened');
+                }
+
+                return;
+            }
+
+            this.openPanel();
+        },
+
+        handleWindowFocus(event) {
+            if (!this.open) {
+                return;
+            }
+
+            const panel = this.$refs.panel;
+            if (!panel) {
+                return;
+            }
+
+            const enoughTimePassed = Date.now() - this.openedAt > 200;
+            if (enoughTimePassed && !panel.contains(event.target)) {
+                this.close(this.$refs.button);
+            }
         },
 
         close(focusAfter) {
@@ -514,9 +556,14 @@
         },
     }"
     @keydown.escape.prevent.stop="close($refs.button)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
+    @focusin.window="handleWindowFocus($event)"
+    @workspace-open-collaborators.window="
+        if ($event.detail && Number($event.detail.id ?? null) === Number(collabId) && (!$event.detail.kind || $event.detail.kind === collabType)) {
+            openFromMenu();
+        }
+    "
     x-id="['collaborators-popover']"
-    class="relative inline-block"
+    class="{{ $showCollaboratedTrigger ? 'relative inline-block' : 'relative' }}"
     data-task-creation-safe
     {{ $attributes }}
 >
@@ -542,20 +589,14 @@
             </button>
         </flux:tooltip>
     @else
-        <flux:tooltip content="{{ $labelByKind }}">
-            <button
-                x-ref="button"
-                type="button"
-                @click="toggle()"
-                aria-haspopup="true"
-                :aria-expanded="open"
-                :aria-controls="$id('collaborators-popover')"
-                class="{{ $triggerBaseClass }}"
-                :class="open ? 'pointer-events-none shadow-md scale-[1.02]' : ''"
-            >
-                <flux:icon name="share" class="size-3" />
-            </button>
-        </flux:tooltip>
+        {{-- Owners open via card ellipsis (workspace-open-collaborators); anchor matches activity-logs-popover positioning. --}}
+        <button
+            x-ref="button"
+            type="button"
+            class="absolute right-0 top-0 h-0 w-0 opacity-0 pointer-events-none"
+            tabindex="-1"
+            aria-hidden="true"
+        ></button>
     @endif
 
     <div

@@ -25,8 +25,13 @@
             class="min-w-0 space-y-6 overflow-visible"
             x-data="{
                 pendingViewMode: null,
+                initialViewMode: @js($this->viewMode),
                 activeViewMode() {
-                    return this.pendingViewMode ?? $wire.viewMode;
+                    if (this.pendingViewMode !== null) {
+                        return this.pendingViewMode;
+                    }
+
+                    return this.$wire?.viewMode ?? this.initialViewMode;
                 },
                 setView(mode) {
                     if (mode === this.activeViewMode()) {
@@ -52,7 +57,7 @@
             x-init="
                 if (window.Alpine?.store) {
                     let store = Alpine.store('workspaceView');
-                    const initialMode = $wire.viewMode;
+                    const initialMode = $wire.viewMode ?? $data.initialViewMode;
                     if (!store || typeof store !== 'object') {
                         Alpine.store('workspaceView', { mode: initialMode });
                     } else {
@@ -137,7 +142,11 @@
                                     :aria-selected="activeViewMode() === 'list'"
                                     aria-controls="workspace-list-panel"
                                     id="workspace-view-list"
-                                    class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
+                                    @class([
+                                        'inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50',
+                                        'bg-brand-blue text-white shadow-sm' => $this->viewMode === 'list',
+                                        'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' => $this->viewMode !== 'list',
+                                    ])
                                     :class="activeViewMode() === 'list'
                                         ? 'bg-brand-blue text-white shadow-sm'
                                         : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
@@ -151,7 +160,11 @@
                                     :aria-selected="activeViewMode() === 'kanban'"
                                     aria-controls="workspace-kanban-panel"
                                     id="workspace-view-kanban"
-                                    class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
+                                    @class([
+                                        'inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50',
+                                        'bg-brand-blue text-white shadow-sm' => $this->viewMode === 'kanban',
+                                        'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' => $this->viewMode !== 'kanban',
+                                    ])
                                     :class="activeViewMode() === 'kanban'
                                         ? 'bg-brand-blue text-white shadow-sm'
                                         : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
