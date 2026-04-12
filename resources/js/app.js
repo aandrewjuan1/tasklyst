@@ -1,4 +1,5 @@
 import { listItemCard } from './alpine/list-item-card.js';
+import * as listRelevance from './lib/list-relevance.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
 import { dashboardAnalyticsCharts } from './alpine/dashboard-analytics-charts.js';
 import { initWorkspaceDeepLinkFocus, runWorkspaceFocusFromUrl, workspaceCalendarTryInstantFocus } from './alpine/workspace-focus.js';
@@ -7,6 +8,7 @@ import { initWorkspaceDeepLinkFocus, runWorkspaceFocusFromUrl, workspaceCalendar
 
 // listItemCard registers itself in Alpine.store('listItemCards')[itemId] for focus-session escape handler etc.
 document.addEventListener('livewire:init', () => {
+    window.__tasklystListRelevance = listRelevance;
     window.Alpine.data('listItemCard', listItemCard);
     window.Alpine.data('kanbanBoard', kanbanBoard);
     window.Alpine.data('dashboardAnalyticsCharts', dashboardAnalyticsCharts);

@@ -28,6 +28,14 @@ test('workspace page includes notification bell strip markup', function (): void
         ->assertSee('data-test="notifications-bell-button"', false);
 });
 
+test('workspace hero clips the gradient in an inner layer so notification popovers are not clipped by overflow', function (): void {
+    $this->actingAs($this->user);
+
+    $html = (string) $this->get(route('workspace'))->getContent();
+
+    expect($html)->toContain('pointer-events-none absolute inset-0 overflow-hidden rounded-2xl');
+});
+
 test('collaboration invitation accepted event bumps workspace items version without resetting pagination', function (): void {
     $this->actingAs($this->user);
 

@@ -8,14 +8,14 @@
         wire:loading targets for the main list/kanban skeleton. Match any Livewire property or method
         that should show the full-area placeholder while the workspace Index re-renders.
 
-        Covered: date (selectedDate), search (searchQuery, searchScope), filters (filter* and set/clear helpers).
+        Covered: date (selectedDate), search (searchQuery, searchScope), view (viewMode), filters (filter* and set/clear helpers).
 
-        Intentionally omitted: viewMode (tab switch stays snappy), loadMoreItems / getMoreItemsHtml (append-only),
+        Intentionally omitted: loadMoreItems / getMoreItemsHtml (append-only),
         collaboration invite accept/decline (list remounts via workspaceItemsVersion without skeleton),
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
@@ -25,27 +25,8 @@
             class="min-w-0 space-y-6 overflow-visible"
             x-data="{
                 pendingViewMode: null,
-                isSwitching: false,
-                switchTimeoutId: null,
                 activeViewMode() {
                     return this.pendingViewMode ?? $wire.viewMode;
-                },
-                clearSwitchingState() {
-                    this.pendingViewMode = null;
-                    this.isSwitching = false;
-                    if (this.switchTimeoutId !== null) {
-                        clearTimeout(this.switchTimeoutId);
-                        this.switchTimeoutId = null;
-                    }
-                },
-                setSwitchFallbackTimeout() {
-                    if (this.switchTimeoutId !== null) {
-                        clearTimeout(this.switchTimeoutId);
-                    }
-
-                    this.switchTimeoutId = setTimeout(() => {
-                        this.clearSwitchingState();
-                    }, 6000);
                 },
                 setView(mode) {
                     if (mode === this.activeViewMode()) {
@@ -53,8 +34,6 @@
                     }
 
                     this.pendingViewMode = mode;
-                    this.isSwitching = true;
-                    this.setSwitchFallbackTimeout();
 
                     $wire.set('viewMode', mode);
                     const u = new URL(window.location.href);
@@ -83,14 +62,21 @@
             "
             x-effect="
                 if (this.pendingViewMode !== null && $wire.viewMode === this.pendingViewMode) {
-                    this.clearSwitchingState();
+                    this.pendingViewMode = null;
                 }
             "
         >
             {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
             <div
-                class="relative flex min-h-56 w-full items-center overflow-hidden rounded-2xl border border-brand-blue/25 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:min-h-60 lg:px-7 dark:ring-brand-purple/20"
+                class="relative flex min-h-56 w-full items-center rounded-2xl border border-brand-blue/25 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:min-h-60 lg:px-7 dark:ring-brand-purple/20"
             >
+                <div
+                    class="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
+                    aria-hidden="true"
+                >
+                    <div class="absolute inset-0 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15"></div>
+                    <div class="absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
+                </div>
                 <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                     @php
                         $greetingName = auth()->user()->firstName();
@@ -177,7 +163,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="pointer-events-none absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
             </div>
 
             {{-- Filters + active pills: one strip, aligned row (pills left / Add filters right on md+) --}}
@@ -200,9 +185,9 @@
                 </div>
             </div>
 
-            {{-- List/kanban region only: loading skeletons + view-switch overlay must not cover the nav strip above --}}
+            {{-- List/kanban region only: loading skeletons must not cover the nav strip above --}}
             <div class="relative min-w-0 w-full">
-            {{-- Real content - hidden during filter/date/view refresh --}}
+            {{-- Real content - hidden during list/kanban loading targets (see $listLoadingTargets) --}}
             <div
                 wire:loading.remove
                 wire:target="{{ $listLoadingTargets }}"
@@ -265,11 +250,11 @@
                 </div>
             </div>
 
-            {{-- Skeleton placeholder - shown during filter/date refresh --}}
+            {{-- Skeleton: same wire:target as wire:loading.remove on real content above --}}
             <div
                 wire:loading.block
                 wire:target="{{ $listLoadingTargets }}"
-                class="hidden w-full space-y-4"
+                class="hidden w-full"
                 role="status"
                 aria-busy="true"
                 aria-live="polite"
@@ -301,140 +286,25 @@
                     x-text="$wire.viewMode === 'kanban' ? '{{ __('Loading workspace kanban...') }}' : '{{ __('Loading workspace list...') }}'"
                 ></span>
 
-                {{-- List view skeleton --}}
                 <template x-if="$wire.viewMode === 'list'">
                     <div class="space-y-4">
                         <template x-for="i in skeletonItems" :key="i">
-                            <div>
-                                <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
-                                    <div class="flex items-start justify-between gap-2">
-                                        <div class="min-w-0 flex-1 space-y-2">
-                                            <flux:skeleton.line class="w-4/5" size="lg" />
-                                            <flux:skeleton.line class="w-2/3" />
-                                        </div>
-                                        <div class="flex shrink-0 items-center gap-2">
-                                            <flux:skeleton class="h-6 w-14 rounded-full" />
-                                            <flux:skeleton class="size-8 shrink-0 rounded" />
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-wrap items-center gap-2 pt-0.5">
-                                        <flux:skeleton class="h-5 w-16 rounded-full" />
-                                        <flux:skeleton class="h-5 w-20 rounded-full" />
-                                        <flux:skeleton class="h-5 w-14 rounded-full" />
-                                    </div>
-                                </flux:skeleton.group>
-                            </div>
+                            <x-workspace.skeleton-list-item-card />
                         </template>
                     </div>
                 </template>
 
-                {{-- Kanban view skeleton --}}
                 <template x-if="$wire.viewMode === 'kanban'">
-                    <div class="w-full min-w-0">
-                        <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
-                            <template x-for="col in [0, 1, 2]" :key="col">
-                                <div class="flex w-full flex-col rounded-xl border border-border/60 bg-muted/30 shadow-sm">
-                                    <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
-                                        <flux:skeleton.line class="w-1/2" />
-                                        <flux:skeleton class="h-5 w-10 rounded-full" />
-                                    </div>
-                                    <div class="flex min-h-[140px] flex-1 flex-col gap-2.5 overflow-visible p-2.5 sm:min-h-[160px] sm:gap-3 sm:p-3">
-                                        <template x-for="card in [0, 1, 2, 3, 4, 5]" :key="card">
-                                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 shadow-sm backdrop-blur">
-                                                <div class="flex items-start justify-between gap-2">
-                                                    <div class="min-w-0 flex-1 space-y-2">
-                                                        <flux:skeleton.line class="w-4/5" />
-                                                        <flux:skeleton.line class="w-3/5" />
-                                                    </div>
-                                                    <div class="flex shrink-0 items-center gap-2">
-                                                        <flux:skeleton class="h-5 w-12 rounded-full" />
-                                                    </div>
-                                                </div>
-                                                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                                    <flux:skeleton class="h-4 w-12 rounded-full" />
-                                                    <flux:skeleton class="h-4 w-10 rounded-full" />
-                                                </div>
-                                            </flux:skeleton.group>
-                                        </template>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </template>
-            </div>
-
-            {{-- View switch overlay skeleton (keeps current content visible underneath) --}}
-            <div
-                x-cloak
-                x-show="isSwitching"
-                x-transition.opacity.duration.150ms
-                wire:loading.flex
-                wire:target="viewMode"
-                class="pointer-events-none absolute inset-0 z-20 hidden flex-col gap-3 rounded-xl border border-border/60 bg-background/75 p-3 backdrop-blur-sm"
-                role="status"
-                aria-live="polite"
-            >
-                <template x-if="activeViewMode() === 'list'">
-                    <div class="space-y-3">
-                        <template x-for="i in [0, 1, 2]" :key="`switch-list-${i}`">
-                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0 flex-1 space-y-2">
-                                        <flux:skeleton.line class="w-4/5" size="lg" />
-                                        <flux:skeleton.line class="w-2/3" />
-                                    </div>
-                                    <div class="flex shrink-0 items-center gap-2">
-                                        <flux:skeleton class="h-6 w-14 rounded-full" />
-                                        <flux:skeleton class="size-8 shrink-0 rounded" />
-                                    </div>
-                                </div>
-                                <div class="flex flex-wrap items-center gap-2 pt-0.5">
-                                    <flux:skeleton class="h-5 w-16 rounded-full" />
-                                    <flux:skeleton class="h-5 w-20 rounded-full" />
-                                    <flux:skeleton class="h-5 w-14 rounded-full" />
-                                </div>
-                            </flux:skeleton.group>
+                    <div class="grid min-h-[50vh] w-full min-w-0 gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
+                        <template x-for="col in [0, 1, 2]" :key="col">
+                            <x-workspace.skeleton-kanban-column>
+                                <template x-for="card in [0, 1, 2, 3, 4, 5]" :key="card">
+                                    <x-workspace.skeleton-list-item-card compact />
+                                </template>
+                            </x-workspace.skeleton-kanban-column>
                         </template>
                     </div>
                 </template>
-                <template x-if="activeViewMode() === 'kanban'">
-                    <div class="w-full min-w-0">
-                        <div class="grid min-h-[50vh] w-full gap-3 sm:gap-4 md:grid-cols-3">
-                            <template x-for="col in [0, 1, 2]" :key="`switch-kanban-col-${col}`">
-                                <div class="flex w-full flex-col rounded-xl border border-border/60 bg-muted/30 shadow-sm">
-                                    <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
-                                        <flux:skeleton.line class="w-1/2" />
-                                        <flux:skeleton class="h-5 w-10 rounded-full" />
-                                    </div>
-                                    <div class="flex min-h-[140px] flex-1 flex-col gap-2.5 overflow-visible p-2.5 sm:min-h-[160px] sm:gap-3 sm:p-3">
-                                        <template x-for="card in [0, 1, 2, 3, 4]" :key="`switch-kanban-card-${col}-${card}`">
-                                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-2.5 py-1.5 shadow-sm">
-                                                <div class="flex items-start justify-between gap-2">
-                                                    <div class="min-w-0 flex-1 space-y-2">
-                                                        <flux:skeleton.line class="w-4/5" />
-                                                        <flux:skeleton.line class="w-3/5" />
-                                                    </div>
-                                                    <div class="flex shrink-0 items-center gap-2">
-                                                        <flux:skeleton class="h-5 w-12 rounded-full" />
-                                                    </div>
-                                                </div>
-                                                <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                                    <flux:skeleton class="h-4 w-12 rounded-full" />
-                                                    <flux:skeleton class="h-4 w-10 rounded-full" />
-                                                </div>
-                                            </flux:skeleton.group>
-                                        </template>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </template>
-                <span
-                    class="sr-only"
-                    x-text="activeViewMode() === 'kanban' ? '{{ __('Switching to Kanban...') }}' : '{{ __('Switching to List...') }}'"
-                ></span>
             </div>
             </div>
         </div>

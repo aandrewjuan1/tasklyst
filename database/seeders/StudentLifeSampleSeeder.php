@@ -30,7 +30,20 @@ class StudentLifeSampleSeeder extends Seeder
 {
     private const TARGET_EMAIL = 'andrew.juan.cvt@eac.edu.ph';
 
-    private const DUE_DATE_FLOOR = '2026-04-10';
+    /**
+     * Demo user task kept overdue on purpose (prioritize / overdue flows).
+     */
+    public const INTENTIONAL_OVERDUE_STRESS_TASK_TITLE = 'Impossible 5h study block before quiz';
+
+    /**
+     * Minimum whole-day offset from local “today” (start of day) for open tasks, chores, projects, and events.
+     */
+    public const MIN_OPEN_SCHEDULE_LEAD_DAYS = 3;
+
+    /**
+     * Spread added on top of {@see MIN_OPEN_SCHEDULE_LEAD_DAYS}: jitter is in [0, OPEN_SCHEDULE_LEAD_SPREAD_DAYS), so bases land on distinct days from +3 through +5.
+     */
+    private const OPEN_SCHEDULE_LEAD_SPREAD_DAYS = 3;
 
     public const BRIGHTSPACE_PLACEHOLDER_SOURCE_URL = 'https://eac.brightspace.com/d2l/lms/dropbox/user/folder_submit_files.d2l?db=220208&grpid=0&isprv=0&bp=0&ou=112348';
 
@@ -69,7 +82,7 @@ class StudentLifeSampleSeeder extends Seeder
      */
     private const STRESS_TEST_TASKS = [
         [
-            'title' => 'Impossible 5h study block before quiz',
+            'title' => self::INTENTIONAL_OVERDUE_STRESS_TASK_TITLE,
             'description' => 'Review all CS 220 + MATH 201 notes in 5 hours before tonight’s quiz.',
             'duration' => 300,
             'priority' => TaskPriority::Urgent,
@@ -543,7 +556,10 @@ class StudentLifeSampleSeeder extends Seeder
         }
 
         $now = Carbon::now();
-        $dueDateFloor = Carbon::parse(self::DUE_DATE_FLOOR, $now->getTimezone())->startOfDay();
+        $dueDateFloor = $now->copy()
+            ->setTimezone($now->getTimezone())
+            ->startOfDay()
+            ->addDays(self::MIN_OPEN_SCHEDULE_LEAD_DAYS);
 
         $this->seedBrightspaceTasks($user, $now, $dueDateFloor);
         $this->seedRecurringChores($user, $now, $dueDateFloor);
@@ -639,10 +655,12 @@ class StudentLifeSampleSeeder extends Seeder
     private function seedBrightspaceTasks(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::BRIGHTSPACE_TASKS as $spec) {
+            $base = $this->brightspaceScheduleBase($now, $spec);
+
             $start = null;
             if (isset($spec['start_days_from_now'], $spec['start_time'])) {
                 [$startHour, $startMinute] = explode(':', $spec['start_time']);
-                $start = $now->copy()
+                $start = $base->copy()
                     ->addDays((int) $spec['start_days_from_now'])
                     ->setTime((int) $startHour, (int) $startMinute);
             }
@@ -650,9 +668,13 @@ class StudentLifeSampleSeeder extends Seeder
             $end = null;
             if (isset($spec['end_days_from_now'], $spec['end_time'])) {
                 [$endHour, $endMinute] = explode(':', $spec['end_time']);
-                $end = $now->copy()
+                $end = $base->copy()
                     ->addDays((int) $spec['end_days_from_now'])
                     ->setTime((int) $endHour, (int) $endMinute);
+            }
+
+            if ($start !== null && $end !== null && $end->lessThan($start) && empty($spec['completed'])) {
+                $end = $start->copy()->addMinutes(max(30, (int) $spec['duration']));
             }
 
             $completedAt = null;
@@ -693,7 +715,8 @@ class StudentLifeSampleSeeder extends Seeder
     private function seedRecurringChores(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::RECURRING_CHORES as $index => $spec) {
-            $start = $now->copy()->setTime(20, 0)->addMinutes($index * 5);
+            $dayBase = $this->openScheduleBase($now, (string) $spec['title']);
+            $start = $dayBase->copy()->setTime(20, 0)->addMinutes($index * 5);
             $end = $start->copy()->addMinutes((int) $spec['duration']);
             $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['title']);
 
@@ -728,7 +751,7 @@ class StudentLifeSampleSeeder extends Seeder
             ]);
 
             for ($i = 0; $i < 3; $i++) {
-                $instanceDate = $now->copy()->addDays($i)->startOfDay();
+                $instanceDate = $dayBase->copy()->addDays($i)->startOfDay();
 
                 TaskInstance::create([
                     'recurring_task_id' => $recurring->id,
@@ -744,7 +767,8 @@ class StudentLifeSampleSeeder extends Seeder
     private function seedStudentTasks(User $user, Carbon $now, Carbon $dueDateFloor): void
     {
         foreach (self::STUDENT_TASKS as $spec) {
-            $start = $now->copy()
+            $base = $this->openScheduleBase($now, (string) $spec['title']);
+            $start = $base->copy()
                 ->addDays((int) $spec['days_from_now'])
                 ->setTime(10, 0);
             $end = $start->copy()->addHours(2);
@@ -780,7 +804,8 @@ class StudentLifeSampleSeeder extends Seeder
                 $start = $now->copy()->addMinutes((int) $spec['start_offset_minutes']);
                 $end = $now->copy()->addMinutes((int) $spec['end_offset_minutes']);
             } else {
-                $start = $now->copy()
+                $base = $this->openScheduleBase($now, (string) $spec['title']);
+                $start = $base->copy()
                     ->addDays((int) ($spec['days_from_now'] ?? 0))
                     ->setTime(18, 0);
                 $end = $start->copy()->addHours(4);
@@ -826,7 +851,8 @@ class StudentLifeSampleSeeder extends Seeder
         $projects = [];
 
         foreach (self::PROJECTS as $index => $spec) {
-            $start = $now->copy()->addDays($index)->setTime(9, 0);
+            $base = $this->openScheduleBase($now, (string) $spec['name']);
+            $start = $base->copy()->addDays($index)->setTime(9, 0);
             $end = $start->copy()->addWeeks(3);
             $end = $this->clampTaskDueDate($end, null, $dueDateFloor, (string) $spec['name']);
 
@@ -1024,10 +1050,12 @@ class StudentLifeSampleSeeder extends Seeder
             [$startHour, $startMinute] = explode(':', $spec['start_time']);
             [$endHour, $endMinute] = explode(':', $spec['end_time']);
 
-            $start = $now->copy()
+            $base = $this->openScheduleBase($now, (string) $spec['title']);
+
+            $start = $base->copy()
                 ->addDays((int) $spec['days_from_now'])
                 ->setTime((int) $startHour, (int) $startMinute);
-            $end = $now->copy()
+            $end = $base->copy()
                 ->addDays((int) $spec['days_from_now'])
                 ->setTime((int) $endHour, (int) $endMinute);
 
@@ -1062,6 +1090,31 @@ class StudentLifeSampleSeeder extends Seeder
             'start_datetime' => $event->start_datetime,
             'end_datetime' => $event->start_datetime?->copy()->addMonths(2),
         ]);
+    }
+
+    /**
+     * Start of calendar day between {@see MIN_OPEN_SCHEDULE_LEAD_DAYS} and +5 from local “today”, stable per seed key.
+     */
+    private function openScheduleBase(Carbon $now, string $entropyKey): Carbon
+    {
+        $jitter = $this->stableJitterDays($entropyKey, self::OPEN_SCHEDULE_LEAD_SPREAD_DAYS);
+
+        return $now->copy()
+            ->setTimezone($now->getTimezone())
+            ->startOfDay()
+            ->addDays(self::MIN_OPEN_SCHEDULE_LEAD_DAYS + $jitter);
+    }
+
+    /**
+     * @param  array<string, mixed>  $spec
+     */
+    private function brightspaceScheduleBase(Carbon $now, array $spec): Carbon
+    {
+        if (! empty($spec['completed'])) {
+            return $now->copy();
+        }
+
+        return $this->openScheduleBase($now, (string) ($spec['source_id'] ?? $spec['title']));
     }
 
     private function clampTaskDueDate(?Carbon $end, ?Carbon $completedAt, Carbon $dueDateFloor, string $entropyKey): ?Carbon

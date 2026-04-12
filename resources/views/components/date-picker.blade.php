@@ -7,6 +7,7 @@
     'align' => 'end',
     'initialValue' => null,
     'overdue' => false,
+    'itemId' => null,
     'readonly' => false,
 ])
 
@@ -66,6 +67,7 @@
     x-data="{
         readonly: @js($readonly),
         overdue: @js($overdue),
+        itemId: @js($itemId),
         type: @js($type),
         modelPath: @js($model),
         notSetLabel: @js($notSetLabel),
@@ -99,6 +101,45 @@
                     }
                 });
             }
+        },
+
+        resolveListItemCard() {
+            try {
+                const p = this.$parent;
+                if (p && p.$parent) {
+                    const card = p.$parent;
+                    if (card && card.kind) {
+                        return card;
+                    }
+                }
+            } catch (err) {}
+            if (this.itemId != null && typeof window !== 'undefined' && window.Alpine?.store) {
+                const store = window.Alpine.store('listItemCards');
+                if (store && store[this.itemId]) {
+                    return store[this.itemId];
+                }
+            }
+            return null;
+        },
+
+        terminalStatusSuppressesDueVisual() {
+            const card = this.resolveListItemCard();
+            const lr = typeof window !== 'undefined' ? window.__tasklystListRelevance : null;
+            if (!lr || !card || !card.kind) {
+                return false;
+            }
+            return lr.shouldSuppressOverdueVisualForStatus(card.kind, card.taskStatus, card.eventStatus);
+        },
+
+        handleWorkspaceItemUpdated(e) {
+            const d = e.detail || {};
+            if (this.itemId == null || d.property !== 'status') {
+                return;
+            }
+            if (String(d.itemId) !== String(this.itemId)) {
+                return;
+            }
+            this.updateEffectiveOverdue();
         },
 
         applyInitialValue() {
@@ -355,6 +396,9 @@
             } else {
                 this.effectiveOverdue = this.overdue;
             }
+            if (this.terminalStatusSuppressesDueVisual()) {
+                this.effectiveOverdue = false;
+            }
         },
 
         formatDisplayValue(value) {
@@ -439,6 +483,7 @@
     }"
     @date-picker-value="handleDatePickerValue($event)"
     @date-picker-revert="handleDatePickerRevert($event)"
+    @workspace-item-property-updated.window="handleWorkspaceItemUpdated($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
     x-id="['date-picker-dropdown']"
     class="relative inline-block date-picker-root {{ $initialEffectiveOverdue ? 'date-picker-root-overdue' : '' }}"

@@ -212,26 +212,10 @@
                     >
                         <div
                             x-show="loadingMore"
-                            class="mt-2 w-full space-y-2"
+                            class="mt-2 w-full"
                             aria-hidden="true"
                         >
-                            <flux:skeleton.group animate="shimmer" class="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
-                                <div class="flex items-start justify-between gap-2">
-                                    <div class="min-w-0 flex-1 space-y-2">
-                                        <flux:skeleton.line class="w-4/5" size="lg" />
-                                        <flux:skeleton.line class="w-2/3" />
-                                    </div>
-                                    <div class="flex shrink-0 items-center gap-2">
-                                        <flux:skeleton class="h-6 w-14 rounded-full" />
-                                        <flux:skeleton class="size-8 shrink-0 rounded" />
-                                    </div>
-                                </div>
-                                <div class="flex flex-wrap items-center gap-2 pt-0.5">
-                                    <flux:skeleton class="h-5 w-16 rounded-full" />
-                                    <flux:skeleton class="h-5 w-20 rounded-full" />
-                                    <flux:skeleton class="h-5 w-14 rounded-full" />
-                                </div>
-                            </flux:skeleton.group>
+                            <x-workspace.skeleton-list-item-card />
                         </div>
                     </div>
                 @endif

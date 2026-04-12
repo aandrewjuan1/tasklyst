@@ -5,6 +5,7 @@
     'listFilterDate' => null,
     'initialStatus' => null,
     'isOverdue' => false,
+    'showOverdueVisual' => null,
 ])
 
 @php
@@ -311,6 +312,21 @@
                 }
 
                 $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
+                if (this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-item-property-updated', {
+                            detail: {
+                                kind: 'event',
+                                itemId: this.itemId,
+                                property,
+                                value,
+                                startDatetime: this.startDatetime,
+                                endDatetime: this.endDatetime,
+                            },
+                            bubbles: true,
+                        }),
+                    );
+                }
 
                 const occurrenceDate = (property === 'status' && this.isRecurringEvent && this.listFilterDate) ? this.listFilterDate : null;
                 const ok = await $wire.$parent.$call(this.updatePropertyMethod, this.itemId, property, value, false, occurrenceDate);
@@ -517,7 +533,8 @@
         position="top"
         align="end"
         :initial-value="$eventEndDatetimeInitial"
-        :overdue="$isOverdue"
+        :overdue="$showOverdueVisual ?? $isOverdue"
+        :item-id="$item->id"
         :readonly="!$canEditDates"
         data-task-creation-safe
     />

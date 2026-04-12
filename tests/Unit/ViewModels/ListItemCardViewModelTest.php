@@ -1,6 +1,8 @@
 <?php
 
+use App\Enums\EventStatus;
 use App\Enums\FocusSessionType;
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\FocusSession;
 use App\Models\Project;
@@ -335,4 +337,136 @@ it('computes task progress from ended and paused work sessions only', function (
         ->and($config['taskFocusSpentSeconds'])->toBe($expectedSpent)
         ->and($config['taskFocusRemainingSeconds'])->toBe($expectedRemaining)
         ->and($config['taskFocusProgressPercent'])->toBe($expectedPercent);
+});
+
+it('showOverdueVisual is false when item is not flagged overdue', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::Done,
+        'end_datetime' => now()->subDay(),
+    ]);
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($vm->viewData()['showOverdueVisual'])->toBeFalse();
+});
+
+it('showOverdueVisual is false for overdue done task', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::Done,
+        'end_datetime' => now()->subDay(),
+    ]);
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: true,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($vm->viewData()['showOverdueVisual'])->toBeFalse();
+});
+
+it('showOverdueVisual is true for overdue non-done task', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->subDay(),
+    ]);
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: true,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($vm->viewData()['showOverdueVisual'])->toBeTrue();
+});
+
+it('showOverdueVisual is false for overdue completed or cancelled event', function (EventStatus $status) {
+    $this->actingAs($this->user);
+    $event = Event::factory()->for($this->user)->create([
+        'status' => $status,
+        'end_datetime' => now()->subDay(),
+    ]);
+    $vm = new ListItemCardViewModel(
+        kind: 'event',
+        item: $event,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: true,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($vm->viewData()['showOverdueVisual'])->toBeFalse();
+})->with([
+    'completed' => EventStatus::Completed,
+    'cancelled' => EventStatus::Cancelled,
+]);
+
+it('showOverdueVisual is true for overdue non-terminal event', function () {
+    $this->actingAs($this->user);
+    $event = Event::factory()->for($this->user)->create([
+        'status' => EventStatus::Scheduled,
+        'end_datetime' => now()->subDay(),
+    ]);
+    $vm = new ListItemCardViewModel(
+        kind: 'event',
+        item: $event,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: true,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($vm->viewData()['showOverdueVisual'])->toBeTrue();
+});
+
+it('exposes eventStatus in alpineConfig for events and null for tasks', function () {
+    $this->actingAs($this->user);
+    $event = Event::factory()->for($this->user)->create(['status' => EventStatus::Tentative]);
+    $eventVm = new ListItemCardViewModel(
+        kind: 'event',
+        item: $event,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    $taskVm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $this->task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($eventVm->alpineConfig()['eventStatus'])->toBe('tentative')
+        ->and($taskVm->alpineConfig()['eventStatus'])->toBeNull();
 });

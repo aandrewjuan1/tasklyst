@@ -69,3 +69,24 @@ export function isStillOverdue(startDatetime, endDatetime) {
     if (!end) return false;
     return end.getTime() < Date.now();
 }
+
+/**
+ * When true, overdue pill and due-date red styling should be hidden (task done or event terminal).
+ *
+ * @param {string} kind - 'task' | 'event' | etc.
+ * @param {string|null|undefined} taskStatus
+ * @param {string|null|undefined} eventStatus
+ * @returns {boolean}
+ */
+export function shouldSuppressOverdueVisualForStatus(kind, taskStatus, eventStatus) {
+    if (kind === 'task' && String(taskStatus ?? '') === 'done') {
+        return true;
+    }
+    if (kind === 'event') {
+        const s = String(eventStatus ?? '');
+        if (s === 'completed' || s === 'cancelled') {
+            return true;
+        }
+    }
+    return false;
+}

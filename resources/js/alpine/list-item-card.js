@@ -16,6 +16,7 @@ import {
 import {
     isItemStillRelevantForList,
     isStillOverdue as isStillOverdueLib,
+    shouldSuppressOverdueVisualForStatus,
 } from '../lib/list-relevance.js';
 import {
     getPomodoroSettingsPayload as getPomodoroSettingsPayloadLib,
@@ -396,6 +397,16 @@ export function listItemCard(config) {
                 return '';
             }
             return formatFocusCountdownLib(this.taskFocusTargetSeconds);
+        },
+        get shouldShowOverduePill() {
+            const overdue = (this.isOverdue || this.clientOverdue) && !this.clientNotOverdue;
+            if (!overdue) {
+                return false;
+            }
+            if (shouldSuppressOverdueVisualForStatus(this.kind, this.taskStatus, this.eventStatus)) {
+                return false;
+            }
+            return true;
         },
         get isTaskDoneForProgress() {
             return this.kind === 'task' && String(this.taskStatus ?? '') === 'done';
@@ -1099,6 +1110,9 @@ export function listItemCard(config) {
                     const previousStatus = this.taskStatus;
                     this.taskStatus = d.value;
                     this.applyTaskStatusTransition(previousStatus, this.taskStatus);
+                }
+                if (d && d.property === 'status' && this.kind === 'event') {
+                    this.eventStatus = d.value ?? null;
                 }
                  if (d && d.property === 'title' && this.kind === 'task') {
                      this.editedTitle = d.value ?? '';

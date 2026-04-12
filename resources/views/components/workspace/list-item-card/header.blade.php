@@ -332,8 +332,8 @@
 
             @if(in_array($kind, ['task', 'event'], true))
                 <span
-                    x-show="(isOverdue || clientOverdue) && !clientNotOverdue"
-                    @if(!$isOverdue) style="display: none" @endif
+                    x-show="shouldShowOverduePill"
+                    @if(!$showOverdueVisual) style="display: none" @endif
                     class="inline-flex items-center gap-1 rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-400"
                 >
                     <flux:icon name="exclamation-triangle" class="size-3 shrink-0" />

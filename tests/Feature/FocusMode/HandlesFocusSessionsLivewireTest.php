@@ -113,6 +113,74 @@ test('workspace index startFocusSession persists resumed_from_focus_session_id i
         ->and(($session->payload['resumed_from_focus_session_id'] ?? null))->toBe($previous->id);
 });
 
+test('workspace index startFocusSession sets task duration to 25 minutes when task has no duration', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create(['duration' => null]);
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 1800,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'used_task_duration' => false,
+            'focus_mode_type' => 'countdown',
+        ],
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertDispatched(
+            'toast',
+            type: 'info',
+            message: __('Task duration was set to :minutes minutes so progress can be tracked.', ['minutes' => 25])
+        )
+        ->assertNotDispatched('toast', type: 'error');
+
+    $task->refresh();
+    expect($task->duration)->toBe(25);
+
+    $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull()
+        ->and($session->duration_seconds)->toBe(1500)
+        ->and(($session->payload['used_task_duration'] ?? false))->toBeTrue()
+        ->and(array_key_exists('used_default_duration', $session->payload ?? []))->toBeFalse();
+});
+
+test('workspace index startFocusSession does not default duration when resuming previous session', function (): void {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create(['duration' => null]);
+
+    $previous = FocusSession::factory()->for($this->user)->work()->create([
+        'focusable_type' => Task::class,
+        'focusable_id' => $task->id,
+        'completed' => false,
+        'ended_at' => now(),
+    ]);
+
+    $payload = [
+        'type' => 'work',
+        'duration_seconds' => 900,
+        'started_at' => now()->toIso8601String(),
+        'sequence_number' => 1,
+        'payload' => [
+            'focus_mode_type' => 'countdown',
+            'resumed_from_focus_session_id' => $previous->id,
+        ],
+    ];
+
+    Livewire::test('pages::workspace.index')
+        ->call('startFocusSession', $task->id, $payload)
+        ->assertNotDispatched('toast', type: 'error');
+
+    $task->refresh();
+    expect($task->duration)->toBeNull();
+
+    $session = FocusSession::query()->where('user_id', $this->user->id)->inProgress()->first();
+    expect($session)->not->toBeNull()
+        ->and($session->duration_seconds)->toBe(900);
+});
+
 test('workspace index startFocusSession rejects resumed_from_focus_session_id from another task', function (): void {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create();

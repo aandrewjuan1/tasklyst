@@ -890,6 +890,24 @@ export function createFocusSessionController() {
                     payload: ctx.activeFocusSession?.payload ?? result.payload ?? {},
                 };
                 ctx.activeFocusSession = merged;
+                const defaultedMins =
+                    result.duration_defaulted_to_minutes != null ? Number(result.duration_defaulted_to_minutes) : null;
+                if (ctx.kind === 'task' && Number.isFinite(defaultedMins) && defaultedMins > 0) {
+                    ctx.taskDurationMinutes = defaultedMins;
+                    ctx.hasTaskDurationTarget = true;
+                    ctx.taskTargetDurationSeconds = Math.max(0, Math.floor(defaultedMins * 60));
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-item-property-updated', {
+                            detail: {
+                                kind: 'task',
+                                itemId: ctx.itemId,
+                                property: 'duration',
+                                value: defaultedMins,
+                            },
+                            bubbles: true,
+                        }),
+                    );
+                }
                 if (shouldResumePrevious) {
                     ctx.previousUnfinishedSession = null;
                 }

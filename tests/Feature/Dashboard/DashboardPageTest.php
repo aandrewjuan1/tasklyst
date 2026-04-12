@@ -44,6 +44,15 @@ test('dashboard hero greets user by first name', function () {
     $response->assertSee('Dashboard — Hello, Jordan!', false);
 });
 
+test('dashboard hero clips the gradient in an inner layer so notification popovers are not clipped by overflow', function () {
+    $user = User::factory()->create();
+
+    $html = (string) $this->actingAs($user)->get(route('dashboard'))->getContent();
+
+    expect($html)->toContain('pointer-events-none absolute inset-0 overflow-hidden rounded-2xl');
+    expect($html)->toContain('data-test="notifications-bell-button"');
+});
+
 test('dashboard summary shows total incomplete tasks count', function () {
     $user = User::factory()->create();
 

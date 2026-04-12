@@ -131,6 +131,7 @@
                                 :list-filter-date="$listFilterDate"
                                 :initial-status="$eventEffectiveStatus?->value ?? $item->status?->value"
                                 :is-overdue="$isOverdue"
+                                :show-overdue-visual="$showOverdueVisual"
                             />
                         @elseif($kind === 'task')
                             <x-workspace.list-item-task
@@ -140,6 +141,7 @@
                                 :list-filter-date="$listFilterDate"
                                 :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                                 :is-overdue="$isOverdue"
+                                :show-overdue-visual="$showOverdueVisual"
                                 :layout="$layout"
                                 :embed-in-focus-modal="true"
                             />
@@ -179,6 +181,7 @@
                     :list-filter-date="$listFilterDate"
                     :initial-status="$eventEffectiveStatus?->value ?? $item->status?->value"
                     :is-overdue="$isOverdue"
+                    :show-overdue-visual="$showOverdueVisual"
                 />
             @elseif($kind === 'task')
                 <x-workspace.list-item-task
@@ -188,6 +191,7 @@
                     :list-filter-date="$listFilterDate"
                     :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                     :is-overdue="$isOverdue"
+                    :show-overdue-visual="$showOverdueVisual"
                     :layout="$layout"
                 />
             @endif

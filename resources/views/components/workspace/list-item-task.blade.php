@@ -5,6 +5,7 @@
     'listFilterDate' => null,
     'initialStatus' => null,
     'isOverdue' => false,
+    'showOverdueVisual' => null,
     'layout' => 'list',
     'embedInFocusModal' => false,
 ])
@@ -410,7 +411,7 @@
                 else if (property === 'recurrence') this.recurrence = value;
 
                 $dispatch('item-property-updated', { property, value, startDatetime: this.startDatetime, endDatetime: this.endDatetime });
-                if (this.kind === 'task' && this.itemId != null) {
+                if (this.itemId != null) {
                     window.dispatchEvent(
                         new CustomEvent('workspace-item-property-updated', {
                             detail: {
@@ -870,7 +871,8 @@
         position="top"
         align="end"
         :initial-value="$endDatetimeInitial"
-        :overdue="$isOverdue"
+        :overdue="$showOverdueVisual ?? $isOverdue"
+        :item-id="$item->id"
         :readonly="!$canEditDates"
         data-task-creation-safe
     />

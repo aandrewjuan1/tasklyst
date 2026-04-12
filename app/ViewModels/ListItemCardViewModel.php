@@ -282,7 +282,28 @@ class ListItemCardViewModel
                 && (string) $this->listFilterDate !== '',
             'recurringEventIdForSelection' => $kind === 'event' && $item->recurringEvent ? $item->recurringEvent->id : null,
             'recurringTaskIdForSelection' => $kind === 'task' && $item->recurringTask ? $item->recurringTask->id : null,
+            'showOverdueVisual' => $this->shouldShowOverdueVisual(),
         ];
+    }
+
+    /**
+     * Whether overdue pill / due-date red styling should show. List semantics still use {@see $isOverdue}.
+     */
+    private function shouldShowOverdueVisual(): bool
+    {
+        if (! $this->isOverdue) {
+            return false;
+        }
+
+        return match ($this->kind) {
+            'task' => ($this->item->effectiveStatusForDate ?? $this->item->status) !== TaskStatus::Done,
+            'event' => ! in_array(
+                $this->item->effectiveStatusForDate ?? $this->item->status,
+                [EventStatus::Completed, EventStatus::Cancelled],
+                true
+            ),
+            default => true,
+        };
     }
 
     /**
@@ -403,6 +424,7 @@ class ListItemCardViewModel
             'taskStatus' => $kind === 'task' ? ($data['effectiveStatus']?->value ?? null) : null,
             'taskStatusLabel' => $kind === 'task' ? ($data['statusInitialOption']['label'] ?? '') : null,
             'taskStatusClass' => $kind === 'task' ? ($data['statusInitialClass'] ?? 'bg-muted text-muted-foreground') : null,
+            'eventStatus' => $kind === 'event' ? ($data['eventEffectiveStatus']?->value ?? null) : null,
             'sourceUrl' => $kind === 'task' ? ($item->source_url ?? null) : null,
             'hasTaskDurationTarget' => $hasTaskDurationTarget,
             'taskTargetDurationSeconds' => $taskTargetDurationSeconds,

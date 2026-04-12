@@ -31,6 +31,7 @@ use Livewire\Attributes\Renderless;
  * - GetActiveFocusSessionAction $getActiveFocusSessionAction
  * - PauseFocusSessionAction $pauseFocusSessionAction
  * - ResumeFocusSessionAction $resumeFocusSessionAction
+ * - UpdateTaskPropertyAction $updateTaskPropertyAction (for defaulting task duration on focus start)
  *
  * For pomodoro functionality, also requires:
  * - CompletePomodoroSessionAction $completePomodoroSessionAction (optional, for pomodoro completion)
@@ -42,11 +43,13 @@ use Livewire\Attributes\Renderless;
  */
 trait HandlesFocusSessions
 {
+    private const FOCUS_START_DEFAULT_DURATION_MINUTES = 25;
+
     /**
      * Start a focus session for a task. Payload: type, duration_seconds, started_at, optional sequence_number, optional used_task_duration.
      *
      * @param  array<string, mixed>  $payload
-     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int, sequence_number: int}|array{error: string}
+     * @return array{id: int, started_at: string, duration_seconds: int, type: string, task_id: int, sequence_number: int, duration_defaulted_to_minutes?: int}|array{error: string}
      */
     #[Async]
     #[Renderless]
@@ -116,11 +119,43 @@ trait HandlesFocusSessions
             $sessionPayload['resumed_from_focus_session_id'] = (int) $resumedFromSessionId;
         }
 
+        $isResuming = is_numeric($resumedFromSessionId) && (int) $resumedFromSessionId > 0;
+        $effectiveDurationSeconds = (int) $validated['duration_seconds'];
+        $durationDefaultedToMinutes = null;
+
+        if (! $isResuming && (int) ($task->duration ?? 0) <= 0) {
+            $updateResult = $this->updateTaskPropertyAction->execute(
+                $task,
+                'duration',
+                self::FOCUS_START_DEFAULT_DURATION_MINUTES,
+                null,
+                $user
+            );
+
+            if (! $updateResult->success) {
+                $message = $updateResult->errorMessage ?? __('Could not set a default duration for this task.');
+                $this->dispatch('toast', type: 'error', message: $message);
+
+                return ['error' => $message];
+            }
+
+            $task->refresh();
+            $durationDefaultedToMinutes = self::FOCUS_START_DEFAULT_DURATION_MINUTES;
+            $effectiveDurationSeconds = self::FOCUS_START_DEFAULT_DURATION_MINUTES * 60;
+            $sessionPayload['used_task_duration'] = true;
+            unset($sessionPayload['used_default_duration']);
+            $this->dispatch(
+                'toast',
+                type: 'info',
+                message: __('Task duration was set to :minutes minutes so progress can be tracked.', ['minutes' => self::FOCUS_START_DEFAULT_DURATION_MINUTES])
+            );
+        }
+
         $session = $this->startFocusSessionAction->execute(
             $user,
             $task,
             $type,
-            (int) $validated['duration_seconds'],
+            $effectiveDurationSeconds,
             $validated['started_at'],
             (int) ($validated['sequence_number'] ?? 1),
             $sessionPayload,
@@ -137,6 +172,10 @@ trait HandlesFocusSessions
             'sequence_number' => $session->sequence_number,
             'payload' => $session->payload ?? [],
         ];
+
+        if ($durationDefaultedToMinutes !== null) {
+            $result['duration_defaulted_to_minutes'] = $durationDefaultedToMinutes;
+        }
 
         if (property_exists($this, 'activeFocusSession')) {
             $this->activeFocusSession = $result;

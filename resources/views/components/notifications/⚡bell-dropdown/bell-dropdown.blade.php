@@ -10,7 +10,7 @@
 @endphp
 
 <div
-    class="relative inline-flex"
+    class="relative z-20 inline-flex"
     x-data
     @keydown.escape.window="$wire.set('panelOpen', false)"
     @click.outside="$wire.set('panelOpen', false)"
@@ -40,7 +40,7 @@
 
     @if ($panelOpen)
         <div
-            class="absolute right-0 top-full z-50 mt-2 w-96 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
+            class="absolute right-0 top-full z-[200] mt-2 w-96 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
             role="region"
             aria-label="{{ __('Notifications') }}"
         >
