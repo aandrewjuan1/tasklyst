@@ -41,7 +41,7 @@
     {{ $attributes->merge([
         'id' => 'workspace-item-'.$kind.'-'.$item->id,
         'class' => $isKanbanLayout
-            ? 'list-item-card flex flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out'
+            ? 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out'
             : 'list-item-card scroll-mt-28 flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
     ]) }}
     wire:ignore
@@ -115,7 +115,7 @@
                     class="is-focus-locked flex flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3 pt-0"
                     :class="{ 'pointer-events-none select-none': isCardLockedForFocus }"
                 >
-                    @include('components.workspace.list-item-card.header', ['layout' => $layout])
+                    @include('components.workspace.list-item-card.header', ['layout' => 'list'])
                     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
                         @if($kind === 'project')
                             <x-workspace.list-item-project
@@ -142,7 +142,7 @@
                                 :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                                 :is-overdue="$isOverdue"
                                 :show-overdue-visual="$showOverdueVisual"
-                                :layout="$layout"
+                                layout="list"
                                 :embed-in-focus-modal="true"
                             />
                         @endif
@@ -166,7 +166,11 @@
         ></div>
         @include('components.workspace.list-item-card.header', ['layout' => $layout])
 
-        <div class="flex flex-wrap items-center text-xs {{ $isKanbanLayout ? 'gap-1 pt-0.5' : 'gap-2 pt-0.5' }}">
+        <div @class([
+            'min-w-0',
+            'border-t border-border/50 pt-2' => $isKanbanLayout,
+        ])>
+        <div class="flex flex-wrap items-center text-xs gap-2 {{ $isKanbanLayout ? '' : 'pt-0.5' }}">
             @if($kind === 'project')
                 <x-workspace.list-item-project
                     :item="$item"
@@ -196,11 +200,12 @@
                 />
             @endif
         </div>
+        </div>
 
         @if(in_array($kind, ['project', 'event'], true))
             <x-workspace.subtasks :item="$item" :kind="$kind" />
         @endif
 
-        <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
+        <x-workspace.comments :item="$item" :kind="$kind" :layout="$layout" :readonly="!$canEdit" />
     </div>
 </div>

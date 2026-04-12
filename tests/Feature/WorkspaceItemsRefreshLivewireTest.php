@@ -23,9 +23,10 @@ test('workspace items fingerprint changes when refreshing workspace items', func
 test('workspace page includes notification bell strip markup', function (): void {
     $this->actingAs($this->user);
 
-    $this->get(route('workspace'))
-        ->assertSuccessful()
-        ->assertSee('data-test="notifications-bell-button"', false);
+    $html = (string) $this->get(route('workspace'))->assertSuccessful()->getContent();
+
+    expect($html)->toContain('data-test="notifications-bell-button"');
+    expect(substr_count($html, 'data-test="notifications-bell-button"'))->toBe(1);
 });
 
 test('workspace hero clips the gradient in an inner layer so notification popovers are not clipped by overflow', function (): void {

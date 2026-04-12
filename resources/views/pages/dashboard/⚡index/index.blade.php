@@ -111,7 +111,7 @@
                                 </div>
                                 <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                                     @php
-                                        $greetingName = auth()->user()->firstName();
+                                        $greetingName = auth()->user()?->firstName() ?? '';
                                     @endphp
                                     <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
                                         <p class="min-w-0 flex-1 text-xs font-semibold uppercase leading-tight tracking-[0.14em] text-brand-blue/90 sm:text-sm">

@@ -59,6 +59,20 @@ test('bell exposes notifications and unreadCount with expected types', function 
         ->and($component->get('hasMoreNotifications'))->toBeBool();
 });
 
+test('close panel action closes the notification popover', function (): void {
+    $user = $this->user;
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+
+    $component->call('togglePanel');
+
+    expect($component->get('panelOpen'))->toBeTrue();
+
+    $component->call('closePanel');
+
+    expect($component->get('panelOpen'))->toBeFalse();
+});
+
 test('bell dropdown renders notification title and message in the dom', function (): void {
     $user = $this->user;
 
@@ -79,6 +93,7 @@ test('bell dropdown renders notification title and message in the dom', function
     Livewire::actingAs($user)
         ->test('notifications.bell-dropdown')
         ->call('togglePanel')
+        ->assertSee('data-test="notifications-close-panel"', false)
         ->assertSee('Bell title seed unique')
         ->assertSee('Bell message body unique');
 });

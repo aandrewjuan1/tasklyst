@@ -22,17 +22,10 @@ class ReminderFactory extends Factory
      */
     public function definition(): array
     {
-        $user = User::factory()->create();
-
-        $task = Task::factory()->create([
-            'user_id' => $user->id,
-            'end_datetime' => now()->addDay(),
-        ]);
-
         return [
-            'user_id' => $user->id,
-            'remindable_type' => $task->getMorphClass(),
-            'remindable_id' => $task->id,
+            'user_id' => User::factory(),
+            'remindable_type' => (new Task)->getMorphClass(),
+            'remindable_id' => Task::factory(),
             'type' => ReminderType::TaskDueSoon,
             'scheduled_at' => now()->addHour(),
             'status' => ReminderStatus::Pending,
@@ -40,9 +33,9 @@ class ReminderFactory extends Factory
             'cancelled_at' => null,
             'snoozed_until' => null,
             'payload' => [
-                'task_id' => $task->id,
-                'task_title' => (string) $task->title,
-                'due_at' => $task->end_datetime?->toIso8601String(),
+                'task_id' => 0,
+                'task_title' => '',
+                'due_at' => null,
                 'offset_minutes' => 60,
             ],
         ];

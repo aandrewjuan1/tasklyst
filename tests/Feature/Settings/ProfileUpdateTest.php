@@ -12,6 +12,16 @@ test('profile page is displayed', function () {
     $this->get('/settings/profile')->assertOk();
 });
 
+test('profile page includes the mobile header notification bell', function () {
+    $this->withoutMiddleware();
+
+    $user = User::factory()->create();
+
+    $html = (string) $this->actingAs($user)->get('/settings/profile')->assertOk()->getContent();
+
+    expect($html)->toContain('data-test="notifications-bell-button"');
+});
+
 test('profile information can be updated', function () {
     $user = User::factory()->create();
 

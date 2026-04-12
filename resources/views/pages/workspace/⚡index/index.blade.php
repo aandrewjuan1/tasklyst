@@ -79,7 +79,7 @@
                 </div>
                 <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                     @php
-                        $greetingName = auth()->user()->firstName();
+                        $greetingName = auth()->user()?->firstName() ?? '';
                     @endphp
                     <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
                         <p class="min-w-0 flex-1 text-xs font-semibold uppercase leading-tight tracking-[0.14em] text-brand-blue/90 sm:text-sm">
@@ -198,7 +198,7 @@
                     role="tabpanel"
                     aria-labelledby="workspace-view-list"
                     class="w-full"
-                    style="{{ $viewMode !== 'list' ? 'display: none' : '' }}"
+                    style="{{ $this->viewMode !== 'list' ? 'display: none' : '' }}"
                     x-show="$wire.viewMode === 'list'"
                     x-transition:enter="transition ease-out duration-150"
                     x-transition:enter-start="opacity-0"
@@ -225,7 +225,7 @@
                     role="tabpanel"
                     aria-labelledby="workspace-view-kanban"
                     class="w-full"
-                    style="{{ $viewMode !== 'kanban' ? 'display: none' : '' }}"
+                    style="{{ $this->viewMode !== 'kanban' ? 'display: none' : '' }}"
                     x-show="$wire.viewMode === 'kanban'"
                     x-transition:enter="transition ease-out duration-150"
                     x-transition:enter-start="opacity-0"

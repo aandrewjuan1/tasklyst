@@ -29,8 +29,8 @@ test('tag selection embeds initial selected tags for optimistic display', functi
         ->toContain('Beta')
         // Server-rendered tags for first paint
         ->toContain('x-show="!alpineReady"')
-        // Alpine-rendered tags after hydration
-        ->toContain('x-show="alpineReady"')
+        // Alpine-rendered tags after hydration (combined with compact/index guards)
+        ->toContain('x-show="alpineReady &&')
         ->toContain('x-init="alpineReady = true"')
         ->toContain('alpineReady: false');
 });

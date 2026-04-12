@@ -9,7 +9,7 @@
             <p
                 x-show="!isEditingTitle"
                 @click="canEdit && startEditingTitle()"
-                class="truncate font-semibold leading-tight transition-opacity {{ $isKanbanLayout ? 'text-sm md:text-base' : 'text-lg' }}"
+                class="truncate font-semibold transition-opacity {{ $isKanbanLayout ? 'text-sm leading-snug md:text-base' : 'text-lg leading-tight' }}"
                 :class="canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default'"
                 x-text="editedTitle"
             >
@@ -255,7 +255,7 @@
     {{-- Kanban layout: place pills and ellipsis below the title to avoid overlap and overflow --}}
     @if($isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
         <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div class="flex flex-wrap items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-2">
                 @if($type)
                     <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {{ $type }}

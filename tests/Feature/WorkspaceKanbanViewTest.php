@@ -16,7 +16,9 @@ test('workspace with view kanban shows Kanban board columns', function (): void 
         ->assertSee(__('To Do'))
         ->assertSee(__('Doing'))
         ->assertSee(__('Done'))
-        ->assertSee(__('Kanban'));
+        ->assertSee(__('Kanban'))
+        ->assertSee(__('No tasks in this column'))
+        ->assertDontSee(__('No tasks, projects, or events in this column'));
 });
 
 test('creating a task while in kanban view shows it on the board', function (): void {
@@ -62,8 +64,10 @@ test('workspace list view mounts only the nested list livewire component', funct
 
     $this->get(route('workspace', ['view' => 'list']))
         ->assertSuccessful()
-        ->assertSeeLivewire('pages::workspace.list')
-        ->assertDontSeeLivewire('pages::workspace.kanban');
+        ->assertSee('wire:key="workspace-list-', false)
+        ->assertDontSee('wire:key="workspace-kanban-', false)
+        ->assertDontSee('data-kanban-column', false)
+        ->assertDontSee(__('Kanban board'), false);
 });
 
 test('workspace kanban view mounts only the nested kanban livewire component', function (): void {
@@ -71,8 +75,26 @@ test('workspace kanban view mounts only the nested kanban livewire component', f
 
     $this->get(route('workspace', ['view' => 'kanban']))
         ->assertSuccessful()
-        ->assertSeeLivewire('pages::workspace.kanban')
-        ->assertDontSeeLivewire('pages::workspace.list');
+        ->assertSee('wire:key="workspace-kanban-', false)
+        ->assertSee('data-kanban-column', false)
+        ->assertSee(__('Kanban board'), false)
+        ->assertDontSee('wire:key="workspace-list-', false);
+});
+
+test('kanban column shells allow overflow so anchored dropdowns are not clipped', function (): void {
+    $this->actingAs($this->user);
+
+    $html = $this->get(route('workspace', ['view' => 'kanban']))
+        ->assertSuccessful()
+        ->getContent();
+
+    preg_match_all('/<div\b[^>]*\bdata-kanban-column\b[^>]*>/i', $html, $matches);
+    expect($matches[0])->not->toBeEmpty();
+
+    foreach ($matches[0] as $tag) {
+        expect($tag)->toContain('overflow-visible')
+            ->and($tag)->not->toContain('overflow-hidden');
+    }
 });
 
 test('switching view mode from list to kanban renders kanban child', function (): void {
@@ -81,8 +103,10 @@ test('switching view mode from list to kanban renders kanban child', function ()
     Livewire::test('pages::workspace.index')
         ->assertSet('viewMode', 'list')
         ->set('viewMode', 'kanban')
-        ->assertSeeLivewire('pages::workspace.kanban')
-        ->assertDontSeeLivewire('pages::workspace.list');
+        ->assertSee('wire:key="workspace-kanban-', false)
+        ->assertSee('data-kanban-column', false)
+        ->assertSee(__('Kanban board'), false)
+        ->assertDontSee('wire:key="workspace-list-', false);
 });
 
 test('setFilter updates workspace state without requiring list remount counter', function (): void {

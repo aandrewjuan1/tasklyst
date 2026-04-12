@@ -140,6 +140,9 @@
 
     // Match task progress: hide Focus when done on first paint; Alpine `status` + x-show keeps updates in sync.
     $hideFocusButtonInitiallyDone = ($initialStatusValue ?? '') === 'done';
+
+    $useKanbanCompact = ($layout ?? 'list') === 'kanban' && ! ($embedInFocusModal ?? false);
+    $taskDropdownAlign = $useKanbanCompact ? 'start' : 'end';
 @endphp
 
 <div
@@ -337,6 +340,9 @@
         },
         itemTitle: @js($item->title ?? ''),
         itemTypeLabel: @js(__('Task')),
+        priorityFieldLabel: @js(__('Priority')),
+        complexityFieldLabel: @js(__('Complexity')),
+        durationFieldLabel: @js(__('Duration')),
         editDateRangeError: null,
         datePickerOriginals: {},
         dateRangeMessages: {
@@ -583,7 +589,10 @@
         },
     }"
     x-effect="syncListItemCardScope()"
-    class="contents"
+    @class([
+        'contents' => ! $useKanbanCompact,
+        'flex w-full min-w-0 flex-col gap-2' => $useKanbanCompact,
+    ])
     @date-picker-opened="handleDatePickerOpened($event)"
     @date-picker-value-changed="handleDatePickerValueChanged($event)"
     @date-picker-updated="handleDatePickerUpdated($event)"
@@ -591,7 +600,278 @@
     @tag-created.window="onTagCreated($event)"
     @tag-deleted.window="onTagDeleted($event)"
 >
-    @if($item->status)
+    @if($useKanbanCompact)
+        <div class="flex w-full min-w-0 flex-wrap items-center gap-2">
+            <x-date-picker
+                model="startDatetime"
+                type="datetime-local"
+                :triggerLabel="__('Start')"
+                :label="__('Start Date')"
+                position="top"
+                align="start"
+                :initial-value="$startDatetimeInitial"
+                :readonly="!$canEditDates"
+                compact
+                data-task-creation-safe
+            />
+            <x-date-picker
+                model="endDatetime"
+                type="datetime-local"
+                :triggerLabel="__('Due')"
+                :label="__('End Date')"
+                position="top"
+                align="start"
+                :initial-value="$endDatetimeInitial"
+                :overdue="$showOverdueVisual ?? $isOverdue"
+                :item-id="$item->id"
+                :readonly="!$canEditDates"
+                compact
+                data-task-creation-safe
+            />
+            <div class="flex w-full basis-full items-center gap-1.5" x-show="editDateRangeError" x-cloak>
+                <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600" />
+                <p class="text-xs font-medium text-red-600" x-text="editDateRangeError"></p>
+            </div>
+        </div>
+        <div class="flex w-full min-w-0 flex-wrap items-center gap-2">
+            @if($item->priority)
+                @if($canEdit)
+                    <x-simple-select-dropdown position="top" align="start">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-1 font-semibold transition-[box-shadow,transform] duration-150 ease-out {{ $priorityInitialClass }}"
+                                x-effect="$el.className = 'inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-1 font-semibold transition-[box-shadow,transform] duration-150 ease-out ' + (getOption(priorityOptions, priority) ? 'bg-' + getOption(priorityOptions, priority).color + '/10 text-' + getOption(priorityOptions, priority).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                                aria-haspopup="menu"
+                                x-bind:aria-label="priorityFieldLabel + ': ' + (getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || ''))"
+                            >
+                                <flux:icon name="bolt" class="size-3 shrink-0" />
+                                <span class="max-w-[5.5rem] truncate text-[11px] font-semibold uppercase" x-text="getOption(priorityOptions, priority) ? getOption(priorityOptions, priority).label : (priority || '')">{{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}</span>
+                                <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
+                            </button>
+                        </x-slot:trigger>
+
+                        <div class="flex flex-col py-1">
+                            @foreach ($priorityOptions as $opt)
+                                <button
+                                    type="button"
+                                    class="{{ $dropdownItemClass }}"
+                                    :class="{ 'font-semibold text-foreground': priority === '{{ $opt['value'] }}' }"
+                                    @click="updateProperty('priority', '{{ $opt['value'] }}')"
+                                >
+                                    {{ $opt['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-simple-select-dropdown>
+                @else
+                    <span
+                        class="inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-1 font-semibold {{ $priorityInitialClass }}"
+                        title="{{ __('Priority') }}: {{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}"
+                    >
+                        <flux:icon name="bolt" class="size-3 shrink-0" />
+                        <span class="max-w-[5.5rem] truncate text-[11px] font-semibold uppercase">
+                            {{ $priorityInitialOption ? $priorityInitialOption['label'] : '' }}
+                        </span>
+                    </span>
+                @endif
+            @endif
+
+            @if($item->complexity)
+                @if($canEdit)
+                    <x-simple-select-dropdown position="top" align="start">
+                        <x-slot:trigger>
+                            <button
+                                type="button"
+                                class="inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-1 font-semibold transition-[box-shadow,transform] duration-150 ease-out {{ $complexityInitialClass }}"
+                                x-effect="$el.className = 'inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-1 font-semibold transition-[box-shadow,transform] duration-150 ease-out ' + (getOption(complexityOptions, complexity) ? 'bg-' + getOption(complexityOptions, complexity).color + '/10 text-' + getOption(complexityOptions, complexity).color : 'bg-muted text-muted-foreground') + (open ? ' shadow-md scale-[1.02]' : '')"
+                                aria-haspopup="menu"
+                                x-bind:aria-label="complexityFieldLabel + ': ' + (getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || ''))"
+                            >
+                                <flux:icon name="squares-2x2" class="size-3 shrink-0" />
+                                <span class="max-w-[6rem] truncate text-[11px] font-semibold uppercase" x-text="getOption(complexityOptions, complexity) ? getOption(complexityOptions, complexity).label : (complexity || '')">{{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}</span>
+                                <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
+                            </button>
+                        </x-slot:trigger>
+
+                        <div class="flex flex-col py-1">
+                            @foreach ($complexityOptions as $opt)
+                                <button
+                                    type="button"
+                                    class="{{ $dropdownItemClass }}"
+                                    :class="{ 'font-semibold text-foreground': complexity === '{{ $opt['value'] }}' }"
+                                    @click="updateProperty('complexity', '{{ $opt['value'] }}')"
+                                >
+                                    {{ $opt['label'] }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-simple-select-dropdown>
+                @else
+                    <span
+                        class="inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-1 font-semibold {{ $complexityInitialClass }}"
+                        title="{{ __('Complexity') }}: {{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}"
+                    >
+                        <flux:icon name="squares-2x2" class="size-3 shrink-0" />
+                        <span class="max-w-[6rem] truncate text-[11px] font-semibold uppercase">
+                            {{ $complexityInitialOption ? $complexityInitialOption['label'] : '' }}
+                        </span>
+                    </span>
+                @endif
+            @endif
+
+            @if($canEdit)
+                <x-simple-select-dropdown position="top" align="start">
+                    <x-slot:trigger>
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-full border px-2 py-1 font-medium transition-[box-shadow,transform] duration-150 ease-out"
+                            :class="[
+                                duration == null ? 'border-border/40 bg-muted/50 text-muted-foreground' : 'border-border/60 bg-muted text-muted-foreground',
+                                open ? 'shadow-md scale-[1.02]' : '',
+                            ]"
+                            aria-haspopup="menu"
+                            x-bind:aria-label="durationFieldLabel + ': ' + formatDurationLabel(duration)"
+                        >
+                            <flux:icon name="clock" class="size-3 shrink-0" />
+                            <span class="max-w-[6rem] truncate text-[11px] font-semibold uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
+                            <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
+                        </button>
+                    </x-slot:trigger>
+
+                    <div
+                        class="flex flex-col py-1"
+                        x-data="{
+                            customDurationValue: '',
+                            customDurationUnit: 'minutes',
+                            maxDurationMinutes: @js(\App\Support\Validation\TaskPayloadValidation::MAX_DURATION_MINUTES),
+                            applyCustomDuration() {
+                                const n = parseInt(this.customDurationValue, 10);
+                                if (!Number.isFinite(n) || n <= 0) return;
+                                let minutes = this.customDurationUnit === 'hours' ? n * 60 : n;
+                                const max = Number(this.maxDurationMinutes) || 1440;
+                                if (minutes > max) {
+                                    minutes = max;
+                                }
+                                updateProperty('duration', minutes);
+                            },
+                        }"
+                    >
+                        <button
+                            type="button"
+                            class="{{ $dropdownItemClass }}"
+                            :class="{ 'font-semibold text-foreground': duration == null }"
+                            @click="updateProperty('duration', null)"
+                        >
+                            {{ __('Not set') }}
+                        </button>
+                        @foreach ($durationOptions as $dur)
+                            <button
+                                type="button"
+                                class="{{ $dropdownItemClass }}"
+                                :class="{ 'font-semibold text-foreground': duration == {{ $dur['value'] }} }"
+                                @click="updateProperty('duration', {{ $dur['value'] }})"
+                            >
+                                {{ $dur['label'] }}
+                            </button>
+                        @endforeach
+
+                        <div class="mt-1 border-t border-border/60 pt-2 px-3 pb-1 text-xs text-muted-foreground">
+                            <div class="mb-1 text-[11px] font-medium">
+                                {{ __('Custom duration') }}
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    x-model.number="customDurationValue"
+                                    placeholder="30"
+                                    @click.stop
+                                    @blur="applyCustomDuration()"
+                                    @keydown.enter.prevent.stop="applyCustomDuration()"
+                                    class="h-8 w-16 rounded-lg border border-zinc-200 bg-zinc-50 px-2 text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue"
+                                />
+                                <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm">
+                                    <button
+                                        type="button"
+                                        class="px-2 py-1 transition-colors"
+                                        :class="customDurationUnit === 'minutes'
+                                            ? 'bg-brand-blue text-white'
+                                            : 'text-zinc-600 hover:bg-zinc-100'"
+                                        @click.stop.prevent="customDurationUnit = 'minutes'; applyCustomDuration()"
+                                    >
+                                        {{ __('Min') }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="px-2 py-1 transition-colors"
+                                        :class="customDurationUnit === 'hours'
+                                            ? 'bg-brand-blue text-white'
+                                            : 'text-zinc-600 hover:bg-zinc-100'"
+                                        @click.stop.prevent="customDurationUnit = 'hours'; applyCustomDuration()"
+                                    >
+                                        {{ __('Hours') }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </x-simple-select-dropdown>
+            @else
+                <span
+                    class="inline-flex items-center gap-1 rounded-full border border-border/40 bg-muted/50 px-2 py-1 font-medium text-muted-foreground"
+                    title="{{ __('Duration') }}: {{ $durationInitialLabel }}"
+                >
+                    <flux:icon name="clock" class="size-3 shrink-0" />
+                    <span class="max-w-[6rem] truncate text-[11px] font-semibold uppercase">
+                        {{ $durationInitialLabel }}
+                    </span>
+                </span>
+            @endif
+
+            @if($showCourseContextPill)
+                <flux:tooltip content="{{ $courseContextTooltip }}" position="top" align="start">
+                    <span
+                        tabindex="0"
+                        class="inline-flex max-w-[min(100%,12rem)] cursor-default items-center gap-1 rounded-full border border-border/60 bg-muted px-2 py-1 font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                        <flux:icon name="book-open" class="size-3 shrink-0" />
+                        <span class="min-w-0 truncate text-[10px] font-semibold uppercase leading-tight">
+                            {{ $courseContextPillCompactLine }}
+                        </span>
+                    </span>
+                </flux:tooltip>
+            @endif
+
+            @php
+                $kanbanSourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
+            @endphp
+            @if($kanbanSourceUrl !== null && $kanbanSourceUrl !== '')
+                @php
+                    $kanbanIsBrightspace = $item->source_type === \App\Enums\TaskSourceType::Brightspace;
+                    $kanbanLinkLabel = $kanbanIsBrightspace ? __('Open in Brightspace') : __('Open link');
+                @endphp
+                <a
+                    href="{{ $kanbanSourceUrl }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800"
+                >
+                    @if($kanbanIsBrightspace)
+                        <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3 shrink-0 object-contain" />
+                    @else
+                        <flux:icon name="link" class="size-3" />
+                    @endif
+                    <span class="truncate max-w-[160px]">
+                        {{ $kanbanLinkLabel }}
+                    </span>
+                </a>
+            @endif
+        </div>
+    @endif
+
+    @if($item->status && ! $useKanbanCompact)
         @if($canEdit)
             <x-simple-select-dropdown position="top" align="end">
                 <x-slot:trigger>
@@ -640,9 +920,10 @@
         @endif
     @endif
 
+    @if(! $useKanbanCompact)
     @if($item->priority)
         @if($canEdit)
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="{{ $taskDropdownAlign }}">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -691,7 +972,7 @@
 
     @if($item->complexity)
         @if($canEdit)
-            <x-simple-select-dropdown position="top" align="end">
+            <x-simple-select-dropdown position="top" align="{{ $taskDropdownAlign }}">
                 <x-slot:trigger>
                     <button
                         type="button"
@@ -739,7 +1020,7 @@
     @endif
 
     @if($canEdit)
-        <x-simple-select-dropdown position="top" align="end">
+        <x-simple-select-dropdown position="top" align="{{ $taskDropdownAlign }}">
             <x-slot:trigger>
                 <button
                     type="button"
@@ -857,7 +1138,7 @@
         :triggerLabel="__('Start')"
         :label="__('Start Date')"
         position="top"
-        align="end"
+        align="{{ $taskDropdownAlign }}"
         :initial-value="$startDatetimeInitial"
         :readonly="!$canEditDates"
         data-task-creation-safe
@@ -869,7 +1150,7 @@
         :triggerLabel="__('Due')"
         :label="__('End Date')"
         position="top"
-        align="end"
+        align="{{ $taskDropdownAlign }}"
         :initial-value="$endDatetimeInitial"
         :overdue="$showOverdueVisual ?? $isOverdue"
         :item-id="$item->id"
@@ -881,6 +1162,8 @@
         <flux:icon name="exclamation-triangle" class="size-3.5 shrink-0 text-red-600" />
         <p class="text-xs font-medium text-red-600" x-text="editDateRangeError"></p>
     </div>
+
+    @endif
 
     @php
         $hideTagsSection = $isCollaboratedView && $item->tags->isEmpty();
@@ -933,18 +1216,29 @@
     @endif
 
     @unless($hideTagsSection)
-        <div class="w-full basis-full flex flex-wrap items-center gap-2 pt-1.5 mt-1 border-t border-border/50 text-[10px]">
+        <div @class([
+            'w-full basis-full flex flex-wrap items-center gap-2 border-t border-border/50 text-[10px]',
+            'pt-1 mt-0.5' => $useKanbanCompact,
+            'pt-1.5 mt-1' => ! $useKanbanCompact,
+        ])>
             <div
                 @tag-toggled="toggleTag($event.detail.tagId)"
                 @tag-create-request="createTagOptimistic($event.detail.tagName)"
                 @tag-delete-request="deleteTagOptimistic($event.detail.tag)"
             >
-                <x-workspace.tag-selection position="top" align="end" :selected-tags="$item->tags" :readonly="!$canEditTags" />
+                <x-workspace.tag-selection
+                    position="top"
+                    :align="$useKanbanCompact ? 'start' : 'end'"
+                    :selected-tags="$item->tags"
+                    :readonly="!$canEditTags"
+                    :compact="$useKanbanCompact"
+                />
             </div>
         </div>
     @endunless
 </div>
 
+@unless($useKanbanCompact)
 <div class="flex flex-wrap items-center gap-2">
     @if($showCourseContextPill)
         <flux:tooltip content="{{ $courseContextTooltip }}" position="top" align="start">
@@ -1048,12 +1342,13 @@
     @endif
     @endunless
 </div>
+@endunless
 
 @php
     $sourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
 @endphp
 
-@if($sourceUrl !== null && $sourceUrl !== '')
+@if($sourceUrl !== null && $sourceUrl !== '' && ! $useKanbanCompact)
     @php
         $isBrightspace = $item->source_type === \App\Enums\TaskSourceType::Brightspace;
         $linkLabel = $isBrightspace ? __('Open in Brightspace') : __('Open link');

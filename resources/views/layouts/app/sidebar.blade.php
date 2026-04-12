@@ -194,13 +194,15 @@
             @endauth
         </flux:sidebar>
 
-        <!-- Mobile User Menu -->
+        <!-- Mobile User Menu: omit top-bar bell on dashboard/workspace — hero already includes it. -->
         <flux:header class="lg:hidden">
             <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
 
             <flux:spacer />
 
-            <livewire:notifications.bell-dropdown />
+            @unless (request()->routeIs('dashboard', 'workspace') || request()->path() === '/')
+                <livewire:notifications.bell-dropdown />
+            @endunless
 
             <flux:dropdown position="top" align="end">
                 <flux:profile

@@ -2,6 +2,7 @@
     'item',
     'kind' => null,
     'readonly' => false,
+    'layout' => 'list',
 ])
 
 @php
@@ -40,11 +41,16 @@
 
     $commentableType = get_class($item);
     $commentsPanelId = 'comments-panel-'.($kind ?? 'item').'-'.$item->id;
+    $isKanbanLayout = ($layout ?? 'list') === 'kanban';
 @endphp
 
 <div
     wire:ignore
-    class="mt-1.5 pt-1.5 text-[11px]"
+    @class([
+        'text-[11px]',
+        'mt-1 pt-1' => $isKanbanLayout,
+        'mt-1.5 pt-1.5' => ! $isKanbanLayout,
+    ])
     x-data="{
         readonly: @js($readonly),
         alpineReady: false,

@@ -40,35 +40,46 @@
 
     @if ($panelOpen)
         <div
-            class="absolute right-0 top-full z-[200] mt-2 w-96 max-w-[calc(100vw-2rem)] origin-top-right rounded-xl border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
+            class="fixed right-3 top-14 z-[500] flex w-96 max-h-[calc(100dvh-4rem)] max-w-[min(24rem,calc(100vw-1.5rem))] origin-top-right flex-col rounded-xl border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 sm:right-4 lg:top-4 lg:max-h-[calc(100dvh-2rem)] dark:border-zinc-600 dark:bg-zinc-800 dark:ring-white/10"
             role="region"
             aria-label="{{ __('Notifications') }}"
         >
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-600/80">
+            <div class="flex shrink-0 items-center gap-2 border-b border-zinc-100 px-3 py-2 dark:border-zinc-600/80">
                 <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{{ __('Notifications') }}</h2>
                     @if ($unreadCount > 0)
                         <p class="text-xs text-zinc-500 dark:text-zinc-400">{{ $unreadLabel }}</p>
                     @endif
                 </div>
-                @if ($unreadCount > 0)
-                    <flux:button
+                <div class="flex shrink-0 items-center gap-0.5">
+                    @if ($unreadCount > 0)
+                        <flux:button
+                            type="button"
+                            size="xs"
+                            variant="ghost"
+                            class="text-zinc-700 dark:text-zinc-200"
+                            wire:click="markAllAsRead"
+                            wire:target="markAllAsRead"
+                            wire:loading.attr="disabled"
+                            data-test="notifications-mark-all-read"
+                        >
+                            <span wire:loading.remove wire:target="markAllAsRead">{{ __('Mark all as read') }}</span>
+                            <span wire:loading wire:target="markAllAsRead">{{ __('Mark all as read') }}…</span>
+                        </flux:button>
+                    @endif
+                    <button
                         type="button"
-                        size="xs"
-                        variant="ghost"
-                        class="shrink-0 text-zinc-700 dark:text-zinc-200"
-                        wire:click="markAllAsRead"
-                        wire:target="markAllAsRead"
-                        wire:loading.attr="disabled"
-                        data-test="notifications-mark-all-read"
+                        wire:click="closePanel"
+                        class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 dark:text-zinc-400 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-100"
+                        aria-label="{{ __('Close notifications') }}"
+                        data-test="notifications-close-panel"
                     >
-                        <span wire:loading.remove wire:target="markAllAsRead">{{ __('Mark all as read') }}</span>
-                        <span wire:loading wire:target="markAllAsRead">{{ __('Mark all as read') }}…</span>
-                    </flux:button>
-                @endif
+                        <flux:icon name="x-mark" class="size-4 shrink-0" />
+                    </button>
+                </div>
             </div>
 
-            <div class="max-h-[min(24rem,70vh)] overflow-y-auto">
+            <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 @forelse ($notifications as $notification)
                     @php
                         $nid = $notification['id'];
@@ -233,7 +244,7 @@
             </div>
 
             @if ($hasMoreNotifications)
-                <div class="border-t border-zinc-100 px-3 py-2 dark:border-zinc-600/80">
+                <div class="shrink-0 border-t border-zinc-100 px-3 py-2 dark:border-zinc-600/80">
                     <flux:button
                         type="button"
                         size="xs"

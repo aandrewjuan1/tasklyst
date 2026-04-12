@@ -70,6 +70,11 @@ new class extends Component
         }
     }
 
+    public function closePanel(): void
+    {
+        $this->panelOpen = false;
+    }
+
     private function syncNotificationStateFromDatabase(): void
     {
         $user = Auth::user();

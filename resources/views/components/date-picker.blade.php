@@ -9,6 +9,7 @@
     'overdue' => false,
     'itemId' => null,
     'readonly' => false,
+    'compact' => false,
 ])
 
 @php
@@ -27,6 +28,8 @@
         }
     }
 
+    $compact = filter_var($compact, FILTER_VALIDATE_BOOLEAN);
+    $datePickerTriggerAriaLabelBase = (string) $label;
 @endphp
 
 <style>
@@ -499,7 +502,14 @@
         :aria-expanded="open"
         :aria-controls="$id('date-picker-dropdown')"
         :aria-readonly="readonly"
-        class="date-picker-trigger inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out"
+        @if($compact)
+            :aria-label="@js($datePickerTriggerAriaLabelBase) + ': ' + formatDisplayValue(currentValue)"
+        @endif
+        @class([
+            'date-picker-trigger inline-flex items-center rounded-full border border-border/60 bg-muted font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out',
+            'gap-1 px-2 py-1' => $compact,
+            'gap-1.5 px-2.5 py-0.5' => ! $compact,
+        ])
         :class="[
             { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
             readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer'
@@ -509,14 +519,18 @@
         <span class="date-picker-trigger-icon inline-flex">
             <flux:icon name="clock" class="size-3" />
         </span>
-        <span class="inline-flex items-baseline gap-1">
-            <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                {{ $triggerLabel }}:
+        @if(! $compact)
+            <span class="inline-flex items-baseline gap-1">
+                <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ $triggerLabel }}:
+                </span>
+                <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
             </span>
-            <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
-        </span>
+        @else
+            <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+        @endif
         @if(!$readonly)
-            <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
+            <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
         @endif
     </button>
 

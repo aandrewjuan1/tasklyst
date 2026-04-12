@@ -30,6 +30,14 @@ test('dashboard loads for authenticated user', function () {
     $response->assertStatus(200);
 });
 
+test('dashboard at root shows a single notification bell in the layout', function () {
+    $user = User::factory()->create();
+
+    $html = (string) $this->actingAs($user)->get('/')->assertSuccessful()->getContent();
+
+    expect(substr_count($html, 'data-test="notifications-bell-button"'))->toBe(1);
+});
+
 test('dashboard routes redirect guests to login', function () {
     $this->get('/')->assertRedirect(route('login'));
     $this->get('/dashboard')->assertRedirect(route('login'));
@@ -51,6 +59,7 @@ test('dashboard hero clips the gradient in an inner layer so notification popove
 
     expect($html)->toContain('pointer-events-none absolute inset-0 overflow-hidden rounded-2xl');
     expect($html)->toContain('data-test="notifications-bell-button"');
+    expect(substr_count($html, 'data-test="notifications-bell-button"'))->toBe(1);
 });
 
 test('dashboard summary shows total incomplete tasks count', function () {

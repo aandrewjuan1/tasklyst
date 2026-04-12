@@ -3,6 +3,8 @@
     'align' => 'end',
     'selectedTags' => [],
     'readonly' => false,
+    'compact' => false,
+    'maxInlineTags' => 2,
 ])
 
 @php
@@ -31,6 +33,16 @@
         })
         ->filter(fn (array $tag): bool => ! is_null($tag['id']) && trim($tag['name']) !== '')
         ->values();
+
+    $compact = filter_var($compact, FILTER_VALIDATE_BOOLEAN);
+    $maxInlineTags = max(1, (int) $maxInlineTags);
+    $selectedTagsCount = $selectedTagsSorted->count();
+    $compactOverflowCount = $compact && $selectedTagsCount > $maxInlineTags
+        ? $selectedTagsCount - $maxInlineTags
+        : 0;
+    $selectedTagsServerCompact = $compact
+        ? $selectedTagsSorted->take($maxInlineTags)
+        : $selectedTagsSorted;
 @endphp
 
 <div
@@ -38,6 +50,8 @@
         alpineReady: false,
         open: false,
         readonly: @js($readonly),
+        compact: @js($compact),
+        maxInlineTags: @js($maxInlineTags),
         initialSelectedTags: @js($initialSelectedTags),
         placementVertical: @js($position),
         placementHorizontal: @js($align),
@@ -176,19 +190,33 @@
         :aria-expanded="open"
         :aria-controls="$id('tag-selection-dropdown')"
         :aria-readonly="readonly"
-        class="inline-flex flex-wrap items-center gap-1.5 transition-[box-shadow,transform] duration-150 ease-out"
+        @class([
+            'inline-flex items-center gap-1.5 transition-[box-shadow,transform] duration-150 ease-out',
+            'max-w-full min-w-0' => $compact,
+            'flex-wrap' => ! $compact,
+        ])
         :class="[{ 'shadow-md scale-[1.02]': open }, readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer']"
         data-task-creation-safe
     >
-        <span class="inline-flex flex-wrap items-center gap-1.5">
+        <span @class([
+            'inline-flex items-center gap-1.5',
+            'min-w-0 flex-1 flex-nowrap overflow-hidden' => $compact,
+            'flex-wrap' => ! $compact,
+        ])>
             {{-- Server-rendered tags for first paint --}}
             @if($selectedTagsSorted->isNotEmpty())
-                @foreach($selectedTagsSorted as $tag)
-                    <span 
-                        class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
+                @foreach($selectedTagsServerCompact as $tag)
+                    <span
+                        class="inline-flex shrink-0 items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
                         x-show="!alpineReady"
                     >{{ is_array($tag) ? $tag['name'] : $tag->name }}</span>
                 @endforeach
+                @if($compact && $compactOverflowCount > 0)
+                    <span
+                        class="inline-flex shrink-0 items-center rounded-sm border border-border/60 bg-muted/80 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                        x-show="!alpineReady"
+                    >+{{ $compactOverflowCount }}</span>
+                @endif
             @else
                 <span class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground" x-show="!alpineReady">
                     <flux:icon name="tag" class="size-3" />
@@ -197,17 +225,23 @@
             @endif
 
             {{-- Alpine-rendered tags after hydration --}}
-            <template x-for="tag in selectedTagPills" :key="String(tag.id)">
-                <span 
-                    class="inline-flex items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground" 
+            <template x-for="(tag, index) in selectedTagPills" :key="String(tag.id)">
+                <span
+                    class="inline-flex shrink-0 items-center rounded-sm border border-black/10 px-2.5 py-1 text-xs font-medium dark:border-white/10 bg-muted text-muted-foreground"
                     x-text="tag.name"
-                    x-show="alpineReady"
+                    x-show="alpineReady && (!compact || index < maxInlineTags)"
                     x-cloak
                 ></span>
             </template>
-            <span 
-                x-show="alpineReady && selectedTagPills.length === 0" 
-                x-cloak 
+            <span
+                x-show="alpineReady && compact && selectedTagPills.length > maxInlineTags"
+                x-cloak
+                class="inline-flex shrink-0 items-center rounded-sm border border-border/60 bg-muted/80 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
+                x-text="'+' + (selectedTagPills.length - maxInlineTags)"
+            ></span>
+            <span
+                x-show="alpineReady && selectedTagPills.length === 0"
+                x-cloak
                 class="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
             >
                 <flux:icon name="tag" class="size-3" />
