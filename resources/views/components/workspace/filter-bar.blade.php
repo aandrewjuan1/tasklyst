@@ -48,7 +48,7 @@
             this._filterOptimisticCleanup?.();
         },
     }"
-    class="flex flex-wrap items-center gap-2"
+    class="flex flex-wrap items-center justify-end gap-2"
 >
     {{-- Single Filter dropdown --}}
     <flux:dropdown position="bottom" align="start">
@@ -57,6 +57,7 @@
             size="sm"
             icon="funnel"
             icon:trailing="chevron-down"
+            class="h-9 shrink-0"
         >
             {{ __('Add filters') }}
         </flux:button>

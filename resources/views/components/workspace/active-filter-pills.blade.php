@@ -187,7 +187,7 @@
             $wire.clearAllFilters();
         },
     }"
-    class="flex flex-wrap items-center gap-2"
+    class="flex min-h-9 flex-wrap items-center gap-2"
 >
     {{-- Show pill - clickable dropdown --}}
     <flux:dropdown position="bottom" align="start">
