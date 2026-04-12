@@ -70,7 +70,9 @@ export function listItemCard(config) {
                     if (!focusModal) return;
                     if (open) {
                         focusModal.openItemId = this.itemId;
-                        this.$nextTick(() => this.focusFirstInModal());
+                        this.$nextTick(() => {
+                            this.$nextTick(() => this.focusFirstInModal());
+                        });
                     } else if (focusModal.openItemId === this.itemId) {
                         focusModal.openItemId = null;
                     }

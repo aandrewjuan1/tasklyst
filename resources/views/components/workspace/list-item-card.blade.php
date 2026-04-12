@@ -70,32 +70,31 @@
         'is-focus-locked': isCardLockedForFocus,
     }"
 >
-    {{-- Focus modal: teleported to body so it overlays the viewport; state lives on the card. Only tasks can open focus — skip modal DOM for events/projects to reduce payload and Alpine scope. --}}
+    {{-- Focus modal: teleported to body; x-if mounts only while open so at most one modal exists in the document. Comments stay on the in-list card only. --}}
     @if($kind === 'task')
-    <template x-teleport="body">
-        <div
-            x-show="isFocusModalOpen"
-            x-cloak
-            x-transition:enter="transition ease-out duration-200"
-            x-transition:enter-start="opacity-0"
-            x-transition:enter-end="opacity-100"
-            x-transition:leave="transition ease-in duration-150"
-            x-transition:leave-start="opacity-100"
-            x-transition:leave-end="opacity-0"
-            class="fixed inset-0 z-[100] flex items-center justify-center p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="focus-modal-title"
-        >
+    <template x-if="isFocusModalOpen">
+        <template x-teleport="body">
+            <div
+                x-transition:enter="transition ease-out duration-150"
+                x-transition:enter-start="opacity-0"
+                x-transition:enter-end="opacity-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="focus-modal-title"
+            >
             {{-- Backdrop: blocks interaction with page; does not close on click --}}
             <div
                 class="absolute inset-0 bg-black/50"
                 aria-hidden="true"
             ></div>
-            {{-- Modal panel: full card (focus bar + header + body + comments), wide so content is not compact --}}
+            {{-- Modal panel: focus bar + header + task body (comments remain on the list card below the overlay) --}}
             <div
                 x-ref="focusModalPanel"
-                class="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/95 shadow-xl backdrop-blur dark:border-zinc-700 dark:bg-zinc-900"
+                class="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/95 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
                 @click.stop
                 @keydown.tab="trapFocusInModal($event)"
             >
@@ -142,13 +141,14 @@
                                 :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                                 :is-overdue="$isOverdue"
                                 :layout="$layout"
+                                :embed-in-focus-modal="true"
                             />
                         @endif
                     </div>
-                    <x-workspace.comments :item="$item" :kind="$kind" :readonly="!$canEdit" />
                 </div>
             </div>
         </div>
+        </template>
     </template>
     @endif
 

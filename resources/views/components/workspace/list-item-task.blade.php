@@ -6,6 +6,7 @@
     'initialStatus' => null,
     'isOverdue' => false,
     'layout' => 'list',
+    'embedInFocusModal' => false,
 ])
 
 @php
@@ -138,7 +139,6 @@
 
     // Match task progress: hide Focus when done on first paint; Alpine `status` + x-show keeps updates in sync.
     $hideFocusButtonInitiallyDone = ($initialStatusValue ?? '') === 'done';
-
 @endphp
 
 <div
@@ -146,6 +146,22 @@
     @task-status-updated.window="if ($event.detail?.itemId == itemId) status = $event.detail.status"
     @workspace-item-property-updated.window="if ($event.detail?.kind === 'task' && Number($event.detail.itemId) === Number(itemId)) applyWorkspaceItemPropertyUpdate($event.detail)"
     x-data="{
+        embedInFocusModal: @js($embedInFocusModal),
+        listItemCard: null,
+        taskProgressSectionShown: false,
+        syncListItemCardScope() {
+            const rootEl = this.$el.closest('.list-item-card');
+            const alpine = typeof window !== 'undefined' ? window.Alpine : null;
+            let card = null;
+            if (rootEl && alpine && typeof alpine.$data === 'function') {
+                try { card = alpine.$data(rootEl); } catch (e) {}
+            }
+            if (!card && rootEl && rootEl._x_dataStack && rootEl._x_dataStack.length) {
+                card = rootEl._x_dataStack[rootEl._x_dataStack.length - 1];
+            }
+            this.listItemCard = card;
+            this.taskProgressSectionShown = !!(card && card.shouldShowTaskProgress && String(this.status ?? '') === 'doing' && (this.embedInFocusModal || !card.isFocusModalOpen));
+        },
         itemId: @js($item->id),
         updatePropertyMethod: @js($updatePropertyMethod),
         listFilterDate: @js($listFilterDate),
@@ -546,7 +562,9 @@
             const property = detail.property;
             const value = detail.value;
             if (property === 'status') {
-                // Status is already synchronized via task-status-updated events.
+                if (value != null) {
+                    this.status = value;
+                }
                 return;
             }
             if (property === 'priority') this.priority = value;
@@ -563,6 +581,7 @@
             }
         },
     }"
+    x-effect="syncListItemCardScope()"
     class="contents"
     @date-picker-opened="handleDatePickerOpened($event)"
     @date-picker-value-changed="handleDatePickerValueChanged($event)"
@@ -869,14 +888,14 @@
         <div class="w-full basis-full mt-1 flex flex-col gap-2">
             <div
                 class="flex items-center"
-                x-show="status !== 'done' && !isFocused && !isBreakFocused"
+                x-show="!embedInFocusModal && status !== 'done' && (!listItemCard || (!listItemCard.isFocused && !listItemCard.isBreakFocused))"
                 @if($hideFocusButtonInitiallyDone) style="display: none;" @endif
             >
                 <flux:tooltip :content="__('Start focus mode')">
                     <button
                         type="button"
                         x-ref="focusTrigger"
-                        @click.stop="setTimeout(() => enterFocusReady(), 120)"
+                        @click.stop="listItemCard && listItemCard.enterFocusReady()"
                         class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                         <flux:icon name="bolt" class="size-3 shrink-0" />
@@ -885,25 +904,25 @@
                 </flux:tooltip>
             </div>
             <div
-                :style="(shouldShowTaskProgress && !isFocusModalOpen) ? '' : 'display: none;'"
-                @if(! $hasTaskDurationTarget || ($item->status?->value === 'done')) style="display: none;" @endif
+                x-show="taskProgressSectionShown"
+                x-cloak
                 class="w-full"
             >
                 <div class="space-y-1.5">
                     <div class="flex items-center justify-between gap-2">
                         <span class="text-xs font-medium text-zinc-600 dark:text-zinc-300">{{ __('Task progress') }}</span>
-                        <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="taskFocusProgressPercentText">
+                        <span class="text-xs tabular-nums text-zinc-600 dark:text-zinc-300" x-text="listItemCard ? listItemCard.taskFocusProgressPercentText : ''">
                             {{ $initialTaskProgressPercent }}%
                         </span>
                     </div>
-                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="Math.round(taskFocusProgressPercentTotal)" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Task progress') }}">
+                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700" role="progressbar" :aria-valuenow="listItemCard ? Math.round(listItemCard.taskFocusProgressPercentTotal) : 0" aria-valuemin="0" aria-valuemax="100" aria-label="{{ __('Task progress') }}">
                         <div
                             class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width,background-color] duration-300 ease-linear"
                             style="width: {{ $initialTaskProgressPercent }}%; min-width: {{ $initialTaskProgressPercent > 0 ? '2px' : '0' }};"
-                            :style="'width: ' + Math.round(taskFocusProgressPercentTotal) + '%; min-width: ' + (Math.round(taskFocusProgressPercentTotal) > 0 ? '2px' : '0')"
+                            :style="listItemCard ? ('width: ' + Math.round(listItemCard.taskFocusProgressPercentTotal) + '%; min-width: ' + (Math.round(listItemCard.taskFocusProgressPercentTotal) > 0 ? '2px' : '0')) : ''"
                         ></div>
                     </div>
-                    <span class="text-xs text-zinc-500" x-text="taskFocusRemainingText + ' {{ __('left') }}'">
+                    <span class="text-xs text-zinc-500" x-text="listItemCard ? (listItemCard.taskFocusRemainingText + ' {{ __('left') }}') : ''">
                         {{ $initialTaskRemainingText }} {{ __('left') }}
                     </span>
                 </div>
