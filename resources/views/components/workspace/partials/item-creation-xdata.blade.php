@@ -15,6 +15,15 @@
         },
         tags: @js($tags),
         projectNames: @js($projects->pluck('name', 'id')->toArray()),
+        init() {
+            this.$watch('showItemCreation', (value) => {
+                if (! value || this.showItemLoading) {
+                    return;
+                }
+
+                this.scheduleFocusCreationTitle();
+            });
+        },
         formData: {
             item: {
                 title: '',
@@ -82,6 +91,23 @@
 
             return true;
         },
+        creationCardSurfaceClass() {
+            if (this.creationKind === 'project') {
+                return 'lic-surface-project';
+            }
+            if (this.creationKind === 'event') {
+                return 'lic-surface-event';
+            }
+            const status = this.formData.item.status;
+            if (status === 'doing') {
+                return 'lic-surface-task-doing';
+            }
+            if (status === 'done') {
+                return 'lic-surface-task-done';
+            }
+
+            return 'lic-surface-task-todo';
+        },
         resetForm() {
             // Common fields for both tasks and events
             this.formData.item.title = '';
@@ -116,6 +142,101 @@
                 this.formData.project.endDatetime = null;
             }
         },
+        scheduleFocusCreationTitle() {
+            const resolveInput = (root) => {
+                if (!root) {
+                    return null;
+                }
+
+                return (
+                    root.querySelector?.('input:not([type=hidden])') ??
+                    root.querySelector?.('input') ??
+                    root.shadowRoot?.querySelector?.('input:not([type=hidden])') ??
+                    root.shadowRoot?.querySelector?.('input')
+                );
+            };
+
+            const firstVisibleTextInput = (container) => {
+                if (! container) {
+                    return null;
+                }
+
+                const candidates = container.querySelectorAll(
+                    'input:not([type=hidden]):not([disabled])',
+                );
+
+                for (const candidate of candidates) {
+                    if (candidate.type === 'hidden') {
+                        continue;
+                    }
+
+                    if (candidate.offsetParent === null) {
+                        continue;
+                    }
+
+                    return candidate;
+                }
+
+                return null;
+            };
+
+            const tryFocus = () => {
+                const root =
+                    this.creationKind === 'project'
+                        ? this.$refs.projectName
+                        : this.$refs.taskTitle;
+                let input = resolveInput(root);
+
+                if (
+                    input &&
+                    input.offsetParent === null
+                ) {
+                    input = null;
+                }
+
+                if (! input && this.$refs.taskCreationCard) {
+                    input = firstVisibleTextInput(this.$refs.taskCreationCard);
+                }
+
+                if (input && ! input.disabled) {
+                    input.focus();
+
+                    return true;
+                }
+
+                return false;
+            };
+
+            const schedule = (fn) => {
+                this.$nextTick(fn);
+            };
+
+            schedule(() => {
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (tryFocus()) {
+                            return;
+                        }
+
+                        let remaining = 24;
+
+                        const retry = () => {
+                            if (tryFocus() || remaining <= 0) {
+                                return;
+                            }
+
+                            remaining -= 1;
+                            requestAnimationFrame(retry);
+                        };
+
+                        retry();
+                        window.setTimeout(() => tryFocus(), 0);
+                        window.setTimeout(() => tryFocus(), 50);
+                        window.setTimeout(() => tryFocus(), 220);
+                    });
+                });
+            });
+        },
         onPlusToolbarClick() {
             if (this.showItemCreation || this.showItemLoading) {
                 return;
@@ -126,12 +247,19 @@
         beginItemCreation(kind) {
             this.itemTypePickerOpen = false;
 
-            if (kind === 'task') {
-                if (this.showItemCreation && this.creationKind === 'task') {
-                    this.showItemCreation = false;
+            const isToggleClose =
+                this.showItemCreation &&
+                ((kind === 'task' && this.creationKind === 'task') ||
+                    (kind === 'event' && this.creationKind === 'event') ||
+                    (kind === 'project' && this.creationKind === 'project'));
 
-                    return;
-                }
+            if (isToggleClose) {
+                this.showItemCreation = false;
+
+                return;
+            }
+
+            if (kind === 'task') {
                 this.creationKind = 'task';
                 this.formData.item.status = 'to_do';
                 this.formData.item.priority = 'medium';
@@ -140,39 +268,26 @@
                 this.formData.item.allDay = false;
                 this.formData.item.projectId = null;
                 this.showItemCreation = true;
-                this.$nextTick(() => this.$refs.taskTitle?.focus());
 
                 return;
             }
 
             if (kind === 'event') {
-                if (this.showItemCreation && this.creationKind === 'event') {
-                    this.showItemCreation = false;
-
-                    return;
-                }
                 this.creationKind = 'event';
                 this.formData.item.status = 'scheduled';
                 this.formData.item.allDay = false;
                 this.showItemCreation = true;
-                this.$nextTick(() => this.$refs.taskTitle?.focus());
 
                 return;
             }
 
             if (kind === 'project') {
-                if (this.showItemCreation && this.creationKind === 'project') {
-                    this.showItemCreation = false;
-
-                    return;
-                }
                 this.creationKind = 'project';
                 this.formData.project.name = '';
                 this.formData.project.description = null;
                 this.formData.project.startDatetime = null;
                 this.formData.project.endDatetime = null;
                 this.showItemCreation = true;
-                this.$nextTick(() => this.$refs.projectName?.focus());
             }
         },
         toggleTag(tagId) {

@@ -244,3 +244,20 @@ test('workspace items fingerprint changes when filters change', function (): voi
 
     expect($before)->not->toBe($after);
 });
+
+test('workspace renders native search input wired to searchQuery', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::workspace.index')
+        ->assertSeeHtml('type="search"')
+        ->assertSeeHtml('wire:model.live.debounce.300ms="searchQuery"');
+});
+
+test('workspace full page includes native search input binding', function (): void {
+    $this->actingAs($this->user);
+
+    $html = $this->get(route('workspace'))->assertOk()->getContent();
+
+    expect($html)->toContain('type="search"')
+        ->and($html)->toContain('wire:model.live.debounce.300ms="searchQuery"');
+});

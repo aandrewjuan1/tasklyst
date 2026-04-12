@@ -15,6 +15,11 @@ test('workspace index renders successfully', function (): void {
 
     $this->actingAs($user);
 
+    $response = $this->get(route('workspace', ['date' => '2026-06-10']));
+
+    $response->assertSuccessful();
+    $response->assertSee('data-test="workspace-item-creation"', false);
+
     Livewire::test('pages::workspace.index')
         ->set('selectedDate', '2026-06-10')
         ->assertSuccessful();

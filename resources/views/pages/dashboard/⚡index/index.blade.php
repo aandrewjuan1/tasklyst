@@ -101,7 +101,7 @@
                 <div class="min-h-0 flex-1">
                     <div class="flex flex-col gap-4">
                         @if ($analytics)
-                            <div class="relative flex min-h-56 w-full items-center rounded-2xl border border-brand-blue/25 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:min-h-60 lg:px-7 dark:ring-brand-purple/20">
+                            <div class="hero-brand-gradient-shell">
                                 <div
                                     class="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
                                     aria-hidden="true"
@@ -109,6 +109,7 @@
                                     <div class="absolute inset-0 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15"></div>
                                     <div class="absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
                                 </div>
+                                <div class="hero-brand-gradient-glass" aria-hidden="true"></div>
                                 <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                                     @php
                                         $greetingName = auth()->user()?->firstName() ?? '';

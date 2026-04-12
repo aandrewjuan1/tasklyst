@@ -2,6 +2,7 @@
 
 <div
     class="space-y-4"
+    data-test="workspace-item-creation"
     x-data="{ @include('components.workspace.partials.item-creation-xdata') }"
     @task-created="resetForm()"
     @event-created="resetForm()"

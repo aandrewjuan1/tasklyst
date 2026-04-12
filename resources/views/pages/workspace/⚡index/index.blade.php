@@ -72,9 +72,7 @@
             "
         >
             {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
-            <div
-                class="relative flex min-h-56 w-full items-center rounded-2xl border border-brand-blue/25 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:min-h-60 lg:px-7 dark:ring-brand-purple/20"
-            >
+            <div class="hero-brand-gradient-shell">
                 <div
                     class="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
                     aria-hidden="true"
@@ -82,6 +80,7 @@
                     <div class="absolute inset-0 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15"></div>
                     <div class="absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
                 </div>
+                <div class="hero-brand-gradient-glass" aria-hidden="true"></div>
                 <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                     @php
                         $greetingName = auth()->user()?->firstName() ?? '';
@@ -122,14 +121,13 @@
                                     wire:target="searchScope"
                                 />
                             </flux:tooltip>
-                            <flux:input
+                            <input
                                 type="search"
                                 wire:model.live.debounce.300ms="searchQuery"
-                                :loading="false"
                                 placeholder="{{ __('Search tasks, events, projects…') }}"
                                 aria-label="{{ __('Search tasks, events, and projects') }}"
                                 autocomplete="off"
-                                class="h-10 min-h-10 min-w-[min(100%,12rem)] flex-1 rounded-xl border border-white/50 bg-white/80 text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:focus:border-brand-blue/50 [&_input]:h-10 [&_input]:min-h-0"
+                                class="h-10 min-h-10 min-w-[min(100%,12rem)] flex-1 rounded-xl border border-white/50 bg-white/80 px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:outline-none focus:ring-2 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/50"
                             />
                             <div
                                 class="inline-flex h-10 shrink-0 items-stretch gap-0.5 rounded-xl border border-white/50 bg-white/80 p-1 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
