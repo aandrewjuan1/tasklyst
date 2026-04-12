@@ -269,7 +269,7 @@
                                 :due-today-tasks="$this->dashboardDueTodayTasks"
                                 :today-events="$this->dashboardTodayEvents"
                                 :today-events-count="$this->dashboardTodayEventsCount"
-                                :workspace-url="$this->workspaceUrlForToday"
+                                :workspace-date="$this->selectedDate"
                             >
                                 <x-slot name="urgentNow">
                                     <div class="{{ $dashboardPanelShell['urgent'] }}">
@@ -347,7 +347,7 @@
                                         <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
                                             @foreach ($this->dashboardRecurringDueTasks as $task)
                                                 <li class="px-4 py-2.5" data-testid="dashboard-row-recurring-task">
-                                                    <a href="{{ route('workspace', ['date' => $this->selectedDate, 'type' => 'tasks', 'q' => $task->title]) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                    <a href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
                                                         <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
                                                         <p class="text-[11px] text-muted-foreground">
                                                             {{ __('Due: :time', ['time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time')]) }}
@@ -372,7 +372,7 @@
                                         <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
                                             @foreach ($this->dashboardNoDateBacklogTasks as $task)
                                                 <li class="px-4 py-2.5">
-                                                    <a href="{{ route('workspace', ['date' => $this->selectedDate, 'type' => 'tasks']) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                    <a href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
                                                         <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
                                                         <p class="text-[11px] text-muted-foreground">{{ $task->project?->name ?? __('No project') }}</p>
                                                     </a>

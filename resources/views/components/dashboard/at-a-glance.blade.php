@@ -7,7 +7,7 @@
     'doingCount' => 0,
     'todayEvents',
     'todayEventsCount' => 0,
-    'workspaceUrl',
+    'workspaceDate',
 ])
 
 @php
@@ -47,6 +47,11 @@
         return $event->start_datetime->translatedFormat('M j · H:i');
     };
 
+    $workspaceListBase = [
+        'date' => $workspaceDate,
+        'view' => 'list',
+    ];
+
     $doingTasksForDisplay = $doingTasks
         ->map(function (\App\Models\Task $task) use ($taskFocusProgressPercent): array {
             return [
@@ -85,7 +90,7 @@
                     @foreach ($todayEvents as $event)
                         <li>
                             <a
-                                href="{{ $workspaceUrl }}"
+                                href="{{ route('workspace', array_merge($workspaceListBase, ['type' => 'events', 'event' => $event->id])) }}"
                                 wire:navigate
                                 class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 transition hover:bg-muted/70"
                                 data-testid="dashboard-row-today-event"
@@ -134,7 +139,7 @@
                 @foreach ($overdueTasks as $task)
                     <li>
                         <a
-                            href="{{ $workspaceUrl }}"
+                            href="{{ route('workspace', array_merge($workspaceListBase, ['type' => 'tasks', 'task' => $task->id])) }}"
                             wire:navigate
                             class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 transition hover:bg-muted/70"
                             data-testid="dashboard-row-overdue-task"
@@ -183,7 +188,7 @@
                 @foreach ($dueTodayTasks as $task)
                     <li>
                         <a
-                            href="{{ $workspaceUrl }}"
+                            href="{{ route('workspace', array_merge($workspaceListBase, ['type' => 'tasks', 'task' => $task->id])) }}"
                             wire:navigate
                             class="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1.5 transition hover:bg-muted/70"
                             data-testid="dashboard-row-due-today-task"
@@ -240,7 +245,7 @@
                         @endphp
                         <li>
                             <a
-                                href="{{ $workspaceUrl }}"
+                                href="{{ route('workspace', array_merge($workspaceListBase, ['type' => 'tasks', 'task' => $task->id])) }}"
                                 wire:navigate
                                 class="flex items-start px-3 py-2.5 transition hover:bg-muted/50"
                                 data-testid="dashboard-row-doing-task"
@@ -276,7 +281,7 @@
                 @if ($doingTasks->count() > 3)
                     <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
                         <a
-                            href="{{ $workspaceUrl }}"
+                            href="{{ route('workspace', $workspaceListBase) }}"
                             wire:navigate
                             class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
                         >

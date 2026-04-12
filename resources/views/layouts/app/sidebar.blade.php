@@ -61,7 +61,10 @@
                 }
             }
             function unlock() {
-                const scrollY = parseInt($el.dataset.lockedScrollY || '0', 10);
+                if (! Object.prototype.hasOwnProperty.call(el.dataset, 'lockedScrollY')) {
+                    return;
+                }
+                const scrollY = parseInt(el.dataset.lockedScrollY, 10);
                 const body = $el;
                 const sidebars = body.querySelectorAll('[data-flux-sidebar], [data-flux-header], [data-focus-lock-viewport]');
                 var rects = [];

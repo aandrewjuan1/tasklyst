@@ -456,13 +456,21 @@ trait HandlesTasks
             $date = method_exists($this, 'getParsedSelectedDate')
                 ? $this->getParsedSelectedDate()
                 : Carbon::parse($this->selectedDate);
-            $taskQuery->relevantForDate($date);
+            $focusTaskId = (int) ($this->focusTaskId ?? 0);
 
-            if ($date->isToday()) {
-                $taskQuery->where(function (Builder $q): void {
-                    $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+            $taskQuery->where(function (Builder $outer) use ($date, $focusTaskId): void {
+                $outer->where(function (Builder $inner) use ($date): void {
+                    $inner->relevantForDate($date);
+                    if ($date->isToday()) {
+                        $inner->where(function (Builder $q): void {
+                            $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+                        });
+                    }
                 });
-            }
+                if ($focusTaskId > 0) {
+                    $outer->orWhere('tasks.id', $focusTaskId);
+                }
+            });
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {

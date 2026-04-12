@@ -72,6 +72,8 @@ use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
 use App\Actions\Collaboration\CreateCollaborationInvitationAction;
 use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Model;
 
 new
 #[Title('Workspace')]
@@ -99,6 +101,15 @@ class extends Component
 
     #[Url(as: 'view')]
     public string $viewMode = 'list';
+
+    #[Url(as: 'task')]
+    public ?int $focusTaskId = null;
+
+    #[Url(as: 'event')]
+    public ?int $focusEventId = null;
+
+    #[Url(as: 'project')]
+    public ?int $focusProjectId = null;
 
     /**
      * Global item pagination for the workspace list (across tasks, events, projects).
@@ -365,6 +376,7 @@ class extends Component
         }
         $this->syncFilterTagIdFromTagIds();
         $this->activeFocusSession = $this->getActiveFocusSession();
+        $this->applyWorkspaceDeepLinkFocus();
     }
 
     /**
@@ -373,17 +385,18 @@ class extends Component
      */
     public function resetListPagination(): void
     {
-        if (property_exists($this, 'tasksPage')) {
-            $this->tasksPage = 1;
-        }
-        if (property_exists($this, 'eventsPage')) {
-            $this->eventsPage = 1;
-        }
-        if (property_exists($this, 'projectsPage')) {
-            $this->projectsPage = 1;
-        }
-
+        $this->tasksPage = 1;
+        $this->eventsPage = 1;
+        $this->projectsPage = 1;
         $this->itemsPage = 1;
+    }
+
+    protected function bumpWorkspaceListPages(): void
+    {
+        $this->tasksPage++;
+        $this->eventsPage++;
+        $this->projectsPage++;
+        $this->itemsPage++;
     }
 
     /**
@@ -444,17 +457,7 @@ class extends Component
     #[Async]
     public function loadMoreItems(): void
     {
-        if (property_exists($this, 'tasksPage')) {
-            $this->tasksPage++;
-        }
-        if (property_exists($this, 'eventsPage')) {
-            $this->eventsPage++;
-        }
-        if (property_exists($this, 'projectsPage')) {
-            $this->projectsPage++;
-        }
-
-        $this->itemsPage++;
+        $this->bumpWorkspaceListPages();
     }
 
     /**
@@ -467,17 +470,7 @@ class extends Component
     #[Async]
     public function getMoreItemsHtml(): array
     {
-        if (property_exists($this, 'tasksPage')) {
-            $this->tasksPage++;
-        }
-        if (property_exists($this, 'eventsPage')) {
-            $this->eventsPage++;
-        }
-        if (property_exists($this, 'projectsPage')) {
-            $this->projectsPage++;
-        }
-
-        $this->itemsPage++;
+        $this->bumpWorkspaceListPages();
 
         $allItems = $this->getAllListEntries();
         $effectiveItemsPerPage = $this->itemsPerPage > 0 ? $this->itemsPerPage : 10;
@@ -515,7 +508,185 @@ class extends Component
             ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
             ->values();
 
-        return $overdueItems->merge($dateItems)->values();
+        return $overdueItems
+            ->merge($dateItems)
+            ->unique(static function (array $entry): string {
+                return $entry['kind'].'-'.$entry['item']->id;
+            })
+            ->values();
+    }
+
+    protected function applyWorkspaceDeepLinkFocus(): void
+    {
+        $this->mergeWorkspaceFocusFromRequestQuery();
+
+        if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null) {
+            return;
+        }
+
+        if (Auth::id() === null) {
+            $this->focusTaskId = null;
+            $this->focusEventId = null;
+            $this->focusProjectId = null;
+
+            return;
+        }
+
+        if ($this->focusTaskId !== null) {
+            $this->focusEventId = null;
+            $this->focusProjectId = null;
+            $task = $this->resolveDeepLinkModel(Task::class, $this->focusTaskId);
+            if (! $task instanceof Task) {
+                $this->focusTaskId = null;
+
+                return;
+            }
+            $this->applyDeepLinkListShell('tasks');
+            $this->expandPaginationUntilFocusItemVisible('task', $task->id);
+
+            return;
+        }
+
+        if ($this->focusEventId !== null) {
+            $this->focusProjectId = null;
+            $event = $this->resolveDeepLinkModel(Event::class, $this->focusEventId);
+            if (! $event instanceof Event) {
+                $this->focusEventId = null;
+
+                return;
+            }
+            $this->applyDeepLinkListShell('events');
+            $this->expandPaginationUntilFocusItemVisible('event', $event->id);
+
+            return;
+        }
+
+        if ($this->focusProjectId !== null) {
+            $project = $this->resolveDeepLinkModel(Project::class, $this->focusProjectId);
+            if (! $project instanceof Project) {
+                $this->focusProjectId = null;
+
+                return;
+            }
+            $this->applyDeepLinkListShell('projects');
+            $this->expandPaginationUntilFocusItemVisible('project', $project->id);
+        }
+    }
+
+    /**
+     * @template T of Model
+     *
+     * @param  class-string<T>  $class
+     * @return T|null
+     */
+    protected function resolveDeepLinkModel(string $class, int $id): ?Model
+    {
+        if ($id < 1) {
+            return null;
+        }
+
+        /** @var T|null $model */
+        $model = $class::query()->find($id);
+
+        if ($model === null) {
+            return null;
+        }
+
+        try {
+            $this->authorize('view', $model);
+        } catch (AuthorizationException) {
+            return null;
+        }
+
+        return $model;
+    }
+
+    protected function applyDeepLinkListShell(string $filterItemType): void
+    {
+        $this->viewMode = 'list';
+        $this->searchQuery = null;
+        $this->filterItemType = $filterItemType;
+        $this->listContextProjectId = null;
+        $this->listContextEventId = null;
+    }
+
+    /**
+     * Ensures request query wins for ?task / ?event / ?project when present (e.g. alongside #[Url]).
+     */
+    protected function mergeWorkspaceFocusFromRequestQuery(): void
+    {
+        if (request()->query->has('task')) {
+            $tid = (int) request()->query('task', 0);
+            if ($tid > 0) {
+                $this->focusTaskId = $tid;
+                $this->focusEventId = null;
+                $this->focusProjectId = null;
+            }
+
+            return;
+        }
+
+        if (request()->query->has('event')) {
+            $eid = (int) request()->query('event', 0);
+            if ($eid > 0) {
+                $this->focusEventId = $eid;
+                $this->focusTaskId = null;
+                $this->focusProjectId = null;
+            }
+
+            return;
+        }
+
+        if (request()->query->has('project')) {
+            $pid = (int) request()->query('project', 0);
+            if ($pid > 0) {
+                $this->focusProjectId = $pid;
+                $this->focusTaskId = null;
+                $this->focusEventId = null;
+            }
+        }
+    }
+
+    /**
+     * Livewire #[Computed] memoizes per HTTP request; tasks/events/projects use tasksPage/eventsPage/projectsPage.
+     * Without clearing, expandPaginationUntilFocusItemVisible() reuses the first cached collection and never finds rows on later pages.
+     */
+    protected function clearPaginatedWorkspaceListCaches(): void
+    {
+        unset($this->tasks, $this->events, $this->projects);
+    }
+
+    /**
+     * Load enough per-type pages so the merged list includes the target row, then set {@see $itemsPage} for the combined slice.
+     */
+    protected function expandPaginationUntilFocusItemVisible(string $kind, int $id): bool
+    {
+        $this->resetListPagination();
+
+        for ($pass = 0; $pass < 50; $pass++) {
+            if ($pass > 0) {
+                $this->clearPaginatedWorkspaceListCaches();
+            }
+            $entries = $this->getAllListEntries();
+            $index = $entries->search(static function (array $entry) use ($kind, $id): bool {
+                return $entry['kind'] === $kind && (int) $entry['item']->id === $id;
+            });
+
+            if ($index !== false) {
+                $perPage = max(1, $this->itemsPerPage);
+                $this->itemsPage = (int) max(1, (int) ceil(($index + 1) / $perPage));
+
+                return true;
+            }
+
+            if (! $this->hasMoreTasks && ! $this->hasMoreEvents && ! $this->hasMoreProjects) {
+                break;
+            }
+
+            $this->bumpWorkspaceListPages();
+        }
+
+        return false;
     }
 
     /**
@@ -573,7 +744,9 @@ class extends Component
                 $this->applyWorkspaceSearchToTaskQuery($overdueTaskQuery);
             }
 
-            $overdueTasks = $overdueTaskQuery->orderByPriority()->limit(50)->get()
+            $overdueLimit = ($this->focusTaskId ?? 0) > 0 ? 500 : 50;
+
+            $overdueTasks = $overdueTaskQuery->orderByPriority()->limit($overdueLimit)->get()
                 ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
         }
 

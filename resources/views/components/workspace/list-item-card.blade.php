@@ -39,9 +39,10 @@
 
 <div
     {{ $attributes->merge([
+        'id' => 'workspace-item-'.$kind.'-'.$item->id,
         'class' => $isKanbanLayout
             ? 'list-item-card flex flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white/95 px-2.5 py-1.5 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out'
-            : 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
+            : 'list-item-card scroll-mt-28 flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
     ]) }}
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"

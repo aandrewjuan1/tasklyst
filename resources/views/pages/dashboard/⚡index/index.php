@@ -150,7 +150,10 @@ class extends Component
     #[Computed]
     public function workspaceUrlForToday(): string
     {
-        return route('workspace', ['date' => $this->getParsedSelectedDate()->toDateString()]);
+        return route('workspace', [
+            'date' => $this->getParsedSelectedDate()->toDateString(),
+            'view' => 'list',
+        ]);
     }
 
     #[Computed]
@@ -642,14 +645,22 @@ class extends Component
                 $priority = is_string($raw['priority'] ?? null) ? (string) $raw['priority'] : null;
                 $endsAt = is_string($raw['ends_at'] ?? null) ? (string) $raw['ends_at'] : null;
                 $urgencyLevel = $this->resolveUrgencyLevel($priority, $endsAt);
-                $workspaceParams = ['date' => $this->getParsedSelectedDate()->toDateString(), 'type' => 'tasks'];
-                if ($priority !== null && $priority !== '') {
+                $itemType = (string) ($item['type'] ?? 'task');
+                $itemId = (int) ($item['id'] ?? 0);
+                $workspaceParams = [
+                    'date' => $this->getParsedSelectedDate()->toDateString(),
+                    'view' => 'list',
+                    'type' => 'tasks',
+                ];
+                if ($itemType === 'task' && $itemId > 0) {
+                    $workspaceParams['task'] = $itemId;
+                } elseif ($priority !== null && $priority !== '') {
                     $workspaceParams['priority'] = $priority;
                 }
 
                 return [
-                    'type' => (string) ($item['type'] ?? 'task'),
-                    'id' => (int) ($item['id'] ?? 0),
+                    'type' => $itemType,
+                    'id' => $itemId,
                     'title' => (string) ($item['title'] ?? __('Untitled')),
                     'score' => (int) ($item['score'] ?? 0),
                     'reasoning' => (string) ($item['reasoning'] ?? ''),
@@ -767,8 +778,9 @@ class extends Component
                     'risk_reason' => $riskReason,
                     'workspace_url' => route('workspace', [
                         'date' => $this->getParsedSelectedDate()->toDateString(),
+                        'view' => 'list',
                         'type' => 'projects',
-                        'q' => $project->name,
+                        'project' => $project->id,
                     ]),
                 ];
             })
