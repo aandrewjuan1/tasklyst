@@ -24,11 +24,35 @@
         pomodoroSettings: $pomodoroSettings,
     );
     extract($vm->viewData());
+
+    $listItemCardStructural = 'list-item-card flex flex-col gap-2 rounded-xl px-3 py-2 transition-[opacity,transform] duration-200 ease-out';
+
+    $taskStatusValue = $kind === 'task' ? ($effectiveStatus?->value ?? $item->status?->value ?? 'to_do') : null;
+    $taskSurfaceClass = match ($taskStatusValue) {
+        'doing' => 'lic-surface-task-doing',
+        'done' => 'lic-surface-task-done',
+        default => 'lic-surface-task-todo',
+    };
+
     $alpineConfig = array_merge($vm->alpineConfig(), [
         'layout' => $layout ?? 'list',
     ]);
+
     $initialHideCard = (bool) ($alpineConfig['hideCard'] ?? false);
     $isKanbanLayout = ($layout ?? 'list') === 'kanban';
+
+    $listItemCardRootClass = $listItemCardStructural;
+    if ($kind === 'task') {
+        $taskCardSurfaceClass = $isKanbanLayout ? 'lic-surface-zinc' : $taskSurfaceClass;
+        $listItemCardRootClass .= ' '.$taskCardSurfaceClass.($isKanbanLayout ? '' : ' scroll-mt-28');
+    } elseif ($kind === 'event' && ! $isKanbanLayout) {
+        $listItemCardRootClass .= ' scroll-mt-28 lic-surface-event';
+    } elseif ($kind === 'project' && ! $isKanbanLayout) {
+        $listItemCardRootClass .= ' scroll-mt-28 lic-surface-project';
+    } else {
+        $listItemCardRootClass .= ($isKanbanLayout ? '' : ' scroll-mt-28').' lic-surface-zinc';
+    }
+
     $hasActiveFocusOnThisTask = $kind === 'task'
         && $activeFocusSession
         && (string) ($activeFocusSession['task_id'] ?? '') === (string) $item->id;
@@ -40,9 +64,7 @@
 <div
     {{ $attributes->merge([
         'id' => 'workspace-item-'.$kind.'-'.$item->id,
-        'class' => $isKanbanLayout
-            ? 'list-item-card flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out'
-            : 'list-item-card scroll-mt-28 flex flex-col gap-2 rounded-xl border border-zinc-200 bg-white/95 px-3 py-2 shadow-sm backdrop-blur transition-[opacity,box-shadow,transform,border-color,background-color] duration-200 ease-out',
+        'class' => $listItemCardRootClass,
     ]) }}
     wire:ignore
     x-data="listItemCard({{ \Illuminate\Support\Js::from($alpineConfig) }})"
@@ -64,11 +86,10 @@
     @workspace-item-visibility-updated.window="if ($event.detail?.kind === '{{ $kind }}' && String($event.detail.itemId) === String(itemId) && $event.detail.visible === false) hideFromList()"
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"
     @task-duration-updated="onTaskDurationUpdated($event.detail)"
-    :class="{
-        'relative z-50': dropdownOpenCount > 0,
-        'pointer-events-none opacity-60': deletingInProgress,
-        'is-focus-locked': isCardLockedForFocus,
-    }"
+    @if($kind === 'task')
+    x-effect="(() => { const m = { to_do: 'lic-surface-task-todo', doing: 'lic-surface-task-doing', done: 'lic-surface-task-done' }; const taskSurfaces = Object.values(m); if (layout === 'kanban') { taskSurfaces.forEach((c) => $el.classList.remove(c)); if (!$el.classList.contains('lic-surface-zinc')) { $el.classList.add('lic-surface-zinc'); } return; } $el.classList.remove('lic-surface-zinc'); const k = taskStatus === 'doing' || taskStatus === 'done' ? taskStatus : 'to_do'; const d = m[k] || m.to_do; taskSurfaces.forEach((c) => { if (c !== d) { $el.classList.remove(c); } }); if (!$el.classList.contains(d)) { $el.classList.add(d); } })()"
+    @endif
+    :class="{ 'relative z-50': dropdownOpenCount > 0, 'pointer-events-none opacity-60': deletingInProgress, 'is-focus-locked': isCardLockedForFocus }"
 >
     {{-- Focus modal: teleported to body; x-if mounts only while open so at most one modal exists in the document. Comments stay on the in-list card only. --}}
     @if($kind === 'task')
@@ -94,7 +115,7 @@
             {{-- Modal panel: focus bar + header + task body (comments remain on the list card below the overlay) --}}
             <div
                 x-ref="focusModalPanel"
-                class="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white/95 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+                class="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-brand-blue/25 bg-white/95 shadow-xl ring-1 ring-brand-purple/15 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-brand-purple/20"
                 @click.stop
                 @keydown.tab="trapFocusInModal($event)"
             >
@@ -115,7 +136,10 @@
                     class="is-focus-locked flex flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3 pt-0"
                     :class="{ 'pointer-events-none select-none': isCardLockedForFocus }"
                 >
-                    @include('components.workspace.list-item-card.header', ['layout' => 'list'])
+                    @include('components.workspace.list-item-card.header', [
+                        'layout' => 'list',
+                        'showFocusTrigger' => false,
+                    ])
                     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
                         @if($kind === 'project')
                             <x-workspace.list-item-project
@@ -169,8 +193,9 @@
         <div @class([
             'min-w-0',
             'border-t border-border/50 pt-2' => $isKanbanLayout,
+            'border-t border-border/40 pt-2' => ! $isKanbanLayout,
         ])>
-        <div class="flex flex-wrap items-center text-xs gap-2 {{ $isKanbanLayout ? '' : 'pt-0.5' }}">
+        <div class="flex flex-wrap items-center gap-2 text-xs">
             @if($kind === 'project')
                 <x-workspace.list-item-project
                     :item="$item"

@@ -267,7 +267,7 @@
                             class="flex w-full cursor-pointer items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/70 focus-visible:bg-muted/50 focus-visible:outline-none"
                             @click="selectProject(item)"
                         >
-                            <flux:icon name="folder" class="size-4 shrink-0 text-blue-500/80 dark:text-blue-400/80" />
+                            <flux:icon name="folder" class="size-4 shrink-0 text-brand-blue/85 dark:text-brand-light-blue/90" />
                             <span class="min-w-0 flex-1 truncate font-medium text-foreground" x-text="item.name"></span>
                         </button>
                     </template>

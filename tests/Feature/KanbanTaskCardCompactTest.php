@@ -75,3 +75,25 @@ it('uses the same source link chip classes in kanban and list layouts', function
     expect($kanbanHtml)->toContain($expectedChipClasses)
         ->and($listHtml)->toContain($expectedChipClasses);
 });
+
+it('uses the shared workspace focus trigger styling in kanban layout', function (): void {
+    $this->actingAs($this->user);
+
+    $task = Task::factory()->for($this->user)->create();
+    $task->load(['tags', 'project', 'event', 'recurringTask', 'collaborators']);
+
+    $tags = collect();
+
+    $kanbanHtml = Blade::render(
+        '<x-workspace.list-item-task
+            :item="$task"
+            :available-tags="$tags"
+            update-property-method="updateTaskProperty"
+            layout="kanban"
+        />',
+        ['task' => $task, 'tags' => $tags]
+    );
+
+    expect($kanbanHtml)->toContain('class="workspace-focus-trigger"')
+        ->and($kanbanHtml)->toContain('x-ref="focusTrigger"');
+});

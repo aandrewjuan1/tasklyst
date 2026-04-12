@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Task;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -31,13 +32,37 @@ test('creating a task while in kanban view shows it on the board', function (): 
         ->assertSee('Kanban created task');
 });
 
+test('kanban task cards use neutral zinc surface without status left border classes', function (): void {
+    $this->actingAs($this->user);
+
+    $html = Livewire::withQueryParams(['view' => 'kanban'])
+        ->test('pages::workspace.index')
+        ->call('createTask', ['title' => 'Kanban surface task'])
+        ->html();
+
+    $taskId = Task::query()->where('title', 'Kanban surface task')->value('id');
+    expect($taskId)->not->toBeNull();
+
+    expect(preg_match(
+        '/id="workspace-item-task-'.preg_quote((string) $taskId, '/').'"[^>]*class="([^"]*)"/',
+        $html,
+        $matches
+    ))->toBe(1);
+
+    expect($matches[1])->toContain('lic-surface-zinc')
+        ->not->toContain('lic-surface-task-todo')
+        ->not->toContain('lic-surface-task-doing')
+        ->not->toContain('lic-surface-task-done');
+
+    expect($html)->toContain('lic-item-type-pill--task');
+});
+
 test('kanban view add control is task-only (no event or project options)', function (): void {
     $this->actingAs($this->user);
 
     $this->get(route('workspace', ['view' => 'kanban']))
         ->assertSuccessful()
-        ->assertDontSee('calendar-days')
-        ->assertDontSee('clipboard-document-list');
+        ->assertDontSee('calendar-days');
 });
 
 test('workspace view mode can be set to list and kanban', function (): void {

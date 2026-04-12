@@ -1171,9 +1171,10 @@
 
     @if($canEdit)
         <div class="w-full basis-full mt-1 flex flex-col gap-2">
+            @if(($layout ?? 'list') === 'kanban' && ! $embedInFocusModal)
             <div
                 class="flex items-center"
-                x-show="!embedInFocusModal && status !== 'done' && (!listItemCard || (!listItemCard.isFocused && !listItemCard.isBreakFocused))"
+                x-show="status !== 'done' && (!listItemCard || (!listItemCard.isFocused && !listItemCard.isBreakFocused))"
                 @if($hideFocusButtonInitiallyDone) style="display: none;" @endif
             >
                 <flux:tooltip :content="__('Start focus mode')">
@@ -1181,13 +1182,14 @@
                         type="button"
                         x-ref="focusTrigger"
                         @click.stop="listItemCard && listItemCard.enterFocusReady()"
-                        class="inline-flex items-center gap-1.5 rounded-full border border-primary/50 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary transition-[box-shadow,transform] duration-150 ease-out hover:border-primary/60 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        class="workspace-focus-trigger"
                     >
-                        <flux:icon name="bolt" class="size-3 shrink-0" />
+                        <flux:icon name="bolt" class="size-4 shrink-0" />
                         <span>{{ __('Focus') }}</span>
                     </button>
                 </flux:tooltip>
             </div>
+            @endif
             <div
                 x-show="taskProgressSectionShown"
                 x-cloak
@@ -1263,7 +1265,7 @@
         >
             <span
                 x-show="kind === 'task'"
-                class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700"
+                class="lic-project-chip"
             >
                 <flux:icon name="folder" class="size-3" />
                 <span
@@ -1291,7 +1293,7 @@
         >
             <span
                 x-show="kind === 'task'"
-                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500"
+                class="lic-event-chip"
             >
                 <flux:icon name="calendar" class="size-3" />
                 <span
@@ -1315,7 +1317,7 @@
         <span
             x-show="kind === 'task' && showProjectPill"
             x-cloak
-            class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700"
+            class="lic-project-chip"
         >
             <flux:icon name="folder" class="size-3" />
             <span class="inline-flex items-baseline gap-1">
@@ -1329,7 +1331,7 @@
         <span
             x-show="kind === 'task' && showEventPill"
             x-cloak
-            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-purple-500/10 px-2.5 py-0.5 font-medium text-purple-500"
+            class="lic-event-chip"
         >
             <flux:icon name="calendar" class="size-3" />
             <span class="inline-flex items-baseline gap-1">

@@ -2,6 +2,14 @@
 @php
     $layout = $layout ?? 'list';
     $isKanbanLayout = $layout === 'kanban';
+    $showFocusTrigger = $showFocusTrigger ?? true;
+    $hideFocusTriggerInitiallyDone = ($kind ?? null) === 'task'
+        && (($effectiveStatus ?? null)?->value ?? $item->status?->value ?? '') === 'done';
+    $itemTypePillKindClass = match ($kind ?? '') {
+        'event' => 'lic-item-type-pill--event',
+        'project' => 'lic-item-type-pill--project',
+        default => 'lic-item-type-pill--task',
+    };
 @endphp
 <div>
     <div class="flex items-start justify-between gap-2">
@@ -102,13 +110,9 @@
         </div>
 
         {{-- Right-side actions: inline with title in list layout; ellipsis only in kanban layout --}}
-        @if(! $isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
-            <div class="ml-2 flex items-center gap-1.5 shrink-0">
-                @if($type)
-                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground {{ $isKanbanLayout ? 'hidden sm:inline-flex' : '' }}">
-                        {{ $type }}
-                    </span>
-                @endif
+        @if(! $isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod) || ($kind === 'task' && $canEdit && $showFocusTrigger)))
+            <div class="ml-2 flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                @include('components.workspace.list-item-card._item-type-pill')
 
                 @if(in_array($kind, ['task', 'event'], true))
                     <div class="hidden md:block">
@@ -144,6 +148,26 @@
                         align="end"
                     />
                 </div>
+
+                @if($kind === 'task' && $canEdit && $showFocusTrigger)
+                    <div
+                        x-show="taskStatus !== 'done' && !isFocused && !isBreakFocused"
+                        @if($hideFocusTriggerInitiallyDone) style="display: none;" @endif
+                        class="shrink-0"
+                    >
+                        <flux:tooltip :content="__('Start focus mode')">
+                            <button
+                                type="button"
+                                x-ref="focusTrigger"
+                                @click.stop="enterFocusReady()"
+                                class="workspace-focus-trigger"
+                            >
+                                <flux:icon name="bolt" class="size-4 shrink-0" />
+                                <span>{{ __('Focus') }}</span>
+                            </button>
+                        </flux:tooltip>
+                    </div>
+                @endif
 
                 @if($currentUserIsOwner && $deleteMethod)
                     <flux:dropdown>
@@ -256,11 +280,7 @@
     @if($isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
         <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div class="flex flex-wrap items-center gap-2">
-                @if($type)
-                    <span class="inline-flex items-center rounded-full border border-border/60 bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {{ $type }}
-                    </span>
-                @endif
+                @include('components.workspace.list-item-card._item-type-pill')
 
                 @if(in_array($kind, ['task', 'event'], true))
                     <div>

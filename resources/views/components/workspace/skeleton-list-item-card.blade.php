@@ -6,7 +6,7 @@
 <flux:skeleton.group
     animate="shimmer"
     @class([
-        'flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 shadow-sm backdrop-blur',
+        'lic-surface-zinc flex flex-col gap-2 rounded-xl',
         'px-2.5 py-1.5' => $compact,
         'px-3 py-2' => ! $compact,
     ])

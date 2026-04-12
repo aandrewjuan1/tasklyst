@@ -6,6 +6,11 @@
 const FOCUS_RETRY_MAX = 40;
 const FOCUS_RETRY_MS = 50;
 
+const WORKSPACE_ROW_FLASH_CLASS = 'workspace-row-flash';
+
+/** Match {@see workspace-row-flash} animation duration in app.css + small buffer. */
+const WORKSPACE_ROW_FLASH_MS = 2100;
+
 function focusWorkspaceElement(el) {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     el.scrollIntoView({
@@ -14,24 +19,12 @@ function focusWorkspaceElement(el) {
         inline: 'nearest',
     });
 
-    el.classList.add(
-        'ring-2',
-        'ring-brand-blue/60',
-        'ring-offset-2',
-        'ring-offset-background',
-        'transition-shadow',
-        'duration-300',
-    );
+    el.classList.remove(WORKSPACE_ROW_FLASH_CLASS);
+    void el.offsetWidth;
+    el.classList.add(WORKSPACE_ROW_FLASH_CLASS);
     window.setTimeout(() => {
-        el.classList.remove(
-            'ring-2',
-            'ring-brand-blue/60',
-            'ring-offset-2',
-            'ring-offset-background',
-            'transition-shadow',
-            'duration-300',
-        );
-    }, 1600);
+        el.classList.remove(WORKSPACE_ROW_FLASH_CLASS);
+    }, WORKSPACE_ROW_FLASH_MS);
 }
 
 /**
