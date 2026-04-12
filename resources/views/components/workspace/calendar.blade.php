@@ -82,227 +82,29 @@
     $initialMonth = $currentMonth - 1; // JavaScript months are 0-indexed
     $initialYear = $currentYear;
     $initialMonthLabel = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y');
+
+    // Same rule as {@see syncWorkspaceCalendarTodayButton}: disabled only when selected is today
+    // and the grid is not showing a browsed month (SSR first paint before JS runs).
+    $todayCarbon = \Illuminate\Support\Carbon::parse($today);
+    $jumpToTodayDisabledInitially = $selectedDateString !== null
+        && $selectedDateString === $today
+        && (int) $currentYear === (int) $todayCarbon->year
+        && (int) $currentMonth === (int) $todayCarbon->month;
+
+    $workspaceCalendarConfig = [
+        'month' => $initialMonth,
+        'year' => $initialYear,
+        'selectedDate' => $selectedDateString,
+        'today' => $today,
+        'monthMeta' => $monthMeta,
+        'locale' => str_replace('_', '-', app()->getLocale()),
+        'monthLabel' => $initialMonthLabel,
+        'monthLabelCache' => $initialYear.'-'.$initialMonth,
+    ];
 @endphp
 
 <div
-    x-data="{
-        alpineReady: false,
-        month: @js($initialMonth),
-        year: @js($initialYear),
-        selectedDate: @js($selectedDateString),
-        today: @js($today),
-        monthMeta: @js($monthMeta),
-        todayCache: null,
-        days: [],
-        locale: @js(str_replace('_', '-', app()->getLocale())),
-        /** Month chevrons only — never cleared by a concurrent date-select request. */
-        calendarNavBusy: false,
-        /** Day-cell selection — isolated from month navigation busy state to avoid races. */
-        dateSelectBusy: false,
-        busyContext: '',
-        
-        init() {
-            // Initialize Alpine store if not already initialized
-            Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: null, focusReady: false });
-            
-            // Initialize today cache once
-            const t = new Date();
-            this.todayCache = { year: t.getFullYear(), month: t.getMonth(), date: t.getDate() };
-            
-            this.buildDays();
-            this.updateMonthLabel();
-            this.alpineReady = true;
-            
-            // Watch for selectedDate changes from Livewire
-            this.$watch('$wire.selectedDate', (value) => {
-                if (!value) return;
-                const date = new Date(value + 'T12:00:00');
-                const newMonth = date.getMonth();
-                const newYear = date.getFullYear();
-                
-                // Only rebuild if month/year changed
-                if (newMonth !== this.month || newYear !== this.year) {
-                    this.month = newMonth;
-                    this.year = newYear;
-                    this.updateMonthLabel();
-                    this.buildDays();
-                } else {
-                    // Just update selection state without full rebuild
-                    this.selectedDate = value;
-                    this.days.forEach(day => {
-                        day.isSelected = day.dateString === value;
-                    });
-                }
-            });
-        },
-        
-        buildDays() {
-            const firstDayOfMonth = new Date(this.year, this.month, 1).getDay();
-            const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
-            const previousMonth = new Date(this.year, this.month, 0);
-            const daysInPreviousMonth = previousMonth.getDate();
-            
-            const daysToShowFromPreviousMonth = firstDayOfMonth;
-            const remainder = (daysToShowFromPreviousMonth + daysInMonth) % 7;
-            const blanksNeeded = remainder === 0 ? 0 : 7 - remainder;
-            const expectedLength = daysToShowFromPreviousMonth + daysInMonth + blanksNeeded;
-            
-            // Reuse array if same size to reduce GC pressure
-            let days;
-            if (this.days.length === expectedLength) {
-                this.days.length = 0; // Clear but keep array reference
-                days = this.days;
-            } else {
-                days = [];
-            }
-            
-            // Leading padding cells (no labels; keeps weekday alignment)
-            for (let i = daysInPreviousMonth - daysToShowFromPreviousMonth + 1; i <= daysInPreviousMonth; i++) {
-                days.push({
-                    day: i,
-                    month: 'previous',
-                    isToday: false,
-                    isSelected: false,
-                    dateString: null,
-                });
-            }
-            
-            // Current month days
-            for (let day = 1; day <= daysInMonth; day++) {
-                // Use T12:00:00 to avoid timezone shifts (same pattern as date-switcher)
-                const monthStr = String(this.month + 1).padStart(2, '0');
-                const dayStr = String(day).padStart(2, '0');
-                const dateString = `${this.year}-${monthStr}-${dayStr}`;
-                const isToday = this.todayCache.year === this.year && 
-                               this.todayCache.month === this.month && 
-                               this.todayCache.date === day;
-                const isSelected = this.selectedDate === dateString;
-                
-                days.push({
-                    day: day,
-                    month: 'current',
-                    isToday: isToday,
-                    isSelected: isSelected,
-                    dateString: dateString,
-                    meta: this.getMeta(dateString),
-                });
-            }
-            
-            // Trailing padding cells (no labels)
-            for (let day = 1; day <= blanksNeeded; day++) {
-                days.push({
-                    day: day,
-                    month: 'next',
-                    isToday: false,
-                    isSelected: false,
-                    dateString: null,
-                });
-            }
-            
-            this.days = days;
-        },
-        
-        async changeMonth(offset) {
-            if (this.calendarNavBusy) return;
-            this.calendarNavBusy = true;
-            this.busyContext = 'calendar-nav';
-            try {
-                await $wire.browseCalendarMonth(offset);
-                if ($wire.calendarViewYear != null && $wire.calendarViewMonth != null) {
-                    this.year = $wire.calendarViewYear;
-                    this.month = $wire.calendarViewMonth - 1;
-                }
-                if ($wire.calendarGridMetaForJs && typeof $wire.calendarGridMetaForJs === 'object') {
-                    this.monthMeta = $wire.calendarGridMetaForJs;
-                }
-                this.updateMonthLabel();
-                this.buildDays();
-            } finally {
-                this.calendarNavBusy = false;
-                this.busyContext = '';
-            }
-        },
-        
-        monthLabel: @js($initialMonthLabel),
-        monthLabelCache: @js($initialYear . '-' . $initialMonth),
-        
-        updateMonthLabel() {
-            const cacheKey = `${this.year}-${this.month}`;
-            if (this.monthLabelCache === cacheKey) return;
-            
-            const date = new Date(this.year, this.month, 1);
-            this.monthLabel = date.toLocaleDateString(this.locale, { month: 'long', year: 'numeric' });
-            this.monthLabelCache = cacheKey;
-        },
-        
-        async selectDay(dayData) {
-            if (!dayData.dateString) return;
-            if (dayData.dateString === this.selectedDate) {
-                return;
-            }
-            const previousSelected = this.selectedDate;
-            const oldSelected = this.days.find(d => d.isSelected);
-            if (oldSelected) oldSelected.isSelected = false;
-            dayData.isSelected = true;
-            this.selectedDate = dayData.dateString;
-
-            try {
-                this.dateSelectBusy = true;
-                this.busyContext = 'date-select';
-                await $wire.set('selectedDate', dayData.dateString);
-            } catch (error) {
-                this.selectedDate = previousSelected;
-                this.days.forEach((day) => {
-                    day.isSelected = day.dateString === previousSelected;
-                });
-            } finally {
-                this.dateSelectBusy = false;
-                this.busyContext = '';
-            }
-        },
-        getMeta(dateString) {
-            if (!dateString || !this.monthMeta || typeof this.monthMeta !== 'object') {
-                return { task_count: 0, overdue_count: 0, due_count: 0, task_starts_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
-            }
-
-            return this.monthMeta[dateString] ?? { task_count: 0, overdue_count: 0, due_count: 0, task_starts_count: 0, event_count: 0, conflict_count: 0, recurring_count: 0, all_day_count: 0 };
-        },
-        handleKeydown(event) {
-            const tag = (event.target?.tagName ?? '').toLowerCase();
-            if (['input', 'textarea', 'select', 'button'].includes(tag)) return;
-            if (this.calendarNavBusy || this.dateSelectBusy) return;
-
-            if (event.key === 'ArrowLeft') {
-                event.preventDefault();
-                $wire.navigateSelectedDate(-1);
-                return;
-            }
-            if (event.key === 'ArrowRight') {
-                event.preventDefault();
-                $wire.navigateSelectedDate(1);
-                return;
-            }
-            if (event.key === 'ArrowUp') {
-                event.preventDefault();
-                $wire.navigateSelectedDate(-7);
-                return;
-            }
-            if (event.key === 'ArrowDown') {
-                event.preventDefault();
-                $wire.navigateSelectedDate(7);
-                return;
-            }
-            if (event.key.toLowerCase() === 'n') {
-                event.preventDefault();
-                this.changeMonth(1);
-                return;
-            }
-            if (event.key.toLowerCase() === 'p') {
-                event.preventDefault();
-                this.changeMonth(-1);
-            }
-        },
-    }"
+    x-data="workspaceCalendar({{ \Illuminate\Support\Js::from($workspaceCalendarConfig) }})"
     class="w-full"
     tabindex="0"
     @keydown="handleKeydown($event)"
@@ -313,24 +115,24 @@
         class="rounded-xl border border-brand-blue/35 bg-brand-light-lavender/90 shadow-lg backdrop-blur-xs transition-opacity dark:border-brand-blue/25 dark:bg-brand-light-lavender/10"
         :class="calendarNavBusy || dateSelectBusy ? 'opacity-90' : 'opacity-100'"
     >
-        {{-- Header: Month/Year Navigation --}}
-        <div class="flex items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
+        {{-- Header: Month/Year Navigation (same blue family as “today” day cells) --}}
+        <div class="flex items-center justify-between rounded-t-xl border-b border-brand-blue/25 bg-brand-light-blue px-3 py-3 sm:px-4 sm:py-4 dark:border-brand-blue/35 dark:bg-brand-blue/20">
             {{-- Previous Month Button --}}
             <button
                 type="button"
                 @click="changeMonth(-1)"
                 :disabled="calendarNavBusy"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
+                class="flex h-9 w-9 items-center justify-center rounded-lg text-brand-navy-blue transition-colors hover:bg-white/55 hover:text-brand-navy-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 focus:ring-offset-brand-light-blue dark:text-brand-light-blue dark:hover:bg-white/10 dark:hover:text-white dark:focus:ring-offset-brand-blue/20 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-10"
                 aria-label="{{ __('Previous month') }}"
             >
-                <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                <svg class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7" />
                 </svg>
             </button>
 
             {{-- Month/Year Display: single element so "Month Year" is not shown twice before Alpine hydrates --}}
-            <div class="text-center">
-                <h2 class="text-sm font-semibold text-foreground tabular-nums sm:text-base" x-text="monthLabel">
+            <div class="min-w-0 flex-1 text-center px-1">
+                <h2 class="text-base font-bold leading-tight tracking-tight text-brand-navy-blue tabular-nums sm:text-lg dark:text-foreground" x-text="monthLabel">
                     {{ \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y') }}
                 </h2>
             </div>
@@ -340,13 +142,31 @@
                 type="button"
                 @click="changeMonth(1)"
                 :disabled="calendarNavBusy"
-                class="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-9"
+                class="flex h-9 w-9 items-center justify-center rounded-lg text-brand-navy-blue transition-colors hover:bg-white/55 hover:text-brand-navy-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-2 focus:ring-offset-brand-light-blue dark:text-brand-light-blue dark:hover:bg-white/10 dark:hover:text-white dark:focus:ring-offset-brand-blue/20 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:w-10"
                 aria-label="{{ __('Next month') }}"
             >
-                <svg class="h-4 w-4 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                <svg class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7" />
                 </svg>
             </button>
+        </div>
+
+        <div class="flex justify-center border-b border-brand-blue/20 bg-brand-light-blue/40 px-3 py-2 dark:border-brand-blue/30 dark:bg-brand-blue/15">
+            <flux:tooltip :content="__('Jump to today')" position="top">
+                <span class="inline-flex">
+                    <button
+                        type="button"
+                        data-testid="calendar-jump-to-today"
+                        data-app-today="{{ $today }}"
+                        @if ($jumpToTodayDisabledInitially) disabled @endif
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-blue/30 bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-brand-navy-blue shadow-sm transition hover:bg-white hover:border-brand-blue/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-blue/40 dark:bg-zinc-900/50 dark:text-brand-light-blue dark:hover:bg-zinc-900/70"
+                        @click="jumpToToday()"
+                    >
+                        <flux:icon name="calendar-days" class="size-3.5 shrink-0 opacity-90" aria-hidden="true" />
+                        <span>{{ __('Today') }}</span>
+                    </button>
+                </span>
+            </flux:tooltip>
         </div>
 
         {{-- Calendar Grid --}}

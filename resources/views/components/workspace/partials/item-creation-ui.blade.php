@@ -96,7 +96,6 @@
                     <span class="min-w-0 flex-1">
                         <span
                             x-show="mode === 'list' && visibleItemCount <= 0"
-                            x-cloak
                             class="block"
                             role="status"
                             aria-live="polite"
@@ -129,7 +128,6 @@
                         <span
                             x-show="mode !== 'list' || visibleItemCount > 0"
                             class="block"
-                            x-cloak
                             style="{{ $isListMode && $visibleItemsInitial <= 0 ? 'display: none' : '' }}"
                         >
                             <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('Create something new') }}</span>

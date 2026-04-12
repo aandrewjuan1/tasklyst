@@ -38,6 +38,23 @@ trait HandlesWorkspaceCalendar
     }
 
     /**
+     * Set the workspace/dashboard selected day to today and snap the grid to the month that contains today.
+     * Clears month-only navigation from {@see browseCalendarMonth()} even when the selected day was already today.
+     */
+    public function jumpCalendarToToday(): void
+    {
+        $today = now()->toDateString();
+
+        if ($this->selectedDate !== $today) {
+            $this->selectedDate = $today;
+        } else {
+            $this->resetCalendarViewForSelectedDateChange();
+        }
+
+        $this->calendarGridMetaForJs = $this->calendarMonthMeta;
+    }
+
+    /**
      * Move the calendar grid to another month without updating the workspace selected date.
      */
     public function browseCalendarMonth(int $delta): void

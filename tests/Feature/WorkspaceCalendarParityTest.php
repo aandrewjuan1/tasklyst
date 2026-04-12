@@ -25,6 +25,69 @@ test('workspace calendar supports dashboard contract methods', function (): void
         ->assertSet('selectedDate', '2026-04-10');
 });
 
+test('jumpCalendarToToday sets selected date to today', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-15 12:00:00'));
+
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-03-01')
+        ->call('jumpCalendarToToday')
+        ->assertSet('selectedDate', '2026-04-15');
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-15')
+        ->call('jumpCalendarToToday')
+        ->assertSet('selectedDate', '2026-04-15');
+});
+
+test('jumpCalendarToToday clears month browse so the grid returns to the current month', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
+
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-13')
+        ->set('calendarViewYear', 2026)
+        ->set('calendarViewMonth', 6)
+        ->call('jumpCalendarToToday')
+        ->assertSet('calendarViewYear', null)
+        ->assertSet('calendarViewMonth', null)
+        ->assertSet('selectedDate', '2026-04-13');
+});
+
+test('Jump to today button SSR disables only when the visible month is today\'s month and the selected day is today', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
+
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    // Boolean `disabled` only — not `x-bind:disabled` (which also contains the substring "disabled").
+    $ssrDisabledAttr = '/data-testid="calendar-jump-to-today"[^>]*\sdisabled(?:\s|>|\/)/';
+
+    $htmlOnToday = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-13')
+        ->html();
+
+    expect(preg_match($ssrDisabledAttr, $htmlOnToday) === 1)->toBeTrue();
+
+    $htmlOtherDaySameMonth = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-12')
+        ->html();
+
+    expect(preg_match($ssrDisabledAttr, $htmlOtherDaySameMonth) === 0)->toBeTrue();
+
+    $htmlBrowsingJuneWhileSelectedToday = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-13')
+        ->set('calendarViewYear', 2026)
+        ->set('calendarViewMonth', 6)
+        ->html();
+
+    expect(preg_match($ssrDisabledAttr, $htmlBrowsingJuneWhileSelectedToday) === 0)->toBeTrue();
+});
+
 test('workspace calendar renders selected day agenda without source filtering', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
 
