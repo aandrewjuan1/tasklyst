@@ -35,6 +35,8 @@ new class extends Component
      *   read_at: string|null,
      *   created_at_human: string,
      *   click_opens_workspace: bool,
+     *   workspace_focus_kind?: 'task'|'event'|'project'|null,
+     *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
      * }>
      */
@@ -110,6 +112,60 @@ new class extends Component
 
     public function openNotification(string $notificationId): void
     {
+        $this->openNotificationInternal($notificationId, true);
+    }
+
+    /**
+     * Called from the bell on the workspace page after optional {@see workspaceCalendarTryInstantFocus} (same pattern as the sidebar calendar agenda).
+     *
+     * @param  bool  $expandPagination  False when the list row was already in the DOM and instant scroll/highlight ran; skips heavy pagination expansion and deferred JS focus.
+     */
+    public function openNotificationFromWorkspaceBell(string $notificationId, bool $expandPagination): void
+    {
+        if (! request()->routeIs('workspace')) {
+            $this->openNotification($notificationId);
+
+            return;
+        }
+
+        $this->openNotificationInternal($notificationId, $expandPagination);
+    }
+
+    /**
+     * Workspace page only: list row was already in the DOM and instant scroll/highlight ran in the browser.
+     * Marks read and refreshes bell state without touching the workspace Livewire tree (avoids 1–2s focus/pagination work).
+     */
+    public function markWorkspaceNotificationOpened(string $notificationId): void
+    {
+        if (! request()->routeIs('workspace')) {
+            return;
+        }
+
+        $user = Auth::user();
+        if ($user === null) {
+            return;
+        }
+
+        $notification = app(FindOwnedDatabaseNotificationAction::class)->execute($user, $notificationId);
+        if ($notification === null) {
+            return;
+        }
+
+        $data = NotificationBellState::notificationDataAsArray($notification);
+        if (! NotificationBellState::notificationDataOpensWorkspaceRow($data)) {
+            return;
+        }
+
+        if ($notification->read_at === null) {
+            $notification->markAsRead();
+        }
+
+        $this->syncNotificationStateFromDatabase();
+        $this->panelOpen = false;
+    }
+
+    private function openNotificationInternal(string $notificationId, bool $expandPaginationForWorkspace): void
+    {
         $user = Auth::user();
         if ($user === null) {
             return;
@@ -121,6 +177,27 @@ new class extends Component
         }
 
         $this->syncNotificationStateFromDatabase();
+
+        $this->panelOpen = false;
+
+        if (request()->routeIs('workspace')) {
+            $notification = app(FindOwnedDatabaseNotificationAction::class)->execute($user, $notificationId);
+            $data = $notification !== null
+                ? NotificationBellState::notificationDataAsArray($notification)
+                : [];
+            $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
+
+            if ($target !== null) {
+                $this->dispatch(
+                    'workspace-bell-focus-item',
+                    kind: $target['kind'],
+                    id: $target['id'],
+                    expandPagination: $expandPaginationForWorkspace,
+                );
+
+                return;
+            }
+        }
 
         $this->redirect($url, navigate: true);
     }

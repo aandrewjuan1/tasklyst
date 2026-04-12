@@ -57,8 +57,9 @@ class EventStartSoonNotification extends Notification
             'route' => 'workspace',
             'params' => array_filter([
                 'date' => $date,
+                'view' => 'list',
                 'type' => 'events',
-                'q' => $this->eventTitle,
+                'event' => $this->eventId,
             ], fn ($v) => $v !== null && $v !== ''),
             'meta' => [
                 'start_at' => $this->startAtIso,

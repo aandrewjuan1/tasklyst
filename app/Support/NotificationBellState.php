@@ -17,17 +17,104 @@ final class NotificationBellState
 {
     public const BELL_PAGE_SIZE = 5;
 
+    /**
+     * Workspace URLs omit the legacy search query parameter so they match dashboard/calendar deep links and stay stable after Livewire URL sync.
+     */
     public static function resolveTargetUrl(DatabaseNotification $notification): string
     {
         $data = self::notificationDataAsArray($notification);
         $route = trim((string) ($data['route'] ?? ''));
         $params = is_array($data['params'] ?? null) ? $data['params'] : [];
 
+        if ($route === 'workspace') {
+            $params = self::mergeWorkspaceDeepLinkQueryParams($data, $params);
+            unset($params['q']);
+        }
+
         if ($route !== '' && Route::has($route)) {
             return route($route, $params);
         }
 
         return route('dashboard');
+    }
+
+    /**
+     * Merge task/event/project id and list view into workspace route params using stored `entity` when ids are missing (legacy rows).
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $params
+     * @return array<string, mixed>
+     */
+    public static function mergeWorkspaceDeepLinkQueryParams(array $data, array $params): array
+    {
+        $out = $params;
+
+        $hasTask = isset($out['task']) && (int) $out['task'] > 0;
+        $hasEvent = isset($out['event']) && (int) $out['event'] > 0;
+        $hasProject = isset($out['project']) && (int) $out['project'] > 0;
+
+        if (! $hasTask && ! $hasEvent && ! $hasProject) {
+            $entity = $data['entity'] ?? null;
+            if (is_array($entity)) {
+                $kind = isset($entity['kind']) ? strtolower((string) $entity['kind']) : '';
+                $id = isset($entity['id']) ? (int) $entity['id'] : 0;
+
+                if ($id > 0 && in_array($kind, ['task', 'event', 'project'], true)) {
+                    unset($out['task'], $out['event'], $out['project']);
+                    $out['view'] = 'list';
+
+                    if ($kind === 'task') {
+                        $out['task'] = $id;
+                        $out['type'] = $out['type'] ?? 'tasks';
+                    } elseif ($kind === 'event') {
+                        $out['event'] = $id;
+                        $out['type'] = $out['type'] ?? 'events';
+                    } else {
+                        $out['project'] = $id;
+                        $out['type'] = $out['type'] ?? 'projects';
+                    }
+                }
+            }
+        }
+
+        if (isset($out['task']) || isset($out['event']) || isset($out['project'])) {
+            $out['view'] = $out['view'] ?? 'list';
+        }
+
+        return $out;
+    }
+
+    /**
+     * Resolved task/event/project target for in-page workspace focus (bell, etc.).
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{kind: 'task'|'event'|'project', id: int}|null
+     */
+    public static function workspaceFocusTargetFromNotificationData(array $data): ?array
+    {
+        if (! self::notificationDataOpensWorkspaceRow($data)) {
+            return null;
+        }
+
+        $route = trim((string) ($data['route'] ?? ''));
+        if ($route !== 'workspace') {
+            return null;
+        }
+
+        $params = is_array($data['params'] ?? null) ? $data['params'] : [];
+        $merged = self::mergeWorkspaceDeepLinkQueryParams($data, $params);
+
+        if (isset($merged['task']) && (int) $merged['task'] > 0) {
+            return ['kind' => 'task', 'id' => (int) $merged['task']];
+        }
+        if (isset($merged['event']) && (int) $merged['event'] > 0) {
+            return ['kind' => 'event', 'id' => (int) $merged['event']];
+        }
+        if (isset($merged['project']) && (int) $merged['project'] > 0) {
+            return ['kind' => 'project', 'id' => (int) $merged['project']];
+        }
+
+        return null;
     }
 
     /**
@@ -157,7 +244,15 @@ final class NotificationBellState
         ];
 
         if (! self::isCollaborationInviteNotification($notification, $data)) {
-            return $base;
+            $focusTarget = null;
+            if ($base['click_opens_workspace']) {
+                $focusTarget = self::workspaceFocusTargetFromNotificationData($data);
+            }
+
+            return array_merge($base, [
+                'workspace_focus_kind' => $focusTarget['kind'] ?? null,
+                'workspace_focus_id' => $focusTarget['id'] ?? null,
+            ]);
         }
 
         $invitationId = self::resolveInvitationIdFromNotificationData($data);

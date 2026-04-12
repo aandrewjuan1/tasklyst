@@ -176,3 +176,64 @@ test('focusCalendarAgendaItem switches to list events with event focus from in-p
         ->assertSet('viewMode', 'list')
         ->assertSet('filterItemType', 'events');
 });
+
+test('focusCalendarAgendaItem switches to list projects with project focus', function (): void {
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create([
+        'name' => 'Calendar Focus Project',
+        'start_datetime' => now()->subDay(),
+        'end_datetime' => now()->addMonth(),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('viewMode', 'kanban')
+        ->set('filterItemType', 'tasks')
+        ->call('focusCalendarAgendaItem', 'project', $project->id)
+        ->assertSet('focusProjectId', $project->id)
+        ->assertSet('focusTaskId', null)
+        ->assertSet('focusEventId', null)
+        ->assertSet('viewMode', 'list')
+        ->assertSet('filterItemType', 'projects');
+});
+
+test('workspace bell focus event delegates to focusCalendarAgendaItem', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Bell Focus Task',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->addHours(2),
+        'completed_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('viewMode', 'kanban')
+        ->set('filterItemType', 'events')
+        ->call('onWorkspaceBellFocusItem', 'task', $task->id)
+        ->assertSet('focusTaskId', $task->id)
+        ->assertSet('viewMode', 'list')
+        ->assertSet('filterItemType', 'tasks');
+});
+
+test('workspace bell focus event can skip pagination expansion when row already visible', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Bell Instant Task',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->addHours(2),
+        'completed_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('viewMode', 'kanban')
+        ->set('filterItemType', 'events')
+        ->call('onWorkspaceBellFocusItem', 'task', $task->id, false)
+        ->assertSet('focusTaskId', $task->id)
+        ->assertSet('viewMode', 'list')
+        ->assertSet('filterItemType', 'tasks');
+});

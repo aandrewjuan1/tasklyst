@@ -385,7 +385,7 @@ class extends Component
      */
     public function focusCalendarAgendaItem(string $kind, int $id, bool $expandPagination = true): void
     {
-        if ($id < 1 || ($kind !== 'task' && $kind !== 'event')) {
+        if ($id < 1 || ! in_array($kind, ['task', 'event', 'project'], true)) {
             return;
         }
 
@@ -395,8 +395,10 @@ class extends Component
 
         if ($kind === 'task') {
             $this->focusTaskId = $id;
-        } else {
+        } elseif ($kind === 'event') {
             $this->focusEventId = $id;
+        } else {
+            $this->focusProjectId = $id;
         }
 
         $this->applyWorkspaceDeepLinkFocus(false, $expandPagination);
@@ -404,6 +406,12 @@ class extends Component
         if ($expandPagination) {
             $this->js('requestAnimationFrame(() => { setTimeout(() => { window.runWorkspaceFocusFromUrl && window.runWorkspaceFocusFromUrl(); }, 0); });');
         }
+    }
+
+    #[On('workspace-bell-focus-item')]
+    public function onWorkspaceBellFocusItem(string $kind, int $id, bool $expandPagination = true): void
+    {
+        $this->focusCalendarAgendaItem($kind, $id, $expandPagination);
     }
 
     /**

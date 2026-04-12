@@ -52,8 +52,9 @@ class TaskOverdueNotification extends Notification
             'route' => 'workspace',
             'params' => array_filter([
                 'date' => $date,
+                'view' => 'list',
                 'type' => 'tasks',
-                'q' => $this->taskTitle,
+                'task' => $this->taskId,
             ], fn ($v) => $v !== null && $v !== ''),
             'meta' => [
                 'due_at' => $this->dueAtIso,

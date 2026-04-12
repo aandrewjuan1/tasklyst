@@ -244,6 +244,84 @@ test('open notification marks it as read and redirects to target route', functio
     expect($notification->fresh()->read_at)->not->toBeNull();
 });
 
+test('resolveTargetUrl merges task id from entity when params omit task', function (): void {
+    $user = $this->user;
+    $today = now()->toDateString();
+    $taskId = 4242;
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'task_due_soon',
+            'title' => 'Legacy row',
+            'route' => 'workspace',
+            'params' => [
+                'date' => $today,
+                'type' => 'tasks',
+            ],
+            'entity' => [
+                'kind' => 'task',
+                'id' => $taskId,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    $url = NotificationBellState::resolveTargetUrl($notification);
+
+    expect($url)->toContain('task='.$taskId)
+        ->and($url)->toContain('view=list');
+});
+
+test('workspaceFocusTargetFromNotificationData returns kind and id for merged workspace params', function (): void {
+    $data = [
+        'type' => 'task_due_soon',
+        'route' => 'workspace',
+        'params' => [
+            'date' => now()->toDateString(),
+            'view' => 'list',
+            'type' => 'tasks',
+            'task' => 99,
+        ],
+    ];
+
+    $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
+
+    expect($target)->toMatchArray(['kind' => 'task', 'id' => 99]);
+});
+
+test('markWorkspaceNotificationOpened does not mark read when not on workspace route', function (): void {
+    $user = $this->user;
+    $today = now()->toDateString();
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'task_due_soon',
+            'title' => 'Unread',
+            'route' => 'workspace',
+            'params' => [
+                'date' => $today,
+                'type' => 'tasks',
+                'task' => 1,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('notifications.bell-dropdown')
+        ->call('markWorkspaceNotificationOpened', $notification->id);
+
+    expect($notification->fresh()->read_at)->toBeNull();
+});
+
 test('mark all as read does not affect another users notifications', function (): void {
     $user = $this->user;
     $otherUser = User::factory()->create();

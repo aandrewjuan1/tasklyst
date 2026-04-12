@@ -23,8 +23,9 @@ final class WorkspaceNotificationParams
 
             return array_filter([
                 'date' => $date,
+                'view' => 'list',
                 'type' => 'tasks',
-                'q' => (string) $item->title,
+                'task' => $item->getKey(),
             ], fn ($v) => $v !== null && $v !== '');
         }
 
@@ -35,8 +36,9 @@ final class WorkspaceNotificationParams
 
             return array_filter([
                 'date' => $date,
+                'view' => 'list',
                 'type' => 'events',
-                'q' => (string) $item->title,
+                'event' => $item->getKey(),
             ], fn ($v) => $v !== null && $v !== '');
         }
 
@@ -47,8 +49,9 @@ final class WorkspaceNotificationParams
 
             return array_filter([
                 'date' => $date,
+                'view' => 'list',
                 'type' => 'projects',
-                'q' => (string) $item->name,
+                'project' => $item->getKey(),
             ], fn ($v) => $v !== null && $v !== '');
         }
 
