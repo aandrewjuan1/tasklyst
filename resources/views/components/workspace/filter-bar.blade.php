@@ -109,7 +109,7 @@
 
                 {{-- Tags --}}
                 <flux:menu.submenu heading="{{ __('Tags') }}" icon="tag" keep-open>
-                    <flux:menu.radio.group wire:model="filterTagId" keep-open>
+                    <flux:menu.radio.group wire:model.live="filterTagId" keep-open>
                         <flux:menu.radio value="" wire:click="clearFilter('tagIds')" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: [] } }))">{{ __('All') }}</flux:menu.radio>
                         @foreach ($tags as $tag)
                             <flux:menu.radio value="{{ $tag->id }}" wire:click="setTagFilter({{ $tag->id }})" @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: [{{ $tag->id }}] } }))">{{ $tag->name }}</flux:menu.radio>

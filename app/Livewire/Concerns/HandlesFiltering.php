@@ -98,8 +98,8 @@ trait HandlesFiltering
      * Sync item type based on type-specific filters.
      * - Only event filter → events
      * - Only task filter → tasks
-     * - Both event and task filters → all (unless user manually overrode)
-     * - No type-specific filters → leave item type unchanged
+     * - Both event and task filters → all (unless user pinned Show via pill)
+     * - No type-specific filters → all, unless the user explicitly chose Show: Tasks/Events/Projects only
      */
     protected function syncItemTypeFromTypeSpecificFilters(): void
     {
@@ -112,18 +112,31 @@ trait HandlesFiltering
             if ($this->userManuallySetItemType) {
                 return;
             }
-            $newItemType = null;
-        } elseif ($hasEventFilter) {
-            $newItemType = 'events';
-        } elseif ($hasTaskFilter) {
-            $newItemType = 'tasks';
-        } else {
+            $this->userManuallySetItemType = false;
+            $this->filterItemType = null;
+
             return;
         }
 
-        $this->userManuallySetItemType = false;
+        if ($hasEventFilter) {
+            $this->userManuallySetItemType = false;
+            $this->filterItemType = 'events';
 
-        $this->filterItemType = $newItemType;
+            return;
+        }
+
+        if ($hasTaskFilter) {
+            $this->userManuallySetItemType = false;
+            $this->filterItemType = 'tasks';
+
+            return;
+        }
+
+        if ($this->userManuallySetItemType) {
+            return;
+        }
+
+        $this->filterItemType = null;
     }
 
     /**
@@ -573,12 +586,7 @@ trait HandlesFiltering
             });
         }
 
-        $recurring = $this->normalizeFilterValue($this->filterRecurring);
-        if ($recurring === 'recurring') {
-            $query->whereHas('recurringTask');
-        } elseif ($recurring === 'oneTime') {
-            $query->whereDoesntHave('recurringTask');
-        }
+        $this->applyRecurringFilterToTaskQuery($query);
     }
 
     /**
@@ -622,11 +630,30 @@ trait HandlesFiltering
             });
         }
 
+        $this->applyRecurringFilterToEventQuery($query);
+    }
+
+    /**
+     * Projects do not have tags; match workspace search semantics via child tasks.
+     * Recurring filter applies to whether the project has any recurring child task.
+     */
+    public function applyProjectFilters(Builder $query): void
+    {
+        if ($this->filterTagIds !== null && $this->filterTagIds !== []) {
+            $query->whereHas('tasks.tags', function (Builder $tagQuery): void {
+                $tagQuery->whereIn('tags.id', $this->filterTagIds);
+            });
+        }
+
         $recurring = $this->normalizeFilterValue($this->filterRecurring);
         if ($recurring === 'recurring') {
-            $query->whereHas('recurringEvent');
+            $query->whereHas('tasks', function (Builder $taskQuery): void {
+                $taskQuery->whereHas('recurringTask');
+            });
         } elseif ($recurring === 'oneTime') {
-            $query->whereDoesntHave('recurringEvent');
+            $query->whereDoesntHave('tasks', function (Builder $taskQuery): void {
+                $taskQuery->whereHas('recurringTask');
+            });
         }
     }
 
@@ -691,6 +718,26 @@ trait HandlesFiltering
             $query->whereHas('tags', function (Builder $tagQuery): void {
                 $tagQuery->whereIn('tags.id', $this->filterTagIds);
             });
+        }
+    }
+
+    private function applyRecurringFilterToTaskQuery(Builder $query): void
+    {
+        $recurring = $this->normalizeFilterValue($this->filterRecurring);
+        if ($recurring === 'recurring') {
+            $query->whereHas('recurringTask');
+        } elseif ($recurring === 'oneTime') {
+            $query->whereDoesntHave('recurringTask');
+        }
+    }
+
+    private function applyRecurringFilterToEventQuery(Builder $query): void
+    {
+        $recurring = $this->normalizeFilterValue($this->filterRecurring);
+        if ($recurring === 'recurring') {
+            $query->whereHas('recurringEvent');
+        } elseif ($recurring === 'oneTime') {
+            $query->whereDoesntHave('recurringEvent');
         }
     }
 }

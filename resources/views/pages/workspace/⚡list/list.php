@@ -13,13 +13,14 @@ new class extends Component
     #[Reactive]
     public ?string $selectedDate = null;
 
+    /**
+     * Full ordered list rows (overdue strip + day items), built by the parent Index via WorkspaceListAggregator.
+     *
+     * @var Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
+     */
+    public Collection $listEntries;
+
     public Collection $projects;
-
-    public Collection $events;
-
-    public Collection $tasks;
-
-    public Collection $overdue;
 
     public Collection $tags;
 

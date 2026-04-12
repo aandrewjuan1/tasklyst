@@ -506,7 +506,11 @@ trait HandlesEvents
 
             if ($date->isToday()) {
                 $eventQuery->where(function (Builder $q): void {
-                    $q->whereNull('end_datetime')->orWhere('end_datetime', '>=', now());
+                    $q->whereHas('recurringEvent')
+                        ->orWhere(function (Builder $nonRecurring): void {
+                            $nonRecurring->whereNull('end_datetime')
+                                ->orWhere('end_datetime', '>=', now());
+                        });
                 });
             }
         }

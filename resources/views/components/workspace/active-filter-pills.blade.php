@@ -76,7 +76,6 @@
             const hasTask = (this.displayFilters.taskStatus != null && this.displayFilters.taskStatus !== '') ||
                 (this.displayFilters.taskPriority != null && this.displayFilters.taskPriority !== '') ||
                 (this.displayFilters.taskComplexity != null && this.displayFilters.taskComplexity !== '');
-            const prev = this.displayFilters.itemType ?? null;
             let newVal = null;
             if (hasEvent && hasTask) {
                 if (this.userManuallySetItemType) return;
@@ -86,14 +85,11 @@
             } else if (hasTask) {
                 newVal = 'tasks';
             } else {
-                return;
+                if (this.userManuallySetItemType) return;
+                newVal = null;
             }
             this.userManuallySetItemType = false;
             this.displayFilters.itemType = newVal;
-            if (prev !== newVal) {
-                const msg = newVal === null ? '{{ __("Showing all (filtered by events and tasks)") }}' : (newVal === 'events' ? '{{ __("Showing events only (filtered by event status)") }}' : '{{ __("Showing tasks only (filtered by task status)") }}');
-                $wire.$dispatch('toast', { type: 'info', message: msg });
-            }
         },
         init() {
             const syncFromWire = () => {

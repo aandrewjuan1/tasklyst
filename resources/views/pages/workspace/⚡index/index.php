@@ -68,6 +68,7 @@ use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
+use App\Support\WorkspaceListAggregator;
 
 new
 #[Title('Workspace')]
@@ -517,27 +518,18 @@ class extends Component
     }
 
     /**
-     * Build the same unified list entries as the list view (overdue + date items).
+     * Build the unified workspace list (overdue strip, then day items): deduped, calendar-ordered.
      *
-     * @return \Illuminate\Support\Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
+     * @return Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
      */
-    protected function getAllListEntries(): Collection
+    public function getAllListEntries(): Collection
     {
-        $overdueItems = $this->overdue->map(fn (array $entry) => array_merge($entry, ['isOverdue' => true]));
-
-        $dateItems = collect()
-            ->merge($this->projects->map(fn ($item) => ['kind' => 'project', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
-            ->merge($this->events->map(fn ($item) => ['kind' => 'event', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
-            ->merge($this->tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
-            ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
-            ->values();
-
-        return $overdueItems
-            ->merge($dateItems)
-            ->unique(static function (array $entry): string {
-                return $entry['kind'].'-'.$entry['item']->id;
-            })
-            ->values();
+        return WorkspaceListAggregator::mergeOrderAndDedupe(
+            $this->overdue,
+            $this->projects,
+            $this->events,
+            $this->tasks,
+        );
     }
 
     protected function applyWorkspaceDeepLinkFocus(bool $mergeQuery = true, bool $expandPagination = true): void
@@ -723,8 +715,11 @@ class extends Component
 
     /**
      * Get overdue tasks and events for the authenticated user.
-     * Overdue = end/due datetime is before now (date and time aware).
-     * Returns a unified collection of entries with 'kind' and 'item' for rendering.
+     * When the selected calendar day is today, overdue is relative to {@see now()} (time-aware).
+     * For any other selected day, overdue is relative to the end of that day so browsing history
+     * does not pull in everything that is merely overdue relative to "now".
+     *
+     * @return Collection<int, array{kind: string, item: Task|Event}>
      */
     #[Computed]
     public function overdue(): Collection
@@ -740,9 +735,18 @@ class extends Component
             return collect();
         }
 
+        // Overdue rows are always non-recurring; with "recurring only" the strip would contradict the filter.
+        $filterRecurring = property_exists($this, 'filterRecurring') ? $this->normalizeFilterValue($this->filterRecurring) : null;
+        if ($filterRecurring === 'recurring') {
+            return collect();
+        }
+
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
 
-        $now = now();
+        $selectedDate = $this->getParsedSelectedDate();
+        $overdueAsOf = $selectedDate->isToday()
+            ? now()
+            : $selectedDate->copy()->endOfDay();
 
         // Early return: Skip overdue queries if filtered to projects only
         if ($filterItemType === 'projects') {
@@ -765,7 +769,7 @@ class extends Component
                 ->withCount('activityLogs')
                 ->withRecentActivityLogs(5)
                 ->forUser($userId)
-                ->overdue($now)
+                ->overdue($overdueAsOf)
                 ->whereDoesntHave('recurringTask');
 
             if (method_exists($this, 'applyOverdueTaskFilters')) {
@@ -797,7 +801,7 @@ class extends Component
                 ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->notCancelled()
-                ->overdue($now)
+                ->overdue($overdueAsOf)
                 ->whereDoesntHave('recurringEvent');
 
             if (method_exists($this, 'applyOverdueEventFilters')) {

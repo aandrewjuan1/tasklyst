@@ -17,16 +17,7 @@
                     ? __('yesterday')
                     : $date->translatedFormat('l, F j, Y')));
 
-        $overdueItems = $overdue->map(fn (array $entry) => array_merge($entry, ['isOverdue' => true]));
-
-        $dateItems = collect()
-            ->merge($projects->map(fn ($item) => ['kind' => 'project', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
-            ->merge($events->map(fn ($item) => ['kind' => 'event', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
-            ->merge($tasks->map(fn ($item) => ['kind' => 'task', 'item' => $item, 'isOverdue' => $item->end_datetime ? $item->end_datetime->isPast() : false]))
-            ->sortByDesc(fn (array $entry) => $entry['item']->created_at)
-            ->values();
-
-        $allItems = $overdueItems->merge($dateItems)->values();
+        $allItems = $listEntries->values();
 
         $effectiveItemsPerPage = $itemsPerPage > 0 ? $itemsPerPage : 10;
         $effectiveItemsPage = $itemsPage > 0 ? $itemsPage : 1;
@@ -62,7 +53,7 @@
         ]);
 
     @endphp
-    @if ($items->isEmpty() && $overdue->isEmpty())
+    @if ($allItems->isEmpty())
         <div class="mt-6 flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2 shadow-sm backdrop-blur">
             <div class="flex items-center gap-2">
                 <flux:icon name="calendar-days" class="size-5 text-muted-foreground/50" />
