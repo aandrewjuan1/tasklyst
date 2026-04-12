@@ -156,6 +156,18 @@
                     <flux:sidebar.item icon="computer-desktop" :href="route('workspace')" :current="request()->routeIs('workspace')" wire:navigate>
                         <span class="font-bold">{{ __('Workspace') }}</span>
                     </flux:sidebar.item>
+                    @auth
+                        <flux:modal.trigger name="task-assistant-chat">
+                            <flux:sidebar.item
+                                icon="chat-bubble-left-right"
+                                type="button"
+                                :tooltip="__('Assistant')"
+                                aria-label="{{ __('Open task assistant') }}"
+                            >
+                                <span class="font-bold">{{ __('Assistant') }}</span>
+                            </flux:sidebar.item>
+                        </flux:modal.trigger>
+                    @endauth
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 
@@ -171,7 +183,15 @@
                 </flux:sidebar.item> --}}
             </flux:sidebar.nav>
 
-            <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />
+            @auth
+                <div class="w-full overflow-visible px-2 py-3">
+                    <livewire:workspace.trash-popover />
+                </div>
+
+                <div class="w-full border-t border-zinc-200/80 px-2 pb-2 pt-3 dark:border-zinc-700/60">
+                    <x-desktop-user-menu class="hidden lg:block w-full" :name="auth()->user()->name" />
+                </div>
+            @endauth
         </flux:sidebar>
 
         <!-- Mobile User Menu -->
@@ -234,6 +254,16 @@
         {{ $slot }}
 
         <x-toast />
+
+        @auth
+            <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">
+                <livewire:assistant.chat-flyout />
+            </flux:modal>
+        @endauth
+
+        {{-- Trash popover teleports here so it stacks above the Flux sidebar (ui-sidebar z-index). --}}
+        {{-- Do not use pointer-events-none on this wrapper: it breaks hit-testing for the fixed teleported panel. --}}
+        <div id="workspace-trash-portal" class="relative z-[2147483646] isolate"></div>
 
         @fluxScripts
     </body>

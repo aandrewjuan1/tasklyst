@@ -1,5 +1,6 @@
 <?php
 
+use App\Livewire\Workspace\TrashPopover;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
@@ -13,7 +14,7 @@ test('unauthenticated restoreTrashItems does not restore and does not toast succ
     $task = Task::factory()->for($this->owner)->create();
     $task->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('restoreTrashItems', [['kind' => 'task', 'id' => $task->id]]);
 
     expect($task->refresh()->trashed())->toBeTrue();
@@ -24,7 +25,7 @@ test('unauthenticated forceDeleteTrashItems does not delete', function (): void 
     $taskId = $task->id;
     $task->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('forceDeleteTrashItems', [['kind' => 'task', 'id' => $taskId]]);
 
     expect(Task::withTrashed()->find($taskId))->not->toBeNull();
@@ -35,7 +36,7 @@ test('authenticated restoreTrashItems with empty array does not restore any item
     $task = Task::factory()->for($this->owner)->create();
     $task->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('restoreTrashItems', []);
 
     expect($task->refresh()->trashed())->toBeTrue();
@@ -47,7 +48,7 @@ test('authenticated restoreTrashItems restores one trashed task', function (): v
     $task->delete();
     expect($task->refresh()->trashed())->toBeTrue();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('restoreTrashItems', [['kind' => 'task', 'id' => $task->id]]);
 
     expect($task->refresh()->trashed())->toBeFalse();
@@ -60,7 +61,7 @@ test('authenticated forceDeleteTrashItems permanently deletes one trashed task',
     $task->delete();
     expect(Task::withTrashed()->find($taskId))->not->toBeNull();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('forceDeleteTrashItems', [['kind' => 'task', 'id' => $taskId]]);
 
     expect(Task::withTrashed()->find($taskId))->toBeNull();
@@ -73,7 +74,7 @@ test('restoreTrashItems restores multiple trashed tasks', function (): void {
     $t1->delete();
     $t2->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('restoreTrashItems', [
             ['kind' => 'task', 'id' => $t1->id],
             ['kind' => 'task', 'id' => $t2->id],
@@ -90,7 +91,7 @@ test('restoreTrashItems with mixed kinds restores task and project', function ()
     $task->delete();
     $project->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('restoreTrashItems', [
             ['kind' => 'task', 'id' => $task->id],
             ['kind' => 'project', 'id' => $project->id],
@@ -105,7 +106,7 @@ test('restoreTrashItems ignores invalid kind and deduplicates', function (): voi
     $task = Task::factory()->for($this->owner)->create();
     $task->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('restoreTrashItems', [
             ['kind' => 'invalid', 'id' => 1],
             ['kind' => 'task', 'id' => $task->id],
@@ -120,7 +121,7 @@ test('unauthenticated forceDeleteAllTrashItems does not delete any item', functi
     $taskId = $task->id;
     $task->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('forceDeleteAllTrashItems');
 
     expect(Task::withTrashed()->find($taskId))->not->toBeNull();
@@ -133,7 +134,7 @@ test('authenticated forceDeleteAllTrashItems permanently deletes all trashed ite
     $t1->delete();
     $t2->delete();
 
-    Livewire::test('pages::workspace.index')
+    Livewire::test(TrashPopover::class)
         ->call('forceDeleteAllTrashItems');
 
     expect(Task::withTrashed()->find($t1->id))->toBeNull()

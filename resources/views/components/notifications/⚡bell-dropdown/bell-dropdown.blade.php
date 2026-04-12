@@ -2,6 +2,11 @@
     $unreadLabel = $unreadCount > 0
         ? trans_choice(':count unread', $unreadCount, ['count' => $unreadCount])
         : '';
+    $isHeroVariant = $variant === 'hero';
+    $triggerButtonClasses = $isHeroVariant
+        ? 'relative inline-flex size-9 items-center justify-center rounded-xl border border-brand-blue/35 bg-white/75 text-zinc-900 shadow-sm ring-1 ring-brand-blue/15 transition hover:border-brand-blue/50 hover:bg-white hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 disabled:opacity-60 dark:border-brand-blue/40 dark:bg-zinc-900/60 dark:text-zinc-100 dark:ring-brand-blue/20 dark:hover:border-brand-blue/50 dark:hover:bg-zinc-800/75 sm:size-10'
+        : 'relative inline-flex size-9 items-center justify-center rounded-lg text-zinc-900 transition hover:bg-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/60 disabled:opacity-60 dark:text-zinc-100 dark:hover:bg-zinc-700/60';
+    $triggerIconClasses = 'size-5 shrink-0';
 @endphp
 
 <div
@@ -14,13 +19,13 @@
         type="button"
         wire:click="togglePanel"
         wire:loading.attr="disabled"
-        class="relative inline-flex size-10 items-center justify-center rounded-lg text-zinc-600 transition hover:bg-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/60 disabled:opacity-60 dark:text-zinc-300 dark:hover:bg-zinc-700/60"
+        class="{{ $triggerButtonClasses }}"
         data-test="notifications-bell-button"
         aria-haspopup="true"
         aria-expanded="{{ $panelOpen ? 'true' : 'false' }}"
         aria-label="{{ __('Notifications') }}"
     >
-        <svg class="size-5 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+        <svg class="{{ $triggerIconClasses }}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
         </svg>
         @if ($unreadCount > 0)

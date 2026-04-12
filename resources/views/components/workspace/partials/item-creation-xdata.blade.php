@@ -336,7 +336,7 @@
             if (!payload.pendingTagNames) {
                 payload.pendingTagNames = [];
             }
-            const minLoadingMs = 500;
+            const minLoadingMs = 150;
 
             this.workspaceWire().$call('createTask', payload)
                 .finally(() => {
@@ -387,7 +387,7 @@
             if (!payload.pendingTagNames) {
                 payload.pendingTagNames = [];
             }
-            const minLoadingMs = 500;
+            const minLoadingMs = 150;
 
             this.workspaceWire().$call('createEvent', payload)
                 .finally(() => {
@@ -425,7 +425,7 @@
                 startDatetime: this.formData.project.startDatetime || null,
                 endDatetime: this.formData.project.endDatetime || null,
             };
-            const minLoadingMs = 500;
+            const minLoadingMs = 150;
 
             this.workspaceWire().$call('createProject', payload)
                 .finally(() => {

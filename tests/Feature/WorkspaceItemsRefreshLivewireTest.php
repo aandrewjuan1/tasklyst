@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\Task;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -59,11 +58,8 @@ test('collaboration invitation declined event bumps workspace items version with
         ->and($component->get('itemsPage'))->toBe($beforePage);
 });
 
-test('restoring a trashed task from trash bumps workspace items version without resetting pagination', function (): void {
+test('workspace trash restored event bumps workspace items version without resetting pagination', function (): void {
     $this->actingAs($this->user);
-
-    $task = Task::factory()->for($this->user)->create();
-    $task->delete();
 
     $component = Livewire::test('pages::workspace.index');
     $component->set('itemsPage', 3);
@@ -71,7 +67,7 @@ test('restoring a trashed task from trash bumps workspace items version without 
     $beforeVersion = $component->get('workspaceItemsVersion');
     $beforePage = $component->get('itemsPage');
 
-    $component->call('restoreTrashItems', [['kind' => 'task', 'id' => $task->id]]);
+    $component->dispatch('workspace-trash-restored');
 
     expect($component->get('workspaceItemsVersion'))->toBe($beforeVersion + 1)
         ->and($component->get('itemsPage'))->toBe($beforePage);

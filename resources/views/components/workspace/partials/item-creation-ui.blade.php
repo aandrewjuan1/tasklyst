@@ -87,14 +87,14 @@
         </flux:dropdown>
     @endif
 
+    <template x-if="showItemCreation">
     <div
-        x-show="showItemCreation"
-        x-transition:enter="transition ease-out duration-150"
-        x-transition:enter-start="opacity-0 scale-[0.98]"
-        x-transition:enter-end="opacity-100 scale-100"
-        x-transition:leave="transition ease-in duration-150"
-        x-transition:leave-start="opacity-100 scale-100"
-        x-transition:leave-end="opacity-0 scale-[0.98]"
+        x-transition:enter="transition ease-out duration-100"
+        x-transition:enter-start="opacity-0"
+        x-transition:enter-end="opacity-100"
+        x-transition:leave="transition ease-in duration-100"
+        x-transition:leave-start="opacity-100"
+        x-transition:leave-end="opacity-0"
         x-ref="taskCreationCard"
         @click.outside="
             const target = $event.target;
@@ -225,14 +225,14 @@
             </form>
         </div>
     </div>
-</div>
+    </template>
 
+<template x-if="showItemLoading">
 <div
-    x-show="showItemLoading"
     x-cloak
-    x-transition:enter="transition ease-out duration-150"
-    x-transition:enter-start="opacity-0 scale-[0.98]"
-    x-transition:enter-end="opacity-100 scale-100"
+    x-transition:enter="transition ease-out duration-100"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
     data-test="task-loading-card"
     class="mt-4 flex flex-col overflow-hidden rounded-xl border border-border/60 bg-background/60 shadow-sm backdrop-blur opacity-60"
 >
@@ -371,4 +371,6 @@
             >{{ __('None') }}</span>
         </div>
     </div>
+</div>
+</template>
 </div>

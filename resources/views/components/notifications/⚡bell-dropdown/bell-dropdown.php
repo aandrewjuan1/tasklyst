@@ -44,6 +44,11 @@ new class extends Component
 
     public bool $hasMoreNotifications = false;
 
+    /**
+     * Visual style for the trigger. Use "hero" on prominent surfaces (e.g. dashboard hero).
+     */
+    public string $variant = 'default';
+
     public function mount(): void
     {
         $this->userId = (int) Auth::id();

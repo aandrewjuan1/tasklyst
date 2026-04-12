@@ -89,8 +89,6 @@
 @endphp
 
 <section class="space-y-6">
-    <x-notifications.bell-strip />
-
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: Analytics (80%) --}}
@@ -104,17 +102,23 @@
                     <div class="flex flex-col gap-4">
                         @if ($analytics)
                             <div class="relative flex min-h-56 w-full items-center overflow-hidden rounded-2xl border border-brand-blue/25 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:min-h-60 lg:px-7 dark:ring-brand-purple/20">
-                                <div class="relative z-10 max-w-xl space-y-2">
+                                <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                                     @php
                                         $greetingName = auth()->user()->firstName();
                                     @endphp
-                                    <p class="text-xs font-semibold uppercase tracking-[0.14em] text-brand-blue/90 sm:text-sm">
-                                        @if ($greetingName !== '')
-                                            {{ __('Dashboard — Hello, :name!', ['name' => $greetingName]) }}
-                                        @else
-                                            {{ __('Dashboard — Hello!') }}
-                                        @endif
-                                    </p>
+                                    <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
+                                        <p class="min-w-0 flex-1 text-xs font-semibold uppercase leading-tight tracking-[0.14em] text-brand-blue/90 sm:text-sm">
+                                            @if ($greetingName !== '')
+                                                {{ __('Dashboard — Hello, :name!', ['name' => $greetingName]) }}
+                                            @else
+                                                {{ __('Dashboard — Hello!') }}
+                                            @endif
+                                        </p>
+                                        <div class="inline-flex shrink-0 items-center">
+                                            <x-notifications.bell-cluster variant="hero" />
+                                        </div>
+                                    </div>
+                                    <div class="max-w-xl space-y-2">
                                     <h2 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                                         {{ __('Plan smarter, execute faster, and finish what matters.') }}
                                     </h2>
@@ -141,6 +145,7 @@
                                                 </button>
                                             </flux:modal.trigger>
                                         @endauth
+                                    </div>
                                     </div>
                                 </div>
                                 <div class="pointer-events-none absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
@@ -622,9 +627,4 @@
         </div>
     </div>
 
-    @auth
-        <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">
-            <livewire:assistant.chat-flyout />
-        </flux:modal>
-    @endauth
 </section>

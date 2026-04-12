@@ -53,7 +53,7 @@
         }
     }"
     x-init="alpineReady = true"
-    class="mt-4 inline-flex items-center gap-0 rounded-xl border border-border/60 bg-muted/30 px-1 py-1 shadow-sm ring-1 ring-border/20 dark:bg-muted/20"
+    {{ $attributes->class('inline-flex items-center gap-0 rounded-xl border border-border/60 bg-muted/30 px-1 py-1 shadow-sm ring-1 ring-border/20 dark:bg-muted/20') }}
 >
     <flux:button
         variant="ghost"

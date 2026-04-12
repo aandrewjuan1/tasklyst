@@ -24,24 +24,18 @@ use Illuminate\Support\Facades\Auth;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\DeleteTaskAction;
 use App\Livewire\Concerns\HandlesTags;
-use App\Actions\Task\RestoreTaskAction;
 use App\Livewire\Concerns\HandlesTasks;
-use App\Livewire\Concerns\HandlesTrash;
 use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\DeleteEventAction;
 use App\Livewire\Concerns\HandlesEvents;
-use App\Actions\Event\RestoreEventAction;
 use App\Livewire\Concerns\HandlesComments;
 use App\Livewire\Concerns\HandlesProjects;
-use App\Actions\Task\ForceDeleteTaskAction;
 use App\Livewire\Concerns\HandlesFiltering;
 use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
 use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
-use App\Actions\Event\ForceDeleteEventAction;
-use App\Actions\Project\RestoreProjectAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Livewire\Concerns\HandlesActivityLogs;
 use App\Actions\Task\CreateTaskExceptionAction;
@@ -53,7 +47,6 @@ use App\Actions\Event\UpdateEventPropertyAction;
 use App\Livewire\Concerns\HandlesCollaborations;
 use App\Actions\Event\CreateEventExceptionAction;
 use App\Actions\Event\DeleteEventExceptionAction;
-use App\Actions\Project\ForceDeleteProjectAction;
 use App\Livewire\Concerns\HandlesPomodoroSettings;
 use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\FocusSession\PauseFocusSessionAction;
@@ -93,7 +86,6 @@ class extends Component
     use HandlesProjects;
     use HandlesTags;
     use HandlesTasks;
-    use HandlesTrash;
 
     private const FEED_HEALTH_LIMIT = 5;
 
@@ -175,18 +167,6 @@ class extends Component
 
     protected DeleteTaskAction $deleteTaskAction;
 
-    protected ForceDeleteEventAction $forceDeleteEventAction;
-
-    protected ForceDeleteProjectAction $forceDeleteProjectAction;
-
-    protected ForceDeleteTaskAction $forceDeleteTaskAction;
-
-    protected RestoreEventAction $restoreEventAction;
-
-    protected RestoreProjectAction $restoreProjectAction;
-
-    protected RestoreTaskAction $restoreTaskAction;
-
     protected UpdateEventPropertyAction $updateEventPropertyAction;
 
     protected UpdateProjectPropertyAction $updateProjectPropertyAction;
@@ -267,12 +247,6 @@ class extends Component
         DeleteProjectAction $deleteProjectAction,
         DeleteTagAction $deleteTagAction,
         DeleteTaskAction $deleteTaskAction,
-        ForceDeleteEventAction $forceDeleteEventAction,
-        ForceDeleteProjectAction $forceDeleteProjectAction,
-        ForceDeleteTaskAction $forceDeleteTaskAction,
-        RestoreEventAction $restoreEventAction,
-        RestoreProjectAction $restoreProjectAction,
-        RestoreTaskAction $restoreTaskAction,
         UpdateEventPropertyAction $updateEventPropertyAction,
         UpdateProjectPropertyAction $updateProjectPropertyAction,
         UpdateTaskPropertyAction $updateTaskPropertyAction,
@@ -312,12 +286,6 @@ class extends Component
         $this->deleteProjectAction = $deleteProjectAction;
         $this->deleteTagAction = $deleteTagAction;
         $this->deleteTaskAction = $deleteTaskAction;
-        $this->forceDeleteEventAction = $forceDeleteEventAction;
-        $this->forceDeleteProjectAction = $forceDeleteProjectAction;
-        $this->forceDeleteTaskAction = $forceDeleteTaskAction;
-        $this->restoreEventAction = $restoreEventAction;
-        $this->restoreProjectAction = $restoreProjectAction;
-        $this->restoreTaskAction = $restoreTaskAction;
         $this->updateEventPropertyAction = $updateEventPropertyAction;
         $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;
@@ -462,7 +430,8 @@ class extends Component
         $this->refreshWorkspaceListInPlace();
     }
 
-    protected function afterTrashRestored(): void
+    #[On('workspace-trash-restored')]
+    public function onWorkspaceTrashRestored(): void
     {
         $this->refreshWorkspaceListInPlace();
     }

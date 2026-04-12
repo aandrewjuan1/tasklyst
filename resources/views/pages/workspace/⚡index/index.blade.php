@@ -18,13 +18,11 @@
         $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
 
-    <x-notifications.bell-strip />
-
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
         <div
-            class="relative min-w-0 space-y-6 overflow-visible"
+            class="min-w-0 space-y-6 overflow-visible"
             x-data="{
                 pendingViewMode: null,
                 isSwitching: false,
@@ -89,124 +87,125 @@
                 }
             "
         >
-            {{-- Hero: title, search, view tabs, filters + tools (overflow-visible so dropdowns are not clipped) --}}
+            {{-- Workspace hero panel (matches dashboard hero: shell, type scale, CTA-style controls) --}}
             <div
-                class="overflow-visible rounded-2xl border border-brand-blue/20 bg-linear-to-r from-brand-blue/12 via-brand-purple/8 to-brand-green/12 p-4 shadow-sm ring-1 ring-brand-purple/12 backdrop-blur sm:p-5"
+                class="relative flex w-full items-start overflow-hidden rounded-2xl border border-brand-blue/25 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:px-7 dark:ring-brand-purple/20"
             >
-                <div class="flex w-full flex-col gap-4 overflow-visible">
-                    <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,34rem)] xl:items-end">
-                        <div class="space-y-1">
-                            <h1 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                                {{ __('Workspace') }}
-                            </h1>
-                            <p class="text-sm text-muted-foreground">
-                                {{ __('Plan and manage your day') }}
-                            </p>
+                <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
+                    <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
+                        <p class="min-w-0 flex-1 text-xs font-semibold uppercase leading-tight tracking-[0.14em] text-brand-blue/90 sm:text-sm">
+                            {{ __('Workspace') }}
+                        </p>
+                        <div class="inline-flex shrink-0 items-center">
+                            <x-notifications.bell-cluster variant="hero" />
                         </div>
-
-                        <div class="flex w-full min-w-0 flex-col gap-2">
-                            <div class="flex w-full min-w-0 items-center gap-2">
-                                <flux:input
-                                    type="search"
-                                    wire:model.live.debounce.300ms="searchQuery"
-                                    :loading="false"
-                                    placeholder="{{ __('Search tasks, events, projects…') }}"
-                                    aria-label="{{ __('Search tasks, events, and projects') }}"
-                                    autocomplete="off"
-                                    class="w-full min-w-0"
-                                />
-                                <flux:tooltip
-                                    :content="$this->searchScope === 'selected_date'
-                                        ? __('Currently searching selected date only. (Click to search all items.)')
-                                        : __('Currently searching all items. (Click to search selected date only.)')"
-                                >
-                                    <flux:button
-                                        type="button"
-                                        variant="ghost"
-                                        size="xs"
+                    </div>
+                    <div class="max-w-xl space-y-2">
+                        <h2 class="text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
+                            {{ __('Tasks, events, and projects in one place.') }}
+                        </h2>
+                        <div class="pt-2">
+                            <div class="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
+                                <div class="flex min-w-0 flex-1 items-center gap-2">
+                                    <flux:input
+                                        type="search"
+                                        wire:model.live.debounce.300ms="searchQuery"
                                         :loading="false"
-                                        :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
-                                        aria-label="{{ __('Toggle search scope') }}"
-                                        class="size-8 shrink-0"
-                                        wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
-                                        wire:loading.attr="disabled"
-                                        wire:target="searchScope"
+                                        placeholder="{{ __('Search tasks, events, projects…') }}"
+                                        aria-label="{{ __('Search tasks, events, and projects') }}"
+                                        autocomplete="off"
+                                        class="min-w-0 flex-1 rounded-xl border border-white/50 bg-white/80 text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:focus:border-brand-blue/50"
                                     />
-                                </flux:tooltip>
-                                <div class="shrink-0 self-end">
-                                    <x-workspace.date-switcher :selected-date="$this->selectedDate" />
+                                    <flux:tooltip
+                                        :content="$this->searchScope === 'selected_date'
+                                            ? __('Currently searching selected date only. (Click to search all items.)')
+                                            : __('Currently searching all items. (Click to search selected date only.)')"
+                                    >
+                                        <flux:button
+                                            type="button"
+                                            variant="ghost"
+                                            size="xs"
+                                            :loading="false"
+                                            :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
+                                            aria-label="{{ __('Toggle search scope') }}"
+                                            class="size-10 shrink-0 rounded-xl border border-white/50 bg-white/80 text-brand-blue shadow-sm transition hover:bg-white focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-sky-200 dark:hover:bg-zinc-800/80"
+                                            wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
+                                            wire:loading.attr="disabled"
+                                            wire:target="searchScope"
+                                        />
+                                    </flux:tooltip>
+                                </div>
+                                <div class="flex shrink-0 justify-center sm:justify-end sm:pt-0">
+                                    <x-workspace.date-switcher
+                                        :selected-date="$this->selectedDate"
+                                        class="w-full border-white/50 bg-white/80 shadow-sm backdrop-blur-sm dark:border-zinc-600/70 dark:bg-zinc-900/55 sm:w-auto"
+                                    />
                                 </div>
                             </div>
                         </div>
                     </div>
+                </div>
+                <div class="pointer-events-none absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
+            </div>
 
-                    <div class="border-t border-brand-blue/20 pt-3 overflow-visible">
-                        <div class="flex justify-center xl:justify-start">
-                            <div class="flex rounded-lg border border-border/60 bg-background/55 p-0.5 shadow-xs" role="tablist" aria-label="{{ __('Workspace view') }}">
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    :aria-selected="activeViewMode() === 'list'"
-                                    aria-controls="workspace-list-panel"
-                                    id="workspace-view-list"
-                                    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                                    :class="activeViewMode() === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-                                    @click="setView('list')"
-                                >
-                                    {{ __('List') }}
-                                </button>
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    :aria-selected="activeViewMode() === 'kanban'"
-                                    aria-controls="workspace-kanban-panel"
-                                    id="workspace-view-kanban"
-                                    class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                                    :class="activeViewMode() === 'kanban' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-                                    @click="setView('kanban')"
-                                >
-                                    {{ __('Kanban') }}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+            {{-- Filters, view tabs, active pills (below hero panel) --}}
+            <div class="flex w-full flex-col gap-3 overflow-visible">
+                <div class="flex min-w-0 items-center justify-start md:justify-end">
+                    <x-workspace.filter-bar
+                        :filters="$this->getFilters()"
+                        :tags="$this->tags"
+                    />
+                </div>
 
-                    <div
-                        class="flex flex-col gap-3 border-t border-brand-blue/20 pt-3 overflow-visible xl:flex-row xl:items-center xl:justify-between"
-                    >
-                        <div class="min-w-0 flex flex-1 flex-wrap items-center gap-2 overflow-visible">
-                            <x-workspace.active-filter-pills
-                                :filters="$this->getFilters()"
-                                :tags="$this->tags"
-                            />
-                        </div>
-
+                <div class="overflow-visible">
+                    <div class="flex flex-wrap justify-start gap-2">
                         <div
-                            class="relative z-20 flex w-full shrink-0 flex-wrap items-center justify-center gap-2 overflow-visible xl:w-auto xl:justify-end"
+                            class="inline-flex flex-wrap gap-2 rounded-xl border border-brand-blue/20 bg-white/50 p-1 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/60 dark:bg-zinc-900/40 dark:ring-zinc-700/50"
+                            role="tablist"
+                            aria-label="{{ __('Workspace view') }}"
                         >
-                            <x-workspace.trash-popover />
-                            <x-workspace.filter-bar
-                                :filters="$this->getFilters()"
-                                :tags="$this->tags"
-                            />
-                            @auth
-                                <flux:modal.trigger name="task-assistant-chat">
-                                    <flux:button
-                                        variant="ghost"
-                                        size="sm"
-                                        icon="chat-bubble-left-right"
-                                        class="shrink-0"
-                                        aria-label="{{ __('Open task assistant') }}"
-                                    >
-                                        {{ __('Assistant') }}
-                                    </flux:button>
-                                </flux:modal.trigger>
-                            @endauth
+                            <button
+                                type="button"
+                                role="tab"
+                                :aria-selected="activeViewMode() === 'list'"
+                                aria-controls="workspace-list-panel"
+                                id="workspace-view-list"
+                                class="rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
+                                :class="activeViewMode() === 'list'
+                                    ? 'bg-brand-blue text-white shadow-sm'
+                                    : 'text-muted-foreground hover:bg-white/80 hover:text-foreground dark:hover:bg-zinc-800/80'"
+                                @click="setView('list')"
+                            >
+                                {{ __('List') }}
+                            </button>
+                            <button
+                                type="button"
+                                role="tab"
+                                :aria-selected="activeViewMode() === 'kanban'"
+                                aria-controls="workspace-kanban-panel"
+                                id="workspace-view-kanban"
+                                class="rounded-lg px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
+                                :class="activeViewMode() === 'kanban'
+                                    ? 'bg-brand-blue text-white shadow-sm'
+                                    : 'text-muted-foreground hover:bg-white/80 hover:text-foreground dark:hover:bg-zinc-800/80'"
+                                @click="setView('kanban')"
+                            >
+                                {{ __('Kanban') }}
+                            </button>
                         </div>
                     </div>
                 </div>
+
+                <div class="min-w-0 overflow-visible">
+                    <x-workspace.active-filter-pills
+                        :filters="$this->getFilters()"
+                        :tags="$this->tags"
+                    />
+                </div>
             </div>
 
+            {{-- List/kanban region only: loading skeletons + view-switch overlay must not cover the nav strip above --}}
+            <div class="relative min-w-0 w-full">
             {{-- Real content - hidden during filter/date/view refresh --}}
             <div
                 wire:loading.remove
@@ -441,6 +440,7 @@
                     x-text="activeViewMode() === 'kanban' ? '{{ __('Switching to Kanban...') }}' : '{{ __('Switching to List...') }}'"
                 ></span>
             </div>
+            </div>
         </div>
 
         {{-- Right Side: Calendar (20%) --}}
@@ -464,9 +464,4 @@
         </div>
     </div>
 
-    @auth
-        <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">
-            <livewire:assistant.chat-flyout />
-        </flux:modal>
-    @endauth
 </section>

@@ -20,10 +20,11 @@
         restoringSelected: false,
         forceDeletingSelected: false,
         pendingForceDeletePayload: null,
-        panelShellClass: '',
-        panelInlineStyle: '',
-        _repositionHandler: null,
-        _repositionRaf: null,
+        useViewportSheet: false,
+        panelDockStyle: '',
+        _dockHandler: null,
+        _dockRaf: null,
+        _sidebarResizeObserver: null,
 
         itemKey(item) {
             return item.kind + '-' + item.id;
@@ -125,98 +126,110 @@
             }
         },
 
+        refreshViewportMode() {
+            this.useViewportSheet = window.innerWidth <= 480;
+            if (this.open) {
+                queueMicrotask(() => this.measurePopoverDock());
+            }
+        },
+
+        get panelSurfaceClass() {
+            const shell =
+                'flex min-h-0 flex-col overflow-visible rounded-md border border-border bg-white text-foreground shadow-lg ring-1 ring-black/5 dark:bg-zinc-900 dark:ring-white/10 z-[2147483647]';
+            if (this.useViewportSheet) {
+                return shell + ' fixed inset-x-3 bottom-4 max-h-[min(70vh,24rem)] min-w-0 max-w-md';
+            }
+
+            return shell + ' fixed min-w-0';
+        },
+
+        /**
+         * Viewport-fixed coordinates from the dock anchor (compact control) or trigger (getBoundingClientRect).
+         * Clears the fixed Flux sidebar column so the panel is never drawn under its opaque surface
+         * (expanded sidebar is wider than the trigger; collapsed is not — both need the same rule).
+         */
+        measurePopoverDock() {
+            const el = this.$refs.dockAnchor ?? this.$refs.trigger;
+            if (!el || this.useViewportSheet) {
+                this.panelDockStyle = '';
+                return;
+            }
+
+            const r = el.getBoundingClientRect();
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const margin = 8;
+            const gap = 2;
+            const maxW = 320;
+
+            const sidebar = document.querySelector('[data-flux-sidebar]');
+            const sb = sidebar ? sidebar.getBoundingClientRect() : null;
+
+            let left;
+            let width;
+
+            if (sb && sb.left > vw * 0.5) {
+                const mainRight = sb.left - gap;
+                width = Math.min(maxW, Math.max(120, mainRight - margin - margin));
+                const preferLeft = r.left - gap - width;
+                left = Math.max(margin, Math.min(preferLeft, mainRight - width));
+            } else {
+                left = Math.max(r.right + gap, sb ? sb.right + gap : r.right + gap);
+                width = Math.min(maxW, Math.max(0, vw - left - margin));
+            }
+
+            const top = Math.max(margin, r.top);
+            const maxHeight = Math.min(360, Math.max(120, vh - top - margin));
+
+            this.panelDockStyle = [
+                'position:fixed',
+                'top:' + top + 'px',
+                'left:' + left + 'px',
+                'width:' + width + 'px',
+                'max-height:' + maxHeight + 'px',
+                'box-sizing:border-box',
+            ].join(';');
+        },
+
         init() {
-            this._repositionHandler = () => {
+            this._dockHandler = () => {
                 if (!this.open) {
                     return;
                 }
-                if (this._repositionRaf != null) {
+                if (this.useViewportSheet) {
                     return;
                 }
-                this._repositionRaf = requestAnimationFrame(() => {
-                    this._repositionRaf = null;
-                    this.measureAndApplyPanelPosition();
+                if (this._dockRaf != null) {
+                    return;
+                }
+                this._dockRaf = requestAnimationFrame(() => {
+                    this._dockRaf = null;
+                    this.measurePopoverDock();
                 });
             };
-            window.addEventListener('scroll', this._repositionHandler, true);
-            window.addEventListener('resize', this._repositionHandler);
+            window.addEventListener('scroll', this._dockHandler, true);
+            window.addEventListener('resize', this._dockHandler);
+
+            const sidebarEl = document.querySelector('[data-flux-sidebar]');
+            if (sidebarEl && typeof ResizeObserver !== 'undefined') {
+                this._sidebarResizeObserver = new ResizeObserver(() => this._dockHandler());
+                this._sidebarResizeObserver.observe(sidebarEl);
+            }
         },
+
         destroy() {
-            if (this._repositionRaf != null) {
-                cancelAnimationFrame(this._repositionRaf);
-                this._repositionRaf = null;
+            if (this._dockRaf != null) {
+                cancelAnimationFrame(this._dockRaf);
+                this._dockRaf = null;
             }
-            if (this._repositionHandler) {
-                window.removeEventListener('scroll', this._repositionHandler, true);
-                window.removeEventListener('resize', this._repositionHandler);
+            if (this._sidebarResizeObserver) {
+                this._sidebarResizeObserver.disconnect();
+                this._sidebarResizeObserver = null;
             }
-        },
-
-        measureAndApplyPanelPosition() {
-            const button = this.$refs.trigger;
-            if (!button) {
-                return;
+            if (this._dockHandler) {
+                window.removeEventListener('scroll', this._dockHandler, true);
+                window.removeEventListener('resize', this._dockHandler);
             }
-
-            const vh = window.innerHeight;
-            const vw = window.innerWidth;
-            const PANEL_HEIGHT_EST = 360;
-            const PANEL_WIDTH_CAP = 320;
-
-            if (vw <= 480) {
-                this.panelShellClass =
-                    'fixed inset-x-3 bottom-4 z-[200] flex max-h-[min(70vh,24rem)] min-w-0 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-lg ring-1 ring-black/5 dark:bg-zinc-900 dark:ring-white/10';
-                this.panelInlineStyle = '';
-                return;
-            }
-
-            const rect = button.getBoundingClientRect();
-            const contentLeft = vw < 768 ? 16 : 320;
-            const effectivePanelWidth = Math.min(PANEL_WIDTH_CAP, vw - 32);
-            const spaceBelow = vh - rect.bottom;
-            const spaceAbove = rect.top;
-            const placementVertical = spaceBelow >= PANEL_HEIGHT_EST || spaceBelow >= spaceAbove ? 'bottom' : 'top';
-
-            const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
-            const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
-            let placementHorizontal = 'end';
-            if (rect.left < contentLeft) {
-                placementHorizontal = 'start';
-            } else if (endFits) {
-                placementHorizontal = 'end';
-            } else if (startFits) {
-                placementHorizontal = 'start';
-            } else {
-                placementHorizontal = rect.right > vw ? 'start' : 'end';
-            }
-
-            const gap = 4;
-            const maxPanelHeight = Math.min(PANEL_HEIGHT_EST, Math.max(120, vh - 16));
-            let top;
-            if (placementVertical === 'bottom') {
-                top = rect.bottom + gap;
-                if (top + maxPanelHeight > vh - 8) {
-                    top = Math.max(8, vh - maxPanelHeight - 8);
-                }
-            } else {
-                top = Math.max(8, rect.top - maxPanelHeight - gap);
-            }
-
-            let left = placementHorizontal === 'end' ? rect.right - effectivePanelWidth : rect.left;
-            left = Math.max(8, Math.min(left, vw - effectivePanelWidth - 8));
-
-            this.panelShellClass =
-                'fixed z-[200] flex min-h-0 min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-lg ring-1 ring-black/5 dark:bg-zinc-900 dark:ring-white/10';
-            this.panelInlineStyle =
-                'top:' +
-                top +
-                'px;left:' +
-                left +
-                'px;width:' +
-                effectivePanelWidth +
-                'px;max-height:' +
-                maxPanelHeight +
-                'px';
         },
 
         async openPanel() {
@@ -224,14 +237,18 @@
                 return;
             }
 
-            await this.$nextTick();
-            this.measureAndApplyPanelPosition();
-
+            this.refreshViewportMode();
             this.open = true;
             this.$dispatch('dropdown-opened');
 
+            await this.$nextTick();
+            this.measurePopoverDock();
+            requestAnimationFrame(() => this.measurePopoverDock());
+
             if (this.items.length === 0 && !this.loading) {
                 await this.loadFirst();
+                await this.$nextTick();
+                this.measurePopoverDock();
             }
         },
 
@@ -364,32 +381,39 @@
             $flux.modal('delete-item').close();
         },
     }"
-    @keydown.escape.prevent.stop="close($refs.trigger)"
-    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.trigger)"
+    @keydown.escape.prevent.stop="close($refs.dockAnchor || $refs.trigger)"
+    @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.dockAnchor || $refs.trigger)"
     @workspace-item-trashed.window="addTrashedItem($event.detail)"
     @workspace-item-trashed-rollback.window="removeTrashedItemRollback($event.detail)"
-    class="relative"
+    @resize.window="refreshViewportMode()"
+    class="relative z-20 w-full overflow-visible"
 >
     @isset($trigger)
         <div x-ref="trigger" @click="openPanel()" class="cursor-pointer">
             {{ $trigger }}
         </div>
     @else
-        <button
+        <div
             x-ref="trigger"
-            type="button"
-            @click="openPanel()"
-            class="cursor-pointer inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-            aria-haspopup="true"
-            :aria-expanded="open"
-            aria-label="{{ __('Open trash bin') }}"
+            class="flex w-full justify-start in-data-flux-sidebar-collapsed-desktop:justify-center"
         >
-            <flux:icon name="archive-box" class="size-3.5" />
-            <span>{{ __('Trash') }}</span>
-        </button>
+            <button
+                x-ref="dockAnchor"
+                type="button"
+                @click="openPanel()"
+                class="cursor-pointer inline-flex h-7 min-h-7 max-w-full items-center justify-start gap-2 rounded-md px-2.5 text-xs font-bold leading-none text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 in-data-flux-sidebar-collapsed-desktop:justify-center in-data-flux-sidebar-collapsed-desktop:px-2"
+                aria-haspopup="true"
+                :aria-expanded="open"
+                aria-label="{{ __('Open trash bin') }}"
+                title="{{ __('Trash') }}"
+            >
+                <flux:icon name="trash" class="size-4 shrink-0 text-current" />
+                <span class="in-data-flux-sidebar-collapsed-desktop:hidden">{{ __('Trash') }}</span>
+            </button>
+        </div>
     @endisset
 
-    <template x-teleport="body">
+    <template x-teleport="#workspace-trash-portal">
         <div
             x-ref="panel"
             x-show="open"
@@ -400,10 +424,10 @@
             x-transition:leave-start="opacity-100"
             x-transition:leave-end="opacity-0"
             x-cloak
-            @click.outside="(e) => !$refs.trigger?.contains(e.target) && close($refs.trigger)"
+            @click.outside="(e) => !$refs.trigger?.contains(e.target) && close($refs.dockAnchor || $refs.trigger)"
             @click.stop
-            :class="panelShellClass"
-            x-bind:style="panelInlineStyle ? panelInlineStyle : null"
+            :class="panelSurfaceClass"
+            x-bind:style="useViewportSheet ? null : panelDockStyle || null"
             role="dialog"
             aria-modal="true"
             aria-label="{{ __('Trash bin for items') }}"
@@ -421,7 +445,7 @@
             <button
                 type="button"
                 class="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                @click="close($refs.trigger)"
+                @click="close($refs.dockAnchor || $refs.trigger)"
                 aria-label="{{ __('Close trash bin') }}"
             >
                 <flux:icon name="x-mark" class="size-3" />
