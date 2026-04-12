@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Task;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -18,4 +19,60 @@ test('workspace items fingerprint changes when refreshing workspace items', func
     $after = $component->instance()->workspaceItemsFingerprint();
 
     expect($before)->not->toBe($after);
+});
+
+test('workspace page includes notification bell strip markup', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace'))
+        ->assertSuccessful()
+        ->assertSee('data-test="notifications-bell-button"', false);
+});
+
+test('collaboration invitation accepted event bumps workspace items version without resetting pagination', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index');
+    $component->set('itemsPage', 3);
+
+    $beforeVersion = $component->get('workspaceItemsVersion');
+    $beforePage = $component->get('itemsPage');
+
+    $component->dispatch('collaboration-invitation-accepted');
+
+    expect($component->get('workspaceItemsVersion'))->toBe($beforeVersion + 1)
+        ->and($component->get('itemsPage'))->toBe($beforePage);
+});
+
+test('collaboration invitation declined event bumps workspace items version without resetting pagination', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index');
+    $component->set('itemsPage', 2);
+
+    $beforeVersion = $component->get('workspaceItemsVersion');
+    $beforePage = $component->get('itemsPage');
+
+    $component->dispatch('collaboration-invitation-declined');
+
+    expect($component->get('workspaceItemsVersion'))->toBe($beforeVersion + 1)
+        ->and($component->get('itemsPage'))->toBe($beforePage);
+});
+
+test('restoring a trashed task from trash bumps workspace items version without resetting pagination', function (): void {
+    $this->actingAs($this->user);
+
+    $task = Task::factory()->for($this->user)->create();
+    $task->delete();
+
+    $component = Livewire::test('pages::workspace.index');
+    $component->set('itemsPage', 3);
+
+    $beforeVersion = $component->get('workspaceItemsVersion');
+    $beforePage = $component->get('itemsPage');
+
+    $component->call('restoreTrashItems', [['kind' => 'task', 'id' => $task->id]]);
+
+    expect($component->get('workspaceItemsVersion'))->toBe($beforeVersion + 1)
+        ->and($component->get('itemsPage'))->toBe($beforePage);
 });

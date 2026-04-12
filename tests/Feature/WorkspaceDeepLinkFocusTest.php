@@ -133,3 +133,46 @@ test('workspace task focus persists with type filter query params', function ():
         ->assertSet('focusTaskId', $task->id)
         ->assertSet('filterItemType', 'tasks');
 });
+
+test('focusCalendarAgendaItem switches to list tasks with task focus from in-page calendar', function (): void {
+    $user = User::factory()->create();
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Calendar Focus Task',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->addHours(2),
+        'completed_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('viewMode', 'kanban')
+        ->set('filterItemType', 'events')
+        ->call('focusCalendarAgendaItem', 'task', $task->id)
+        ->assertSet('focusTaskId', $task->id)
+        ->assertSet('focusEventId', null)
+        ->assertSet('viewMode', 'list')
+        ->assertSet('filterItemType', 'tasks');
+});
+
+test('focusCalendarAgendaItem switches to list events with event focus from in-page calendar', function (): void {
+    $user = User::factory()->create();
+    $event = Event::factory()->for($user)->create([
+        'title' => 'Calendar Focus Event',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => now()->addHour(),
+        'end_datetime' => now()->addHours(2),
+        'all_day' => false,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('viewMode', 'kanban')
+        ->set('filterItemType', 'tasks')
+        ->call('focusCalendarAgendaItem', 'event', $event->id)
+        ->assertSet('focusEventId', $event->id)
+        ->assertSet('focusTaskId', null)
+        ->assertSet('viewMode', 'list')
+        ->assertSet('filterItemType', 'events');
+});

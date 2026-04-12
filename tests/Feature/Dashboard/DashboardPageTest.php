@@ -321,9 +321,6 @@ test('dashboard calendar renders selected-day agenda and summary counts', functi
 
     expect(preg_match('/data-testid="calendar-agenda-summary-events"[^>]*>\s*(\d+)\s*</', $response->getContent(), $eventMatches))->toBe(1);
     expect((int) $eventMatches[1])->toBe(2);
-
-    expect(preg_match('/data-testid="calendar-agenda-summary-conflicts"[^>]*>\s*(\d+)\s*</', $response->getContent(), $conflictMatches))->toBe(1);
-    expect((int) $conflictMatches[1])->toBe(1);
 });
 
 test('dashboard calendar agenda includes manual and imported tasks without source filtering', function () {
@@ -365,51 +362,6 @@ test('dashboard calendar agenda includes manual and imported tasks without sourc
 
     expect(preg_match('/data-testid="calendar-agenda-summary-tasks"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryMatches))->toBe(1);
     expect((int) $summaryMatches[1])->toBe(2);
-});
-
-test('dashboard upcoming excludes completed tasks and completed events', function () {
-    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
-    $user = User::factory()->create();
-
-    Task::factory()->for($user)->create([
-        'title' => 'Upcoming Active Task',
-        'status' => TaskStatus::ToDo,
-        'end_datetime' => Carbon::parse('2026-04-10 11:00:00'),
-        'completed_at' => null,
-    ]);
-
-    Task::factory()->for($user)->create([
-        'title' => 'Upcoming Completed Task',
-        'status' => TaskStatus::Done,
-        'end_datetime' => Carbon::parse('2026-04-10 13:00:00'),
-        'completed_at' => Carbon::parse('2026-04-09 08:30:00'),
-    ]);
-
-    Event::factory()->for($user)->create([
-        'title' => 'Upcoming Active Event',
-        'status' => 'scheduled',
-        'start_datetime' => Carbon::parse('2026-04-10 09:00:00'),
-        'end_datetime' => Carbon::parse('2026-04-10 10:00:00'),
-        'all_day' => false,
-    ]);
-
-    Event::factory()->for($user)->create([
-        'title' => 'Upcoming Completed Event',
-        'status' => 'completed',
-        'start_datetime' => Carbon::parse('2026-04-10 12:00:00'),
-        'end_datetime' => Carbon::parse('2026-04-10 13:00:00'),
-        'all_day' => false,
-    ]);
-
-    $response = $this->actingAs($user)->get(route('dashboard', ['date' => '2026-04-09']));
-
-    $response->assertSuccessful();
-    $response->assertSee('Upcoming Active Task', false);
-    $response->assertSee('Upcoming Active Event', false);
-    $response->assertDontSee('Upcoming Completed Task', false);
-    $response->assertDontSee('Upcoming Completed Event', false);
-
-    Carbon::setTestNow();
 });
 
 test('dashboard selected date drives due and events panels', function () {

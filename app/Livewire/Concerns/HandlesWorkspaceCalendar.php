@@ -243,15 +243,48 @@ trait HandlesWorkspaceCalendar
     }
 
     /**
+     * Deep-link payload for calendar agenda rows (matches dashboard workspace card URLs).
+     *
+     * @return array{focus_kind: 'task'|'event', focus_id: int, workspace_url: string}
+     */
+    protected function agendaWorkspaceDeepLink(CarbonInterface $selectedDate, string $kind, int $id): array
+    {
+        $date = $selectedDate->toDateString();
+
+        if ($kind === 'task') {
+            return [
+                'focus_kind' => 'task',
+                'focus_id' => $id,
+                'workspace_url' => route('workspace', [
+                    'date' => $date,
+                    'view' => 'list',
+                    'type' => 'tasks',
+                    'task' => $id,
+                ]),
+            ];
+        }
+
+        return [
+            'focus_kind' => 'event',
+            'focus_id' => $id,
+            'workspace_url' => route('workspace', [
+                'date' => $date,
+                'view' => 'list',
+                'type' => 'events',
+                'event' => $id,
+            ]),
+        ];
+    }
+
+    /**
      * @return array{
      *   date:string,
-     *   summary:array{tasks:int,events:int,conflicts:int,overdue:int},
-     *   overdueTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
-     *   dueDayTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
-     *   scheduledStarts:array<int, array{title:string,time:string,workspace_url:string}>,
-     *   timedEvents:array<int, array{id:int,title:string,time:string,workspace_url:string}>,
-     *   allDayEvents:array<int, array{id:int,title:string,workspace_url:string}>,
-     *   carryoverTasks:array<int, array{id:int,title:string,time:string,workspace_url:string}>
+     *   summary:array{tasks:int,events:int,overdue:int},
+     *   overdueTasks:array<int, array{id:int,title:string,time:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
+     *   dueDayTasks:array<int, array{id:int,title:string,time:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
+     *   scheduledStarts:array<int, array{title:string,time:string,focus_kind:'task'|'event',focus_id:int,workspace_url:string}>,
+     *   timedEvents:array<int, array{id:int,title:string,time:string,focus_kind:'event',focus_id:int,workspace_url:string}>,
+     *   allDayEvents:array<int, array{id:int,title:string,focus_kind:'event',focus_id:int,workspace_url:string}>
      * }
      */
     #[Computed]
@@ -265,13 +298,12 @@ trait HandlesWorkspaceCalendar
         if ($userId === null) {
             return [
                 'date' => $selectedDate->toDateString(),
-                'summary' => ['tasks' => 0, 'events' => 0, 'conflicts' => 0, 'overdue' => 0],
+                'summary' => ['tasks' => 0, 'events' => 0, 'overdue' => 0],
                 'overdueTasks' => [],
                 'dueDayTasks' => [],
                 'scheduledStarts' => [],
                 'timedEvents' => [],
                 'allDayEvents' => [],
-                'carryoverTasks' => [],
             ];
         }
 
@@ -301,6 +333,8 @@ trait HandlesWorkspaceCalendar
 
         $overdueTasks = $overdueTaskModels
             ->map(function (Task $task) use ($selectedDate): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDate, 'task', $task->id);
+
                 return [
                     'id' => $task->id,
                     'title' => (string) $task->title,
@@ -309,11 +343,9 @@ trait HandlesWorkspaceCalendar
                             ? $task->end_datetime->translatedFormat('H:i')
                             : $task->end_datetime->translatedFormat('D j M, H:i'))
                         : __('No time'),
-                    'workspace_url' => route('workspace', [
-                        'date' => $selectedDate->toDateString(),
-                        'type' => 'tasks',
-                        'q' => $task->title,
-                    ]),
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
                 ];
             })
             ->values()
@@ -328,42 +360,18 @@ trait HandlesWorkspaceCalendar
                 return $task->end_datetime !== null
                     && $task->end_datetime->isSameDay($selectedDate);
             })
-            ->map(fn (Task $task): array => [
-                'id' => $task->id,
-                'title' => (string) $task->title,
-                'time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time'),
-                'workspace_url' => route('workspace', [
-                    'date' => $selectedDate->toDateString(),
-                    'type' => 'tasks',
-                    'q' => $task->title,
-                ]),
-            ])
-            ->values()
-            ->all();
+            ->map(function (Task $task) use ($selectedDate): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDate, 'task', $task->id);
 
-        $carryoverTasks = $tasks
-            ->filter(function (Task $task) use ($selectedDate, $overdueIds): bool {
-                if (in_array($task->id, $overdueIds, true)) {
-                    return false;
-                }
-
-                if ($task->start_datetime === null || $task->end_datetime === null) {
-                    return false;
-                }
-
-                return $task->start_datetime->lt($selectedDate->copy()->startOfDay())
-                    && $task->end_datetime->gt($selectedDate->copy()->endOfDay());
+                return [
+                    'id' => $task->id,
+                    'title' => (string) $task->title,
+                    'time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time'),
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
             })
-            ->map(fn (Task $task): array => [
-                'id' => $task->id,
-                'title' => (string) $task->title,
-                'time' => __('Until :time', ['time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time')]),
-                'workspace_url' => route('workspace', [
-                    'date' => $selectedDate->toDateString(),
-                    'type' => 'tasks',
-                    'q' => $task->title,
-                ]),
-            ])
             ->values()
             ->all();
 
@@ -395,19 +403,23 @@ trait HandlesWorkspaceCalendar
                 continue;
             }
 
+            $link = $this->agendaWorkspaceDeepLink($selectedDate, 'task', $task->id);
+
             $scheduledStartsRows[] = [
                 'sort' => $task->start_datetime->getTimestamp(),
                 'title' => (string) $task->title,
                 'time' => $task->start_datetime->translatedFormat('H:i'),
-                'workspace_url' => route('workspace', [
-                    'date' => $selectedDate->toDateString(),
-                    'type' => 'tasks',
-                    'q' => $task->title,
-                ]),
+                'focus_kind' => $link['focus_kind'],
+                'focus_id' => $link['focus_id'],
+                'workspace_url' => $link['workspace_url'],
             ];
         }
 
         foreach ($events as $event) {
+            if (! $event instanceof Event) {
+                continue;
+            }
+
             if (! $startsSameDay($event)) {
                 continue;
             }
@@ -418,15 +430,15 @@ trait HandlesWorkspaceCalendar
                     ? $event->start_datetime->translatedFormat('H:i').' - '.($event->end_datetime?->translatedFormat('H:i') ?? __('No end'))
                     : __('No time'));
 
+            $link = $this->agendaWorkspaceDeepLink($selectedDate, 'event', $event->id);
+
             $scheduledStartsRows[] = [
                 'sort' => $event->start_datetime?->getTimestamp() ?? 0,
                 'title' => (string) $event->title,
                 'time' => $time,
-                'workspace_url' => route('workspace', [
-                    'date' => $selectedDate->toDateString(),
-                    'type' => 'events',
-                    'q' => $event->title,
-                ]),
+                'focus_kind' => $link['focus_kind'],
+                'focus_id' => $link['focus_id'],
+                'workspace_url' => $link['workspace_url'],
             ];
         }
 
@@ -435,60 +447,55 @@ trait HandlesWorkspaceCalendar
         $scheduledStarts = array_values(array_map(static fn (array $row): array => [
             'title' => $row['title'],
             'time' => $row['time'],
+            'focus_kind' => $row['focus_kind'],
+            'focus_id' => $row['focus_id'],
             'workspace_url' => $row['workspace_url'],
         ], $scheduledStartsRows));
 
         $timedEvents = $events
             ->where('all_day', false)
             ->filter(fn (Event $event): bool => ! $startsSameDay($event))
-            ->map(fn (Event $event): array => [
-                'id' => $event->id,
-                'title' => (string) $event->title,
-                'time' => $event->start_datetime
-                    ? $event->start_datetime->translatedFormat('H:i').' - '.($event->end_datetime?->translatedFormat('H:i') ?? __('No end'))
-                    : __('No time'),
-                'workspace_url' => route('workspace', [
-                    'date' => $selectedDate->toDateString(),
-                    'type' => 'events',
-                    'q' => $event->title,
-                ]),
-            ])
+            ->map(function (Event $event) use ($selectedDate): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDate, 'event', $event->id);
+
+                return [
+                    'id' => $event->id,
+                    'title' => (string) $event->title,
+                    'time' => $event->start_datetime
+                        ? $event->start_datetime->translatedFormat('H:i').' - '.($event->end_datetime?->translatedFormat('H:i') ?? __('No end'))
+                        : __('No time'),
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
             ->values()
             ->all();
 
         $allDayEvents = $events
             ->where('all_day', true)
             ->filter(fn (Event $event): bool => ! $startsSameDay($event))
-            ->map(fn (Event $event): array => [
-                'id' => $event->id,
-                'title' => (string) $event->title,
-                'workspace_url' => route('workspace', [
-                    'date' => $selectedDate->toDateString(),
-                    'type' => 'events',
-                    'q' => $event->title,
-                ]),
-            ])
+            ->map(function (Event $event) use ($selectedDate): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDate, 'event', $event->id);
+
+                return [
+                    'id' => $event->id,
+                    'title' => (string) $event->title,
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
             ->values()
             ->all();
 
         $overdueCount = count($overdueIds);
-
-        $conflictCount = 0;
-        $timedForConflicts = $events->where('all_day', false)->values();
-        for ($i = 1; $i < $timedForConflicts->count(); $i++) {
-            $previous = $timedForConflicts[$i - 1];
-            $current = $timedForConflicts[$i];
-            if ($current->start_datetime !== null && $previous->end_datetime !== null && $current->start_datetime->lt($previous->end_datetime)) {
-                $conflictCount++;
-            }
-        }
 
         return [
             'date' => $selectedDate->toDateString(),
             'summary' => [
                 'tasks' => $tasks->count(),
                 'events' => $events->count(),
-                'conflicts' => $conflictCount,
                 'overdue' => $overdueCount,
             ],
             'overdueTasks' => $overdueTasks,
@@ -496,7 +503,6 @@ trait HandlesWorkspaceCalendar
             'scheduledStarts' => $scheduledStarts,
             'timedEvents' => $timedEvents,
             'allDayEvents' => $allDayEvents,
-            'carryoverTasks' => $carryoverTasks,
         ];
     }
 

@@ -8,20 +8,23 @@
         wire:loading targets for the main list/kanban skeleton. Match any Livewire property or method
         that should show the full-area placeholder while the workspace Index re-renders.
 
-        Covered: date (selectedDate), search (searchQuery, searchScope), filters (filter* and set/clear helpers),
-        trash restore.
+        Covered: date (selectedDate), search (searchQuery, searchScope), filters (filter* and set/clear helpers).
 
-        Intentionally omitted: viewMode (tab switch stays snappy), loadMoreItems / getMoreItemsHtml (append-only, no full flash).
+        Intentionally omitted: viewMode (tab switch stays snappy), loadMoreItems / getMoreItemsHtml (append-only),
+        collaboration invite accept/decline (list remounts via workspaceItemsVersion without skeleton),
+        trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters,restoreTrashItem,restoreTrashItems';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
+
+    <x-notifications.bell-strip />
 
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
         <div
-            class="relative min-w-0 space-y-6"
+            class="relative min-w-0 space-y-6 overflow-visible"
             x-data="{
                 pendingViewMode: null,
                 isSwitching: false,
@@ -86,11 +89,11 @@
                 }
             "
         >
-            {{-- Hero Navigation Card --}}
+            {{-- Hero: title, search, view tabs, filters + tools (overflow-visible so dropdowns are not clipped) --}}
             <div
-                class="rounded-2xl border border-brand-blue/20 bg-linear-to-r from-brand-blue/12 via-brand-purple/8 to-brand-green/12 p-4 shadow-sm ring-1 ring-brand-purple/12 backdrop-blur sm:p-5"
+                class="overflow-visible rounded-2xl border border-brand-blue/20 bg-linear-to-r from-brand-blue/12 via-brand-purple/8 to-brand-green/12 p-4 shadow-sm ring-1 ring-brand-purple/12 backdrop-blur sm:p-5"
             >
-                <div class="flex w-full flex-col gap-4">
+                <div class="flex w-full flex-col gap-4 overflow-visible">
                     <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,34rem)] xl:items-end">
                         <div class="space-y-1">
                             <h1 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
@@ -101,7 +104,7 @@
                             </p>
                         </div>
 
-                        <div class="flex w-full flex-col gap-2">
+                        <div class="flex w-full min-w-0 flex-col gap-2">
                             <div class="flex w-full min-w-0 items-center gap-2">
                                 <flux:input
                                     type="search"
@@ -137,7 +140,7 @@
                         </div>
                     </div>
 
-                    <div class="border-t border-brand-blue/20 pt-3">
+                    <div class="border-t border-brand-blue/20 pt-3 overflow-visible">
                         <div class="flex justify-center xl:justify-start">
                             <div class="flex rounded-lg border border-border/60 bg-background/55 p-0.5 shadow-xs" role="tablist" aria-label="{{ __('Workspace view') }}">
                                 <button
@@ -168,16 +171,19 @@
                         </div>
                     </div>
 
-                    {{-- Search, filters / add filter / trash --}}
-                    <div class="flex flex-col gap-3 border-t border-brand-blue/20 pt-3 xl:flex-row xl:items-start xl:justify-between">
-                        <div class="min-w-0 flex flex-wrap items-center gap-2">
+                    <div
+                        class="flex flex-col gap-3 border-t border-brand-blue/20 pt-3 overflow-visible xl:flex-row xl:items-center xl:justify-between"
+                    >
+                        <div class="min-w-0 flex flex-1 flex-wrap items-center gap-2 overflow-visible">
                             <x-workspace.active-filter-pills
                                 :filters="$this->getFilters()"
                                 :tags="$this->tags"
                             />
                         </div>
 
-                        <div class="flex flex-wrap items-center gap-2 xl:justify-end">
+                        <div
+                            class="relative z-20 flex w-full shrink-0 flex-wrap items-center justify-center gap-2 overflow-visible xl:w-auto xl:justify-end"
+                        >
                             <x-workspace.trash-popover />
                             <x-workspace.filter-bar
                                 :filters="$this->getFilters()"
@@ -441,6 +447,7 @@
         <div class="hidden lg:block lg:min-w-[260px]">
             <div class="sticky top-6 mt-4" data-focus-lock-viewport>
                 <x-workspace.calendar
+                    agenda-context="workspace"
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
@@ -453,13 +460,6 @@
                         <x-workspace.calendar-feeds-popover />
                     </div>
                 @endauth
-
-                <div class="mt-4">
-                    <x-workspace.upcoming
-                        :items="$this->upcoming"
-                        :selected-date="$this->selectedDate"
-                    />
-                </div>
             </div>
         </div>
     </div>

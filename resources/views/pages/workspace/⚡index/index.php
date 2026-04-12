@@ -13,6 +13,7 @@ use Livewire\Attributes\Url;
 use App\Services\TaskService;
 use App\Services\EventService;
 use Livewire\Attributes\Async;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use App\Services\ProjectService;
 use Livewire\Attributes\Computed;
@@ -380,6 +381,32 @@ class extends Component
     }
 
     /**
+     * Focus a task or event from the sidebar calendar agenda without merging stale query-string focus ids.
+     */
+    public function focusCalendarAgendaItem(string $kind, int $id, bool $expandPagination = true): void
+    {
+        if ($id < 1 || ($kind !== 'task' && $kind !== 'event')) {
+            return;
+        }
+
+        $this->focusTaskId = null;
+        $this->focusEventId = null;
+        $this->focusProjectId = null;
+
+        if ($kind === 'task') {
+            $this->focusTaskId = $id;
+        } else {
+            $this->focusEventId = $id;
+        }
+
+        $this->applyWorkspaceDeepLinkFocus(false, $expandPagination);
+
+        if ($expandPagination) {
+            $this->js('requestAnimationFrame(() => { setTimeout(() => { window.runWorkspaceFocusFromUrl && window.runWorkspaceFocusFromUrl(); }, 0); });');
+        }
+    }
+
+    /**
      * Reset list pagination to first page. Call when date or filters change
      * so the list shows page 1 of the new result set.
      */
@@ -410,6 +437,26 @@ class extends Component
         }
 
         $this->workspaceItemsVersion++;
+    }
+
+    /**
+     * Remount list/kanban without resetting pagination (collaboration bell, trash restore).
+     */
+    protected function refreshWorkspaceListInPlace(): void
+    {
+        $this->refreshWorkspaceItems(resetPagination: false);
+    }
+
+    #[On('collaboration-invitation-accepted')]
+    #[On('collaboration-invitation-declined')]
+    public function onCollaborationInvitationBellEvent(): void
+    {
+        $this->refreshWorkspaceListInPlace();
+    }
+
+    protected function afterTrashRestored(): void
+    {
+        $this->refreshWorkspaceListInPlace();
     }
 
     /**
@@ -516,9 +563,11 @@ class extends Component
             ->values();
     }
 
-    protected function applyWorkspaceDeepLinkFocus(): void
+    protected function applyWorkspaceDeepLinkFocus(bool $mergeQuery = true, bool $expandPagination = true): void
     {
-        $this->mergeWorkspaceFocusFromRequestQuery();
+        if ($mergeQuery) {
+            $this->mergeWorkspaceFocusFromRequestQuery();
+        }
 
         if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null) {
             return;
@@ -542,7 +591,9 @@ class extends Component
                 return;
             }
             $this->applyDeepLinkListShell('tasks');
-            $this->expandPaginationUntilFocusItemVisible('task', $task->id);
+            if ($expandPagination) {
+                $this->expandPaginationUntilFocusItemVisible('task', $task->id);
+            }
 
             return;
         }
@@ -556,7 +607,9 @@ class extends Component
                 return;
             }
             $this->applyDeepLinkListShell('events');
-            $this->expandPaginationUntilFocusItemVisible('event', $event->id);
+            if ($expandPagination) {
+                $this->expandPaginationUntilFocusItemVisible('event', $event->id);
+            }
 
             return;
         }
@@ -569,7 +622,9 @@ class extends Component
                 return;
             }
             $this->applyDeepLinkListShell('projects');
-            $this->expandPaginationUntilFocusItemVisible('project', $project->id);
+            if ($expandPagination) {
+                $this->expandPaginationUntilFocusItemVisible('project', $project->id);
+            }
         }
     }
 
@@ -791,76 +846,6 @@ class extends Component
         return collect($overdueTasks->all())
             ->merge($overdueEvents->all())
             ->sortBy(fn (array $entry) => $entry['item']->end_datetime?->timestamp ?? 0)
-            ->values();
-    }
-
-    /**
-     * Get upcoming tasks, events, and projects for the authenticated user.
-     * Upcoming = within the next N days starting today (independent of the selected date).
-     * Intentionally ignores workspace filters and search so the sidebar stays a stable horizon.
-     * Returns a unified collection of entries with 'kind' and 'item' for rendering.
-     */
-    #[Computed]
-    public function upcoming(): Collection
-    {
-        $userId = Auth::id();
-
-        if ($userId === null) {
-            return collect();
-        }
-
-        // Base date is always "today" for upcoming, regardless of the selected workspace date.
-        $fromDate = now()->startOfDay();
-        $days = 7;
-
-        $entries = collect();
-
-        $upcomingTasks = Task::query()
-            ->forUser($userId)
-            ->dueSoon($fromDate, $days)
-            ->whereDoesntHave('recurringTask')
-            ->orderBy('end_datetime')
-            ->limit(50)
-            ->get()
-            ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
-
-        $entries = $entries->merge($upcomingTasks);
-
-        $upcomingEvents = Event::query()
-            ->forUser($userId)
-            ->startingSoon($fromDate, $days)
-            ->whereDoesntHave('recurringEvent')
-            ->notCancelled()
-            ->orderBy('start_datetime')
-            ->limit(50)
-            ->get()
-            ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
-
-        $entries = $entries->merge($upcomingEvents);
-
-        $upcomingProjects = Project::query()
-            ->forUser($userId)
-            ->startingSoon($fromDate, $days)
-            ->notArchived()
-            ->orderBy('start_datetime')
-            ->limit(50)
-            ->get()
-            ->map(fn (Project $project) => ['kind' => 'project', 'item' => $project]);
-
-        $entries = $entries->merge($upcomingProjects);
-
-        // Sort all upcoming entries by their relevant datetime.
-        return $entries
-            ->sortBy(function (array $entry): int {
-                /** @var \App\Models\Task|\App\Models\Event|\App\Models\Project $item */
-                $item = $entry['item'];
-
-                return match ($entry['kind']) {
-                    'task' => $item->end_datetime?->timestamp ?? PHP_INT_MAX,
-                    'event', 'project' => $item->start_datetime?->timestamp ?? PHP_INT_MAX,
-                    default => PHP_INT_MAX,
-                };
-            })
             ->values();
     }
 

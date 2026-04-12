@@ -1,14 +1,7 @@
-@props([
-    'position' => 'bottom',
-    'align' => 'end',
-])
-
 <div
     wire:ignore
     x-data="{
         open: false,
-        placementVertical: @js($position),
-        placementHorizontal: @js($align),
         items: [],
         lastDeletedAt: null,
         hasMore: false,
@@ -27,7 +20,10 @@
         restoringSelected: false,
         forceDeletingSelected: false,
         pendingForceDeletePayload: null,
-        panelPlacementClassesValue: 'absolute top-full right-0 mt-1',
+        panelShellClass: '',
+        panelInlineStyle: '',
+        _repositionHandler: null,
+        _repositionRaf: null,
 
         itemKey(item) {
             return item.kind + '-' + item.id;
@@ -129,59 +125,107 @@
             }
         },
 
+        init() {
+            this._repositionHandler = () => {
+                if (!this.open) {
+                    return;
+                }
+                if (this._repositionRaf != null) {
+                    return;
+                }
+                this._repositionRaf = requestAnimationFrame(() => {
+                    this._repositionRaf = null;
+                    this.measureAndApplyPanelPosition();
+                });
+            };
+            window.addEventListener('scroll', this._repositionHandler, true);
+            window.addEventListener('resize', this._repositionHandler);
+        },
+        destroy() {
+            if (this._repositionRaf != null) {
+                cancelAnimationFrame(this._repositionRaf);
+                this._repositionRaf = null;
+            }
+            if (this._repositionHandler) {
+                window.removeEventListener('scroll', this._repositionHandler, true);
+                window.removeEventListener('resize', this._repositionHandler);
+            }
+        },
+
+        measureAndApplyPanelPosition() {
+            const button = this.$refs.trigger;
+            if (!button) {
+                return;
+            }
+
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const PANEL_HEIGHT_EST = 360;
+            const PANEL_WIDTH_CAP = 320;
+
+            if (vw <= 480) {
+                this.panelShellClass =
+                    'fixed inset-x-3 bottom-4 z-[200] flex max-h-[min(70vh,24rem)] min-w-0 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-lg ring-1 ring-black/5 dark:bg-zinc-900 dark:ring-white/10';
+                this.panelInlineStyle = '';
+                return;
+            }
+
+            const rect = button.getBoundingClientRect();
+            const contentLeft = vw < 768 ? 16 : 320;
+            const effectivePanelWidth = Math.min(PANEL_WIDTH_CAP, vw - 32);
+            const spaceBelow = vh - rect.bottom;
+            const spaceAbove = rect.top;
+            const placementVertical = spaceBelow >= PANEL_HEIGHT_EST || spaceBelow >= spaceAbove ? 'bottom' : 'top';
+
+            const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
+            const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
+            let placementHorizontal = 'end';
+            if (rect.left < contentLeft) {
+                placementHorizontal = 'start';
+            } else if (endFits) {
+                placementHorizontal = 'end';
+            } else if (startFits) {
+                placementHorizontal = 'start';
+            } else {
+                placementHorizontal = rect.right > vw ? 'start' : 'end';
+            }
+
+            const gap = 4;
+            const maxPanelHeight = Math.min(PANEL_HEIGHT_EST, Math.max(120, vh - 16));
+            let top;
+            if (placementVertical === 'bottom') {
+                top = rect.bottom + gap;
+                if (top + maxPanelHeight > vh - 8) {
+                    top = Math.max(8, vh - maxPanelHeight - 8);
+                }
+            } else {
+                top = Math.max(8, rect.top - maxPanelHeight - gap);
+            }
+
+            let left = placementHorizontal === 'end' ? rect.right - effectivePanelWidth : rect.left;
+            left = Math.max(8, Math.min(left, vw - effectivePanelWidth - 8));
+
+            this.panelShellClass =
+                'fixed z-[200] flex min-h-0 min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-lg ring-1 ring-black/5 dark:bg-zinc-900 dark:ring-white/10';
+            this.panelInlineStyle =
+                'top:' +
+                top +
+                'px;left:' +
+                left +
+                'px;width:' +
+                effectivePanelWidth +
+                'px;max-height:' +
+                maxPanelHeight +
+                'px';
+        },
+
         async openPanel() {
             if (this.open) {
                 return;
             }
 
-            const button = this.$refs.trigger;
-            if (button) {
-                const vh = window.innerHeight;
-                const vw = window.innerWidth;
-                const PANEL_HEIGHT_EST = 360;
-                const PANEL_WIDTH_EST = 320;
-                const rect = button.getBoundingClientRect();
-                const contentLeft = vw < 768 ? 16 : 320;
-                const effectivePanelWidth = Math.min(PANEL_WIDTH_EST, vw - 32);
-
-                const spaceBelow = vh - rect.bottom;
-                const spaceAbove = rect.top;
-
-                if (spaceBelow >= PANEL_HEIGHT_EST || spaceBelow >= spaceAbove) {
-                    this.placementVertical = 'bottom';
-                } else {
-                    this.placementVertical = 'top';
-                }
-
-                const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
-                const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
-
-                if (rect.left < contentLeft) {
-                    this.placementHorizontal = 'start';
-                } else if (endFits) {
-                    this.placementHorizontal = 'end';
-                } else if (startFits) {
-                    this.placementHorizontal = 'start';
-                } else {
-                    this.placementHorizontal = rect.right > vw ? 'start' : 'end';
-                }
-
-                const v = this.placementVertical;
-                const h = this.placementHorizontal;
-                if (vw <= 480) {
-                    this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,24rem)]';
-                } else if (v === 'top' && h === 'end') {
-                    this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
-                } else if (v === 'top' && h === 'start') {
-                    this.panelPlacementClassesValue = 'absolute bottom-full left-0 mb-1';
-                } else if (v === 'bottom' && h === 'end') {
-                    this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
-                } else if (v === 'bottom' && h === 'start') {
-                    this.panelPlacementClassesValue = 'absolute top-full left-0 mt-1';
-                } else {
-                    this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
-                }
-            }
+            await this.$nextTick();
+            this.measureAndApplyPanelPosition();
 
             this.open = true;
             this.$dispatch('dropdown-opened');
@@ -345,24 +389,25 @@
         </button>
     @endisset
 
-    <div
-        x-ref="panel"
-        x-show="open"
-        x-transition:enter="transition ease-out duration-100"
-        x-transition:enter-start="opacity-0"
-        x-transition:enter-end="opacity-100"
-        x-transition:leave="transition ease-in duration-75"
-        x-transition:leave-start="opacity-100"
-        x-transition:leave-end="opacity-0"
-        x-cloak
-        @click.outside="close($refs.trigger)"
-        @click.stop
-        :class="panelPlacementClassesValue"
-        class="z-50 flex min-w-72 max-w-md flex-col overflow-hidden rounded-md border border-border bg-white text-foreground shadow-md dark:bg-zinc-900 contain-[paint]"
-        role="dialog"
-        aria-modal="true"
-        aria-label="{{ __('Trash bin for items') }}"
-    >
+    <template x-teleport="body">
+        <div
+            x-ref="panel"
+            x-show="open"
+            x-transition:enter="transition ease-out duration-100"
+            x-transition:enter-start="opacity-0"
+            x-transition:enter-end="opacity-100"
+            x-transition:leave="transition ease-in duration-75"
+            x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0"
+            x-cloak
+            @click.outside="(e) => !$refs.trigger?.contains(e.target) && close($refs.trigger)"
+            @click.stop
+            :class="panelShellClass"
+            x-bind:style="panelInlineStyle ? panelInlineStyle : null"
+            role="dialog"
+            aria-modal="true"
+            aria-label="{{ __('Trash bin for items') }}"
+        >
         <div class="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-2.5">
             <div class="flex items-center gap-2 min-w-0">
                 <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -383,7 +428,7 @@
             </button>
         </div>
 
-        <div class="max-h-80 min-h-32 space-y-2 overflow-y-auto px-3 py-2.5 text-[11px]">
+        <div class="min-h-[8rem] flex-1 space-y-2 overflow-y-auto px-3 py-2.5 text-[11px]">
             <template x-if="loading && items.length === 0 && showSpinner">
                 <div class="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
                     <flux:icon name="arrow-path" class="size-6 animate-spin" />
@@ -536,77 +581,78 @@
                 </div>
             </template>
         </div>
+        </div>
+    </template>
 
-        <flux:modal name="delete-selected" class="min-w-[22rem]">
-            <div class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Delete selected items?') }}</flux:heading>
-                    <flux:text class="mt-2">
-                        {{ __('Permanently delete the selected items? This cannot be undone.') }}
-                    </flux:text>
-                </div>
-                <div class="flex gap-2">
-                    <flux:spacer />
-                    <flux:modal.close>
-                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                    </flux:modal.close>
-                    <flux:button
-                        type="button"
-                        variant="danger"
-                        @click="forceDeleteSelected()"
-                    >
-                        <span x-text="forceDeletingSelected ? '{{ __('Deleting...') }}' : '{{ __('Delete selected') }}'"></span>
-                    </flux:button>
-                </div>
+    <flux:modal name="delete-selected" class="min-w-[22rem]">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Delete selected items?') }}</flux:heading>
+                <flux:text class="mt-2">
+                    {{ __('Permanently delete the selected items? This cannot be undone.') }}
+                </flux:text>
             </div>
-        </flux:modal>
+            <div class="flex gap-2">
+                <flux:spacer />
+                <flux:modal.close>
+                    <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                </flux:modal.close>
+                <flux:button
+                    type="button"
+                    variant="danger"
+                    @click="forceDeleteSelected()"
+                >
+                    <span x-text="forceDeletingSelected ? '{{ __('Deleting...') }}' : '{{ __('Delete selected') }}'"></span>
+                </flux:button>
+            </div>
+        </div>
+    </flux:modal>
 
-        <flux:modal name="delete-all" class="min-w-[22rem]">
-            <div class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Empty trash?') }}</flux:heading>
-                    <flux:text class="mt-2">
-                        {{ __('Permanently delete all items in trash? This cannot be undone.') }}
-                    </flux:text>
-                </div>
-                <div class="flex gap-2">
-                    <flux:spacer />
-                    <flux:modal.close>
-                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                    </flux:modal.close>
-                    <flux:button
-                        type="button"
-                        variant="danger"
-                        @click="deleteAll()"
-                    >
-                        <span x-text="deletingAll ? '{{ __('Emptying...') }}' : '{{ __('Empty trash') }}'"></span>
-                    </flux:button>
-                </div>
+    <flux:modal name="delete-all" class="min-w-[22rem]">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Empty trash?') }}</flux:heading>
+                <flux:text class="mt-2">
+                    {{ __('Permanently delete all items in trash? This cannot be undone.') }}
+                </flux:text>
             </div>
-        </flux:modal>
+            <div class="flex gap-2">
+                <flux:spacer />
+                <flux:modal.close>
+                    <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                </flux:modal.close>
+                <flux:button
+                    type="button"
+                    variant="danger"
+                    @click="deleteAll()"
+                >
+                    <span x-text="deletingAll ? '{{ __('Emptying...') }}' : '{{ __('Empty trash') }}'"></span>
+                </flux:button>
+            </div>
+        </div>
+    </flux:modal>
 
-        <flux:modal name="delete-item" class="min-w-[22rem]">
-            <div class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Delete item?') }}</flux:heading>
-                    <flux:text class="mt-2">
-                        {{ __('You\'re about to delete this item. This action cannot be reversed.') }}
-                    </flux:text>
-                </div>
-                <div class="flex gap-2">
-                    <flux:spacer />
-                    <flux:modal.close>
-                        <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
-                    </flux:modal.close>
-                    <flux:button
-                        type="button"
-                        variant="danger"
-                        @click="confirmForceDeleteItem()"
-                    >
-                        {{ __('Delete item') }}
-                    </flux:button>
-                </div>
+    <flux:modal name="delete-item" class="min-w-[22rem]">
+        <div class="space-y-6">
+            <div>
+                <flux:heading size="lg">{{ __('Delete item?') }}</flux:heading>
+                <flux:text class="mt-2">
+                    {{ __('You\'re about to delete this item. This action cannot be reversed.') }}
+                </flux:text>
             </div>
-        </flux:modal>
-    </div>
+            <div class="flex gap-2">
+                <flux:spacer />
+                <flux:modal.close>
+                    <flux:button variant="ghost">{{ __('Cancel') }}</flux:button>
+                </flux:modal.close>
+                <flux:button
+                    type="button"
+                    variant="danger"
+                    @click="confirmForceDeleteItem()"
+                >
+                    {{ __('Delete item') }}
+                </flux:button>
+            </div>
+        </div>
+    </flux:modal>
 </div>

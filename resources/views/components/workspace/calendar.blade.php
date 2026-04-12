@@ -4,9 +4,15 @@
     'currentYear' => null,
     'monthMeta' => [],
     'selectedDayAgenda' => [],
+    /** @var 'dashboard'|'workspace' */
+    'agendaContext' => 'dashboard',
 ])
 
 @php
+    $agendaContext = in_array($agendaContext, ['dashboard', 'workspace'], true) ? $agendaContext : 'dashboard';
+
+    $workspaceAgendaBtnBase = 'cursor-pointer rounded-sm transition-colors hover:bg-foreground/10 dark:hover:bg-foreground/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40';
+
     // Default to current month/year if not provided
     $now = now();
     $currentMonth = $currentMonth ?? $now->month;
@@ -501,7 +507,7 @@
                 </span>
             </div>
 
-            <div class="mb-2 grid grid-cols-4 gap-1 text-center">
+            <div class="mb-2 grid grid-cols-3 gap-1 text-center">
                 <flux:tooltip content="{{ __('Incomplete tasks overlapping this day. The count can include tasks that are not shown in a section below.') }}">
                     <div class="rounded-md bg-muted/50 px-1 py-1">
                         <p class="text-[10px] text-muted-foreground">{{ __('Tasks') }}</p>
@@ -512,12 +518,6 @@
                     <div class="rounded-md bg-muted/50 px-1 py-1">
                         <p class="text-[10px] text-muted-foreground">{{ __('Events') }}</p>
                         <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-events">{{ $selectedDayAgenda['summary']['events'] ?? 0 }}</p>
-                    </div>
-                </flux:tooltip>
-                <flux:tooltip content="{{ __('Timed events whose time ranges overlap another timed event on this day.') }}">
-                    <div class="rounded-md bg-muted/50 px-1 py-1">
-                        <p class="text-[10px] text-muted-foreground">{{ __('Event overlaps') }}</p>
-                        <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-conflicts">{{ $selectedDayAgenda['summary']['conflicts'] ?? 0 }}</p>
                     </div>
                 </flux:tooltip>
                 <flux:tooltip content="{{ __('Tasks with a due time in the past (any priority).') }}">
@@ -535,10 +535,26 @@
                         <ul class="space-y-1">
                             @foreach (($selectedDayAgenda['overdueTasks'] ?? []) as $item)
                                 <li class="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs dark:border-red-500/25 dark:bg-red-950/40">
-                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                        <span class="truncate font-medium text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
-                                        <span class="shrink-0 text-[10px] text-red-700/90 dark:text-red-300/90">{{ $item['time'] }}</span>
-                                    </a>
+                                    @if ($agendaContext === 'dashboard')
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                            <span class="truncate font-medium text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-red-700/90 dark:text-red-300/90">{{ $item['time'] }}</span>
+                                        </a>
+                                    @else
+                                        <button
+                                            type="button"
+                                            @click="
+                                                const k = '{{ $item['focus_kind'] }}';
+                                                const i = {{ $item['focus_id'] }};
+                                                const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
+                                                $wire.focusCalendarAgendaItem(k, i, !instant);
+                                            "
+                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                        >
+                                            <span class="truncate font-medium text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-red-700/90 dark:text-red-300/90">{{ $item['time'] }}</span>
+                                        </button>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -551,10 +567,26 @@
                         <ul class="space-y-1">
                             @foreach (($selectedDayAgenda['dueDayTasks'] ?? []) as $item)
                                 <li class="rounded-md border border-amber-500/35 bg-amber-500/10 px-2 py-1 text-xs dark:border-amber-500/30 dark:bg-amber-950/35">
-                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                        <span class="truncate font-medium text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
-                                        <span class="shrink-0 text-[10px] text-amber-800/90 dark:text-amber-200/90">{{ $item['time'] }}</span>
-                                    </a>
+                                    @if ($agendaContext === 'dashboard')
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                            <span class="truncate font-medium text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-amber-800/90 dark:text-amber-200/90">{{ $item['time'] }}</span>
+                                        </a>
+                                    @else
+                                        <button
+                                            type="button"
+                                            @click="
+                                                const k = '{{ $item['focus_kind'] }}';
+                                                const i = {{ $item['focus_id'] }};
+                                                const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
+                                                $wire.focusCalendarAgendaItem(k, i, !instant);
+                                            "
+                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                        >
+                                            <span class="truncate font-medium text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-amber-800/90 dark:text-amber-200/90">{{ $item['time'] }}</span>
+                                        </button>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -567,10 +599,26 @@
                         <ul class="space-y-1">
                             @foreach (($selectedDayAgenda['scheduledStarts'] ?? []) as $item)
                                 <li class="rounded-md border border-green-600/30 bg-green-600/10 px-2 py-1 text-xs dark:border-green-500/35 dark:bg-green-950/40">
-                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                        <span class="truncate font-medium text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
-                                        <span class="shrink-0 text-[10px] text-green-900/90 dark:text-green-200/90">{{ $item['time'] }}</span>
-                                    </a>
+                                    @if ($agendaContext === 'dashboard')
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                            <span class="truncate font-medium text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-green-900/90 dark:text-green-200/90">{{ $item['time'] }}</span>
+                                        </a>
+                                    @else
+                                        <button
+                                            type="button"
+                                            @click="
+                                                const k = '{{ $item['focus_kind'] }}';
+                                                const i = {{ $item['focus_id'] }};
+                                                const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
+                                                $wire.focusCalendarAgendaItem(k, i, !instant);
+                                            "
+                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                        >
+                                            <span class="truncate font-medium text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-green-900/90 dark:text-green-200/90">{{ $item['time'] }}</span>
+                                        </button>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -583,10 +631,26 @@
                         <ul class="space-y-1">
                             @foreach (($selectedDayAgenda['timedEvents'] ?? []) as $item)
                                 <li class="rounded-md border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-xs dark:border-indigo-500/20 dark:bg-indigo-950/35">
-                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                        <span class="truncate font-medium text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
-                                        <span class="shrink-0 text-[10px] text-indigo-800/85 dark:text-indigo-200/85">{{ $item['time'] }}</span>
-                                    </a>
+                                    @if ($agendaContext === 'dashboard')
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
+                                            <span class="truncate font-medium text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-indigo-800/85 dark:text-indigo-200/85">{{ $item['time'] }}</span>
+                                        </a>
+                                    @else
+                                        <button
+                                            type="button"
+                                            @click="
+                                                const k = '{{ $item['focus_kind'] }}';
+                                                const i = {{ $item['focus_id'] }};
+                                                const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
+                                                $wire.focusCalendarAgendaItem(k, i, !instant);
+                                            "
+                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                        >
+                                            <span class="truncate font-medium text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
+                                            <span class="shrink-0 text-[10px] text-indigo-800/85 dark:text-indigo-200/85">{{ $item['time'] }}</span>
+                                        </button>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -599,25 +663,24 @@
                         <ul class="space-y-1">
                             @foreach (($selectedDayAgenda['allDayEvents'] ?? []) as $item)
                                 <li class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-xs dark:border-emerald-500/20 dark:bg-emerald-950/35">
-                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="block truncate font-medium text-emerald-950 dark:text-emerald-100">
-                                        {{ $item['title'] }}
-                                    </a>
-                                </li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-
-                @if (!empty($selectedDayAgenda['carryoverTasks'] ?? []))
-                    <div data-testid="calendar-agenda-carryover-tasks">
-                        <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">{{ __('Multi-day tasks') }}</p>
-                        <ul class="space-y-1">
-                            @foreach (($selectedDayAgenda['carryoverTasks'] ?? []) as $item)
-                                <li class="rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-1 text-xs dark:border-orange-500/25 dark:bg-orange-950/35">
-                                    <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                        <span class="truncate font-medium text-orange-950 dark:text-orange-100">{{ $item['title'] }}</span>
-                                        <span class="shrink-0 text-[10px] text-orange-900/85 dark:text-orange-200/85">{{ $item['time'] }}</span>
-                                    </a>
+                                    @if ($agendaContext === 'dashboard')
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="block truncate font-medium text-emerald-950 dark:text-emerald-100">
+                                            {{ $item['title'] }}
+                                        </a>
+                                    @else
+                                        <button
+                                            type="button"
+                                            @click="
+                                                const k = '{{ $item['focus_kind'] }}';
+                                                const i = {{ $item['focus_id'] }};
+                                                const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
+                                                $wire.focusCalendarAgendaItem(k, i, !instant);
+                                            "
+                                            class="block w-full truncate text-left font-medium text-emerald-950 dark:text-emerald-100 {{ $workspaceAgendaBtnBase }}"
+                                        >
+                                            {{ $item['title'] }}
+                                        </button>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
@@ -630,7 +693,6 @@
                     && empty($selectedDayAgenda['scheduledStarts'] ?? [])
                     && empty($selectedDayAgenda['timedEvents'] ?? [])
                     && empty($selectedDayAgenda['allDayEvents'] ?? [])
-                    && empty($selectedDayAgenda['carryoverTasks'] ?? [])
                 )
                     <p class="text-xs text-muted-foreground">{{ __('No tasks or events on this day.') }}</p>
                 @endif

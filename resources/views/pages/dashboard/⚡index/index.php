@@ -55,7 +55,6 @@ class extends Component
     private const RECURRING_DUE_LIMIT = 7;
     private const CALENDAR_LOAD_WINDOW_HOURS = 24;
     private const LLM_RECENT_THREADS_LIMIT = 5;
-    private const UPCOMING_LIMIT_PER_KIND = 25;
 
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
@@ -527,73 +526,6 @@ class extends Component
             ->whereNotNull('start_datetime')
             ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
             ->count();
-    }
-
-    /**
-     * @return \Illuminate\Support\Collection<int, array{kind: string, item: mixed}>
-     */
-    #[Computed]
-    public function upcoming(): Collection
-    {
-        $userId = Auth::id();
-
-        if ($userId === null) {
-            return collect();
-        }
-
-        $fromDate = $this->getParsedSelectedDate()->copy()->startOfDay();
-        $days = 7;
-
-        $entries = collect();
-
-        $upcomingTasks = Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->dueSoon($fromDate, $days)
-            ->whereDoesntHave('recurringTask')
-            ->orderBy('end_datetime')
-            ->limit(self::UPCOMING_LIMIT_PER_KIND)
-            ->get()
-            ->map(fn (Task $task) => ['kind' => 'task', 'item' => $task]);
-
-        $entries = $entries->merge($upcomingTasks);
-
-        $upcomingEvents = Event::query()
-            ->forUser($userId)
-            ->notCompleted()
-            ->startingSoon($fromDate, $days)
-            ->whereDoesntHave('recurringEvent')
-            ->notCancelled()
-            ->orderBy('start_datetime')
-            ->limit(self::UPCOMING_LIMIT_PER_KIND)
-            ->get()
-            ->map(fn (Event $event) => ['kind' => 'event', 'item' => $event]);
-
-        $entries = $entries->merge($upcomingEvents);
-
-        $upcomingProjects = Project::query()
-            ->forUser($userId)
-            ->startingSoon($fromDate, $days)
-            ->notArchived()
-            ->orderBy('start_datetime')
-            ->limit(self::UPCOMING_LIMIT_PER_KIND)
-            ->get()
-            ->map(fn (Project $project) => ['kind' => 'project', 'item' => $project]);
-
-        $entries = $entries->merge($upcomingProjects);
-
-        return $entries
-            ->sortBy(function (array $entry): int {
-                /** @var \App\Models\Task|\App\Models\Event|\App\Models\Project $item */
-                $item = $entry['item'];
-
-                return match ($entry['kind']) {
-                    'task' => $item->end_datetime?->timestamp ?? PHP_INT_MAX,
-                    'event', 'project' => $item->start_datetime?->timestamp ?? PHP_INT_MAX,
-                    default => PHP_INT_MAX,
-                };
-            })
-            ->values();
     }
 
     /**

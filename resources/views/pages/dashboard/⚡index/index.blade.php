@@ -89,14 +89,7 @@
 @endphp
 
 <section class="space-y-6">
-    <div class="flex items-center justify-end">
-        <div class="inline-flex items-center gap-2 rounded-xl border border-zinc-200/70 bg-background px-2 py-1.5 shadow-sm dark:border-zinc-700/60 dark:bg-zinc-900/50">
-            <span class="px-1 text-xs font-semibold text-muted-foreground">
-                {{ __('Notifications') }}
-            </span>
-            <livewire:notifications.bell-dropdown />
-        </div>
-    </div>
+    <x-notifications.bell-strip />
 
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
@@ -608,10 +601,11 @@
             </section>
         </div>
 
-        {{-- Right Side: Calendar & Upcoming (20%) --}}
+        {{-- Right Side: Calendar (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
             <div class="sticky top-6" data-focus-lock-viewport>
                 <x-workspace.calendar
+                    agenda-context="dashboard"
                     :selected-date="$this->selectedDate"
                     :current-month="$this->calendarMonth"
                     :current-year="$this->calendarYear"
@@ -624,13 +618,6 @@
                         <x-workspace.calendar-feeds-popover />
                     </div>
                 @endauth
-
-                <div class="mt-4">
-                    <x-workspace.upcoming
-                        :items="$this->upcoming"
-                        :selected-date="$this->selectedDate"
-                    />
-                </div>
             </div>
         </div>
     </div>

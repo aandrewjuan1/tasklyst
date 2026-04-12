@@ -96,7 +96,7 @@ select:focus[data-flux-control] {
 
 @layer components {
     /**
-     * Dashboard / workspace sidebar: calendar & upcoming — lavender surface, no border, soft depth.
+     * Dashboard / workspace sidebar: calendar — lavender surface, no border, soft depth.
      */
     .workspace-sidebar-panel {
         @apply overflow-hidden rounded-xl;

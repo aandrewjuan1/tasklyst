@@ -103,3 +103,45 @@ test('selected day agenda lists overdue tasks in overdue section and not in due-
         ->assertSee('data-testid="calendar-agenda-overdue-tasks"', false)
         ->assertSee('Past Due High Priority Task');
 });
+
+test('selected day agenda workspace urls use id deep links not search query', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
+
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Agenda URL Overdue Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => Carbon::parse('2026-04-09 12:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $event = Event::factory()->for($user)->create([
+        'title' => 'Agenda URL Starting Event',
+        'status' => EventStatus::Scheduled,
+        'start_datetime' => Carbon::parse('2026-04-09 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-09 11:00:00'),
+        'all_day' => false,
+    ]);
+
+    $this->actingAs($user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09');
+
+    $agenda = $component->instance()->selectedDayAgenda;
+
+    $overdueUrl = $agenda['overdueTasks'][0]['workspace_url'];
+    expect($overdueUrl)->toContain('task='.$task->id)
+        ->and($overdueUrl)->toContain('view=list')
+        ->and($overdueUrl)->not->toContain('q=');
+
+    $eventRow = collect($agenda['scheduledStarts'])->firstWhere('title', 'Agenda URL Starting Event');
+    expect($eventRow)->not->toBeNull()
+        ->and($eventRow['workspace_url'])->toContain('event='.$event->id)
+        ->and($eventRow['workspace_url'])->toContain('view=list')
+        ->and($eventRow['focus_kind'])->toBe('event')
+        ->and($eventRow['focus_id'])->toBe($event->id);
+});

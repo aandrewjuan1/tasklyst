@@ -34,6 +34,23 @@ function focusWorkspaceElement(el) {
     }, 1600);
 }
 
+/**
+ * When the target list row is already in the DOM (e.g. workspace calendar click),
+ * scroll + highlight immediately without waiting for Livewire pagination expansion.
+ *
+ * @returns {boolean} true if the row was found and focused
+ */
+export function workspaceCalendarTryInstantFocus(kind, id) {
+    const el = document.getElementById(`workspace-item-${kind}-${id}`);
+    if (!el) {
+        return false;
+    }
+
+    focusWorkspaceElement(el);
+
+    return true;
+}
+
 export function runWorkspaceFocusFromUrl() {
     const params = new URL(window.location.href).searchParams;
 

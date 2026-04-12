@@ -1,7 +1,7 @@
 import { listItemCard } from './alpine/list-item-card.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
 import { dashboardAnalyticsCharts } from './alpine/dashboard-analytics-charts.js';
-import { initWorkspaceDeepLinkFocus } from './alpine/workspace-focus.js';
+import { initWorkspaceDeepLinkFocus, runWorkspaceFocusFromUrl, workspaceCalendarTryInstantFocus } from './alpine/workspace-focus.js';
 
 // ECharts is lazy-loaded from dashboard-analytics-charts.js (dynamic import) to keep the main bundle smaller.
 
@@ -10,6 +10,8 @@ document.addEventListener('livewire:init', () => {
     window.Alpine.data('listItemCard', listItemCard);
     window.Alpine.data('kanbanBoard', kanbanBoard);
     window.Alpine.data('dashboardAnalyticsCharts', dashboardAnalyticsCharts);
+    window.runWorkspaceFocusFromUrl = runWorkspaceFocusFromUrl;
+    window.workspaceCalendarTryInstantFocus = workspaceCalendarTryInstantFocus;
     initWorkspaceDeepLinkFocus();
 });
 

@@ -147,6 +147,7 @@ trait HandlesTrash
         }
 
         $this->dispatch('toast', type: 'success', message: $this->restoreTrashSuccessMessage($kind));
+        $this->afterTrashRestored();
 
         return true;
     }
@@ -288,6 +289,10 @@ trait HandlesTrash
         }
 
         $this->dispatchBatchTrashToast('restore', $restored, $failed);
+
+        if ($restored > 0) {
+            $this->afterTrashRestored();
+        }
 
         return ['restored' => $restored, 'failed' => $failed];
     }
@@ -641,4 +646,9 @@ trait HandlesTrash
             default => __('Couldn’t permanently delete the item. Try again.'),
         };
     }
+
+    /**
+     * Called after trashed item(s) were successfully restored. The workspace page overrides this to remount the list/kanban.
+     */
+    protected function afterTrashRestored(): void {}
 }
