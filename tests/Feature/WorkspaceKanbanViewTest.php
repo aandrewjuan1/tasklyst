@@ -22,6 +22,30 @@ test('workspace with view kanban shows Kanban board columns', function (): void 
         ->assertDontSee(__('No tasks, projects, or events in this column'));
 });
 
+test('kanban view shows read-only tasks item type and hides list-only filter controls', function (): void {
+    $this->actingAs($this->user);
+
+    $html = $this->get(route('workspace', ['view' => 'kanban']))
+        ->assertSuccessful()
+        ->getContent();
+
+    expect($html)->toContain('data-workspace-item-type-kanban-readonly')
+        ->and($html)->toContain(__('Kanban only shows tasks, grouped by task status. Switch to List view to see events and projects.'))
+        ->and($html)->not->toContain('id="wff-row-event-status"')
+        ->and($html)->not->toContain('wire:key="pill-it-all"');
+});
+
+test('list view still renders list-only filter controls', function (): void {
+    $this->actingAs($this->user);
+
+    $html = $this->get(route('workspace', ['view' => 'list']))
+        ->assertSuccessful()
+        ->getContent();
+
+    expect($html)->toContain('id="wff-row-event-status"')
+        ->and($html)->toContain('wire:key="pill-it-all"');
+});
+
 test('creating a task while in kanban view shows it on the board', function (): void {
     $this->actingAs($this->user);
 

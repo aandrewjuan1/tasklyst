@@ -1,5 +1,12 @@
 @php
     $isKanbanMode = ($mode ?? 'list') === 'kanban';
+    $isListMode = ($mode ?? 'list') === 'list';
+    $hasActiveSearch = (bool) ($hasActiveSearch ?? false);
+    $hasActiveFilters = (bool) ($hasActiveFilters ?? false);
+    $searchQueryDisplay = $searchQueryDisplay ?? null;
+    $emptyDateLabel = $emptyDateLabel ?? '';
+    $boardIsEmpty = (bool) ($boardIsEmpty ?? false);
+    $visibleItemsInitial = (int) ($visibleItemsInitial ?? 0);
     $entryCardClass =
         'list-item-card relative z-10 flex w-full flex-col gap-2 overflow-hidden rounded-xl px-3 py-2 lic-surface-zinc';
     $entryButtonClass =
@@ -34,8 +41,36 @@
                         />
                     </span>
                     <span class="min-w-0 flex-1">
-                        <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('New task') }}</span>
-                        <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap to open the quick-add form') }}</span>
+                        @if ($boardIsEmpty)
+                            <span
+                                class="contents"
+                                role="status"
+                                aria-live="polite"
+                                data-test="workspace-item-creation-empty"
+                            >
+                                @if ($hasActiveSearch && $searchQueryDisplay)
+                                    <span class="block text-sm font-semibold leading-tight text-foreground">
+                                        {{ __('No results for ":query"', ['query' => $searchQueryDisplay]) }}
+                                    </span>
+                                    <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                                        {{ __('Try another search or add a task.') }}
+                                    </span>
+                                @elseif ($hasActiveFilters)
+                                    <span class="block text-sm font-semibold leading-tight text-foreground">
+                                        {{ __('Nothing matches your filters') }}
+                                    </span>
+                                    <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                                        {{ __('Clear or adjust filters, or add a task.') }}
+                                    </span>
+                                @else
+                                    <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('New task') }}</span>
+                                    <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap to open the quick-add form') }}</span>
+                                @endif
+                            </span>
+                        @else
+                            <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('New task') }}</span>
+                            <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap to open the quick-add form') }}</span>
+                        @endif
                     </span>
                 </button>
             @else
@@ -59,8 +94,47 @@
                         />
                     </span>
                     <span class="min-w-0 flex-1">
-                        <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('Create something new') }}</span>
-                        <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap, then pick task, event, or project') }}</span>
+                        <span
+                            x-show="mode === 'list' && visibleItemCount <= 0"
+                            x-cloak
+                            class="block"
+                            role="status"
+                            aria-live="polite"
+                            data-test="workspace-item-creation-empty"
+                            style="{{ $isListMode && $visibleItemsInitial > 0 ? 'display: none' : '' }}"
+                        >
+                            @if ($hasActiveSearch && $searchQueryDisplay)
+                                <span class="block text-sm font-semibold leading-tight text-foreground">
+                                    {{ __('No results for ":query"', ['query' => $searchQueryDisplay]) }}
+                                </span>
+                                <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                                    {{ __('Try another search or add a task, event, or project.') }}
+                                </span>
+                            @elseif ($hasActiveFilters)
+                                <span class="block text-sm font-semibold leading-tight text-foreground">
+                                    {{ __('Nothing matches your filters') }}
+                                </span>
+                                <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                                    {{ __('Clear or adjust filters, or add something new.') }}
+                                </span>
+                            @else
+                                <span class="block text-sm font-semibold leading-tight text-foreground">
+                                    {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
+                                </span>
+                                <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                                    {{ __('Add a task, project, or event for this day to get started') }}
+                                </span>
+                            @endif
+                        </span>
+                        <span
+                            x-show="mode !== 'list' || visibleItemCount > 0"
+                            class="block"
+                            x-cloak
+                            style="{{ $isListMode && $visibleItemsInitial <= 0 ? 'display: none' : '' }}"
+                        >
+                            <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('Create something new') }}</span>
+                            <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap, then pick task, event, or project') }}</span>
+                        </span>
                     </span>
                 </button>
 
@@ -146,24 +220,30 @@
                 <div class="flex flex-col gap-2">
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                         <div class="min-w-0 flex-1">
-                            <flux:input
+                            <input
+                                type="text"
                                 x-show="creationKind !== 'project'"
                                 x-cloak
                                 x-model="formData.item.title"
                                 x-ref="taskTitle"
                                 x-bind:disabled="isSubmitting"
                                 placeholder="{{ __('Enter title...') }}"
-                                class="w-full min-w-0 [&_input]:border-0 [&_input]:bg-transparent [&_input]:px-0 [&_input]:py-0.5 [&_input]:text-xl [&_input]:font-bold [&_input]:leading-tight [&_input]:shadow-none [&_input]:ring-0 [&_input]:placeholder:text-sm [&_input]:placeholder:font-normal [&_input]:placeholder:text-muted-foreground/80 [&_input]:focus:ring-0 md:[&_input]:text-2xl md:[&_input]:placeholder:text-base"
+                                autocomplete="off"
+                                aria-label="{{ __('Task or event title') }}"
+                                class="w-full min-w-0 border-0 bg-transparent px-0 py-0.5 text-xl font-bold leading-tight text-foreground shadow-none ring-0 placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground/80 focus:border-0 focus:outline-none focus:ring-0 md:text-2xl md:placeholder:text-base"
                                 @keydown.enter.prevent="if (!isSubmitting && formData.item.title && formData.item.title.trim()) { creationKind === 'task' ? submitTask() : submitEvent(); }"
                             />
-                            <flux:input
+                            <input
+                                type="text"
                                 x-show="creationKind === 'project'"
                                 x-cloak
                                 x-model="formData.project.name"
                                 x-ref="projectName"
                                 x-bind:disabled="isSubmitting"
                                 placeholder="{{ __('Enter project name...') }}"
-                                class="w-full min-w-0 [&_input]:border-0 [&_input]:bg-transparent [&_input]:px-0 [&_input]:py-0.5 [&_input]:text-xl [&_input]:font-bold [&_input]:leading-tight [&_input]:shadow-none [&_input]:ring-0 [&_input]:placeholder:text-sm [&_input]:placeholder:font-normal [&_input]:placeholder:text-muted-foreground/80 [&_input]:focus:ring-0 md:[&_input]:text-2xl md:[&_input]:placeholder:text-base"
+                                autocomplete="off"
+                                aria-label="{{ __('Project name') }}"
+                                class="w-full min-w-0 border-0 bg-transparent px-0 py-0.5 text-xl font-bold leading-tight text-foreground shadow-none ring-0 placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground/80 focus:border-0 focus:outline-none focus:ring-0 md:text-2xl md:placeholder:text-base"
                                 @keydown.enter.prevent="if (!isSubmitting && formData.project.name && formData.project.name.trim()) { submitProject(); }"
                             />
                         </div>

@@ -535,6 +535,18 @@ trait HandlesFiltering
     }
 
     /**
+     * Filters that apply to the task board (Kanban); excludes list-only item type and event status.
+     */
+    public function hasActiveTaskBoardFilters(): bool
+    {
+        return $this->normalizeFilterValue($this->filterTaskStatus) !== null
+            || $this->normalizeFilterValue($this->filterTaskPriority) !== null
+            || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
+            || ($this->filterTagIds !== null && $this->filterTagIds !== [])
+            || $this->normalizeFilterValue($this->filterRecurring) !== null;
+    }
+
+    /**
      * Check if search is active (non-empty trimmed query).
      */
     public function hasActiveSearch(): bool
@@ -559,6 +571,7 @@ trait HandlesFiltering
             'tagIds' => $this->filterTagIds ?? [],
             'recurring' => $this->normalizeFilterValue($this->filterRecurring),
             'hasActiveFilters' => $this->hasActiveFilters(),
+            'hasActiveTaskBoardFilters' => $this->hasActiveTaskBoardFilters(),
             'searchQuery' => $this->getTrimmedSearchQuery(),
             'hasActiveSearch' => $this->hasActiveSearch(),
             'searchScope' => $this->searchScope,

@@ -86,49 +86,20 @@
                         $greetingName = auth()->user()?->firstName() ?? '';
                     @endphp
                     <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
-                        <p class="min-w-0 flex-1 text-xs font-semibold uppercase leading-tight tracking-[0.14em] text-brand-blue/90 sm:text-sm">
+                        <h2 class="min-w-0 flex-1 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                             @if ($greetingName !== '')
                                 {{ __('Workspace — Hello, :name!', ['name' => $greetingName]) }}
                             @else
                                 {{ __('Workspace — Hello!') }}
                             @endif
-                        </p>
+                        </h2>
                         <div class="inline-flex shrink-0 items-center">
                             <x-notifications.bell-cluster variant="hero" />
                         </div>
                     </div>
-                    <div class="w-full min-w-0 space-y-2">
-                        <h2 class="max-w-xl text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                            {{ __('Tasks, events, and projects in one place.') }}
-                        </h2>
-                        {{-- Toolbar: scope + search + List/Kanban; unified h-10 --}}
+                    <div class="w-full min-w-0">
+                        {{-- Toolbar: List/Kanban + search + search scope (global vs selected date); unified h-10 --}}
                         <div class="pt-2 flex w-full min-w-0 flex-wrap items-center gap-2">
-                            <flux:tooltip
-                                :content="$this->searchScope === 'selected_date'
-                                    ? __('Currently searching selected date only. (Click to search all items.)')
-                                    : __('Currently searching all items. (Click to search selected date only.)')"
-                            >
-                                <flux:button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    :loading="false"
-                                    :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
-                                    aria-label="{{ __('Toggle search scope') }}"
-                                    class="size-10 h-10 w-10 shrink-0 rounded-xl border border-white/50 bg-white/80 text-zinc-900 shadow-sm transition hover:bg-white focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/80"
-                                    wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
-                                    wire:loading.attr="disabled"
-                                    wire:target="searchScope"
-                                />
-                            </flux:tooltip>
-                            <input
-                                type="search"
-                                wire:model.live.debounce.300ms="searchQuery"
-                                placeholder="{{ __('Search tasks, events, projects…') }}"
-                                aria-label="{{ __('Search tasks, events, and projects') }}"
-                                autocomplete="off"
-                                class="h-10 min-h-10 min-w-[min(100%,12rem)] flex-1 rounded-xl border border-white/50 bg-white/80 px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:outline-none focus:ring-2 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/50"
-                            />
                             <div
                                 class="inline-flex h-10 shrink-0 items-stretch gap-0.5 rounded-xl border border-white/50 bg-white/80 p-1 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
                                 role="tablist"
@@ -171,6 +142,32 @@
                                     {{ __('Kanban') }}
                                 </button>
                             </div>
+                            <input
+                                type="search"
+                                wire:model.live.debounce.300ms="searchQuery"
+                                placeholder="{{ __('Search tasks, events, projects…') }}"
+                                aria-label="{{ __('Search tasks, events, and projects') }}"
+                                autocomplete="off"
+                                class="h-10 min-h-10 min-w-[min(100%,12rem)] flex-1 rounded-xl border border-white/50 bg-white/80 px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:outline-none focus:ring-2 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/50"
+                            />
+                            <flux:tooltip
+                                :content="$this->searchScope === 'selected_date'
+                                    ? __('Currently searching selected date only. (Click to search all items.)')
+                                    : __('Currently searching all items. (Click to search selected date only.)')"
+                            >
+                                <flux:button
+                                    type="button"
+                                    variant="ghost"
+                                    size="xs"
+                                    :loading="false"
+                                    :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
+                                    aria-label="{{ __('Toggle search scope') }}"
+                                    class="size-10 h-10 w-10 shrink-0 rounded-xl border border-white/50 bg-white/80 text-zinc-900 shadow-sm transition hover:bg-white focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/80"
+                                    wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
+                                    wire:loading.attr="disabled"
+                                    wire:target="searchScope"
+                                />
+                            </flux:tooltip>
                         </div>
                     </div>
                 </div>
@@ -178,19 +175,21 @@
 
             {{-- Filters + active pills: one strip, aligned row (pills left / Add filters right on md+) --}}
             <div
-                class="overflow-visible rounded-xl border border-border/60 bg-muted/25 px-3 py-2.5 shadow-sm dark:border-border/50 dark:bg-muted/15 sm:px-4 sm:py-3"
+                class="workspace-filter-strip overflow-visible rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 shadow-sm ring-1 ring-brand-purple/10 dark:border-border/50 dark:bg-muted/15 dark:ring-zinc-600/35 sm:px-4 sm:py-3.5"
             >
-                <div class="flex flex-col gap-3 md:flex-row md:flex-row-reverse md:items-center md:justify-between md:gap-4">
+                <div class="flex flex-col gap-3 md:flex-row md:flex-row-reverse md:items-center md:justify-between md:gap-5">
                     <div class="flex shrink-0 items-center md:justify-end">
                         <x-workspace.filter-bar
                             :filters="$this->getFilters()"
                             :tags="$this->tags"
+                            :show-list-scoped-filters="$this->viewMode !== 'kanban'"
                         />
                     </div>
                     <div class="min-w-0 flex-1">
                         <x-workspace.active-filter-pills
                             :filters="$this->getFilters()"
                             :tags="$this->tags"
+                            :show-list-scoped-filters="$this->viewMode !== 'kanban'"
                         />
                     </div>
                 </div>
@@ -200,7 +199,7 @@
             <div class="relative min-w-0 w-full">
             {{-- Real content - hidden during list/kanban loading targets (see $listLoadingTargets) --}}
             <div
-                wire:loading.remove
+                wire:loading.delay.shorter.remove
                 wire:target="{{ $listLoadingTargets }}"
                 class="w-full"
             >
@@ -261,7 +260,7 @@
 
             {{-- Skeleton: same wire:target as wire:loading.remove on real content above --}}
             <div
-                wire:loading.block
+                wire:loading.delay.shorter.block
                 wire:target="{{ $listLoadingTargets }}"
                 class="hidden w-full"
                 role="status"

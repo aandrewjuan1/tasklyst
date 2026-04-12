@@ -1,9 +1,21 @@
-@props(['tags', 'projects', 'activeFocusSession', 'mode' => 'list'])
+@props([
+    'tags',
+    'projects',
+    'activeFocusSession',
+    'mode' => 'list',
+    'emptyDateLabel' => null,
+    'hasActiveSearch' => false,
+    'hasActiveFilters' => false,
+    'searchQueryDisplay' => null,
+    'visibleItemsInitial' => 0,
+    'boardIsEmpty' => false,
+])
 
 <div
     class="space-y-4"
     data-test="workspace-item-creation"
     x-data="{ @include('components.workspace.partials.item-creation-xdata') }"
+    @workspace-list-visible-count.window="mode === 'list' && $event.detail?.count != null && (visibleItemCount = parseInt($event.detail.count, 10))"
     @task-created="resetForm()"
     @event-created="resetForm()"
     @project-created="resetForm()"

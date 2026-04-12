@@ -743,6 +743,10 @@ class extends Component
 
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
 
+        if ($this->viewMode === 'kanban') {
+            $filterItemType = 'tasks';
+        }
+
         $selectedDate = $this->getParsedSelectedDate();
         $overdueAsOf = $selectedDate->isToday()
             ? now()

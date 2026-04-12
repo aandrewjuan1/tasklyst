@@ -1,11 +1,21 @@
-<div class="space-y-4">
-    <x-workspace.item-creation :tags="$tags" :projects="$projects" :active-focus-session="$activeFocusSession" mode="kanban" />
-
-    @php
+@php
     use App\Enums\TaskStatus;
 
     $overdueTaskItems = $overdue->filter(fn (array $entry) => ($entry['kind'] ?? '') === 'task')->map(fn (array $entry) => $entry['item']);
     $allTasks = $tasks->merge($overdueTaskItems)->unique('id')->values();
+    $kanbanDate = $selectedDate ? \Illuminate\Support\Carbon::parse($selectedDate) : now();
+    $kanbanEmptyDateLabel = $kanbanDate->isToday()
+        ? __('today')
+        : ($kanbanDate->isTomorrow()
+            ? __('tomorrow')
+            : ($kanbanDate->isYesterday()
+                ? __('yesterday')
+                : $kanbanDate->translatedFormat('l, F j, Y')));
+    $kanbanHasActiveFilters = $filters['hasActiveTaskBoardFilters'] ?? ($filters['hasActiveFilters'] ?? false);
+    $kanbanHasActiveSearch = $filters['hasActiveSearch'] ?? false;
+    $kanbanSearchQueryDisplay = $filters['searchQuery'] ?? null;
+    $kanbanBoardIsEmpty = $allTasks->isEmpty();
+
     $effectiveStatusValue = fn ($task) => $task->effectiveStatusForDate?->value ?? $task->status?->value;
     $tasksByStatus = collect(TaskStatus::cases())->mapWithKeys(fn (TaskStatus $status) => [$status->value => $allTasks->filter(fn ($task) => $effectiveStatusValue($task) === $status->value)->values()])->all();
     $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
@@ -39,6 +49,19 @@
         'moveErrorToast' => __('Failed to move task. Please try again.'),
     ];
 @endphp
+
+<div class="space-y-4">
+    <x-workspace.item-creation
+        :tags="$tags"
+        :projects="$projects"
+        :active-focus-session="$activeFocusSession"
+        mode="kanban"
+        :empty-date-label="$kanbanEmptyDateLabel"
+        :has-active-search="$kanbanHasActiveSearch"
+        :has-active-filters="$kanbanHasActiveFilters"
+        :search-query-display="$kanbanSearchQueryDisplay"
+        :board-is-empty="$kanbanBoardIsEmpty"
+    />
 <div
     class="w-full space-y-4"
     role="region"

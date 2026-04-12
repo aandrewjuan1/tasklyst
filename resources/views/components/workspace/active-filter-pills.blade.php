@@ -1,6 +1,7 @@
 @props([
     'filters' => [],
     'tags' => [],
+    'showListScopedFilters' => true,
 ])
 
 @php
@@ -53,6 +54,27 @@
     $hasOtherActiveFilters = ($filters['taskStatus'] ?? null) || ($filters['taskPriority'] ?? null)
         || ($filters['taskComplexity'] ?? null) || ($filters['eventStatus'] ?? null)
         || (is_array($tagIds) && $tagIds !== []) || ($filters['recurring'] ?? null);
+
+    $filterPillEnumFillClass = static fn (string $color): string => 'bg-' . $color . '/10 text-' . $color;
+
+    $filterPillTaskStatusColors = collect(TaskStatus::cases())
+        ->mapWithKeys(fn (TaskStatus $c): array => [$c->value => $filterPillEnumFillClass($c->color())])
+        ->all();
+
+    $filterPillTaskPriorityColors = collect(TaskPriority::cases())
+        ->mapWithKeys(fn (TaskPriority $c): array => [$c->value => $filterPillEnumFillClass($c->color())])
+        ->all();
+
+    $filterPillTaskComplexityColors = collect(TaskComplexity::cases())
+        ->mapWithKeys(fn (TaskComplexity $c): array => [$c->value => $filterPillEnumFillClass($c->color())])
+        ->all();
+
+    $filterPillEventStatusColors = collect(EventStatus::cases())
+        ->mapWithKeys(fn (EventStatus $c): array => [$c->value => $filterPillEnumFillClass($c->color())])
+        ->all();
+
+    $filterPillRecurringRecurring =
+        'border-amber-200/55 bg-yellow-50 text-stone-600 shadow-sm dark:border-amber-900/20 dark:bg-yellow-950/12 dark:text-stone-400';
 @endphp
 
 <div
@@ -60,6 +82,26 @@
         labels: @js($labels),
         pillLabels: @js($pillLabels),
         tags: @js($tagsForJs),
+        menus: {
+            itemType: false,
+            taskStatus: false,
+            taskPriority: false,
+            taskComplexity: false,
+            eventStatus: false,
+            tagIds: false,
+            recurring: false,
+        },
+        togglePillMenu(key) {
+            const opening = !this.menus[key];
+            Object.keys(this.menus).forEach((k) => { this.menus[k] = false; });
+            this.menus[key] = opening;
+        },
+        closePillMenu(key) {
+            this.menus[key] = false;
+        },
+        closeAllPillMenus() {
+            Object.keys(this.menus).forEach((k) => { this.menus[k] = false; });
+        },
         displayFilters: {
             itemType: @js($filters['itemType'] ?? null),
             taskStatus: @js($filters['taskStatus'] ?? null),
@@ -68,6 +110,42 @@
             eventStatus: @js($filters['eventStatus'] ?? null),
             tagIds: @js($filters['tagIds'] ?? []),
             recurring: @js($filters['recurring'] ?? null),
+        },
+        _m(cls) {
+            return cls ? cls.trim().split(/\s+/).filter(Boolean) : [];
+        },
+        filterPillTaskStatusColors: @js($filterPillTaskStatusColors),
+        filterPillTaskPriorityColors: @js($filterPillTaskPriorityColors),
+        filterPillTaskComplexityColors: @js($filterPillTaskComplexityColors),
+        filterPillEventStatusColors: @js($filterPillEventStatusColors),
+        filterPillRecurringRecurring: @js($filterPillRecurringRecurring),
+        pillClassesTaskStatus() {
+            const v = this.displayFilters.taskStatus;
+            const fill = this.filterPillTaskStatusColors[v] ?? 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
+        },
+        pillClassesTaskPriority() {
+            const v = this.displayFilters.taskPriority;
+            const fill = this.filterPillTaskPriorityColors[v] ?? 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
+        },
+        pillClassesTaskComplexity() {
+            const v = this.displayFilters.taskComplexity;
+            const fill = this.filterPillTaskComplexityColors[v] ?? 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
+        },
+        pillClassesEventStatus() {
+            const v = this.displayFilters.eventStatus;
+            const fill = this.filterPillEventStatusColors[v] ?? 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
+        },
+        pillClassesRecurring() {
+            const v = this.displayFilters.recurring;
+            if (v === 'recurring') {
+                return this._m(this.filterPillRecurringRecurring);
+            }
+            const fill = 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
         },
         userManuallySetItemType: false,
         _filterOptimisticCleanup: null,
@@ -184,230 +262,412 @@
         },
     }"
     class="flex min-h-9 flex-wrap items-center gap-2"
+    @keydown.escape.window="closeAllPillMenus()"
 >
-    {{-- Show pill - clickable dropdown --}}
-    <flux:dropdown position="bottom" align="start">
-        <flux:button
-            variant="ghost"
-            size="xs"
-            icon:trailing="chevron-down"
-            class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none ring-0 hover:bg-primary/20 dark:border-primary/40 dark:bg-primary/20 dark:text-foreground dark:hover:bg-primary/30"
+    @if ($showListScopedFilters)
+        {{-- Show pill: same palette as list-item-card _item-type-pill (lic-item-type-pill--*) --}}
+        <span
+            class="lic-item-type-pill max-w-full"
+            :class="{
+                'lic-item-type-pill--task': displayFilters.itemType === 'tasks',
+                'lic-item-type-pill--event': displayFilters.itemType === 'events',
+                'lic-item-type-pill--project': displayFilters.itemType === 'projects',
+                'border-zinc-300/90 bg-zinc-100/90 text-zinc-800 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-100': !displayFilters.itemType,
+            }"
         >
-            <span x-text="pillLabels.itemType + ': ' + (labels.itemType[displayFilters.itemType ?? ''] || '{{ __('All') }}')">{{ $pillLabels['itemType'] }}: {{ $filters['itemType'] ? ($itemTypeLabels[$filters['itemType']] ?? __('All')) : __('All') }}</span>
-        </flux:button>
-        <flux:menu class="min-w-[8rem]">
-            <flux:menu.radio.group wire:model.change.live="filterItemType">
-                @foreach ($itemTypeLabels as $optValue => $optLabel)
-                    <flux:menu.radio
-                        value="{{ $optValue }}"
-                        @click="
-                            const v = '{{ $optValue }}' || null;
-                            displayFilters.itemType = (v === '' || v === null) ? null : v;
-                            window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: (v === '' || v === null) ? null : v } }));
-                        "
-                    >{{ $optLabel }}</flux:menu.radio>
-                @endforeach
-            </flux:menu.radio.group>
-        </flux:menu>
-    </flux:dropdown>
+            <div class="relative min-w-0" @click.outside="closePillMenu('itemType')">
+                <button
+                    type="button"
+                    class="workspace-filter-pill-trigger"
+                    @click.stop="togglePillMenu('itemType')"
+                    :aria-expanded="menus.itemType"
+                    aria-haspopup="menu"
+                >
+                    <span
+                        class="truncate"
+                        x-text="pillLabels.itemType + ': ' + (labels.itemType[displayFilters.itemType ?? ''] || '{{ __('All') }}')"
+                    >{{ $pillLabels['itemType'] }}: {{ $filters['itemType'] ? ($itemTypeLabels[$filters['itemType']] ?? __('All')) : __('All') }}</span>
+                    <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </button>
+                <div
+                    x-cloak
+                    x-show="menus.itemType"
+                    x-transition
+                    class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
+                    role="menu"
+                >
+                    @foreach ($itemTypeLabels as $optValue => $optLabel)
+                        <label
+                            wire:key="pill-it-{{ $optValue === '' ? 'all' : $optValue }}"
+                            class="workspace-filter-option"
+                            @click="closePillMenu('itemType')"
+                        >
+                            <input
+                                type="radio"
+                                class="sr-only"
+                                wire:model.live="filterItemType"
+                                value="{{ $optValue }}"
+                                @click="
+                                    const v = '{{ $optValue }}' || null;
+                                    displayFilters.itemType = (v === '' || v === null) ? null : v;
+                                    window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: (v === '' || v === null) ? null : v } }));
+                                "
+                            />
+                            <span class="min-w-0 flex-1">{{ $optLabel }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </div>
+        </span>
+    @else
+        {{-- Kanban: tasks only; item type is display-only (not wired to filterItemType). --}}
+        <flux:tooltip
+            :content="__('Kanban only shows tasks, grouped by task status. Switch to List view to see events and projects.')"
+            position="top"
+            align="start"
+        >
+            <span
+                tabindex="0"
+                class="lic-item-type-pill lic-item-type-pill--task max-w-full cursor-default select-none outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                role="status"
+                data-workspace-item-type-kanban-readonly
+                aria-label="{{ __('Show') }}: {{ __('Tasks') }}"
+            >
+                <span class="min-w-0 truncate font-normal normal-case">{{ __('Show') }}: {{ __('Tasks') }}</span>
+            </span>
+        </flux:tooltip>
+    @endif
 
-    {{-- Task status pill - clickable dropdown with X to clear --}}
+    <span
+        class="text-[11px] leading-snug text-muted-foreground/80 sm:text-xs dark:text-zinc-500/90"
+        x-show="!hasActiveFilters()"
+        style="{{ ($filters['hasActiveFilters'] ?? false) ? 'display:none' : '' }}"
+        aria-live="polite"
+    >
+        {{ __('No active filters.') }}
+    </span>
+
+    {{-- Task status --}}
     <span
         x-show="showValue('taskStatus')"
         style="{{ ($filters['taskStatus'] ?? null) ? '' : 'display:none' }}"
-        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+        class="workspace-filter-property-pill max-w-full"
+        :class="pillClassesTaskStatus()"
     >
-        <flux:dropdown position="bottom" align="start">
-            <flux:button
-                variant="ghost"
-                size="xs"
-                icon:trailing="chevron-down"
-                class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
-            >
-                <span x-text="pillLabels.taskStatus + ': ' + showValue('taskStatus')">{{ $pillLabels['taskStatus'] }}: {{ ($filters['taskStatus'] ?? null) ? ($taskStatuses[$filters['taskStatus']] ?? '') : '' }}</span>
-            </flux:button>
-                <flux:menu class="min-w-[8rem]">
-                    <flux:menu.radio.group wire:model.change.live="filterTaskStatus">
-                        @foreach ($taskStatuses as $value => $label)
-                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.taskStatus = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskStatus', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
-                        @endforeach
-                    </flux:menu.radio.group>
-                </flux:menu>
-            </flux:dropdown>
+        <div class="relative min-w-0" @click.outside="closePillMenu('taskStatus')">
             <button
                 type="button"
-                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
-                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskStatus)"
-                @click.stop="clearFilter('taskStatus')"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('taskStatus')"
+                :aria-expanded="menus.taskStatus"
+                aria-haspopup="menu"
             >
-                <flux:icon name="x-mark" class="size-3" />
+                <span class="truncate" x-text="pillLabels.taskStatus + ': ' + showValue('taskStatus')">{{ $pillLabels['taskStatus'] }}: {{ ($filters['taskStatus'] ?? null) ? ($taskStatuses[$filters['taskStatus']] ?? '') : '' }}</span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
             </button>
+            <div
+                x-cloak
+                x-show="menus.taskStatus"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1 max-h-64 overflow-y-auto"
+                role="menu"
+            >
+                @foreach ($taskStatuses as $value => $label)
+                    <label wire:key="pill-ts-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('taskStatus')">
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterTaskStatus"
+                            value="{{ $value }}"
+                            @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "taskStatus", value: @json($value) } }))'
+                        />
+                        <span class="min-w-0 flex-1">{{ $label }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
+        <button
+            type="button"
+            class="workspace-filter-pill-clear"
+            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskStatus)"
+            @click.stop="clearFilter('taskStatus')"
+        >
+            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
     </span>
 
-    {{-- Task priority pill - clickable dropdown with X to clear --}}
+    {{-- Task priority --}}
     <span
         x-show="showValue('taskPriority')"
         style="{{ ($filters['taskPriority'] ?? null) ? '' : 'display:none' }}"
-        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+        class="workspace-filter-property-pill max-w-full"
+        :class="pillClassesTaskPriority()"
     >
-        <flux:dropdown position="bottom" align="start">
-            <flux:button
-                variant="ghost"
-                size="xs"
-                icon:trailing="chevron-down"
-                class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+        <div class="relative min-w-0" @click.outside="closePillMenu('taskPriority')">
+            <button
+                type="button"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('taskPriority')"
+                :aria-expanded="menus.taskPriority"
+                aria-haspopup="menu"
             >
-                <span x-text="pillLabels.taskPriority + ': ' + showValue('taskPriority')">{{ $pillLabels['taskPriority'] }}: {{ ($filters['taskPriority'] ?? null) ? ($taskPriorities[$filters['taskPriority']] ?? '') : '' }}</span>
-            </flux:button>
-                <flux:menu class="min-w-[8rem]">
-                    <flux:menu.radio.group wire:model.change.live="filterTaskPriority">
-                        @foreach ($taskPriorities as $value => $label)
-                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.taskPriority = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskPriority', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
-                        @endforeach
-                    </flux:menu.radio.group>
-            </flux:menu>
-        </flux:dropdown>
+                <span class="truncate" x-text="pillLabels.taskPriority + ': ' + showValue('taskPriority')">{{ $pillLabels['taskPriority'] }}: {{ ($filters['taskPriority'] ?? null) ? ($taskPriorities[$filters['taskPriority']] ?? '') : '' }}</span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+            <div
+                x-cloak
+                x-show="menus.taskPriority"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1 max-h-64 overflow-y-auto"
+                role="menu"
+            >
+                @foreach ($taskPriorities as $value => $label)
+                    <label wire:key="pill-tp-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('taskPriority')">
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterTaskPriority"
+                            value="{{ $value }}"
+                            @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "taskPriority", value: @json($value) } }))'
+                        />
+                        <span class="min-w-0 flex-1">{{ $label }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
         <button
             type="button"
-            class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+            class="workspace-filter-pill-clear"
             :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskPriority)"
-                @click.stop="clearFilter('taskPriority')"
-            >
-                <flux:icon name="x-mark" class="size-3" />
-            </button>
+            @click.stop="clearFilter('taskPriority')"
+        >
+            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
     </span>
 
-    {{-- Task complexity pill - clickable dropdown with X to clear --}}
+    {{-- Task complexity --}}
     <span
         x-show="showValue('taskComplexity')"
         style="{{ ($filters['taskComplexity'] ?? null) ? '' : 'display:none' }}"
-        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+        class="workspace-filter-property-pill max-w-full"
+        :class="pillClassesTaskComplexity()"
     >
-            <flux:dropdown position="bottom" align="start">
-                <flux:button
-                    variant="ghost"
-                    size="xs"
-                    icon:trailing="chevron-down"
-                    class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
-                >
-                    <span x-text="pillLabels.taskComplexity + ': ' + showValue('taskComplexity')">{{ $pillLabels['taskComplexity'] }}: {{ ($filters['taskComplexity'] ?? null) ? ($taskComplexities[$filters['taskComplexity']] ?? '') : '' }}</span>
-                </flux:button>
-                <flux:menu class="min-w-[8rem]">
-                    <flux:menu.radio.group wire:model.change.live="filterTaskComplexity">
-                        @foreach ($taskComplexities as $value => $label)
-                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.taskComplexity = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskComplexity', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
-                        @endforeach
-                    </flux:menu.radio.group>
-                </flux:menu>
-            </flux:dropdown>
+        <div class="relative min-w-0" @click.outside="closePillMenu('taskComplexity')">
             <button
                 type="button"
-                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
-                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskComplexity)"
-                @click.stop="clearFilter('taskComplexity')"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('taskComplexity')"
+                :aria-expanded="menus.taskComplexity"
+                aria-haspopup="menu"
             >
-                <flux:icon name="x-mark" class="size-3" />
+                <span class="truncate" x-text="pillLabels.taskComplexity + ': ' + showValue('taskComplexity')">{{ $pillLabels['taskComplexity'] }}: {{ ($filters['taskComplexity'] ?? null) ? ($taskComplexities[$filters['taskComplexity']] ?? '') : '' }}</span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
             </button>
+            <div
+                x-cloak
+                x-show="menus.taskComplexity"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1 max-h-64 overflow-y-auto"
+                role="menu"
+            >
+                @foreach ($taskComplexities as $value => $label)
+                    <label wire:key="pill-tc-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('taskComplexity')">
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterTaskComplexity"
+                            value="{{ $value }}"
+                            @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "taskComplexity", value: @json($value) } }))'
+                        />
+                        <span class="min-w-0 flex-1">{{ $label }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
+        <button
+            type="button"
+            class="workspace-filter-pill-clear"
+            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskComplexity)"
+            @click.stop="clearFilter('taskComplexity')"
+        >
+            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
     </span>
 
-    {{-- Event status pill - clickable dropdown with X to clear --}}
-    <span
-        x-show="showValue('eventStatus')"
-        style="{{ ($filters['eventStatus'] ?? null) ? '' : 'display:none' }}"
-        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
-    >
-            <flux:dropdown position="bottom" align="start">
-                <flux:button
-                    variant="ghost"
-                    size="xs"
-                    icon:trailing="chevron-down"
-                    class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
+    @if ($showListScopedFilters)
+        {{-- Event status --}}
+        <span
+            x-show="showValue('eventStatus')"
+            style="{{ ($filters['eventStatus'] ?? null) ? '' : 'display:none' }}"
+            class="workspace-filter-property-pill max-w-full"
+            :class="pillClassesEventStatus()"
+        >
+            <div class="relative min-w-0" @click.outside="closePillMenu('eventStatus')">
+                <button
+                    type="button"
+                    class="workspace-filter-pill-trigger"
+                    @click.stop="togglePillMenu('eventStatus')"
+                    :aria-expanded="menus.eventStatus"
+                    aria-haspopup="menu"
                 >
-                    <span x-text="pillLabels.eventStatus + ': ' + showValue('eventStatus')">{{ $pillLabels['eventStatus'] }}: {{ ($filters['eventStatus'] ?? null) ? ($eventStatuses[$filters['eventStatus']] ?? '') : '' }}</span>
-                </flux:button>
-                <flux:menu class="min-w-[8rem]">
-                    <flux:menu.radio.group wire:model.change.live="filterEventStatus">
-                        @foreach ($eventStatuses as $value => $label)
-                            <flux:menu.radio value="{{ $value }}" @click="displayFilters.eventStatus = '{{ $value }}'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'eventStatus', value: '{{ $value }}' } }))">{{ $label }}</flux:menu.radio>
-                        @endforeach
-                    </flux:menu.radio.group>
-                </flux:menu>
-            </flux:dropdown>
+                    <span class="truncate" x-text="pillLabels.eventStatus + ': ' + showValue('eventStatus')">{{ $pillLabels['eventStatus'] }}: {{ ($filters['eventStatus'] ?? null) ? ($eventStatuses[$filters['eventStatus']] ?? '') : '' }}</span>
+                    <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </button>
+                <div
+                    x-cloak
+                    x-show="menus.eventStatus"
+                    x-transition
+                    class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1 max-h-64 overflow-y-auto"
+                    role="menu"
+                >
+                    @foreach ($eventStatuses as $value => $label)
+                        <label wire:key="pill-es-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('eventStatus')">
+                            <input
+                                type="radio"
+                                class="sr-only"
+                                wire:model.live="filterEventStatus"
+                                value="{{ $value }}"
+                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "eventStatus", value: @json($value) } }))'
+                            />
+                            <span class="min-w-0 flex-1">{{ $label }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </div>
             <button
                 type="button"
-                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
+                class="workspace-filter-pill-clear"
                 :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.eventStatus)"
                 @click.stop="clearFilter('eventStatus')"
             >
-                <flux:icon name="x-mark" class="size-3" />
-            </button>
-    </span>
-
-    {{-- Tags pill - clickable dropdown with X to clear --}}
-    @if ($tags->isNotEmpty())
-        <span
-            x-show="showValue('tagIds')"
-            style="{{ $tagDisplay ? '' : 'display:none' }}"
-            class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
-        >
-                <flux:dropdown position="bottom" align="start">
-                    <flux:button
-                        variant="ghost"
-                        size="xs"
-                        icon:trailing="chevron-down"
-                        class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
-                    >
-                        <span x-text="pillLabels.tagIds + ': ' + showValue('tagIds')">{{ $pillLabels['tagIds'] }}: {{ $tagDisplay }}</span>
-                    </flux:button>
-                    <flux:menu class="min-w-[8rem]">
-                        <flux:menu.radio.group wire:model="filterTagId">
-                            @foreach ($tags as $tag)
-                                <flux:menu.radio value="{{ $tag->id }}" wire:click="setTagFilter({{ $tag->id }})" @click="displayFilters.tagIds = [{{ $tag->id }}]; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: [{{ $tag->id }}] } }))">{{ $tag->name }}</flux:menu.radio>
-                            @endforeach
-                        </flux:menu.radio.group>
-                    </flux:menu>
-                </flux:dropdown>
-                <button
-                    type="button"
-                    class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
-                    :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.tagIds)"
-                    @click.stop="clearFilter('tagIds')"
-            >
-                <flux:icon name="x-mark" class="size-3" />
+                <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
             </button>
         </span>
     @endif
 
-    {{-- Recurring pill - clickable dropdown with X to clear --}}
+    {{-- Tags --}}
+    @if ($tags->isNotEmpty())
+        <span
+            x-show="showValue('tagIds')"
+            style="{{ $tagDisplay ? '' : 'display:none' }}"
+            class="workspace-filter-property-pill max-w-full border border-black/10 bg-muted text-muted-foreground dark:border-white/10"
+        >
+            <div class="relative min-w-0" @click.outside="closePillMenu('tagIds')">
+                <button
+                    type="button"
+                    class="workspace-filter-pill-trigger"
+                    @click.stop="togglePillMenu('tagIds')"
+                    :aria-expanded="menus.tagIds"
+                    aria-haspopup="menu"
+                >
+                    <span class="truncate" x-text="pillLabels.tagIds + ': ' + showValue('tagIds')">{{ $pillLabels['tagIds'] }}: {{ $tagDisplay }}</span>
+                    <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    </svg>
+                </button>
+                <div
+                    x-cloak
+                    x-show="menus.tagIds"
+                    x-transition
+                    class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1 max-h-64 overflow-y-auto"
+                    role="menu"
+                >
+                    @foreach ($tags as $tag)
+                        <label wire:key="pill-tag-{{ $tag->id }}" class="workspace-filter-option" @click="closePillMenu('tagIds')">
+                            <input
+                                type="radio"
+                                class="sr-only"
+                                wire:model.live="filterTagId"
+                                value="{{ $tag->id }}"
+                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "tagIds", value: @json([$tag->id]) } }))'
+                            />
+                            <span class="min-w-0 flex-1">{{ $tag->name }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </div>
+            <button
+                type="button"
+                class="workspace-filter-pill-clear"
+                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.tagIds)"
+                @click.stop="clearFilter('tagIds')"
+            >
+                <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </span>
+    @endif
+
+    {{-- Recurring --}}
     <span
         x-show="showValue('recurring')"
         style="{{ ($filters['recurring'] ?? null) ? '' : 'display:none' }}"
-        class="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-foreground shadow-none dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
+        class="workspace-filter-property-pill max-w-full"
+        :class="pillClassesRecurring()"
     >
-            <flux:dropdown position="bottom" align="start">
-                <flux:button
-                    variant="ghost"
-                    size="xs"
-                    icon:trailing="chevron-down"
-                    class="min-w-0 border-0 bg-transparent px-0 shadow-none ring-0 hover:bg-transparent dark:hover:bg-transparent"
-                >
-                    <span x-text="pillLabels.recurring + ': ' + showValue('recurring')">{{ $pillLabels['recurring'] }}: {{ ($filters['recurring'] ?? null) ? ($recurringLabels[$filters['recurring']] ?? '') : '' }}</span>
-                </flux:button>
-                <flux:menu class="min-w-[8rem]">
-                    <flux:menu.radio.group wire:model.change.live="filterRecurring">
-                        <flux:menu.radio value="recurring" @click="displayFilters.recurring = 'recurring'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: 'recurring' } }))">{{ __('Recurring') }}</flux:menu.radio>
-                        <flux:menu.radio value="oneTime" @click="displayFilters.recurring = 'oneTime'; window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: 'oneTime' } }))">{{ __('One-time') }}</flux:menu.radio>
-                    </flux:menu.radio.group>
-                </flux:menu>
-            </flux:dropdown>
+        <div class="relative min-w-0" @click.outside="closePillMenu('recurring')">
             <button
                 type="button"
-                class="shrink-0 rounded-full p-0.5 transition-colors hover:bg-primary/30 hover:ring-2 hover:ring-primary/30 dark:hover:bg-primary/40 dark:hover:ring-primary/40"
-                :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.recurring)"
-                @click.stop="clearFilter('recurring')"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('recurring')"
+                :aria-expanded="menus.recurring"
+                aria-haspopup="menu"
             >
-                <flux:icon name="x-mark" class="size-3" />
+                <span class="truncate" x-text="pillLabels.recurring + ': ' + showValue('recurring')">{{ $pillLabels['recurring'] }}: {{ ($filters['recurring'] ?? null) ? ($recurringLabels[$filters['recurring']] ?? '') : '' }}</span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
             </button>
+            <div
+                x-cloak
+                x-show="menus.recurring"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
+                role="menu"
+            >
+                @foreach (['recurring' => __('Recurring'), 'oneTime' => __('One-time')] as $value => $label)
+                    <label wire:key="pill-rec-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('recurring')">
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterRecurring"
+                            value="{{ $value }}"
+                            @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "recurring", value: @json($value) } }))'
+                        />
+                        <span class="min-w-0 flex-1">{{ $label }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
+        <button
+            type="button"
+            class="workspace-filter-pill-clear"
+            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.recurring)"
+            @click.stop="clearFilter('recurring')"
+        >
+            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
     </span>
 
     <button
@@ -415,7 +675,7 @@
         style="{{ $hasOtherActiveFilters ? '' : 'display:none' }}"
         type="button"
         @click="clearAllOptimistic()"
-        class="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+        class="shrink-0 text-xs font-medium text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
     >
         {{ __('Clear all') }}
     </button>

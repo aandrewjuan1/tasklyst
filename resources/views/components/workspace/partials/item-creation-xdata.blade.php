@@ -1,3 +1,5 @@
+        mode: @js($mode ?? 'list'),
+        visibleItemCount: {{ (int) ($visibleItemsInitial ?? 0) }},
         showItemCreation: false,
         itemTypePickerOpen: false,
         creationKind: 'task',
@@ -146,6 +148,10 @@
             const resolveInput = (root) => {
                 if (!root) {
                     return null;
+                }
+
+                if (root.matches?.('input:not([type=hidden])')) {
+                    return root;
                 }
 
                 return (

@@ -123,7 +123,7 @@ select:focus[data-flux-control] {
      * Dashboard / workspace hero: glass stack over brand gradient (no solid border); soft brand-tinted depth.
      */
     .hero-brand-gradient-shell {
-        @apply relative isolate z-20 flex min-h-56 w-full items-center rounded-2xl px-5 py-5 lg:min-h-60 lg:px-7;
+        @apply relative isolate z-20 flex w-full items-center rounded-2xl px-5 py-4 lg:px-7;
         box-shadow:
             0 22px 44px -14px rgb(71 134 215 / 0.14),
             0 10px 22px -10px rgb(33 52 72 / 0.09),
@@ -316,6 +316,159 @@ select:focus[data-flux-control] {
             animation: none;
             box-shadow: 0 0 0 3px var(--color-brand-blue);
         }
+    }
+
+    /**
+     * Workspace filter strip: dropdown panel + semantic active pills (aligned with lic-item-type palette).
+     */
+    .workspace-filter-strip {
+        box-shadow:
+            inset 0 1px 0 0 rgb(255 255 255 / 0.45),
+            0 1px 2px rgb(33 52 72 / 0.04);
+    }
+
+    .dark .workspace-filter-strip {
+        box-shadow:
+            inset 0 1px 0 0 rgb(255 255 255 / 0.04),
+            0 1px 2px rgb(0 0 0 / 0.2);
+    }
+
+    .workspace-filter-panel {
+        @apply absolute z-[60] mt-1.5 min-w-[13rem] max-h-[min(70vh,32rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-200/90 bg-white/95 p-1.5 shadow-xl ring-1 ring-zinc-200/45 backdrop-blur-md dark:border-zinc-700/90 dark:bg-zinc-900/96 dark:ring-zinc-700/55;
+    }
+
+    .workspace-filter-panel--end {
+        @apply right-0 left-auto;
+    }
+
+    .workspace-filter-panel--start {
+        @apply left-0 right-auto;
+    }
+
+    /**
+     * Add filters root: category rail only; flyouts extend outside (no clip).
+     */
+    .workspace-filter-panel--root-rail {
+        @apply max-h-none overflow-visible py-1;
+        min-width: 12rem;
+    }
+
+    .workspace-filter-category-wrap {
+        @apply relative;
+    }
+
+    .workspace-filter-category-row {
+        @apply flex w-full cursor-pointer items-center gap-2 rounded-lg border border-transparent px-2 py-2 text-left text-sm font-medium text-zinc-800 transition-colors hover:bg-zinc-100/90 dark:text-zinc-100 dark:hover:bg-zinc-800/80;
+    }
+
+    .workspace-filter-category-row:focus-visible {
+        @apply outline-none ring-2 ring-brand-blue/40 ring-offset-2 ring-offset-white dark:ring-brand-blue/50 dark:ring-offset-zinc-900;
+    }
+
+    .workspace-filter-category-row--active {
+        @apply border-zinc-200/80 bg-zinc-100/80 dark:border-zinc-600/60 dark:bg-zinc-800/70;
+    }
+
+    .workspace-filter-category-icon {
+        @apply flex size-8 shrink-0 items-center justify-center rounded-lg [&>svg]:size-5;
+    }
+
+    .workspace-filter-category-row--task-status .workspace-filter-category-icon {
+        @apply bg-brand-light-blue text-brand-navy-blue dark:bg-brand-blue/35 dark:text-brand-light-blue;
+    }
+
+    .workspace-filter-category-row--task-priority .workspace-filter-category-icon {
+        @apply bg-amber-100 text-amber-900 dark:bg-amber-950/55 dark:text-amber-100;
+    }
+
+    .workspace-filter-category-row--task-complexity .workspace-filter-category-icon {
+        @apply bg-sky-100 text-sky-900 dark:bg-sky-950/45 dark:text-sky-100;
+    }
+
+    .workspace-filter-category-row--event-status .workspace-filter-category-icon {
+        @apply bg-brand-light-violet text-brand-deep-violet dark:bg-brand-accent-violet/35 dark:text-violet-100;
+    }
+
+    .workspace-filter-category-row--tags .workspace-filter-category-icon {
+        @apply bg-rose-100 text-rose-900 dark:bg-rose-950/50 dark:text-rose-100;
+    }
+
+    .workspace-filter-category-row--recurring .workspace-filter-category-icon {
+        @apply bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100;
+    }
+
+    .workspace-filter-flyout {
+        @apply absolute left-full top-0 z-[70] min-w-[11.5rem] max-w-[min(100vw-2rem,16rem)] max-h-[min(60vh,22rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-200/90 bg-white/98 p-1.5 shadow-xl ring-1 ring-zinc-200/45 backdrop-blur-md dark:border-zinc-700/90 dark:bg-zinc-900/98 dark:ring-zinc-700/55;
+        margin-left: -0.25rem;
+        padding-left: 0.375rem;
+    }
+
+    .workspace-filter-panel__section {
+        @apply border-b border-zinc-200/70 pb-2 pt-0 last:border-b-0 last:pb-0 dark:border-zinc-700/60;
+    }
+
+    .workspace-filter-panel__heading {
+        @apply sticky top-0 z-[1] -mx-0.5 mb-0.5 bg-white/90 px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500 backdrop-blur-sm first:pt-0 dark:bg-zinc-900/90 dark:text-zinc-400;
+    }
+
+    .workspace-filter-option {
+        @apply flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-zinc-900 transition-colors hover:bg-zinc-100/95 has-[:checked]:bg-zinc-100/95 dark:text-zinc-100 dark:hover:bg-zinc-800/90 dark:has-[:checked]:bg-zinc-800/90;
+    }
+
+    .workspace-filter-option--danger {
+        @apply mt-0.5 text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/50 dark:hover:text-red-300;
+    }
+
+    .workspace-filter-trigger {
+        @apply inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-white/50 bg-white/80 px-3.5 text-sm font-medium text-zinc-900 shadow-sm transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/80 dark:focus-visible:ring-brand-blue/50;
+    }
+
+    .workspace-filter-trigger--primary {
+        @apply border-brand-blue/30 bg-brand-blue font-semibold text-white shadow-md hover:border-brand-blue/40 hover:bg-brand-blue/90 focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue dark:border-brand-light-blue/40 dark:bg-brand-blue dark:text-white dark:hover:border-brand-light-blue/50 dark:hover:bg-brand-blue/90 dark:focus-visible:ring-brand-light-blue/55 dark:focus-visible:ring-offset-zinc-900;
+    }
+
+    /* Matches list-item-task / list-item-event property chips: shell + dynamic bg-{enum}/10 text-{enum} from Alpine */
+    .workspace-filter-property-pill {
+        @apply inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-normal shadow-sm ring-1 ring-black/5 transition-[background-color,border-color,color] dark:ring-white/10;
+    }
+
+    .workspace-filter-pill-trigger {
+        @apply inline-flex min-h-0 min-w-0 max-w-[min(100%,14rem)] items-center gap-1 border-0 bg-transparent px-0.5 py-0 text-left text-inherit shadow-none ring-0 hover:bg-transparent focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 dark:hover:bg-transparent;
+    }
+
+    .workspace-filter-pill-clear {
+        @apply shrink-0 rounded-full p-0.5 transition-colors;
+    }
+
+    /**
+     * Active filter strip only: list cards use lic-item-type-pill without workspace-filter-* children.
+     */
+    .lic-item-type-pill .workspace-filter-panel {
+        @apply font-normal normal-case;
+    }
+
+    .lic-item-type-pill .workspace-filter-pill-trigger {
+        @apply font-normal normal-case;
+    }
+
+    .lic-item-type-pill .workspace-filter-pill-trigger:focus-visible {
+        @apply ring-brand-blue/45 ring-offset-1 dark:ring-brand-light-blue/50 dark:ring-offset-zinc-900;
+    }
+
+    .lic-item-type-pill--event .workspace-filter-pill-trigger:focus-visible {
+        @apply ring-violet-500/45 dark:ring-violet-400/50;
+    }
+
+    .lic-item-type-pill--project .workspace-filter-pill-trigger:focus-visible {
+        @apply ring-emerald-500/45 dark:ring-emerald-400/50;
+    }
+
+    .workspace-filter-property-pill .workspace-filter-pill-clear {
+        @apply hover:bg-black/10 dark:hover:bg-white/10;
+    }
+
+    .workspace-filter-property-pill .workspace-filter-pill-trigger:focus-visible {
+        @apply ring-zinc-400/55 ring-offset-1 dark:ring-zinc-500 dark:ring-offset-zinc-900;
     }
 }
 

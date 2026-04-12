@@ -412,9 +412,11 @@ trait HandlesTasks
     #[Computed]
     public function tasks(): Collection
     {
-        // Early return: Skip if filtered to other item types (before any work)
+        // Early return: Skip if filtered to other item types (before any work). Kanban is tasks-only but
+        // still loads tasks when list is filtered to events/projects so the board stays meaningful.
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
-        if ($filterItemType !== null && $filterItemType !== 'tasks') {
+        $isKanban = property_exists($this, 'viewMode') && $this->viewMode === 'kanban';
+        if (! $isKanban && $filterItemType !== null && $filterItemType !== 'tasks') {
             return collect();
         }
 

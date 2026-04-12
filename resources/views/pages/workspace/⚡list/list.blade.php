@@ -1,12 +1,4 @@
 <div class="space-y-4">
-    <x-workspace.item-creation
-        :tags="$tags"
-        :projects="$projects"
-        :active-focus-session="$activeFocusSession"
-        mode="list"
-    />
-
-
     @php
         $date = $selectedDate ? \Illuminate\Support\Carbon::parse($selectedDate) : now();
         $emptyDateLabel = $date->isToday()
@@ -32,94 +24,78 @@
         $hasActiveFilters = $filters['hasActiveFilters'] ?? false;
         $hasActiveSearch = $filters['hasActiveSearch'] ?? false;
         $searchQueryDisplay = $filters['searchQuery'] ?? null;
-        $itemTypeLabels = [
-            'tasks' => __('Tasks'),
-            'events' => __('Events'),
-            'projects' => __('Projects'),
-        ];
-        $activeFilterParts = array_filter([
-            ($filters['itemType'] ?? null)
-                ? __('Show') . ': ' . ($itemTypeLabels[$filters['itemType']] ?? $filters['itemType'])
-                : null,
-            ($filters['taskStatus'] ?? null)
-                ? __('Status') . ': ' . (\App\Enums\TaskStatus::tryFrom($filters['taskStatus'])?->label() ?? $filters['taskStatus'])
-                : null,
-            ($filters['taskPriority'] ?? null)
-                ? __('Priority') . ': ' . (\App\Enums\TaskPriority::tryFrom($filters['taskPriority'])?->label() ?? $filters['taskPriority'])
-                : null,
-            ($filters['eventStatus'] ?? null)
-                ? __('Event status') . ': ' . (\App\Enums\EventStatus::tryFrom($filters['eventStatus'])?->label() ?? $filters['eventStatus'])
-                : null,
-        ]);
-
+        $visibleItemsInitial = $allItems->isEmpty() ? 0 : $totalItemsCount;
     @endphp
-    @if ($allItems->isEmpty())
-        <x-workspace.list-empty-state
-            :empty-date-label="$emptyDateLabel"
-            :has-active-search="$hasActiveSearch"
-            :search-query-display="$searchQueryDisplay"
-            :has-active-filters="$hasActiveFilters"
-            :active-filter-parts="$activeFilterParts"
-        />
-    @else
+
+    <x-workspace.item-creation
+        :tags="$tags"
+        :projects="$projects"
+        :active-focus-session="$activeFocusSession"
+        mode="list"
+        :empty-date-label="$emptyDateLabel"
+        :has-active-search="$hasActiveSearch"
+        :has-active-filters="$hasActiveFilters"
+        :search-query-display="$searchQueryDisplay"
+        :visible-items-initial="$visibleItemsInitial"
+    />
+
+    @unless ($allItems->isEmpty())
         <div
             class="space-y-4"
+            data-workspace-list-scope
             x-data="{
                 visibleItemCount: {{ $totalItemsCount }},
-                showEmptyState: false,
-                emptyStateTimeout: null,
-                init() {
-                    this.$watch('visibleItemCount', () => this.syncEmptyState());
-                    this.syncEmptyState();
+                loadMoreLoading: false,
+                loadMoreHasMore: @js($shouldShowLoadMore),
+                broadcastVisibleCount() {
+                    window.dispatchEvent(new CustomEvent('workspace-list-visible-count', { detail: { count: this.visibleItemCount } }));
                 },
-                syncEmptyState() {
-                    const shouldBeEmpty = this.visibleItemCount === 0;
-                    if (shouldBeEmpty) {
-                        if (this.emptyStateTimeout) return;
-                        this.emptyStateTimeout = setTimeout(() => {
-                            this.showEmptyState = true;
-                            this.emptyStateTimeout = null;
-                        }, 200);
-                    } else {
-                        if (this.emptyStateTimeout) {
-                            clearTimeout(this.emptyStateTimeout);
-                            this.emptyStateTimeout = null;
-                        }
-                        this.showEmptyState = false;
-                    }
+                init() {
+                    this.broadcastVisibleCount();
                 },
                 handleListItemHidden() {
-                    this.visibleItemCount--;
+                    this.visibleItemCount = Math.max(0, this.visibleItemCount - 1);
+                    this.broadcastVisibleCount();
                 },
-                handleListItemShown(e) {
+                handleListItemShown() {
                     this.visibleItemCount++;
-                }
+                    this.broadcastVisibleCount();
+                },
+                async triggerLoadMore() {
+                    if (this.loadMoreLoading || !this.loadMoreHasMore) return;
+                    this.loadMoreLoading = true;
+                    try {
+                        const result = await $wire.$parent.getMoreItemsHtml();
+                        if (result && result.html) {
+                            const container = document.getElementById('workspace-list-items-inner');
+                            if (container) {
+                                const temp = document.createElement('div');
+                                temp.innerHTML = result.html;
+                                const newNodes = [...temp.children];
+                                newNodes.forEach(el => container.appendChild(el));
+                                newNodes.forEach(el => typeof Alpine !== 'undefined' && Alpine.initTree && Alpine.initTree(el));
+                                const n = newNodes.length;
+                                if (n > 0) {
+                                    this.visibleItemCount += n;
+                                    this.broadcastVisibleCount();
+                                }
+                            }
+                        }
+                        if (result && result.hasMore === false) {
+                            this.loadMoreHasMore = false;
+                        }
+                    } finally {
+                        this.loadMoreLoading = false;
+                    }
+                },
             }"
             @list-item-hidden.window="handleListItemHidden()"
-            @list-item-shown.window="handleListItemShown($event)"
+            @list-item-shown.window="handleListItemShown()"
         >
-            <div
-                x-show="showEmptyState"
-                x-cloak
-                x-transition:enter="transition ease-out duration-150"
-                x-transition:enter-start="opacity-0 scale-[0.98]"
-                x-transition:enter-end="opacity-100 scale-100"
-                x-transition:leave="transition ease-in duration-150"
-                x-transition:leave-start="opacity-100 scale-100"
-                x-transition:leave-end="opacity-0 scale-[0.98]"
-            >
-                <x-workspace.list-empty-state
-                    :empty-date-label="$emptyDateLabel"
-                    :has-active-search="$hasActiveSearch"
-                    :search-query-display="$searchQueryDisplay"
-                    :has-active-filters="$hasActiveFilters"
-                    :active-filter-parts="$activeFilterParts"
-                />
-            </div>
             @php
                 $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
             @endphp
-            <div x-show="visibleItemCount > 0" class="space-y-4">
+            <div x-show="visibleItemCount > 0" class="space-y-4" x-cloak>
                 <div class="space-y-3" id="workspace-list-items-inner">
                     @foreach ($items as $entry)
                         <x-workspace.list-item-card
@@ -139,35 +115,11 @@
                 @if ($shouldShowLoadMore)
                     <div
                         class="flex flex-col items-center justify-center py-4 text-[11px] text-muted-foreground/80"
-                        x-data="{
-                            loadingMore: false,
-                            hasMore: @js($shouldShowLoadMore),
-                            async triggerLoadMore() {
-                                if (this.loadingMore || !this.hasMore) return;
-                                this.loadingMore = true;
-                                try {
-                                    const result = await $wire.$parent.getMoreItemsHtml();
-                                    if (result && result.html) {
-                                        const container = document.getElementById('workspace-list-items-inner');
-                                        if (container) {
-                                            const temp = document.createElement('div');
-                                            temp.innerHTML = result.html;
-                                            const newNodes = [...temp.children];
-                                            newNodes.forEach(el => container.appendChild(el));
-                                            newNodes.forEach(el => typeof Alpine !== 'undefined' && Alpine.initTree && Alpine.initTree(el));
-                                        }
-                                    }
-                                    if (result && result.hasMore === false) this.hasMore = false;
-                                } finally {
-                                    this.loadingMore = false;
-                                }
-                            }
-                        }"
-                        x-show="hasMore || loadingMore"
+                        x-show="loadMoreHasMore || loadMoreLoading"
                         x-intersect.threshold.25="triggerLoadMore()"
                     >
                         <div
-                            x-show="loadingMore"
+                            x-show="loadMoreLoading"
                             class="mt-2 w-full"
                             aria-hidden="true"
                         >
@@ -177,5 +129,5 @@
                 @endif
             </div>
         </div>
-    @endif
+    @endunless
 </div>

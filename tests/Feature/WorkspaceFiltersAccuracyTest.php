@@ -10,6 +10,14 @@ beforeEach(function (): void {
     $this->user = User::factory()->create();
 });
 
+test('workspace filter strip shows a subtle hint when no filters are active', function (): void {
+    $this->actingAs($this->user);
+
+    $this->get(route('workspace'))
+        ->assertSuccessful()
+        ->assertSee(__('No active filters.'), false);
+});
+
 test('clearing the last task-specific filter widens show filter to all types when item type was auto-set', function (): void {
     $project = Project::factory()->for($this->user)->create([
         'name' => 'VisibleAfterClearFilter',
