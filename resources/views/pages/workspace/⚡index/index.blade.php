@@ -87,9 +87,9 @@
                 }
             "
         >
-            {{-- Workspace hero panel (matches dashboard hero: shell, type scale, CTA-style controls) --}}
+            {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
             <div
-                class="relative flex w-full items-start overflow-hidden rounded-2xl border border-brand-blue/25 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:px-7 dark:ring-brand-purple/20"
+                class="relative flex min-h-56 w-full items-center overflow-hidden rounded-2xl border border-brand-blue/25 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15 px-5 py-5 shadow-sm ring-1 ring-brand-purple/15 lg:min-h-60 lg:px-7 dark:ring-brand-purple/20"
             >
                 <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                     <div class="flex w-full min-w-0 items-center justify-between gap-3 sm:gap-4">
@@ -101,46 +101,45 @@
                         </div>
                     </div>
                     <div class="max-w-xl space-y-2">
-                        <h2 class="text-xl font-semibold leading-snug tracking-tight text-foreground sm:text-2xl">
+                        <h2 class="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
                             {{ __('Tasks, events, and projects in one place.') }}
                         </h2>
-                        <div class="pt-2">
-                            <div class="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-3">
-                                <div class="flex min-w-0 flex-1 items-center gap-2">
-                                    <flux:input
-                                        type="search"
-                                        wire:model.live.debounce.300ms="searchQuery"
+                        {{-- Same alignment pattern as dashboard hero CTAs: pt-2 flex flex-wrap items-center gap-2 --}}
+                        <div class="pt-2 flex w-full min-w-0 flex-wrap items-center gap-2">
+                            <div class="flex min-w-0 max-w-lg flex-1 items-center gap-2 sm:min-w-[min(100%,20rem)]">
+                                <flux:input
+                                    type="search"
+                                    wire:model.live.debounce.300ms="searchQuery"
+                                    :loading="false"
+                                    placeholder="{{ __('Search tasks, events, projects…') }}"
+                                    aria-label="{{ __('Search tasks, events, and projects') }}"
+                                    autocomplete="off"
+                                    class="min-w-0 flex-1 rounded-xl border border-white/50 bg-white/80 text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:focus:border-brand-blue/50"
+                                />
+                                <flux:tooltip
+                                    :content="$this->searchScope === 'selected_date'
+                                        ? __('Currently searching selected date only. (Click to search all items.)')
+                                        : __('Currently searching all items. (Click to search selected date only.)')"
+                                >
+                                    <flux:button
+                                        type="button"
+                                        variant="ghost"
+                                        size="xs"
                                         :loading="false"
-                                        placeholder="{{ __('Search tasks, events, projects…') }}"
-                                        aria-label="{{ __('Search tasks, events, and projects') }}"
-                                        autocomplete="off"
-                                        class="min-w-0 flex-1 rounded-xl border border-white/50 bg-white/80 text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:focus:border-brand-blue/50"
+                                        :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
+                                        aria-label="{{ __('Toggle search scope') }}"
+                                        class="size-9 shrink-0 rounded-xl border border-white/50 bg-white/80 text-zinc-900 shadow-sm transition hover:bg-white focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/80"
+                                        wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
+                                        wire:loading.attr="disabled"
+                                        wire:target="searchScope"
                                     />
-                                    <flux:tooltip
-                                        :content="$this->searchScope === 'selected_date'
-                                            ? __('Currently searching selected date only. (Click to search all items.)')
-                                            : __('Currently searching all items. (Click to search selected date only.)')"
-                                    >
-                                        <flux:button
-                                            type="button"
-                                            variant="ghost"
-                                            size="xs"
-                                            :loading="false"
-                                            :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
-                                            aria-label="{{ __('Toggle search scope') }}"
-                                            class="size-10 shrink-0 rounded-xl border border-white/50 bg-white/80 text-brand-blue shadow-sm transition hover:bg-white focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-sky-200 dark:hover:bg-zinc-800/80"
-                                            wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
-                                            wire:loading.attr="disabled"
-                                            wire:target="searchScope"
-                                        />
-                                    </flux:tooltip>
-                                </div>
-                                <div class="flex shrink-0 justify-center sm:justify-end sm:pt-0">
-                                    <x-workspace.date-switcher
-                                        :selected-date="$this->selectedDate"
-                                        class="w-full border-white/50 bg-white/80 shadow-sm backdrop-blur-sm dark:border-zinc-600/70 dark:bg-zinc-900/55 sm:w-auto"
-                                    />
-                                </div>
+                                </flux:tooltip>
+                            </div>
+                            <div class="flex shrink-0 items-center">
+                                <x-workspace.date-switcher
+                                    :selected-date="$this->selectedDate"
+                                    class="max-w-full border-white/50 bg-white/80 shadow-sm backdrop-blur-sm dark:border-zinc-600/70 dark:bg-zinc-900/55"
+                                />
                             </div>
                         </div>
                     </div>
@@ -445,7 +444,7 @@
 
         {{-- Right Side: Calendar (20%) --}}
         <div class="hidden lg:block lg:min-w-[260px]">
-            <div class="sticky top-6 mt-4" data-focus-lock-viewport>
+            <div class="sticky top-6" data-focus-lock-viewport>
                 <x-workspace.calendar
                     agenda-context="workspace"
                     :selected-date="$this->selectedDate"
