@@ -10,7 +10,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Livewire\Attributes\Async;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Renderless;
 
@@ -21,7 +20,6 @@ trait HandlesTags
      *
      * @param  bool  $silentToasts  When true, do not dispatch success/info toasts (e.g. when creating from list-item-card so only "Task updated." is shown).
      */
-    #[Async]
     #[Renderless]
     public function createTag(string $name, bool $silentToasts = false): void
     {
@@ -74,7 +72,6 @@ trait HandlesTags
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when deleting from list-item-card so only "Task updated." is shown).
      */
-    #[Async]
     #[Renderless]
     public function deleteTag(int $tagId, bool $silentToasts = false): void
     {

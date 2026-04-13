@@ -258,7 +258,6 @@
         async deleteTagOptimistic(tag) {
             if (this.deletingTagIds?.has(tag.id)) return;
             const isTempTag = String(tag.id).startsWith('temp-');
-            const snapshot = { ...tag };
             const tagsBackup = this.tags ? [...this.tags] : [];
             const tagIdsBackup = [...this.formData.item.tagIds];
             const tagIndex = this.tags?.findIndex(t => String(t.id) === String(tag.id)) ?? -1;
@@ -277,27 +276,19 @@
                 if (!isTempTag) {
                     await $wire.$parent.$call('deleteTag', tag.id, true);
                 }
-                const realTagIds = this.formData.item.tagIds.filter(id => !String(id).startsWith('temp-'));
-                await this.updateProperty('tagIds', realTagIds, true);
                 if (!isTempTag && tag.name && this.itemTitle) {
                     const msg = this.tagMessages.tagRemovedFromItem
                         .replace(':tag', tag.name)
                         .replace(':type', this.itemTypeLabel)
                         .replace(':item', this.itemTitle);
                     $wire.$dispatch('toast', { type: 'success', message: msg });
+                } else if (!isTempTag && tag.name) {
+                    const msg = this.tagMessages.tagDeleted.replace(':tag', tag.name);
+                    $wire.$dispatch('toast', { type: 'success', message: msg });
                 }
             } catch (err) {
-                if (tagIndex !== -1 && this.tags) {
-                    this.tags.splice(tagIndex, 0, snapshot);
-                    this.tags.sort((a, b) => a.name.localeCompare(b.name));
-                }
-                const wasSelected = tagIdsBackup.some(id => String(id) === String(tag.id));
-                const isCurrentlySelected = Array.isArray(this.formData.item.tagIds)
-                    ? this.formData.item.tagIds.some(id => String(id) === String(tag.id))
-                    : false;
-                if (wasSelected && !isCurrentlySelected) {
-                    this.formData.item.tagIds.push(tag.id);
-                }
+                this.tags = tagsBackup;
+                this.formData.item.tagIds = tagIdsBackup;
                 $wire.$dispatch('toast', { type: 'error', message: this.tagMessages.tagError });
             } finally {
                 this.deletingTagIds?.delete(tag.id);
@@ -338,8 +329,6 @@
                 const selectedIndex = this.formData.item.tagIds.findIndex(tagId => String(tagId) === String(id));
                 if (selectedIndex !== -1) {
                     this.formData.item.tagIds.splice(selectedIndex, 1);
-                    const realTagIds = this.formData.item.tagIds.filter(tid => !String(tid).startsWith('temp-'));
-                    this.updateProperty('tagIds', realTagIds);
                 }
             }
         },
@@ -348,6 +337,7 @@
             tagAlreadyExists: @js(__('Tag already exists.')),
             tagError: @js(__('Something went wrong. Please try again.')),
             tagRemovedFromItem: @js(__('Tag ":tag" removed from :type ":item".')),
+            tagDeleted: @js(__('Tag ":tag" deleted.')),
         },
         itemTitle: @js($item->title ?? ''),
         itemTypeLabel: @js(__('Task')),

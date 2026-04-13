@@ -60,8 +60,9 @@
         get mergedTags() {
             const available = Array.isArray(this.tags) ? [...this.tags] : [];
             const selectedFallback = Array.isArray(this.initialSelectedTags) ? [...this.initialSelectedTags] : [];
+            const selectedFallbackVisible = selectedFallback.filter((tag) => this.isTagSelected(tag?.id));
 
-            const merged = [...available, ...selectedFallback]
+            const merged = [...available, ...selectedFallbackVisible]
                 .filter(t => t && t.id != null && String(t.name || '').trim() !== '');
 
             const byId = new Map();

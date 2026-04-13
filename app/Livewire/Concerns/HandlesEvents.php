@@ -274,7 +274,6 @@ trait HandlesEvents
      *
      * @param  bool  $silentToasts  When true, do not dispatch success toast (e.g. when syncing tagIds after delete so only "Tag deleted." is shown).
      */
-    #[Async]
     #[Renderless]
     public function updateEventProperty(int $eventId, string $property, mixed $value, bool $silentToasts = false, ?string $occurrenceDate = null): bool|array
     {

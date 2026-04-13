@@ -16,6 +16,9 @@
         'project' => 'lic-item-type-pill--project',
         default => 'lic-item-type-pill--task',
     };
+    $showRecurringInFocusModal = $kind === 'task' && ! empty($recurringTaskIdForSelection);
+    $showRecurringSelection = in_array($kind, ['task', 'event'], true)
+        && (! $embedInFocusModal || $showRecurringInFocusModal);
 @endphp
 <div>
     <div class="flex items-start justify-between gap-2">
@@ -122,17 +125,17 @@
             <div class="ml-2 flex flex-wrap items-center justify-end gap-1.5 shrink-0">
                 @include('components.workspace.list-item-card._item-type-pill')
 
-                @if(in_array($kind, ['task', 'event'], true))
+                @if($showRecurringSelection)
                     <div class="hidden md:block">
                         <x-recurring-selection
                             model="recurrence"
                             :initial-value="$headerRecurrenceInitial"
                             :kind="$kind"
-                            :readonly="!$canEditRecurrence"
+                            :readonly="$embedInFocusModal ? true : ! $canEditRecurrence"
                             :recurring-event-id="$recurringEventIdForSelection ?? null"
                             :recurring-task-id="$recurringTaskIdForSelection ?? null"
                             compactWhenDisabled
-                            hideWhenDisabled
+                            :hide-when-disabled="$embedInFocusModal"
                             position="top"
                             align="end"
                         />
@@ -157,7 +160,7 @@
                     />
                 </div>
 
-                @if($currentUserIsOwner && $deleteMethod)
+                @if($currentUserIsOwner && $deleteMethod && ! $embedInFocusModal)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
@@ -307,17 +310,17 @@
             <div class="flex flex-wrap items-center gap-2">
                 @include('components.workspace.list-item-card._item-type-pill')
 
-                @if(in_array($kind, ['task', 'event'], true))
+                @if($showRecurringSelection)
                     <div>
                         <x-recurring-selection
                             model="recurrence"
                             :initial-value="$headerRecurrenceInitial"
                             :kind="$kind"
-                            :readonly="!$canEditRecurrence"
+                            :readonly="$embedInFocusModal ? true : ! $canEditRecurrence"
                             :recurring-event-id="$recurringEventIdForSelection ?? null"
                             :recurring-task-id="$recurringTaskIdForSelection ?? null"
                             compactWhenDisabled
-                            hideWhenDisabled
+                            :hide-when-disabled="$embedInFocusModal"
                             position="top"
                             align="start"
                         />
@@ -351,17 +354,17 @@
 
     @if($type && ! $isKanbanLayout)
         <div class="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-            @if(in_array($kind, ['task', 'event'], true))
+            @if($showRecurringSelection)
                 <div class="md:hidden">
                     <x-recurring-selection
                         model="recurrence"
                         :initial-value="$headerRecurrenceInitial"
                         :kind="$kind"
-                        :readonly="!$canEditRecurrence"
+                        :readonly="$embedInFocusModal ? true : ! $canEditRecurrence"
                         :recurring-event-id="$recurringEventIdForSelection ?? null"
                         :recurring-task-id="$recurringTaskIdForSelection ?? null"
                         compactWhenDisabled
-                        hideWhenDisabled
+                        :hide-when-disabled="$embedInFocusModal"
                         position="top"
                         align="end"
                     />

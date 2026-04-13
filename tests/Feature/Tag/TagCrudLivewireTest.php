@@ -1,6 +1,8 @@
 <?php
 
+use App\Models\Event;
 use App\Models\Tag;
+use App\Models\Task;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -69,6 +71,34 @@ test('other user cannot delete tag not owned by them', function (): void {
         ->call('deleteTag', $tag->id);
 
     expect(Tag::find($tag->id))->not->toBeNull();
+});
+
+test('deleting a tag detaches it from owner task', function (): void {
+    $this->actingAs($this->owner);
+
+    $tag = Tag::factory()->for($this->owner)->create(['name' => 'Task tag']);
+    $task = Task::factory()->for($this->owner)->create();
+    $task->tags()->attach($tag->id);
+
+    Livewire::test('pages::workspace.index')
+        ->call('deleteTag', $tag->id);
+
+    expect(Tag::query()->find($tag->id))->toBeNull()
+        ->and($task->fresh()->tags()->whereKey($tag->id)->exists())->toBeFalse();
+});
+
+test('deleting a tag detaches it from owner event', function (): void {
+    $this->actingAs($this->owner);
+
+    $tag = Tag::factory()->for($this->owner)->create(['name' => 'Event tag']);
+    $event = Event::factory()->for($this->owner)->create();
+    $event->tags()->attach($tag->id);
+
+    Livewire::test('pages::workspace.index')
+        ->call('deleteTag', $tag->id);
+
+    expect(Tag::query()->find($tag->id))->toBeNull()
+        ->and($event->fresh()->tags()->whereKey($tag->id)->exists())->toBeFalse();
 });
 
 test('tags computed returns only authenticated user tags', function (): void {
