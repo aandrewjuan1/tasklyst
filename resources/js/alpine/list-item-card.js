@@ -27,6 +27,35 @@ import { createFocusSessionController, isTempSessionId as isTempSessionIdLib } f
 const FOCUS_MODAL_FOCUSABLE_SELECTOR =
     'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+let globalPreviousUnfinishedTickerId = null;
+const previousUnfinishedTickerSubscribers = new Set();
+
+function ensureGlobalPreviousUnfinishedTicker() {
+    if (globalPreviousUnfinishedTickerId != null) {
+        return;
+    }
+
+    globalPreviousUnfinishedTickerId = setInterval(() => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+            return;
+        }
+        previousUnfinishedTickerSubscribers.forEach((callback) => {
+            try {
+                callback();
+            } catch (_) {}
+        });
+    }, 1000);
+}
+
+function stopGlobalPreviousUnfinishedTickerIfIdle() {
+    if (previousUnfinishedTickerSubscribers.size > 0 || globalPreviousUnfinishedTickerId == null) {
+        return;
+    }
+
+    clearInterval(globalPreviousUnfinishedTickerId);
+    globalPreviousUnfinishedTickerId = null;
+}
+
 export function listItemCard(config) {
     return {
         ...config,
@@ -331,17 +360,18 @@ export function listItemCard(config) {
         startPreviousUnfinishedTicker() {
             if (this.kind !== 'task') return;
             this.syncPreviousUnfinishedSnapshot();
-            if (this.previousUnfinishedTickerId != null) {
-                clearInterval(this.previousUnfinishedTickerId);
-            }
-            this.previousUnfinishedTickerId = setInterval(() => {
+            this.stopPreviousUnfinishedTicker();
+            this.previousUnfinishedTickerId = () => {
                 this.syncPreviousUnfinishedSnapshot();
-            }, 1000);
+            };
+            previousUnfinishedTickerSubscribers.add(this.previousUnfinishedTickerId);
+            ensureGlobalPreviousUnfinishedTicker();
         },
         stopPreviousUnfinishedTicker() {
             if (this.previousUnfinishedTickerId != null) {
-                clearInterval(this.previousUnfinishedTickerId);
+                previousUnfinishedTickerSubscribers.delete(this.previousUnfinishedTickerId);
                 this.previousUnfinishedTickerId = null;
+                stopGlobalPreviousUnfinishedTickerIfIdle();
             }
         },
         get previousUnfinishedSessionRemainingSeconds() {
