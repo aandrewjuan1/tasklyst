@@ -92,6 +92,10 @@ trait HandlesEvents
         if (method_exists($this, 'refreshWorkspaceItems')) {
             $this->refreshWorkspaceItems();
         }
+
+        if (method_exists($this, 'refreshWorkspaceCalendar')) {
+            $this->refreshWorkspaceCalendar();
+        }
     }
 
     /**
@@ -143,6 +147,10 @@ trait HandlesEvents
         }
 
         $this->dispatch('toast', ...Event::toastPayload('delete', true, $event->title));
+
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
 
         return true;
     }
@@ -197,6 +205,10 @@ trait HandlesEvents
 
         $this->dispatch('toast', type: 'success', message: __('Restored the event.'));
 
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
+
         return true;
     }
 
@@ -249,6 +261,10 @@ trait HandlesEvents
         }
 
         $this->dispatch('toast', type: 'success', message: __('Permanently deleted the event.'));
+
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
 
         return true;
     }
@@ -445,6 +461,8 @@ trait HandlesEvents
             ));
         }
 
+        $this->maybeQueueWorkspaceCalendarRefreshAfterEventPropertyUpdate($property);
+
         if ($property === 'recurrence') {
             $event->load('recurringEvent');
 
@@ -637,6 +655,10 @@ trait HandlesEvents
         $this->dispatch('recurring-event-occurrence-skipped', eventExceptionId: $exception->id, eventId: $event->id);
         $this->dispatch('toast', type: 'success', message: __('Occurrence skipped.'));
 
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
+
         return $exception->id;
     }
 
@@ -684,6 +706,10 @@ trait HandlesEvents
         $this->dispatch('recurring-event-occurrence-restored', eventExceptionId: $eventExceptionId, eventId: $eventId);
         $this->dispatch('toast', type: 'success', message: __('Occurrence restored.'));
 
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
+
         return true;
     }
 
@@ -721,5 +747,18 @@ trait HandlesEvents
             ])
             ->values()
             ->all();
+    }
+
+    protected function maybeQueueWorkspaceCalendarRefreshAfterEventPropertyUpdate(string $property): void
+    {
+        if (! method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            return;
+        }
+
+        if (! in_array($property, ['startDatetime', 'endDatetime', 'allDay', 'status', 'recurrence'], true)) {
+            return;
+        }
+
+        $this->queueWorkspaceCalendarRefresh();
     }
 }

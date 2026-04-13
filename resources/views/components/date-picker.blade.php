@@ -442,8 +442,9 @@
             else this.placementHorizontal = rect.right > vw ? 'start' : 'end';
             const card = (typeof $parent !== 'undefined' && $parent)?.$parent;
             const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
-            if (isEndDate && card && (card.isOverdue !== undefined || card.clientOverdue !== undefined)) {
-                this.overdue = (card.isOverdue || card.clientOverdue) && !card.clientNotOverdue;
+            if (isEndDate && card && (card.isPastDue !== undefined || card.isOverdue !== undefined || card.clientOverdue !== undefined)) {
+                const pastDue = card.isPastDue !== undefined ? card.isPastDue : card.isOverdue;
+                this.overdue = (pastDue || card.clientOverdue) && !card.clientNotOverdue;
             }
             this.updateEffectiveOverdue();
             this.todayCache = null;

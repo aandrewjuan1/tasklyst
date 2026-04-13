@@ -116,6 +116,10 @@ trait HandlesTasks
         if (method_exists($this, 'refreshWorkspaceItems')) {
             $this->refreshWorkspaceItems();
         }
+
+        if (method_exists($this, 'refreshWorkspaceCalendar')) {
+            $this->refreshWorkspaceCalendar();
+        }
     }
 
     /**
@@ -174,6 +178,10 @@ trait HandlesTasks
 
         if ($deleteResult['abandoned_in_progress_focus_session']) {
             $this->dispatch('toast', type: 'info', message: __('Focus stopped because the task was moved to trash.'));
+        }
+
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
         }
 
         return true;
@@ -395,6 +403,8 @@ trait HandlesTasks
             }
         }
 
+        $this->maybeQueueWorkspaceCalendarRefreshAfterTaskPropertyUpdate($property);
+
         if ($property === 'recurrence') {
             $task->load('recurringTask');
 
@@ -583,6 +593,10 @@ trait HandlesTasks
         $this->dispatch('recurring-task-occurrence-skipped', taskExceptionId: $exception->id, taskId: $task->id);
         $this->dispatch('toast', type: 'success', message: __('Occurrence skipped.'));
 
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
+
         return $exception->id;
     }
 
@@ -630,6 +644,10 @@ trait HandlesTasks
         $this->dispatch('recurring-task-occurrence-restored', taskExceptionId: $taskExceptionId, taskId: $taskId);
         $this->dispatch('toast', type: 'success', message: __('Occurrence restored.'));
 
+        if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            $this->queueWorkspaceCalendarRefresh();
+        }
+
         return true;
     }
 
@@ -675,5 +693,18 @@ trait HandlesTasks
     protected function rules(): array
     {
         return TaskPayloadValidation::rules();
+    }
+
+    protected function maybeQueueWorkspaceCalendarRefreshAfterTaskPropertyUpdate(string $property): void
+    {
+        if (! method_exists($this, 'queueWorkspaceCalendarRefresh')) {
+            return;
+        }
+
+        if (! in_array($property, ['startDatetime', 'endDatetime', 'status', 'recurrence'], true)) {
+            return;
+        }
+
+        $this->queueWorkspaceCalendarRefresh();
     }
 }

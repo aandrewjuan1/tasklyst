@@ -73,11 +73,32 @@ trait HandlesWorkspaceCalendar
         $this->calendarGridMetaForJs = $this->calendarMonthMeta;
     }
 
+    /**
+     * Recompute sidebar calendar month meta and selected-day agenda from the database.
+     * Used after creates (same response) and as the target of {@see queueWorkspaceCalendarRefresh()}
+     * following renderless updates so the calendar DOM can morph.
+     */
+    public function refreshWorkspaceCalendar(): void
+    {
+        unset($this->calendarMonthMeta, $this->selectedDayAgenda, $this->calendarMonth, $this->calendarYear);
+        $this->calendarGridMetaForJs = $this->calendarMonthMeta;
+    }
+
+    /**
+     * After a renderless action mutates tasks/events, queue a follow-up request that
+     * re-renders calendar state (dots + agenda panel).
+     */
+    protected function queueWorkspaceCalendarRefresh(): void
+    {
+        $this->js('$wire.refreshWorkspaceCalendar()');
+    }
+
     protected function resetCalendarViewForSelectedDateChange(): void
     {
         $this->calendarViewYear = null;
         $this->calendarViewMonth = null;
-        $this->calendarGridMetaForJs = [];
+        unset($this->calendarMonthMeta, $this->calendarMonth, $this->calendarYear);
+        $this->calendarGridMetaForJs = $this->calendarMonthMeta;
     }
 
     protected function getCalendarGridMonth(): int

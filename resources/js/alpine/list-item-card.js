@@ -401,7 +401,8 @@ export function listItemCard(config) {
             return formatFocusCountdownLib(this.taskFocusTargetSeconds);
         },
         get shouldShowOverduePill() {
-            const overdue = (this.isOverdue || this.clientOverdue) && !this.clientNotOverdue;
+            const pastDue = this.isPastDue !== undefined ? this.isPastDue : this.isOverdue;
+            const overdue = (pastDue || this.clientOverdue) && !this.clientNotOverdue;
             if (!overdue) {
                 return false;
             }
@@ -1126,12 +1127,12 @@ export function listItemCard(config) {
                     const stillOverdue = this.isStillOverdue(d.startDatetime ?? null, d.endDatetime ?? null);
                     if (stillOverdue) {
                         this.clientNotOverdue = false;
-                        if (!this.isOverdue) {
-                            this.clientOverdue = true;
-                        }
+                        this.isPastDue = true;
+                        this.clientOverdue = false;
                     } else {
                         this.clientOverdue = false;
                         this.clientNotOverdue = true;
+                        this.isPastDue = false;
                     }
                 }
             }

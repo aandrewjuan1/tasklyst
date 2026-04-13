@@ -100,47 +100,47 @@
                     <div class="w-full min-w-0">
                         {{-- Toolbar: List/Kanban + search + search scope (global vs selected date); unified h-10 --}}
                         <div class="pt-2 flex w-full min-w-0 flex-wrap items-center gap-2">
+                            {{-- wire:ignore: avoid Livewire morphing tabs on viewMode (fixes white/empty flash). Loading state on wrapper only. --}}
                             <div
-                                class="inline-flex h-10 shrink-0 items-stretch gap-0.5 rounded-xl border border-white/50 bg-white/80 p-1 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
-                                role="tablist"
-                                aria-label="{{ __('Workspace view') }}"
+                                class="inline-flex shrink-0 transition-opacity duration-150 ease-out"
+                                wire:loading.class="pointer-events-none opacity-70"
+                                wire:target="viewMode"
                             >
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    :aria-selected="activeViewMode() === 'list'"
-                                    aria-controls="workspace-list-panel"
-                                    id="workspace-view-list"
-                                    @class([
-                                        'inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50',
-                                        'bg-brand-blue text-white shadow-sm' => $this->viewMode === 'list',
-                                        'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' => $this->viewMode !== 'list',
-                                    ])
-                                    :class="activeViewMode() === 'list'
-                                        ? 'bg-brand-blue text-white shadow-sm'
-                                        : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
-                                    @click="setView('list')"
+                                <div
+                                    wire:ignore
+                                    class="inline-flex h-10 items-stretch gap-0.5 rounded-xl border border-white/50 bg-white/80 p-1 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
+                                    role="tablist"
+                                    aria-label="{{ __('Workspace view') }}"
                                 >
-                                    {{ __('List') }}
-                                </button>
-                                <button
-                                    type="button"
-                                    role="tab"
-                                    :aria-selected="activeViewMode() === 'kanban'"
-                                    aria-controls="workspace-kanban-panel"
-                                    id="workspace-view-kanban"
-                                    @class([
-                                        'inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50',
-                                        'bg-brand-blue text-white shadow-sm' => $this->viewMode === 'kanban',
-                                        'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' => $this->viewMode !== 'kanban',
-                                    ])
-                                    :class="activeViewMode() === 'kanban'
-                                        ? 'bg-brand-blue text-white shadow-sm'
-                                        : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
-                                    @click="setView('kanban')"
-                                >
-                                    {{ __('Kanban') }}
-                                </button>
+                                    <button
+                                        type="button"
+                                        role="tab"
+                                        :aria-selected="activeViewMode() === 'list'"
+                                        aria-controls="workspace-list-panel"
+                                        id="workspace-view-list"
+                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 {{ $this->viewMode === 'list' ? 'bg-brand-blue text-white shadow-sm' : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' }}"
+                                        :class="activeViewMode() === 'list'
+                                            ? 'bg-brand-blue text-white shadow-sm'
+                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
+                                        @click="setView('list')"
+                                    >
+                                        {{ __('List') }}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="tab"
+                                        :aria-selected="activeViewMode() === 'kanban'"
+                                        aria-controls="workspace-kanban-panel"
+                                        id="workspace-view-kanban"
+                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 {{ $this->viewMode === 'kanban' ? 'bg-brand-blue text-white shadow-sm' : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' }}"
+                                        :class="activeViewMode() === 'kanban'
+                                            ? 'bg-brand-blue text-white shadow-sm'
+                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
+                                        @click="setView('kanban')"
+                                    >
+                                        {{ __('Kanban') }}
+                                    </button>
+                                </div>
                             </div>
                             <input
                                 type="search"

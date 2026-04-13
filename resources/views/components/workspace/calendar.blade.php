@@ -328,24 +328,18 @@
             </div>
 
             <div class="mb-2 grid grid-cols-3 gap-1 text-center">
-                <flux:tooltip content="{{ __('Incomplete tasks overlapping this day. The count can include tasks that are not shown in a section below.') }}">
-                    <div class="rounded-md bg-muted/50 px-1 py-1">
-                        <p class="text-[10px] text-muted-foreground">{{ __('Tasks') }}</p>
-                        <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-tasks">{{ $selectedDayAgenda['summary']['tasks'] ?? 0 }}</p>
-                    </div>
-                </flux:tooltip>
-                <flux:tooltip content="{{ __('Calendar events on this day.') }}">
-                    <div class="rounded-md bg-muted/50 px-1 py-1">
-                        <p class="text-[10px] text-muted-foreground">{{ __('Events') }}</p>
-                        <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-events">{{ $selectedDayAgenda['summary']['events'] ?? 0 }}</p>
-                    </div>
-                </flux:tooltip>
-                <flux:tooltip content="{{ __('Tasks with a due time in the past (any priority).') }}">
-                    <div class="rounded-md bg-muted/50 px-1 py-1">
-                        <p class="text-[10px] text-muted-foreground">{{ __('Overdue') }}</p>
-                        <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-overdue">{{ $selectedDayAgenda['summary']['overdue'] ?? 0 }}</p>
-                    </div>
-                </flux:tooltip>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Tasks') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-tasks">{{ $selectedDayAgenda['summary']['tasks'] ?? 0 }}</p>
+                </div>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Events') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-events">{{ $selectedDayAgenda['summary']['events'] ?? 0 }}</p>
+                </div>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Overdue') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-overdue">{{ $selectedDayAgenda['summary']['overdue'] ?? 0 }}</p>
+                </div>
             </div>
 
             <div class="max-h-48 space-y-2 overflow-y-auto pr-1">

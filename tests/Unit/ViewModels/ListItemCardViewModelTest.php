@@ -339,6 +339,27 @@ it('computes task progress from ended and paused work sessions only', function (
         ->and($config['taskFocusProgressPercent'])->toBe($expectedPercent);
 });
 
+it('showOverdueVisual is false when list marks overdue for selected day but due date is still in the future', function () {
+    $this->actingAs($this->user);
+    $task = Task::factory()->for($this->user)->create([
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->addWeek(),
+    ]);
+    $vm = new ListItemCardViewModel(
+        kind: 'task',
+        item: $task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: true,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    );
+
+    expect($vm->viewData()['showOverdueVisual'])->toBeFalse()
+        ->and($vm->alpineConfig()['isPastDue'])->toBeFalse();
+});
+
 it('showOverdueVisual is false when item is not flagged overdue', function () {
     $this->actingAs($this->user);
     $task = Task::factory()->for($this->user)->create([

@@ -8,16 +8,20 @@
     $boardIsEmpty = (bool) ($boardIsEmpty ?? false);
     $visibleItemsInitial = (int) ($visibleItemsInitial ?? 0);
     $entryCardClass =
-        'list-item-card relative z-10 flex w-full flex-col gap-2 overflow-hidden rounded-xl px-3 py-2 lic-surface-zinc';
+        'list-item-card relative flex w-full flex-col gap-2 overflow-hidden rounded-xl px-3 py-2 lic-surface-zinc';
     $entryButtonClass =
         'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors duration-100 ease-out hover:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:hover:bg-white/[0.06]';
     $typePickerBtnClass =
         'flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-lg border border-border/60 bg-background/40 px-1.5 py-2 shadow-sm transition hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 dark:border-border/50 dark:bg-background/20 dark:hover:bg-background/40';
 @endphp
 
-<div class="relative z-10 w-full">
+<div
+    class="relative w-full"
+    x-bind:class="showItemCreation ? 'z-[60]' : 'z-10'"
+>
     <div
         class="{{ $entryCardClass }}"
+        x-bind:class="showItemCreation || showItemLoading ? 'z-0' : 'z-10'"
         data-item-creation-safe
         @click.outside="itemTypePickerOpen = false"
     >
@@ -207,7 +211,7 @@
                     showItemCreation = false;
                 }
             "
-            class="list-item-card relative mt-4 flex flex-col gap-2 rounded-xl px-3 py-2"
+            class="list-item-card relative z-20 mt-4 flex flex-col gap-2 rounded-xl px-3 py-2"
             x-bind:class="creationCardSurfaceClass()"
             x-cloak
         >
@@ -257,7 +261,7 @@
                         </div>
                     </div>
 
-                    <div class="min-w-0 border-t border-border/40 pt-2">
+                    <div class="relative z-[2] min-w-0 border-t border-border/40 pt-2">
                         <div class="flex flex-wrap items-center gap-2 text-xs">
                             <template x-if="creationKind === 'task'">
                                 <div class="contents">
@@ -296,7 +300,7 @@
                     </div>
 
                     <div
-                        class="flex w-full flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[10px]"
+                        class="relative z-0 flex w-full flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[10px]"
                         x-show="creationKind !== 'project'"
                         x-cloak
                     >
@@ -313,7 +317,7 @@
             x-transition.opacity.duration.200ms
             data-test="task-loading-card"
             aria-busy="true"
-            class="list-item-card relative mt-4 flex flex-col overflow-hidden rounded-xl px-3 py-2 shadow-sm ring-1 ring-border/25 opacity-90 dark:ring-border/35"
+            class="list-item-card relative z-20 mt-4 flex flex-col overflow-hidden rounded-xl px-3 py-2 shadow-sm ring-1 ring-border/25 opacity-90 dark:ring-border/35"
             x-bind:class="creationCardSurfaceClass()"
         >
             <div

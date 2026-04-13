@@ -22,6 +22,7 @@ class ListItemCardViewModel
         public ?string $listFilterDate,
         public array $filters,
         array|Collection $availableTags,
+        /** Whether the item sits in the workspace "overdue" section for the current view (may use the selected calendar day as reference). Not used for the overdue pill — see {@see isEndDatetimeInThePast()}. */
         public bool $isOverdue,
         public ?array $activeFocusSession,
         public int $defaultWorkDurationMinutes,
@@ -287,11 +288,22 @@ class ListItemCardViewModel
     }
 
     /**
-     * Whether overdue pill / due-date red styling should show. List semantics still use {@see $isOverdue}.
+     * Whether the item's end time is before now (actually late), independent of selected calendar day.
+     */
+    private function isEndDatetimeInThePast(): bool
+    {
+        $end = $this->item->end_datetime;
+
+        return $end !== null && $end->isPast();
+    }
+
+    /**
+     * Whether overdue pill / due-date red styling should show.
+     * Uses the item's due/end vs {@see now()}, not {@see $isOverdue} (list bucket / selected-day semantics).
      */
     private function shouldShowOverdueVisual(): bool
     {
-        if (! $this->isOverdue) {
+        if (! $this->isEndDatetimeInThePast()) {
             return false;
         }
 
@@ -415,6 +427,7 @@ class ListItemCardViewModel
             'descriptionProperty' => 'description',
             'addDescriptionLabel' => __('Add description'),
             'isOverdue' => $this->isOverdue,
+            'isPastDue' => $this->isEndDatetimeInThePast(),
             'activeFocusSession' => $this->activeFocusSession,
             'previousUnfinishedSession' => $previousUnfinishedSession,
             'pendingStartPromise' => null,

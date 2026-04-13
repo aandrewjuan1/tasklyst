@@ -86,6 +86,15 @@ export function workspaceCalendar(config) {
             };
             this.$watch('$wire.calendarViewYear', syncGridWhenBrowseCleared);
             this.$watch('$wire.calendarViewMonth', syncGridWhenBrowseCleared);
+
+            this.$watch('$wire.calendarGridMetaForJs', (value) => {
+                if (value == null || typeof value !== 'object') {
+                    return;
+                }
+                this.monthMeta = value;
+                this.buildDays();
+                queueMicrotask(() => syncWorkspaceCalendarTodayButton());
+            });
         },
 
         /**

@@ -715,9 +715,8 @@ class extends Component
 
     /**
      * Get overdue tasks and events for the authenticated user.
-     * When the selected calendar day is today, overdue is relative to {@see now()} (time-aware).
-     * For any other selected day, overdue is relative to the end of that day so browsing history
-     * does not pull in everything that is merely overdue relative to "now".
+     * Lateness is always relative to {@see now()} (time-aware), independent of the selected calendar day,
+     * so the list/kanban overdue strip is always the current real backlog.
      *
      * @return Collection<int, array{kind: string, item: Task|Event}>
      */
@@ -747,10 +746,7 @@ class extends Component
             $filterItemType = 'tasks';
         }
 
-        $selectedDate = $this->getParsedSelectedDate();
-        $overdueAsOf = $selectedDate->isToday()
-            ? now()
-            : $selectedDate->copy()->endOfDay();
+        $overdueAsOf = now();
 
         // Early return: Skip overdue queries if filtered to projects only
         if ($filterItemType === 'projects') {
