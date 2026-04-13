@@ -113,48 +113,54 @@ test('invalid view mode is normalized to list on mount', function (): void {
         ->assertSet('viewMode', 'list');
 });
 
-test('workspace view mode tab buttons include server first-paint active classes and Alpine runtime overrides', function (): void {
+test('workspace view mode tab buttons include server first-paint state and Alpine runtime aria toggles', function (): void {
     $this->actingAs($this->user);
 
     $listHtml = $this->get(route('workspace', ['view' => 'list']))->assertSuccessful()->getContent();
 
     preg_match('/id="workspace-view-list"[\s\S]*?class="([^"]*)"/', $listHtml, $listTabClass);
     preg_match('/id="workspace-view-kanban"[\s\S]*?class="([^"]*)"/', $listHtml, $kanbanTabClass);
-    preg_match('/id="workspace-view-list"[\s\S]*?:class="([^"]*)"/', $listHtml, $listTabDynamicClass);
-    preg_match('/id="workspace-view-kanban"[\s\S]*?:class="([^"]*)"/', $listHtml, $kanbanTabDynamicClass);
+    preg_match('/id="workspace-view-list"[\s\S]*?aria-selected="([^"]*)"/', $listHtml, $listTabAria);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?aria-selected="([^"]*)"/', $listHtml, $kanbanTabAria);
+    preg_match('/id="workspace-view-list"[\s\S]*?:aria-selected="([^"]*)"/', $listHtml, $listTabDynamicAria);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?:aria-selected="([^"]*)"/', $listHtml, $kanbanTabDynamicAria);
 
-    expect($listTabClass[1] ?? '')->toContain('bg-brand-blue')
-        ->not->toContain('text-muted-foreground');
-    expect($kanbanTabClass[1] ?? '')->toContain('text-muted-foreground')
+    preg_match('/id="workspace-view-list"[\s\S]*?x-ref="([^"]*)"/', $listHtml, $listTabRef);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?x-ref="([^"]*)"/', $listHtml, $kanbanTabRef);
+
+    expect($listTabClass[1] ?? '')->toContain('min-w-13')
+        ->toContain('bg-brand-blue');
+    expect($kanbanTabClass[1] ?? '')->toContain('min-w-13')
         ->not->toContain('bg-brand-blue');
-    expect($listTabDynamicClass[1] ?? '')->toContain("activeViewMode() === 'list'")
-        ->toContain('!bg-brand-blue')
-        ->toContain('!bg-transparent')
-        ->toContain('text-muted-foreground');
-    expect($kanbanTabDynamicClass[1] ?? '')->toContain("activeViewMode() === 'kanban'")
-        ->toContain('!bg-brand-blue')
-        ->toContain('!bg-transparent')
-        ->toContain('text-muted-foreground');
+    expect($listTabAria[1] ?? '')->toBe('true');
+    expect($kanbanTabAria[1] ?? '')->toBe('false');
+    expect($listTabDynamicAria[1] ?? '')->toBe("isActive('list')");
+    expect($kanbanTabDynamicAria[1] ?? '')->toBe("isActive('kanban')");
+    expect($listTabRef[1] ?? '')->toBe('listButton');
+    expect($kanbanTabRef[1] ?? '')->toBe('kanbanButton');
 
     $kanbanHtml = $this->get(route('workspace', ['view' => 'kanban']))->assertSuccessful()->getContent();
 
     preg_match('/id="workspace-view-list"[\s\S]*?class="([^"]*)"/', $kanbanHtml, $listTabClassK);
     preg_match('/id="workspace-view-kanban"[\s\S]*?class="([^"]*)"/', $kanbanHtml, $kanbanTabClassK);
-    preg_match('/id="workspace-view-list"[\s\S]*?:class="([^"]*)"/', $kanbanHtml, $listTabDynamicClassK);
-    preg_match('/id="workspace-view-kanban"[\s\S]*?:class="([^"]*)"/', $kanbanHtml, $kanbanTabDynamicClassK);
+    preg_match('/id="workspace-view-list"[\s\S]*?aria-selected="([^"]*)"/', $kanbanHtml, $listTabAriaK);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?aria-selected="([^"]*)"/', $kanbanHtml, $kanbanTabAriaK);
+    preg_match('/id="workspace-view-list"[\s\S]*?:aria-selected="([^"]*)"/', $kanbanHtml, $listTabDynamicAriaK);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?:aria-selected="([^"]*)"/', $kanbanHtml, $kanbanTabDynamicAriaK);
 
-    expect($listTabClassK[1] ?? '')->toContain('text-muted-foreground')
+    preg_match('/id="workspace-view-list"[\s\S]*?x-ref="([^"]*)"/', $kanbanHtml, $listTabRefK);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?x-ref="([^"]*)"/', $kanbanHtml, $kanbanTabRefK);
+
+    expect($listTabClassK[1] ?? '')->toContain('min-w-13')
         ->not->toContain('bg-brand-blue');
-    expect($kanbanTabClassK[1] ?? '')->toContain('bg-brand-blue')
-        ->not->toContain('text-muted-foreground');
-    expect($listTabDynamicClassK[1] ?? '')->toContain("activeViewMode() === 'list'")
-        ->toContain('!bg-brand-blue')
-        ->toContain('!bg-transparent')
-        ->toContain('text-muted-foreground');
-    expect($kanbanTabDynamicClassK[1] ?? '')->toContain("activeViewMode() === 'kanban'")
-        ->toContain('!bg-brand-blue')
-        ->toContain('!bg-transparent')
-        ->toContain('text-muted-foreground');
+    expect($kanbanTabClassK[1] ?? '')->toContain('min-w-13')
+        ->toContain('bg-brand-blue');
+    expect($listTabAriaK[1] ?? '')->toBe('false');
+    expect($kanbanTabAriaK[1] ?? '')->toBe('true');
+    expect($listTabDynamicAriaK[1] ?? '')->toBe("isActive('list')");
+    expect($kanbanTabDynamicAriaK[1] ?? '')->toBe("isActive('kanban')");
+    expect($listTabRefK[1] ?? '')->toBe('listButton');
+    expect($kanbanTabRefK[1] ?? '')->toBe('kanbanButton');
 });
 
 test('workspace list view mounts only the nested list livewire component', function (): void {
@@ -215,18 +221,14 @@ test('setFilter updates workspace state without requiring list remount counter',
         ->assertSet('filterItemType', 'tasks');
 });
 
-test('kanban renders same quick section chips row as list', function (): void {
+test('kanban does not render quick section chips row', function (): void {
     $this->actingAs($this->user);
 
     $html = $this->get(route('workspace', ['view' => 'kanban']))
         ->assertSuccessful()
         ->getContent();
 
-    expect($html)->toContain('data-workspace-quick-sections')
-        ->and($html)->toContain(__('Overdue'))
-        ->and($html)->toContain(__('Today'))
-        ->and($html)->toContain(__('Tomorrow'))
-        ->and($html)->toContain(__('Upcoming'));
+    expect($html)->not->toContain('data-workspace-quick-sections');
 });
 
 test('kanban quick section from query is persisted on workspace state', function (): void {
@@ -248,5 +250,5 @@ test('kanban quick section from query is persisted on workspace state', function
     Livewire::withQueryParams(['view' => 'kanban', 'section' => 'upcoming'])
         ->test('pages::workspace.index')
         ->assertSet('quickSection', 'upcoming')
-        ->assertSee('data-workspace-quick-sections', false);
+        ->assertDontSee('data-workspace-quick-sections', false);
 });

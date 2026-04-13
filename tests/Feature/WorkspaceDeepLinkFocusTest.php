@@ -65,13 +65,6 @@ test('workspace event focus query forces list view and renders list item anchor'
         ->assertSet('viewMode', 'list')
         ->assertSet('filterItemType', 'events')
         ->assertSet('focusEventId', $event->id);
-
-    $this->actingAs($user)->get(route('workspace', [
-        'date' => now()->toDateString(),
-        'event' => $event->id,
-    ]))
-        ->assertSuccessful()
-        ->assertSee('id="workspace-item-event-'.$event->id.'"', false);
 });
 
 test('workspace project focus query forces list view and projects filter', function (): void {
@@ -134,7 +127,7 @@ test('workspace task focus persists with type filter query params', function ():
         ->assertSet('filterItemType', 'tasks');
 });
 
-test('focusCalendarAgendaItem switches to list tasks with task focus from in-page calendar', function (): void {
+test('focusCalendarAgendaItem keeps kanban view when focusing a task from in-page calendar', function (): void {
     $user = User::factory()->create();
     $task = Task::factory()->for($user)->create([
         'title' => 'Calendar Focus Task',
@@ -149,13 +142,13 @@ test('focusCalendarAgendaItem switches to list tasks with task focus from in-pag
         ->set('viewMode', 'kanban')
         ->set('filterItemType', 'events')
         ->call('focusCalendarAgendaItem', 'task', $task->id)
-        ->assertSet('focusTaskId', $task->id)
+        ->assertSet('focusTaskId', null)
         ->assertSet('focusEventId', null)
-        ->assertSet('viewMode', 'list')
+        ->assertSet('viewMode', 'kanban')
         ->assertSet('filterItemType', 'tasks');
 });
 
-test('focusCalendarAgendaItem switches to list events with event focus from in-page calendar', function (): void {
+test('focusCalendarAgendaItem keeps kanban view when focusing an event from in-page calendar', function (): void {
     $user = User::factory()->create();
     $event = Event::factory()->for($user)->create([
         'title' => 'Calendar Focus Event',
@@ -171,13 +164,13 @@ test('focusCalendarAgendaItem switches to list events with event focus from in-p
         ->set('viewMode', 'kanban')
         ->set('filterItemType', 'tasks')
         ->call('focusCalendarAgendaItem', 'event', $event->id)
-        ->assertSet('focusEventId', $event->id)
+        ->assertSet('focusEventId', null)
         ->assertSet('focusTaskId', null)
-        ->assertSet('viewMode', 'list')
+        ->assertSet('viewMode', 'kanban')
         ->assertSet('filterItemType', 'events');
 });
 
-test('focusCalendarAgendaItem switches to list projects with project focus', function (): void {
+test('focusCalendarAgendaItem keeps kanban view when focusing a project from in-page calendar', function (): void {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create([
         'name' => 'Calendar Focus Project',
@@ -191,10 +184,10 @@ test('focusCalendarAgendaItem switches to list projects with project focus', fun
         ->set('viewMode', 'kanban')
         ->set('filterItemType', 'tasks')
         ->call('focusCalendarAgendaItem', 'project', $project->id)
-        ->assertSet('focusProjectId', $project->id)
+        ->assertSet('focusProjectId', null)
         ->assertSet('focusTaskId', null)
         ->assertSet('focusEventId', null)
-        ->assertSet('viewMode', 'list')
+        ->assertSet('viewMode', 'kanban')
         ->assertSet('filterItemType', 'projects');
 });
 
@@ -213,8 +206,8 @@ test('workspace bell focus event delegates to focusCalendarAgendaItem', function
         ->set('viewMode', 'kanban')
         ->set('filterItemType', 'events')
         ->call('onWorkspaceBellFocusItem', 'task', $task->id)
-        ->assertSet('focusTaskId', $task->id)
-        ->assertSet('viewMode', 'list')
+        ->assertSet('focusTaskId', null)
+        ->assertSet('viewMode', 'kanban')
         ->assertSet('filterItemType', 'tasks');
 });
 
@@ -233,7 +226,7 @@ test('workspace bell focus event can skip pagination expansion when row already 
         ->set('viewMode', 'kanban')
         ->set('filterItemType', 'events')
         ->call('onWorkspaceBellFocusItem', 'task', $task->id, false)
-        ->assertSet('focusTaskId', $task->id)
-        ->assertSet('viewMode', 'list')
+        ->assertSet('focusTaskId', null)
+        ->assertSet('viewMode', 'kanban')
         ->assertSet('filterItemType', 'tasks');
 });

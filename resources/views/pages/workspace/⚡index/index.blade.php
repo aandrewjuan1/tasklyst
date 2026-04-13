@@ -15,62 +15,13 @@
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,viewMode,quickSection,setQuickSection,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
-        <div
-            class="min-w-0 space-y-6 overflow-visible"
-            x-data="{
-                pendingViewMode: null,
-                initialViewMode: @js($this->viewMode),
-                activeViewMode() {
-                    if (this.pendingViewMode !== null) {
-                        return this.pendingViewMode;
-                    }
-
-                    return this.$wire?.viewMode ?? this.initialViewMode;
-                },
-                setView(mode) {
-                    if (mode === this.activeViewMode()) {
-                        return;
-                    }
-
-                    this.pendingViewMode = mode;
-
-                    $wire.set('viewMode', mode);
-                    const u = new URL(window.location.href);
-                    u.searchParams.set('view', mode);
-                    history.replaceState(null, '', u.pathname + u.search);
-                    if (window.Alpine?.store) {
-                        let store = Alpine.store('workspaceView');
-                        if (!store || typeof store !== 'object') {
-                            Alpine.store('workspaceView', { mode });
-                        } else {
-                            store.mode = mode;
-                        }
-                    }
-                },
-            }"
-            x-init="
-                if (window.Alpine?.store) {
-                    let store = Alpine.store('workspaceView');
-                    const initialMode = $wire.viewMode ?? $data.initialViewMode;
-                    if (!store || typeof store !== 'object') {
-                        Alpine.store('workspaceView', { mode: initialMode });
-                    } else {
-                        store.mode = initialMode;
-                    }
-                }
-            "
-            x-effect="
-                if (this.pendingViewMode !== null && $wire.viewMode === this.pendingViewMode) {
-                    this.pendingViewMode = null;
-                }
-            "
-        >
+        <div class="min-w-0 space-y-6 overflow-visible">
             {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
             <div class="hero-brand-gradient-shell">
                 <div
@@ -100,54 +51,7 @@
                     <div class="w-full min-w-0">
                         {{-- Toolbar: List/Kanban + search + search scope (global vs selected date); unified h-10 --}}
                         <div class="pt-2 flex w-full min-w-0 flex-wrap items-center gap-2">
-                            {{-- wire:ignore: avoid Livewire morphing tabs on viewMode (fixes white/empty flash). Loading state on wrapper only. --}}
-                            <div
-                                class="inline-flex shrink-0 transition-opacity duration-150 ease-out"
-                                wire:loading.class="pointer-events-none opacity-70"
-                                wire:target="viewMode"
-                            >
-                                <div
-                                    wire:ignore
-                                    class="inline-flex h-10 items-stretch gap-0.5 rounded-xl border border-white/50 bg-white/80 p-1 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
-                                    role="tablist"
-                                    aria-label="{{ __('Workspace view') }}"
-                                >
-                                    <button
-                                        type="button"
-                                        role="tab"
-                                        :aria-selected="activeViewMode() === 'list'"
-                                        aria-controls="workspace-list-panel"
-                                        id="workspace-view-list"
-                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 active:bg-inherit active:text-inherit {{ $this->viewMode === 'list'
-                                            ? 'bg-brand-blue text-white shadow-sm hover:bg-brand-blue'
-                                            : 'bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100' }}"
-                                        :class="activeViewMode() === 'list'
-                                            ? '!bg-brand-blue text-white shadow-sm hover:!bg-brand-blue'
-                                            : '!bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
-                                        style="-webkit-tap-highlight-color: transparent;"
-                                        @click="setView('list')"
-                                    >
-                                        {{ __('List') }}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        role="tab"
-                                        :aria-selected="activeViewMode() === 'kanban'"
-                                        aria-controls="workspace-kanban-panel"
-                                        id="workspace-view-kanban"
-                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 active:bg-inherit active:text-inherit {{ $this->viewMode === 'kanban'
-                                            ? 'bg-brand-blue text-white shadow-sm hover:bg-brand-blue'
-                                            : 'bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100' }}"
-                                        :class="activeViewMode() === 'kanban'
-                                            ? '!bg-brand-blue text-white shadow-sm hover:!bg-brand-blue'
-                                            : '!bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
-                                        style="-webkit-tap-highlight-color: transparent;"
-                                        @click="setView('kanban')"
-                                    >
-                                        {{ __('Kanban') }}
-                                    </button>
-                                </div>
-                            </div>
+                            <x-workspace.view-mode-switcher :view-mode="$this->viewMode" />
                             <div
                                 class="flex min-h-10 min-w-[min(100%,12rem)] flex-1 items-stretch overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
                                 role="group"
@@ -213,12 +117,6 @@
                     </div>
                 </div>
             </div>
-
-            <x-workspace.quick-section-chips
-                :current-section="$this->quickSection"
-                :counts="$this->quickSectionCounts"
-                :view-mode="$this->viewMode"
-            />
 
             {{-- List/kanban region only: loading skeletons must not cover the nav strip above --}}
             <div class="relative min-w-0 w-full">

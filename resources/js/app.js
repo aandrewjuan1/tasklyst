@@ -3,7 +3,7 @@ import { workspaceCalendar } from './alpine/workspace-calendar.js';
 import * as listRelevance from './lib/list-relevance.js';
 import { kanbanBoard } from './alpine/kanban-board.js';
 import { dashboardAnalyticsCharts } from './alpine/dashboard-analytics-charts.js';
-import { initWorkspaceDeepLinkFocus, runWorkspaceFocusFromUrl, workspaceCalendarTryInstantFocus } from './alpine/workspace-focus.js';
+import { consumeWorkspaceFocusQueryParams, initWorkspaceDeepLinkFocus, runWorkspaceFocusFromUrl, runWorkspaceFocusToTarget, workspaceCalendarTryInstantFocus } from './alpine/workspace-focus.js';
 import { initWorkspaceCalendarTodayButtonSync } from './lib/workspace-calendar-today-button.js';
 
 // ECharts is lazy-loaded from dashboard-analytics-charts.js (dynamic import) to keep the main bundle smaller.
@@ -16,7 +16,9 @@ document.addEventListener('livewire:init', () => {
     window.Alpine.data('kanbanBoard', kanbanBoard);
     window.Alpine.data('dashboardAnalyticsCharts', dashboardAnalyticsCharts);
     window.runWorkspaceFocusFromUrl = runWorkspaceFocusFromUrl;
+    window.runWorkspaceFocusToTarget = runWorkspaceFocusToTarget;
     window.workspaceCalendarTryInstantFocus = workspaceCalendarTryInstantFocus;
+    window.workspaceConsumeFocusQueryParams = consumeWorkspaceFocusQueryParams;
     initWorkspaceDeepLinkFocus();
     initWorkspaceCalendarTodayButtonSync();
 });

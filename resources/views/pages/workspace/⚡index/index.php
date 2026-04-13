@@ -123,6 +123,12 @@ class extends Component
     public int $workspaceItemsVersion = 0;
 
     /**
+     * When true, keep the currently selected list/kanban shell while resolving
+     * focus from in-page interactions (calendar agenda, bell), instead of forcing list.
+     */
+    protected bool $preserveCurrentViewModeForFocus = false;
+
+    /**
      * Optional list context: when set, task list shows only tasks in this project.
      * Authorized in HandlesTasks::tasks() before applying scope.
      */
@@ -374,11 +380,21 @@ class extends Component
             $this->focusProjectId = $id;
         }
 
-        $this->applyWorkspaceDeepLinkFocus(false, $expandPagination);
+        $this->preserveCurrentViewModeForFocus = true;
 
-        if ($expandPagination) {
-            $this->js('requestAnimationFrame(() => { setTimeout(() => { window.runWorkspaceFocusFromUrl && window.runWorkspaceFocusFromUrl(); }, 0); });');
+        try {
+            $this->applyWorkspaceDeepLinkFocus(false, $expandPagination);
+        } finally {
+            $this->preserveCurrentViewModeForFocus = false;
         }
+
+        $kindJs = json_encode($kind, JSON_THROW_ON_ERROR);
+        $this->js('requestAnimationFrame(() => { setTimeout(() => { window.runWorkspaceFocusToTarget && window.runWorkspaceFocusToTarget('.$kindJs.', '.$id.'); }, 0); });');
+
+        // In-page calendar/bell focus should be one-shot UX; do not persist URL deep-link params.
+        $this->focusTaskId = null;
+        $this->focusEventId = null;
+        $this->focusProjectId = null;
     }
 
     #[On('workspace-bell-focus-item')]
@@ -804,7 +820,9 @@ class extends Component
 
     protected function applyDeepLinkListShell(string $filterItemType): void
     {
-        $this->viewMode = 'list';
+        if (! $this->preserveCurrentViewModeForFocus) {
+            $this->viewMode = 'list';
+        }
         $this->searchQuery = null;
         $this->filterItemType = $filterItemType;
         $this->listContextProjectId = null;

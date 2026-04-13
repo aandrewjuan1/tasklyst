@@ -1,6 +1,7 @@
 /**
  * Scroll + highlight list rows for ?task= / ?event= / ?project= deep links.
- * Params stay in the URL (Livewire #[Url]); do not strip them here.
+ * Focus query params are consumed after first successful focus so reload does
+ * not repeatedly auto-scroll/highlight.
  */
 
 const FOCUS_RETRY_MAX = 40;
@@ -10,6 +11,25 @@ const WORKSPACE_ROW_FLASH_CLASS = 'workspace-row-flash';
 
 /** Match {@see workspace-row-flash} animation duration in app.css + small buffer. */
 const WORKSPACE_ROW_FLASH_MS = 2100;
+
+/**
+ * Remove one-time focus params after they are consumed.
+ */
+export function consumeWorkspaceFocusQueryParams() {
+    const url = new URL(window.location.href);
+    const hasFocusParam = ['task', 'event', 'project'].some((param) => url.searchParams.has(param));
+
+    if (!hasFocusParam) {
+        return;
+    }
+
+    url.searchParams.delete('task');
+    url.searchParams.delete('event');
+    url.searchParams.delete('project');
+
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState(window.history.state, '', nextUrl);
+}
 
 function focusWorkspaceElement(el) {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -25,6 +45,36 @@ function focusWorkspaceElement(el) {
     window.setTimeout(() => {
         el.classList.remove(WORKSPACE_ROW_FLASH_CLASS);
     }, WORKSPACE_ROW_FLASH_MS);
+}
+
+function runWorkspaceFocusBySelectorId(selectorId, shouldConsumeQuery = false) {
+    let el = document.getElementById(selectorId);
+    if (el) {
+        focusWorkspaceElement(el);
+        if (shouldConsumeQuery) {
+            consumeWorkspaceFocusQueryParams();
+        }
+
+        return;
+    }
+
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+        attempts++;
+        el = document.getElementById(selectorId);
+        if (el) {
+            window.clearInterval(timer);
+            focusWorkspaceElement(el);
+            if (shouldConsumeQuery) {
+                consumeWorkspaceFocusQueryParams();
+            }
+
+            return;
+        }
+        if (attempts >= FOCUS_RETRY_MAX) {
+            window.clearInterval(timer);
+        }
+    }, FOCUS_RETRY_MS);
 }
 
 /**
@@ -70,27 +120,20 @@ export function runWorkspaceFocusFromUrl() {
     }
 
     const selectorId = `workspace-item-${kind}-${id}`;
-    let el = document.getElementById(selectorId);
-    if (el) {
-        focusWorkspaceElement(el);
+    runWorkspaceFocusBySelectorId(selectorId, true);
+}
 
+export function runWorkspaceFocusToTarget(kind, rawId) {
+    if (!['task', 'event', 'project'].includes(kind)) {
         return;
     }
 
-    let attempts = 0;
-    const timer = window.setInterval(() => {
-        attempts++;
-        el = document.getElementById(selectorId);
-        if (el) {
-            window.clearInterval(timer);
-            focusWorkspaceElement(el);
+    const id = parseInt(String(rawId), 10);
+    if (!Number.isFinite(id) || id <= 0) {
+        return;
+    }
 
-            return;
-        }
-        if (attempts >= FOCUS_RETRY_MAX) {
-            window.clearInterval(timer);
-        }
-    }, FOCUS_RETRY_MS);
+    runWorkspaceFocusBySelectorId(`workspace-item-${kind}-${id}`, false);
 }
 
 export function initWorkspaceDeepLinkFocus() {
