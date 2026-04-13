@@ -154,6 +154,13 @@
         embedInFocusModal: @js($embedInFocusModal),
         listItemCard: null,
         taskProgressSectionShown: false,
+        isModalFocusLocked() {
+            return !!(
+                this.embedInFocusModal
+                && this.listItemCard
+                && (this.listItemCard.isFocused || this.listItemCard.isBreakFocused)
+            );
+        },
         syncListItemCardScope() {
             const rootEl = this.$el.closest('.list-item-card');
             const alpine = typeof window !== 'undefined' ? window.Alpine : null;
@@ -872,6 +879,10 @@
         </div>
     @endif
 
+    <div
+        x-bind:aria-disabled="isModalFocusLocked()"
+        :class="isModalFocusLocked() ? 'focus-modal-task-readonly pointer-events-none select-none opacity-75' : ''"
+    >
     @if($item->status && ! $useKanbanCompact)
         @if(($layout ?? 'list') === 'list' && $showFocusTrigger && $canEdit && ! ($embedInFocusModal ?? false))
             <div class="flex flex-wrap items-center gap-2">
@@ -1398,6 +1409,7 @@
     @endunless
 </div>
 @endunless
+    </div>
 
 @php
     $sourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;

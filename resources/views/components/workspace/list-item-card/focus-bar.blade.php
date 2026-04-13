@@ -1,12 +1,12 @@
 {{-- Focus bar: inside modal; uses parent listItemCard scope (no separate Alpine component). --}}
 <div
     id="focus-modal-title"
-    class="overflow-hidden"
+    class="focus-modal-focusbar overflow-hidden"
 >
-    <div class="flex flex-col gap-3 px-4 py-3">
+    <div class="focus-modal-focusbar-inner flex flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4">
         {{-- Row 1: Sprint/Pomodoro tab — hidden when a focus or break session is active --}}
         <div
-            class="w-full"
+            class="focus-modal-mode-switch w-full"
             x-show="!isFocused && !isBreakFocused"
             x-cloak
         >
@@ -34,9 +34,9 @@
         </div>
 
         {{-- Row 2: single row — left = description, right = ready actions OR timer actions; content swaps in place, no wrapper swap --}}
-        <div class="flex flex-wrap items-center gap-4">
+        <div class="focus-modal-main-row flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             {{-- Left: mode description (same area, content toggled by state) --}}
-            <div class="min-w-0 flex-1 basis-0">
+            <div class="focus-modal-mode-copy min-w-0 flex-1 basis-0">
                 <div class="flex flex-col gap-0.5">
                     {{-- Ready: dynamic label by focusModeType (hide when any active session is running) --}}
                     <div class="flex flex-col gap-0.5" x-show="!isFocused && !isBreakFocused">
@@ -85,46 +85,44 @@
                 </div>
             </div>
             {{-- Right: ready actions or timer actions (visibility only, no DOM swap) --}}
-            <div class="flex shrink-0 items-center gap-3">
+            <div class="focus-modal-actions flex shrink-0 items-center gap-3">
                 {{-- Ready: duration + Start/Cancel --}}
-                <div class="flex items-center gap-3" x-show="!isFocused && !isBreakFocused">
-                    <span class="min-w-18 text-right text-base font-semibold tabular-nums text-primary" x-text="focusModeType === 'pomodoro' ? formattedPomodoroWorkDuration : formattedFocusReadyDuration"></span>
-                    <div class="flex shrink-0 items-center gap-1.5" x-show="!showFocusStartChoice">
-                        <flux:button
-                            variant="primary"
-                            size="sm"
-                            icon="play"
-                            class="shrink-0"
+                <div class="focus-modal-ready-actions flex items-center gap-3" x-show="!isFocused && !isBreakFocused">
+                    <span class="focus-modal-duration min-w-20 text-right text-base font-semibold tabular-nums text-primary" x-text="focusModeType === 'pomodoro' ? formattedPomodoroWorkDuration : formattedFocusReadyDuration"></span>
+                    <div class="focus-modal-action-group flex shrink-0 items-center gap-1.5" x-show="!showFocusStartChoice">
+                        <button
+                            type="button"
+                            class="focus-modal-btn focus-modal-primary-action shrink-0"
                             x-bind:disabled="!((focusModeTypes || []).find(t => t.value === focusModeType)?.available)"
                             @click="startFocusFromReady()"
                         >
-                            {{ __('Start') }}
-                        </flux:button>
+                            <flux:icon name="play" class="size-3.5" />
+                            <span>{{ __('Start') }}</span>
+                        </button>
                         <flux:button
                             variant="ghost"
                             size="sm"
                             icon="x-mark"
-                            class="shrink-0"
+                            class="focus-modal-btn focus-modal-btn--secondary shrink-0"
                             @click="closeFocusModal()"
                         >
                             {{ __('Cancel') }}
                         </flux:button>
                     </div>
-                    <div class="flex shrink-0 items-center gap-1.5" x-show="showFocusStartChoice" x-cloak>
-                        <flux:button
-                            variant="primary"
-                            size="sm"
-                            icon="play"
-                            class="shrink-0"
+                    <div class="focus-modal-action-group flex shrink-0 items-center gap-1.5" x-show="showFocusStartChoice" x-cloak>
+                        <button
+                            type="button"
+                            class="focus-modal-btn focus-modal-primary-action shrink-0"
                             @click="chooseFocusStart('resume')"
                         >
-                            {{ __('Resume') }}
-                        </flux:button>
+                            <flux:icon name="play" class="size-3.5" />
+                            <span>{{ __('Resume') }}</span>
+                        </button>
                         <flux:button
                             variant="ghost"
                             size="sm"
                             icon="arrow-path"
-                            class="shrink-0"
+                            class="focus-modal-btn focus-modal-btn--secondary shrink-0"
                             @click="chooseFocusStart('restart')"
                         >
                             {{ __('Restart') }}
@@ -133,7 +131,7 @@
                 </div>
                 {{-- Active: session complete (non-pomodoro only to avoid flicker with next-session UI) --}}
                 <div
-                    class="flex shrink-0 items-center gap-1"
+                    class="focus-modal-complete-actions flex shrink-0 items-center gap-1"
                     x-show="(isFocused || isBreakFocused) && sessionComplete && !nextSessionInfo && !isPomodoroSession"
                     x-cloak
                 >
@@ -143,7 +141,7 @@
                         variant="ghost"
                         size="sm"
                         icon="check-circle"
-                        class="shrink-0"
+                        class="focus-modal-btn focus-modal-btn--primary shrink-0"
                         @click="markTaskDoneFromFocus()"
                     >
                         {{ __('Mark as Done') }}
@@ -152,41 +150,40 @@
                         variant="ghost"
                         size="sm"
                         icon="x-mark"
-                        class="shrink-0"
+                        class="focus-modal-btn focus-modal-btn--secondary shrink-0"
                         @click="dismissCompletedFocus()"
                     >
                         {{ __('Close') }}
                     </flux:button>
                 </div>
                 {{-- Next session ready (pomodoro flow) --}}
-                <div class="flex shrink-0 items-center gap-3" x-show="sessionComplete && nextSessionInfo && !nextSessionInfo.auto_start" x-cloak>
+                <div class="focus-modal-next-session flex shrink-0 items-center gap-3" x-show="sessionComplete && nextSessionInfo && !nextSessionInfo.auto_start" x-cloak>
                     <div class="flex flex-col gap-0.5 min-w-0">
                         <span class="text-sm font-semibold text-primary" x-text="nextSessionInfo?.type === 'short_break' || nextSessionInfo?.type === 'long_break' ? '{{ __('Break ready!') }}' : '{{ __('Next pomodoro ready!') }}'"></span>
                         <div class="flex items-center gap-2 text-xs text-zinc-500">
                             <span x-text="(nextSessionInfo?.type === 'short_break' ? '{{ __('Short break') }}' : nextSessionInfo?.type === 'long_break' ? '{{ __('Long break') }}' : '{{ __('Pomodoro') }}') + (nextSessionInfo ? ' · ' + nextSessionDurationText : '')"></span>
                         </div>
                     </div>
-                    <flux:button
-                        variant="primary"
-                        size="sm"
-                        icon="play"
-                        class="shrink-0"
+                    <button
+                        type="button"
+                        class="focus-modal-btn focus-modal-primary-action shrink-0"
                         @click="startNextSession(nextSessionInfo)"
                     >
+                        <flux:icon name="play" class="size-3.5" />
                         <span x-text="nextSessionInfo?.type === 'short_break' || nextSessionInfo?.type === 'long_break' ? '{{ __('Start Break') }}' : '{{ __('Start Pomodoro') }}'"></span>
-                    </flux:button>
+                    </button>
                     <flux:button
                         variant="ghost"
                         size="sm"
                         icon="x-mark"
-                        class="shrink-0"
+                        class="focus-modal-btn focus-modal-btn--secondary shrink-0"
                         @click="dismissCompletedFocus()"
                     >
                         {{ __('Skip') }}
                     </flux:button>
                 </div>
                 {{-- Auto-starting indicator --}}
-                <div class="flex shrink-0 items-center gap-2" x-show="sessionComplete && nextSessionInfo && nextSessionInfo.auto_start" x-cloak>
+                <div class="focus-modal-autostart flex shrink-0 items-center gap-2" x-show="sessionComplete && nextSessionInfo && nextSessionInfo.auto_start" x-cloak>
                     <span class="text-sm font-medium text-primary">{{ __('Starting next session...') }}</span>
                     <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
                 </div>
@@ -197,7 +194,7 @@
         <div
             x-show="!isFocused && !isBreakFocused && shouldShowTaskProgress"
             x-cloak
-            class="w-full"
+            class="focus-modal-task-progress w-full"
         >
             <div class="space-y-1.5">
                 <div class="flex items-center justify-between gap-2">
@@ -216,23 +213,23 @@
 
         {{-- Row: Active session — centered timer + Pause/Resume/Stop --}}
         <div
-            class="flex w-full flex-col items-center justify-center gap-4 py-2"
+            class="focus-modal-timer-zone flex w-full flex-col items-center justify-center gap-4 py-2"
             x-show="(isFocused || isBreakFocused) && !sessionComplete"
             x-cloak
         >
             <span
-                class="min-w-24 text-center text-4xl font-bold tabular-nums tracking-tight text-primary"
+                class="focus-modal-timer min-w-24 text-center text-4xl font-bold tabular-nums tracking-tight text-primary sm:text-5xl"
                 x-text="focusCountdownText"
                 aria-live="polite"
             ></span>
-            <div class="flex shrink-0 items-center gap-1">
+            <div class="focus-modal-timer-actions flex shrink-0 items-center gap-1">
                 <flux:button
                     x-show="isFocused && !focusIsPaused"
                     x-cloak
                     variant="ghost"
                     size="sm"
                     icon="pause"
-                    class="shrink-0"
+                    class="focus-modal-btn focus-modal-btn--secondary shrink-0"
                     @click="pauseFocus()"
                 >
                     {{ __('Pause') }}
@@ -243,7 +240,7 @@
                     variant="ghost"
                     size="sm"
                     icon="play"
-                    class="shrink-0"
+                    class="focus-modal-btn focus-modal-primary-action shrink-0"
                     @click="resumeFocus()"
                 >
                     {{ __('Resume') }}
@@ -252,7 +249,7 @@
                     variant="ghost"
                     size="sm"
                     icon="x-mark"
-                    class="shrink-0"
+                    class="focus-modal-btn focus-modal-btn--secondary shrink-0"
                     @click="stopFocus()"
                 >
                     {{ __('Stop') }}
@@ -264,7 +261,7 @@
         <div
             x-show="!isFocused && !isBreakFocused && focusModeType === 'pomodoro'"
             x-cloak
-            class="flex flex-wrap items-end gap-4"
+            class="focus-modal-pomodoro-settings flex flex-wrap items-end gap-4 rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-3 dark:border-zinc-700/70 dark:bg-zinc-900/50"
         >
             {{-- Duration inputs --}}
             <div class="flex flex-col gap-2">
@@ -360,7 +357,7 @@
         <div
             x-show="isFocused || isBreakFocused"
             x-cloak
-            class="h-2 w-full shrink-0 overflow-hidden rounded-full"
+            class="focus-modal-elapsed h-2 w-full shrink-0 overflow-hidden rounded-full"
             role="progressbar"
             :aria-valuenow="Math.round(focusElapsedPercentValue)"
             aria-valuemin="0"

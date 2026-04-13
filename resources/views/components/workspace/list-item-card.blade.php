@@ -102,20 +102,20 @@
                 x-transition:leave="transition ease-in duration-150"
                 x-transition:leave-start="opacity-100"
                 x-transition:leave-end="opacity-0"
-                class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+                class="focus-modal-shell fixed inset-0 z-100"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="focus-modal-title"
             >
             {{-- Backdrop: blocks interaction with page; does not close on click --}}
             <div
-                class="absolute inset-0 bg-black/50"
+                class="focus-modal-backdrop absolute inset-0"
                 aria-hidden="true"
             ></div>
             {{-- Modal panel: focus bar + header + task body (comments remain on the list card below the overlay) --}}
             <div
                 x-ref="focusModalPanel"
-                class="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-brand-blue/25 bg-white/95 shadow-xl ring-1 ring-brand-purple/15 dark:border-zinc-700 dark:bg-zinc-900 dark:ring-brand-purple/20"
+                class="focus-modal-panel relative z-10 flex max-h-[90vh] w-full flex-col overflow-hidden"
                 @click.stop
                 @keydown.tab="trapFocusInModal($event)"
             >
@@ -133,7 +133,7 @@
                 ])
                 {{-- Card body in modal: read-only when focus is active; chevrons hidden via .is-focus-locked --}}
                 <div
-                    class="is-focus-locked flex flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3 pt-0"
+                    class="focus-modal-content is-focus-locked flex flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3 pt-0 sm:px-4 sm:pb-4"
                     :class="{ 'pointer-events-none select-none': isCardLockedForFocus }"
                 >
                     @include('components.workspace.list-item-card.header', [

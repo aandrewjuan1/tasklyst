@@ -287,6 +287,152 @@ select:focus[data-flux-control] {
     }
 
     /**
+     * Focus modal: elevated card surface and responsive shell.
+     */
+    .focus-modal-shell {
+        @apply flex items-end justify-center p-0 sm:items-center sm:p-4;
+    }
+
+    .focus-modal-backdrop {
+        background:
+            radial-gradient(90% 80% at 50% 20%, rgb(71 134 215 / 0.12) 0%, transparent 62%),
+            rgb(12 15 23 / 0.58);
+        backdrop-filter: none;
+    }
+
+    @media (min-width: 640px) {
+        .focus-modal-backdrop {
+            backdrop-filter: blur(4px);
+        }
+    }
+
+    .focus-modal-panel {
+        @apply h-[92dvh] max-h-[92dvh] rounded-t-2xl border border-zinc-200/85 bg-white/96 ring-1 ring-zinc-200/55 shadow-2xl sm:h-auto sm:max-h-[90vh] sm:max-w-4xl sm:rounded-2xl;
+        box-shadow:
+            0 24px 64px -20px rgb(33 52 72 / 0.28),
+            0 10px 30px -12px rgb(33 52 72 / 0.18),
+            0 2px 8px -2px rgb(33 52 72 / 0.08);
+    }
+
+    .dark .focus-modal-panel {
+        @apply border-zinc-700/85 bg-zinc-900/96 ring-zinc-700/55;
+        box-shadow:
+            0 24px 64px -20px rgb(0 0 0 / 0.56),
+            0 10px 30px -12px rgb(0 0 0 / 0.4),
+            0 2px 8px -2px rgb(0 0 0 / 0.32);
+    }
+
+    .focus-modal-content {
+        @apply bg-white/70 dark:bg-zinc-900/35;
+    }
+
+    .focus-modal-focusbar {
+        @apply border-b border-zinc-200/80 bg-white/85 dark:border-zinc-700/75 dark:bg-zinc-900/65;
+    }
+
+    .focus-modal-focusbar-inner {
+        @apply gap-5;
+    }
+
+    .focus-modal-mode-switch {
+        @apply pb-1.5;
+    }
+
+    .focus-modal-main-row {
+        @apply rounded-xl border border-zinc-200/70 bg-zinc-50/70 px-3 py-3.5 dark:border-zinc-700/70 dark:bg-zinc-800/45;
+    }
+
+    .focus-modal-actions {
+        @apply w-full justify-start lg:w-auto lg:justify-end;
+    }
+
+    .focus-modal-action-group {
+        @apply rounded-lg bg-white/65 p-1 ring-1 ring-zinc-200/65 dark:bg-zinc-900/40 dark:ring-zinc-700/65;
+    }
+
+    .focus-modal-btn {
+        @apply h-8 min-h-8 rounded-md px-2.5 text-[13px] font-semibold transition-[color,background-color,border-color,opacity] duration-100 ease-out;
+    }
+
+    .focus-modal-btn--primary {
+        @apply shadow-sm ring-1 ring-brand-blue/25 dark:ring-brand-blue/30;
+    }
+
+    .focus-modal-primary-action {
+        @apply inline-flex items-center justify-center gap-1.5 border-2 border-brand-blue bg-brand-light-blue text-brand-blue;
+        box-shadow: 0 1px 2px rgb(71 134 215 / 0.16);
+    }
+
+    .focus-modal-primary-action:hover {
+        @apply border-brand-navy-blue bg-white text-brand-navy-blue;
+        box-shadow: 0 1px 2px rgb(71 134 215 / 0.2);
+    }
+
+    .focus-modal-primary-action:active {
+        box-shadow: 0 1px 1px rgb(71 134 215 / 0.16);
+    }
+
+    .focus-modal-primary-action:focus-visible {
+        @apply outline-none ring-2 ring-brand-blue ring-offset-2 ring-offset-white;
+    }
+
+    .focus-modal-primary-action:disabled {
+        @apply cursor-not-allowed opacity-55;
+        box-shadow: none;
+    }
+
+    .dark .focus-modal-primary-action {
+        @apply border-brand-light-blue/90 bg-brand-blue/45 text-white;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.24);
+    }
+
+    .dark .focus-modal-primary-action:hover {
+        @apply border-white bg-brand-blue/65 text-white;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.28);
+    }
+
+    .dark .focus-modal-primary-action:focus-visible {
+        @apply ring-brand-light-blue ring-offset-zinc-900;
+    }
+
+    .focus-modal-btn--secondary {
+        @apply opacity-95;
+    }
+
+    .focus-modal-timer-zone {
+        @apply rounded-xl border border-blue-200/65 bg-blue-50/45 px-3 py-3.5 dark:border-blue-900/55 dark:bg-blue-950/25;
+    }
+
+    .focus-modal-timer {
+        text-shadow: 0 2px 10px rgb(71 134 215 / 0.2);
+    }
+
+    .focus-modal-timer-actions {
+        @apply rounded-lg bg-white/65 p-1 ring-1 ring-blue-200/70 dark:bg-zinc-900/45 dark:ring-blue-900/55;
+    }
+
+    .focus-modal-task-progress {
+        @apply rounded-xl border border-zinc-200/70 bg-white/80 px-3 py-3.5 dark:border-zinc-700/70 dark:bg-zinc-900/50;
+    }
+
+    .focus-modal-pomodoro-settings {
+        @apply mt-2 border-indigo-200/60 bg-indigo-50/45 dark:border-indigo-900/55 dark:bg-indigo-950/25;
+    }
+
+    .focus-modal-task-readonly {
+        @apply rounded-xl border border-zinc-200/70 bg-zinc-50/65 p-2.5 dark:border-zinc-700/70 dark:bg-zinc-800/35;
+    }
+
+    .focus-modal-task-readonly::before {
+        content: "Read-only while focus session is active";
+        @apply mb-2 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400;
+    }
+
+    .focus-modal-task-readonly.pointer-events-none {
+        @apply opacity-90;
+    }
+
+    /**
      * Calendar / dashboard / URL deep-link: one class, GPU-friendly box-shadow animation (no !ring / utility list churn).
      */
     @keyframes workspace-row-flash {
