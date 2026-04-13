@@ -196,7 +196,7 @@
                                 class="sr-only"
                                 wire:model.live="filterTaskStatus"
                                 value="{{ $value }}"
-                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "taskStatus", value: @json($value === '' ? null : $value) } } }))'
+                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskStatus', value: @js($value === '' ? null : $value) } }))"
                             />
                             <span class="min-w-0 flex-1">{{ $label }}</span>
                         </label>
@@ -244,7 +244,7 @@
                                 class="sr-only"
                                 wire:model.live="filterTaskPriority"
                                 value="{{ $value }}"
-                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "taskPriority", value: @json($value === '' ? null : $value) } } }))'
+                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskPriority', value: @js($value === '' ? null : $value) } }))"
                             />
                             <span class="min-w-0 flex-1">{{ $label }}</span>
                         </label>
@@ -292,7 +292,7 @@
                                 class="sr-only"
                                 wire:model.live="filterTaskComplexity"
                                 value="{{ $value }}"
-                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "taskComplexity", value: @json($value === '' ? null : $value) } } }))'
+                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskComplexity', value: @js($value === '' ? null : $value) } }))"
                             />
                             <span class="min-w-0 flex-1">{{ $label }}</span>
                         </label>
@@ -343,7 +343,7 @@
                                     class="sr-only"
                                     wire:model.live="filterEventStatus"
                                     value="{{ $value }}"
-                                    @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "eventStatus", value: @json($value === '' ? null : $value) } } }))'
+                                    @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'eventStatus', value: @js($value === '' ? null : $value) } }))"
                                 />
                                 <span class="min-w-0 flex-1">{{ $label }}</span>
                             </label>
@@ -391,7 +391,7 @@
                                 class="sr-only"
                                 wire:model.live="filterTagId"
                                 value=""
-                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "tagIds", value: [] } }))'
+                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: [] } }))"
                             />
                             <span class="min-w-0 flex-1">{{ __('All') }}</span>
                         </label>
@@ -402,7 +402,7 @@
                                     class="sr-only"
                                     wire:model.live="filterTagId"
                                     value="{{ $tag->id }}"
-                                    @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "tagIds", value: @json([$tag->id]) } } }))'
+                                    @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'tagIds', value: @js([$tag->id]) } }))"
                                 />
                                 <span class="min-w-0 flex-1">{{ $tag->name }}</span>
                             </label>
@@ -450,7 +450,7 @@
                                 class="sr-only"
                                 wire:model.live="filterRecurring"
                                 value="{{ $value }}"
-                                @click='window.dispatchEvent(new CustomEvent("filter-optimistic", { detail: { key: "recurring", value: @json($value === '' ? null : $value) } } }))'
+                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'recurring', value: @js($value === '' ? null : $value) } }))"
                             />
                             <span class="min-w-0 flex-1">{{ $label }}</span>
                         </label>
