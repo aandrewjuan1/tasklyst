@@ -244,6 +244,7 @@ export function createFocusSessionController() {
             ctx.pomodoroSequence = 1;
             ctx.lastPomodoroTaskId = null;
             ctx.pomodoroWorkCount = 0;
+            ctx.showPomodoroSettings = false;
             ctx.dispatchFocusSessionUpdated(null);
             ctx.sessionComplete = false;
             ctx.focusReady = false;
@@ -648,6 +649,7 @@ export function createFocusSessionController() {
         enterFocusReady(ctx) {
             if (ctx.kind !== 'task' || !ctx.canEdit || ctx.isFocused) return;
             ctx.focusReady = true;
+            ctx.showPomodoroSettings = false;
         },
 
         async startFocusFromReady(ctx, options = {}) {
@@ -669,6 +671,7 @@ export function createFocusSessionController() {
                 }
             } finally {
                 ctx.focusReady = false;
+                ctx.showPomodoroSettings = false;
             }
         },
 
@@ -854,6 +857,7 @@ export function createFocusSessionController() {
             const promise = ctx.$wire.$parent.$call('startFocusSession', ctx.itemId, payload);
             ctx.pendingStartPromise = promise;
             try {
+                ctx.showPomodoroSettings = false;
                 if (ctx.kind === 'task' && ctx.taskStatus === 'to_do') {
                     ctx.taskStatus = 'doing';
                     window.dispatchEvent(new CustomEvent('task-status-updated', { detail: { itemId: ctx.itemId, status: 'doing' }, bubbles: true }));
@@ -953,6 +957,7 @@ export function createFocusSessionController() {
                 ctx.nextSessionInfo = null;
                 ctx.dispatchFocusSessionUpdated(null);
                 ctx.focusReady = true;
+                ctx.showPomodoroSettings = false;
                 if (wasPomodoro) {
                     ctx.pomodoroSequence = 1;
                     ctx.lastPomodoroTaskId = null;
@@ -974,6 +979,7 @@ export function createFocusSessionController() {
                 ctx.nextSessionInfo = null;
                 ctx.dispatchFocusSessionUpdated(null);
                 ctx.focusReady = true;
+                ctx.showPomodoroSettings = false;
                 if (!isBreak) {
                     ctx.previousUnfinishedSession = unfinishedSnapshot;
                 }
@@ -1013,6 +1019,7 @@ export function createFocusSessionController() {
                 ctx.pomodoroSequence = 1;
                 ctx.lastPomodoroTaskId = null;
                 ctx.pomodoroWorkCount = 0;
+                ctx.showPomodoroSettings = false;
                 return;
             }
             const isBreak = incoming.type === 'short_break' || incoming.type === 'long_break';

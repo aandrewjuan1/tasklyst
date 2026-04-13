@@ -106,6 +106,9 @@
     $subjectDisplay = trim((string) ($item->subject_name ?? ''));
     $teacherDisplay = trim((string) ($item->teacher_name ?? ''));
     $showCourseContextPill = $subjectDisplay !== '' || $teacherDisplay !== '';
+    $hasTaskTags = $item->tags->isNotEmpty();
+    $hasProjectParent = (bool) ($item->project_id && $item->project);
+    $hasEventParent = (bool) ($item->event_id && $item->event);
     $courseContextTooltip = collect([$subjectDisplay, $teacherDisplay])
         ->filter(fn (string $v): bool => $v !== '')
         ->implode(' · ');
@@ -880,6 +883,9 @@
     @endif
 
     <div
+        @class([
+            'flex w-full flex-wrap items-center gap-2' => ! $useKanbanCompact,
+        ])
         x-bind:aria-disabled="isModalFocusLocked()"
         :class="isModalFocusLocked() ? 'focus-modal-task-readonly pointer-events-none select-none opacity-75' : ''"
     >
@@ -1230,7 +1236,8 @@
     @endif
 
     @php
-        $hideTagsSection = $isCollaboratedView && $item->tags->isEmpty();
+    $hideTagsSection = ($isCollaboratedView && $item->tags->isEmpty())
+        || (($embedInFocusModal ?? false) && ! $hasTaskTags);
     @endphp
 
     @if($canEdit)
@@ -1322,61 +1329,65 @@
 
     @unless(($layout ?? 'list') === 'kanban')
     @if($canEdit)
-        <x-workspace.project-parent-popover
-            :task-id="$item->id"
-            :current-project-id="$item->project_id"
-            :current-project-name="$item->project?->name"
-        >
-            <span
-                x-show="kind === 'task'"
-                class="lic-project-chip"
+        @if(! (($embedInFocusModal ?? false) && ! $hasProjectParent))
+            <x-workspace.project-parent-popover
+                :task-id="$item->id"
+                :current-project-id="$item->project_id"
+                :current-project-name="$item->project?->name"
             >
-                <flux:icon name="folder" class="size-3" />
                 <span
-                    class="inline-flex items-baseline gap-1"
-                    style="{{ ($item->project_id && $item->project) ? '' : 'display: none;' }}"
-                    x-show="showProjectPill"
+                    x-show="kind === 'task'"
+                    class="lic-project-chip"
                 >
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-90">{{ __('Project') }}:</span>
-                    <span class="truncate max-w-[120px] uppercase" x-text="itemProjectName ?? ''">{{ $item->project?->name ?? '' }}</span>
+                    <flux:icon name="folder" class="size-3" />
+                    <span
+                        class="inline-flex items-baseline gap-1"
+                        style="{{ ($item->project_id && $item->project) ? '' : 'display: none;' }}"
+                        x-show="showProjectPill"
+                    >
+                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-90">{{ __('Project') }}:</span>
+                        <span class="truncate max-w-[120px] uppercase" x-text="itemProjectName ?? ''">{{ $item->project?->name ?? '' }}</span>
+                    </span>
+                    <span
+                        class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-90"
+                        style="{{ ($item->project_id && $item->project) ? 'display: none;' : '' }}"
+                        x-show="!showProjectPill"
+                    >
+                        {{ __('Put in project') }}
+                    </span>
                 </span>
-                <span
-                    class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-90"
-                    style="{{ ($item->project_id && $item->project) ? 'display: none;' : '' }}"
-                    x-show="!showProjectPill"
-                >
-                    {{ __('Put in project') }}
-                </span>
-            </span>
-        </x-workspace.project-parent-popover>
+            </x-workspace.project-parent-popover>
+        @endif
 
-        <x-workspace.event-parent-popover
-            :task-id="$item->id"
-            :current-event-id="$item->event_id"
-            :current-event-title="$item->event?->title"
-        >
-            <span
-                x-show="kind === 'task'"
-                class="lic-event-chip"
+        @if(! (($embedInFocusModal ?? false) && ! $hasEventParent))
+            <x-workspace.event-parent-popover
+                :task-id="$item->id"
+                :current-event-id="$item->event_id"
+                :current-event-title="$item->event?->title"
             >
-                <flux:icon name="calendar" class="size-3" />
                 <span
-                    class="inline-flex items-baseline gap-1"
-                    style="{{ ($item->event_id && $item->event) ? '' : 'display: none;' }}"
-                    x-show="showEventPill"
+                    x-show="kind === 'task'"
+                    class="lic-event-chip"
                 >
-                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Event') }}:</span>
-                    <span class="truncate max-w-[120px] uppercase" x-text="itemEventTitle ?? ''">{{ $item->event?->title ?? '' }}</span>
+                    <flux:icon name="calendar" class="size-3" />
+                    <span
+                        class="inline-flex items-baseline gap-1"
+                        style="{{ ($item->event_id && $item->event) ? '' : 'display: none;' }}"
+                        x-show="showEventPill"
+                    >
+                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Event') }}:</span>
+                        <span class="truncate max-w-[120px] uppercase" x-text="itemEventTitle ?? ''">{{ $item->event?->title ?? '' }}</span>
+                    </span>
+                    <span
+                        class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-70"
+                        style="{{ ($item->event_id && $item->event) ? 'display: none;' : '' }}"
+                        x-show="!showEventPill"
+                    >
+                        {{ __('Put in event') }}
+                    </span>
                 </span>
-                <span
-                    class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-70"
-                    style="{{ ($item->event_id && $item->event) ? 'display: none;' : '' }}"
-                    x-show="!showEventPill"
-                >
-                    {{ __('Put in event') }}
-                </span>
-            </span>
-        </x-workspace.event-parent-popover>
+            </x-workspace.event-parent-popover>
+        @endif
     @else
         <span
             x-show="kind === 'task' && showProjectPill"

@@ -2,6 +2,9 @@
 @php
     $layout = $layout ?? 'list';
     $isKanbanLayout = $layout === 'kanban';
+    $embedInFocusModal = (bool) ($embedInFocusModal ?? false);
+    $descriptionText = trim((string) ($description ?? ''));
+    $hideEmptyDescriptionInFocusModal = $embedInFocusModal && $descriptionText === '';
     $cardTitleViewClass = $isKanbanLayout
         ? 'text-lg leading-snug md:text-xl'
         : 'text-xl leading-tight md:text-2xl';
@@ -52,11 +55,11 @@
             <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
                 {{-- Server-rendered first paint --}}
                 <div x-show="!alpineReady">
-                    @if(trim((string) ($description ?? '')) !== '')
+                    @if($descriptionText !== '')
                         <p
                             class="line-clamp-2 text-xs text-foreground/70 {{ $canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default' }} transition-opacity"
                         >{{ $description ?? '' }}</p>
-                    @elseif($canEdit)
+                    @elseif($canEdit && ! $hideEmptyDescriptionInFocusModal)
                         <button
                             type="button"
                             class="text-xs text-muted-foreground hover:text-foreground/70 transition-colors inline-flex items-center gap-1 cursor-pointer"
@@ -76,6 +79,7 @@
                         :class="canEdit ? 'cursor-text hover:opacity-80' : 'cursor-default'"
                         x-text="editedDescription"
                     ></p>
+                    @if(! $hideEmptyDescriptionInFocusModal)
                     <button
                         x-show="canEdit && !editedDescription"
                         type="button"
@@ -85,6 +89,7 @@
                         <flux:icon name="plus" class="size-3" />
                         <span x-text="addDescriptionLabel"></span>
                     </button>
+                    @endif
                 </div>
 
                 <div

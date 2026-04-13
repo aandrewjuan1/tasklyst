@@ -14,7 +14,7 @@
                 variant="segmented"
                 size="sm"
                 x-model="focusModeType"
-                class="w-full"
+                class="w-full text-sm font-semibold"
             >
                 @foreach($focusModeTypes ?? [] as $ft)
                     @php
@@ -41,12 +41,12 @@
                     {{-- Ready: dynamic label by focusModeType (hide when any active session is running) --}}
                     <div class="flex flex-col gap-0.5" x-show="!isFocused && !isBreakFocused">
                         <div class="flex flex-col gap-0.5" x-show="focusModeType === 'countdown'">
-                            <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                            <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks.') }}</span>
+                            <span class="text-base font-bold tracking-tight text-foreground">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
+                            <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ __('Count down your set duration with no breaks.') }}</span>
                         </div>
                         <div class="flex flex-col gap-0.5" x-show="focusModeType === 'pomodoro'" x-cloak>
                             <div class="flex items-center gap-2">
-                                <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
+                                <span class="text-base font-bold tracking-tight text-foreground">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
                                 <flux:tooltip toggleable position="top">
                                     <flux:button icon="information-circle" size="sm" variant="ghost" />
                                     <flux:tooltip.content class="max-w-[20rem] space-y-2">
@@ -54,33 +54,44 @@
                                         <p x-text="pomodoroTooltipHow"></p>
                                     </flux:tooltip.content>
                                 </flux:tooltip>
+                                <button
+                                    type="button"
+                                    class="inline-flex items-center gap-1 rounded-full border border-border/60 bg-background/80 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    :aria-expanded="showPomodoroSettings ? 'true' : 'false'"
+                                    aria-controls="focus-pomodoro-settings-panel"
+                                    @click="showPomodoroSettings = !showPomodoroSettings"
+                                >
+                                    <flux:icon name="chevron-up" class="size-3" x-show="showPomodoroSettings" x-cloak />
+                                    <flux:icon name="chevron-down" class="size-3" x-show="!showPomodoroSettings" />
+                                    <span x-text="showPomodoroSettings ? '{{ __('Hide settings') }}' : '{{ __('Show settings') }}'"></span>
+                                </button>
                             </div>
-                            <span class="max-w-sm text-xs leading-snug text-zinc-500" x-text="pomodoroSummaryText"></span>
+                            <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300" x-text="pomodoroSummaryText"></span>
                         </div>
                         <div class="flex flex-col gap-0.5" x-show="focusModeType !== 'countdown' && focusModeType !== 'pomodoro'" x-cloak>
-                            <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                            <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks.') }}</span>
+                            <span class="text-base font-bold tracking-tight text-foreground">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
+                            <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ __('Count down your set duration with no breaks.') }}</span>
                         </div>
                     </div>
                     {{-- Active: show Pomodoro or Sprint depending on session --}}
                     <div class="flex flex-col gap-0.5" x-show="isFocused && activeFocusSession?.focus_mode_type === 'pomodoro' && activeFocusSession?.type === 'work'" x-cloak>
                         <div class="flex items-center gap-2">
-                            <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
-                            <span class="text-xs font-medium text-zinc-500" x-text="pomodoroSequenceText"></span>
+                            <span class="text-base font-bold tracking-tight text-foreground">{{ __('Focus mode') }} · {{ __('Pomodoro') }}</span>
+                            <span class="text-sm font-semibold text-zinc-700 dark:text-zinc-300" x-text="pomodoroSequenceText"></span>
                         </div>
-                        <span class="max-w-sm text-xs leading-snug text-zinc-500" x-text="pomodoroSummaryText"></span>
+                        <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300" x-text="pomodoroSummaryText"></span>
                     </div>
                     <div class="flex flex-col gap-0.5" x-show="isBreakFocused && activeFocusSession?.type === 'short_break'" x-cloak>
-                        <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Break time') }} · {{ __('Short Break') }}</span>
-                        <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Take a short break to recharge.') }}</span>
+                        <span class="text-base font-bold tracking-tight text-foreground">{{ __('Break time') }} · {{ __('Short Break') }}</span>
+                        <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ __('Take a short break to recharge.') }}</span>
                     </div>
                     <div class="flex flex-col gap-0.5" x-show="isBreakFocused && activeFocusSession?.type === 'long_break'" x-cloak>
-                        <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Break time') }} · {{ __('Long Break') }}</span>
-                        <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Take a longer break to rest and recharge.') }}</span>
+                        <span class="text-base font-bold tracking-tight text-foreground">{{ __('Break time') }} · {{ __('Long Break') }}</span>
+                        <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ __('Take a longer break to rest and recharge.') }}</span>
                     </div>
                     <div class="flex flex-col gap-0.5" x-show="isFocused && activeFocusSession?.focus_mode_type !== 'pomodoro'" x-cloak>
-                        <span class="text-sm font-semibold tracking-tight text-primary">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
-                        <span class="max-w-sm text-xs leading-snug text-zinc-500">{{ __('Count down your set duration with no breaks.') }}</span>
+                        <span class="text-base font-bold tracking-tight text-foreground">{{ __('Focus mode') }} · {{ __('Sprint') }}</span>
+                        <span class="max-w-md text-sm leading-snug text-zinc-700 dark:text-zinc-300">{{ __('Count down your set duration with no breaks.') }}</span>
                     </div>
                 </div>
             </div>
@@ -259,95 +270,97 @@
 
         {{-- Row 3: Pomodoro settings — always visible when Pomodoro selected and not focused --}}
         <div
-            x-show="!isFocused && !isBreakFocused && focusModeType === 'pomodoro'"
+            id="focus-pomodoro-settings-panel"
+            x-show="!isFocused && !isBreakFocused && focusModeType === 'pomodoro' && showPomodoroSettings"
             x-cloak
-            class="focus-modal-pomodoro-settings flex flex-wrap items-end gap-4 rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-3 dark:border-zinc-700/70 dark:bg-zinc-900/50"
+            class="focus-modal-pomodoro-settings flex w-full flex-col gap-2 rounded-xl border border-zinc-200/70 bg-zinc-50/80 p-2.5 dark:border-zinc-700/70 dark:bg-zinc-900/50"
         >
-            {{-- Duration inputs --}}
-            <div class="flex flex-col gap-2">
-                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroWorkLabel"></label>
-                <flux:input
-                    type="number"
-                    min="{{ $pomodoroWorkMin ?? 1 }}"
-                    max="{{ $pomodoroWorkMax ?? 120 }}"
-                    x-model.number="pomodoroWorkMinutes"
-                    class="w-14 text-sm tabular-nums"
-                    inputmode="numeric"
-                    @blur="savePomodoroSettings()"
-                    @keydown.enter.prevent="savePomodoroSettings()"
-                />
-            </div>
-            <div class="flex flex-col gap-2">
-                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroShortBreakLabel"></label>
-                <flux:input
-                    type="number"
-                    min="1"
-                    max="{{ $pomodoroShortBreakMax ?? 60 }}"
-                    x-model.number="pomodoroShortBreakMinutes"
-                    class="w-14 text-sm tabular-nums"
-                    inputmode="numeric"
-                    @blur="savePomodoroSettings()"
-                    @keydown.enter.prevent="savePomodoroSettings()"
-                />
-            </div>
-            <div class="flex flex-col gap-2">
-                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroLongBreakLabel"></label>
-                <flux:input
-                    type="number"
-                    min="1"
-                    max="{{ $pomodoroLongBreakMax ?? 60 }}"
-                    x-model.number="pomodoroLongBreakMinutes"
-                    class="w-14 text-sm tabular-nums"
-                    inputmode="numeric"
-                    @blur="savePomodoroSettings()"
-                    @keydown.enter.prevent="savePomodoroSettings()"
-                />
-            </div>
-            <div class="flex flex-col gap-2">
-                <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    <span x-text="pomodoroEveryLabel"></span>
-                    <span class="ml-1 text-[10px] font-normal text-zinc-400">
-                        ({{ __('min 2') }})
-                    </span>
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div class="flex min-w-0 flex-col gap-1">
+                        <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroWorkLabel"></label>
+                        <flux:input
+                            type="number"
+                            min="{{ $pomodoroWorkMin ?? 1 }}"
+                            max="{{ $pomodoroWorkMax ?? 120 }}"
+                            x-model.number="pomodoroWorkMinutes"
+                            class="w-full text-xs tabular-nums"
+                            inputmode="numeric"
+                            @blur="savePomodoroSettings()"
+                            @keydown.enter.prevent="savePomodoroSettings()"
+                        />
+                    </div>
+                    <div class="flex min-w-0 flex-col gap-1">
+                        <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroShortBreakLabel"></label>
+                        <flux:input
+                            type="number"
+                            min="1"
+                            max="{{ $pomodoroShortBreakMax ?? 60 }}"
+                            x-model.number="pomodoroShortBreakMinutes"
+                            class="w-full text-xs tabular-nums"
+                            inputmode="numeric"
+                            @blur="savePomodoroSettings()"
+                            @keydown.enter.prevent="savePomodoroSettings()"
+                        />
+                    </div>
+                    <div class="flex min-w-0 flex-col gap-1">
+                        <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400" x-text="pomodoroLongBreakLabel"></label>
+                        <flux:input
+                            type="number"
+                            min="1"
+                            max="{{ $pomodoroLongBreakMax ?? 60 }}"
+                            x-model.number="pomodoroLongBreakMinutes"
+                            class="w-full text-xs tabular-nums"
+                            inputmode="numeric"
+                            @blur="savePomodoroSettings()"
+                            @keydown.enter.prevent="savePomodoroSettings()"
+                        />
+                    </div>
+                    <div class="flex min-w-0 flex-col gap-1">
+                        <label class="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                            <span x-text="pomodoroEveryLabel"></span>
+                            <span class="ml-1 text-[10px] font-normal text-zinc-400">
+                                ({{ __('min 2') }})
+                            </span>
+                        </label>
+                        <flux:input
+                            type="number"
+                            min="{{ $pomodoroLongBreakAfterMin ?? 2 }}"
+                            max="{{ $pomodoroLongBreakAfterMax ?? 10 }}"
+                            x-model.number="pomodoroLongBreakAfter"
+                            class="w-full text-xs tabular-nums"
+                            inputmode="numeric"
+                            @blur="savePomodoroSettings()"
+                            @keydown.enter.prevent="savePomodoroSettings()"
+                        />
+                    </div>
+                </div>
+
+            <div class="flex flex-wrap items-center gap-3 border-t border-zinc-200/70 pt-2 dark:border-zinc-700/70">
+                <label class="flex cursor-pointer items-center gap-1.5">
+                    <flux:checkbox x-model="pomodoroAutoStartBreak" @change="savePomodoroSettings()" />
+                    <span class="text-xs font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroAutoStartBreakLabel"></span>
                 </label>
-                <flux:input
-                    type="number"
-                    min="{{ $pomodoroLongBreakAfterMin ?? 2 }}"
-                    max="{{ $pomodoroLongBreakAfterMax ?? 10 }}"
-                    x-model.number="pomodoroLongBreakAfter"
-                    class="w-14 text-sm tabular-nums"
-                    inputmode="numeric"
-                    @blur="savePomodoroSettings()"
-                    @keydown.enter.prevent="savePomodoroSettings()"
-                />
-            </div>
-            {{-- Checkboxes and volume --}}
-            <label class="flex cursor-pointer items-center gap-2 pb-1">
-                <flux:checkbox x-model="pomodoroAutoStartBreak" @change="savePomodoroSettings()" />
-                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroAutoStartBreakLabel"></span>
-            </label>
-            <label class="flex cursor-pointer items-center gap-2 pb-1">
-                <flux:checkbox x-model="pomodoroAutoStartPomodoro" @change="savePomodoroSettings()" />
-                <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroAutoStartPomodoroLabel"></span>
-            </label>
-            <div class="flex items-center gap-2 pb-1">
-                <label class="flex cursor-pointer items-center gap-2">
+                <label class="flex cursor-pointer items-center gap-1.5">
+                    <flux:checkbox x-model="pomodoroAutoStartPomodoro" @change="savePomodoroSettings()" />
+                    <span class="text-xs font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroAutoStartPomodoroLabel"></span>
+                </label>
+                <label class="flex cursor-pointer items-center gap-1.5">
                     <flux:checkbox x-model="pomodoroSoundEnabled" @change="savePomodoroSettings()" />
-                    <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroSoundLabel"></span>
+                    <span class="text-xs font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap" x-text="pomodoroSoundLabel"></span>
                 </label>
                 <template x-if="pomodoroSoundEnabled">
-                    <div class="flex items-center gap-1.5">
+                    <div class="flex min-w-0 items-center gap-1.5">
                         <span class="text-xs font-medium text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroVolumeLabel"></span>
                         <input
                             type="range"
                             min="0"
                             max="100"
                             x-model.number="pomodoroSoundVolume"
-                            class="h-2 w-12 min-w-0 accent-primary"
+                            class="h-1.5 min-w-0 w-24 accent-primary"
                             aria-label="Volume"
                             @change="savePomodoroSettings()"
                         />
-                        <span class="w-6 text-right text-xs tabular-nums text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroSoundVolume + '%'"></span>
+                        <span class="w-8 text-right text-[11px] tabular-nums text-zinc-600 dark:text-zinc-400 shrink-0" x-text="pomodoroSoundVolume + '%'"></span>
                     </div>
                 </template>
             </div>

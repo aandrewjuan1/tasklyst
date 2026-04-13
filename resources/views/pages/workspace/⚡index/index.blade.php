@@ -118,10 +118,10 @@
                                         :aria-selected="activeViewMode() === 'list'"
                                         aria-controls="workspace-list-panel"
                                         id="workspace-view-list"
-                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 {{ $this->viewMode === 'list' ? 'bg-brand-blue text-white shadow-sm' : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' }}"
+                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
                                         :class="activeViewMode() === 'list'
-                                            ? 'bg-brand-blue text-white shadow-sm'
-                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
+                                            ? 'bg-brand-blue text-white shadow-sm hover:bg-brand-blue'
+                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
                                         @click="setView('list')"
                                     >
                                         {{ __('List') }}
@@ -132,10 +132,10 @@
                                         :aria-selected="activeViewMode() === 'kanban'"
                                         aria-controls="workspace-kanban-panel"
                                         id="workspace-view-kanban"
-                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 {{ $this->viewMode === 'kanban' ? 'bg-brand-blue text-white shadow-sm' : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90' }}"
+                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
                                         :class="activeViewMode() === 'kanban'
-                                            ? 'bg-brand-blue text-white shadow-sm'
-                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:hover:bg-zinc-800/90'"
+                                            ? 'bg-brand-blue text-white shadow-sm hover:bg-brand-blue'
+                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
                                         @click="setView('kanban')"
                                     >
                                         {{ __('Kanban') }}

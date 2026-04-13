@@ -43,6 +43,7 @@ export function listItemCard(config) {
         _audioContext: null, // Shared audio context for completion sounds
         _audioGainNode: null, // Shared gain node for completion sounds
         showFocusStartChoice: false,
+        showPomodoroSettings: false,
         previousUnfinishedRemainingSecondsValue: 0,
         previousUnfinishedProgressPercentValue: 0,
         previousUnfinishedTickerId: null,
@@ -55,6 +56,19 @@ export function listItemCard(config) {
             this.startPreviousUnfinishedTicker();
             this.$watch('previousUnfinishedSession', () => this.syncPreviousUnfinishedSnapshot());
             this.$watch('activeFocusSession', () => this.syncPreviousUnfinishedSnapshot());
+            this.$watch('focusModeType', (mode) => {
+                if (mode !== 'pomodoro') {
+                    this.showPomodoroSettings = false;
+                }
+            });
+            this.$watch(
+                () => this.isFocused || this.isBreakFocused,
+                (active) => {
+                    if (active) {
+                        this.showPomodoroSettings = false;
+                    }
+                }
+            );
             if (this.itemId != null && window.Alpine?.store) {
                 let store = window.Alpine.store('listItemCards');
                 if (!store || typeof store !== 'object') {
@@ -473,10 +487,8 @@ export function listItemCard(config) {
             const long = Math.max(0, Math.floor(Number(this.pomodoroLongBreakMinutes ?? 15)));
             const every = Math.max(2, Math.min(10, Math.floor(Number(this.pomodoroLongBreakAfter ?? 4))));
             const minLabel = this.focusDurationLabelMin ?? 'min';
-            const everyLabel = this.pomodoroLongBreakEveryLabel ?? 'Long break every';
-            // Use lightweight icons for a more visual summary:
-            // Work: X → Short break: Y → Long break: Z ⟳ Long break every N pomodoros
-            return `Work: ${work} ${minLabel} → Short break: ${short} ${minLabel} → Long break: ${long} ${minLabel} ⟳ ${everyLabel} ${every} pomodoros`;
+            // Keep this sentence concise and easy to scan in the focus bar.
+            return `Focus for ${work} ${minLabel}, then take a ${short} ${minLabel} short break. After ${every} rounds, take a ${long} ${minLabel} long break.`;
         },
         getPomodoroSettingsPayload() {
             return getPomodoroSettingsPayloadLib({

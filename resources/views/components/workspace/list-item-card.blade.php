@@ -138,6 +138,7 @@
                 >
                     @include('components.workspace.list-item-card.header', [
                         'layout' => 'list',
+                        'embedInFocusModal' => true,
                     ])
                     <div class="flex flex-wrap items-center gap-2 pt-0.5 text-xs">
                         @if($kind === 'project')
@@ -188,7 +189,10 @@
             style="pointer-events: auto; user-select: none; -webkit-user-select: none;"
             aria-hidden="true"
         ></div>
-        @include('components.workspace.list-item-card.header', ['layout' => $layout])
+        @include('components.workspace.list-item-card.header', [
+            'layout' => $layout,
+            'embedInFocusModal' => false,
+        ])
 
         <div @class([
             'min-w-0',
