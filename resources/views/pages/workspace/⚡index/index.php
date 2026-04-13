@@ -8,6 +8,8 @@ use App\Models\Project;
 use App\Models\CalendarFeed;
 use Livewire\Component;
 use App\Enums\TaskSourceType;
+use App\Enums\TaskStatus;
+use App\Enums\EventStatus;
 use App\Services\TagService;
 use Livewire\Attributes\Url;
 use App\Services\TaskService;
@@ -580,6 +582,21 @@ class extends Component
     }
 
     /**
+     * Build unified completed entries across tasks/events/projects.
+     *
+     * @return Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
+     */
+    public function completedListEntries(): Collection
+    {
+        return WorkspaceListAggregator::mergeOrderAndDedupe(
+            collect(),
+            $this->completedProjects,
+            $this->completedEvents,
+            $this->completedTasks,
+        );
+    }
+
+    /**
      * Build planner sections used by the list UI.
      *
      * @return Collection<int, array{kind: string, item: mixed, isOverdue: bool, plannerSection: string, plannerSectionLabel: string}>
@@ -965,6 +982,7 @@ class extends Component
                 ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->overdue($overdueAsOf)
+                ->where('status', '!=', TaskStatus::Done->value)
                 ->whereDoesntHave('recurringTask');
 
             if (method_exists($this, 'applyOverdueTaskFilters')) {
@@ -996,6 +1014,7 @@ class extends Component
                 ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->notCancelled()
+                ->where('status', '!=', EventStatus::Completed->value)
                 ->overdue($overdueAsOf)
                 ->whereDoesntHave('recurringEvent');
 

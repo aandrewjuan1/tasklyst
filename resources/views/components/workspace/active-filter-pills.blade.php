@@ -110,6 +110,7 @@
             eventStatus: @js($filters['eventStatus'] ?? null),
             tagIds: @js($filters['tagIds'] ?? []),
             recurring: @js($filters['recurring'] ?? null),
+            showCompleted: @js((bool) ($filters['showCompleted'] ?? false)),
         },
         _m(cls) {
             return cls ? cls.trim().split(/\s+/).filter(Boolean) : [];
@@ -178,6 +179,7 @@
                 this.displayFilters.eventStatus = $wire.filterEventStatus ?? null;
                 this.displayFilters.tagIds = $wire.filterTagIds ?? [];
                 this.displayFilters.recurring = $wire.filterRecurring ?? null;
+                this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1';
             };
             this.$watch('$wire.filterItemType', () => { this.displayFilters.itemType = $wire.filterItemType ?? null; });
             this.$watch('$wire.filterTaskStatus', () => { this.displayFilters.taskStatus = $wire.filterTaskStatus ?? null; });
@@ -186,6 +188,7 @@
             this.$watch('$wire.filterEventStatus', () => { this.displayFilters.eventStatus = $wire.filterEventStatus ?? null; });
             this.$watch('$wire.filterTagIds', () => { this.displayFilters.tagIds = $wire.filterTagIds ?? []; });
             this.$watch('$wire.filterRecurring', () => { this.displayFilters.recurring = $wire.filterRecurring ?? null; });
+            this.$watch('$wire.showCompleted', () => { this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1'; });
             const typeSpecificKeys = ['taskStatus', 'taskPriority', 'taskComplexity', 'eventStatus'];
             const handler = (e) => {
                 const { key, value } = e.detail || {};
@@ -260,67 +263,87 @@
             window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'clearAll' } }));
             $wire.clearAllFilters();
         },
+        toggleShowCompleted() {
+            this.displayFilters.showCompleted = !this.displayFilters.showCompleted;
+            $wire.set('showCompleted', this.displayFilters.showCompleted ? '1' : '0');
+        },
     }"
     class="flex min-h-9 flex-wrap items-center gap-2"
     @keydown.escape.window="closeAllPillMenus()"
 >
     @if ($showListScopedFilters)
-        {{-- Show pill: same palette as list-item-card _item-type-pill (lic-item-type-pill--*) --}}
-        <span
-            class="lic-item-type-pill max-w-full"
-            :class="{
-                'lic-item-type-pill--task': displayFilters.itemType === 'tasks',
-                'lic-item-type-pill--event': displayFilters.itemType === 'events',
-                'lic-item-type-pill--project': displayFilters.itemType === 'projects',
-                'border-zinc-300/90 bg-zinc-100/90 text-zinc-800 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-100': !displayFilters.itemType,
-            }"
-        >
-            <div class="relative min-w-0" @click.outside="closePillMenu('itemType')">
+        <div class="inline-flex items-center gap-1.5">
+            <flux:tooltip :content="__('Toggle completed items visibility')" position="top">
                 <button
                     type="button"
-                    class="workspace-filter-pill-trigger"
-                    @click.stop="togglePillMenu('itemType')"
-                    :aria-expanded="menus.itemType"
-                    aria-haspopup="menu"
+                    @click="toggleShowCompleted()"
+                    class="inline-flex size-8 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45"
+                    :class="displayFilters.showCompleted
+                        ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 shadow-sm dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
+                        : 'border-zinc-300/80 bg-white/90 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-300 dark:hover:bg-zinc-700/90'"
+                    :aria-pressed="displayFilters.showCompleted"
+                    aria-label="{{ __('Toggle completed items visibility') }}"
                 >
-                    <span
-                        class="truncate"
-                        x-text="pillLabels.itemType + ': ' + (labels.itemType[displayFilters.itemType ?? ''] || '{{ __('All') }}')"
-                    >{{ $pillLabels['itemType'] }}: {{ $filters['itemType'] ? ($itemTypeLabels[$filters['itemType']] ?? __('All')) : __('All') }}</span>
-                    <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                    </svg>
+                    <flux:icon name="check-badge" class="size-4" />
                 </button>
-                <div
-                    x-cloak
-                    x-show="menus.itemType"
-                    x-transition
-                    class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
-                    role="menu"
-                >
-                    @foreach ($itemTypeLabels as $optValue => $optLabel)
-                        <label
-                            wire:key="pill-it-{{ $optValue === '' ? 'all' : $optValue }}"
-                            class="workspace-filter-option"
-                            @click="closePillMenu('itemType')"
-                        >
-                            <input
-                                type="radio"
-                                class="sr-only"
-                                wire:model.live="filterItemType"
-                                value="{{ $optValue }}"
-                                @click="
-                                    const v = '{{ $optValue }}' || null;
-                                    displayFilters.itemType = (v === '' || v === null) ? null : v;
-                                    window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: (v === '' || v === null) ? null : v } }));
-                                "
-                            />
-                            <span class="min-w-0 flex-1">{{ $optLabel }}</span>
-                        </label>
-                    @endforeach
+            </flux:tooltip>
+            {{-- Show pill: same palette as list-item-card _item-type-pill (lic-item-type-pill--*) --}}
+            <span
+                class="lic-item-type-pill max-w-full"
+                :class="{
+                    'lic-item-type-pill--task': displayFilters.itemType === 'tasks',
+                    'lic-item-type-pill--event': displayFilters.itemType === 'events',
+                    'lic-item-type-pill--project': displayFilters.itemType === 'projects',
+                    'border-zinc-300/90 bg-zinc-100/90 text-zinc-800 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-100': !displayFilters.itemType,
+                }"
+            >
+                <div class="relative min-w-0" @click.outside="closePillMenu('itemType')">
+                    <button
+                        type="button"
+                        class="workspace-filter-pill-trigger"
+                        @click.stop="togglePillMenu('itemType')"
+                        :aria-expanded="menus.itemType"
+                        aria-haspopup="menu"
+                    >
+                        <span
+                            class="truncate"
+                            x-text="pillLabels.itemType + ': ' + (labels.itemType[displayFilters.itemType ?? ''] || '{{ __('All') }}')"
+                        >{{ $pillLabels['itemType'] }}: {{ $filters['itemType'] ? ($itemTypeLabels[$filters['itemType']] ?? __('All')) : __('All') }}</span>
+                        <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                        </svg>
+                    </button>
+                    <div
+                        x-cloak
+                        x-show="menus.itemType"
+                        x-transition
+                        class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
+                        role="menu"
+                    >
+                        @foreach ($itemTypeLabels as $optValue => $optLabel)
+                            <label
+                                wire:key="pill-it-{{ $optValue === '' ? 'all' : $optValue }}"
+                                class="workspace-filter-option"
+                                @click="closePillMenu('itemType')"
+                            >
+                                <input
+                                    type="radio"
+                                    class="sr-only"
+                                    wire:model.live="filterItemType"
+                                    value="{{ $optValue }}"
+                                    @click="
+                                        const v = '{{ $optValue }}' || null;
+                                        displayFilters.itemType = (v === '' || v === null) ? null : v;
+                                        window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'itemType', value: (v === '' || v === null) ? null : v } }));
+                                    "
+                                />
+                                <span class="min-w-0 flex-1">{{ $optLabel }}</span>
+                            </label>
+                        @endforeach
+                    </div>
                 </div>
-            </div>
-        </span>
+            </span>
+        </div>
     @else
         {{-- Kanban: tasks only; item type is display-only (not wired to filterItemType). --}}
         <flux:tooltip

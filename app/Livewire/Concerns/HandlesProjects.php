@@ -343,6 +343,8 @@ trait HandlesProjects
 
         $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
 
+        /** @var \Illuminate\Database\Eloquent\Builder $query */
+        /** @var \Illuminate\Database\Eloquent\Builder $query */
         $query = Project::query()
             ->with([
                 'tasks',
@@ -390,7 +392,70 @@ trait HandlesProjects
 
         $this->hasMoreProjects = $projects->count() > $visibleLimit;
 
-        return $projects->take($visibleLimit);
+        $result = $projects->take($visibleLimit)->values();
+
+        return $result->filter(function (Project $project): bool {
+            return ! ($project->end_datetime?->isPast() ?? false);
+        })->values();
+    }
+
+    /**
+     * Projects whose end date is in the past for the current workspace scope.
+     *
+     * @return Collection<int, Project>
+     */
+    #[Computed]
+    public function completedProjects(): Collection
+    {
+        if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
+            return collect();
+        }
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'projects') {
+            return collect();
+        }
+
+        $userId = Auth::id();
+        if ($userId === null) {
+            return collect();
+        }
+
+        $visibleLimit = (property_exists($this, 'projectsPerPage') ? (int) $this->projectsPerPage : 10)
+            * (property_exists($this, 'projectsPage') ? max(1, (int) $this->projectsPage) : 1);
+        $queryLimit = $visibleLimit + 1;
+
+        $query = Project::query()
+            ->with([
+                'tasks',
+                'user',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+            ])
+            ->withRecentComments(5)
+            ->withCount('comments')
+            ->withCount('tasks')
+            ->withCount('activityLogs')
+            ->withRecentActivityLogs(5)
+            ->forUser($userId)
+            ->notArchived()
+            ->whereNotNull('end_datetime')
+            ->where('end_datetime', '<', now());
+
+        if (method_exists($this, 'applyProjectFilters')) {
+            $this->applyProjectFilters($query);
+        }
+        if (method_exists($this, 'applyWorkspaceSearchToProjectQuery')) {
+            $this->applyWorkspaceSearchToProjectQuery($query);
+        }
+
+        return $query
+            ->orderBy('end_datetime', 'desc')
+            ->orderByDesc('id')
+            ->limit($queryLimit)
+            ->get()
+            ->take($visibleLimit)
+            ->values();
     }
 
     /**

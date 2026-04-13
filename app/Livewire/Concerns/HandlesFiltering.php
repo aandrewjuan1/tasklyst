@@ -46,6 +46,10 @@ trait HandlesFiltering
     #[Url(as: 'scope')]
     public string $searchScope = 'selected_date';
 
+    /** @var string '0' = hide completed items, '1' = show completed items */
+    #[Url(as: 'completed')]
+    public string $showCompleted = '0';
+
     /** @var bool Whether user manually set item type; skip auto-sync override when both event and task filters are set */
     protected bool $userManuallySetItemType = false;
 
@@ -331,6 +335,11 @@ trait HandlesFiltering
         return $this->searchScope === 'all_items';
     }
 
+    public function shouldShowCompleted(): bool
+    {
+        return $this->showCompleted === '1';
+    }
+
     /**
      * When search scope changes, refresh the list.
      */
@@ -351,6 +360,15 @@ trait HandlesFiltering
         if ($trimmed === '') {
             $this->searchQuery = null;
         }
+        $this->refreshListAfterFilterChange();
+    }
+
+    public function updatedShowCompleted(string $value): void
+    {
+        if ($value !== '0' && $value !== '1') {
+            $this->showCompleted = '0';
+        }
+
         $this->refreshListAfterFilterChange();
     }
 
@@ -578,6 +596,7 @@ trait HandlesFiltering
             'searchQuery' => $this->getTrimmedSearchQuery(),
             'hasActiveSearch' => $this->hasActiveSearch(),
             'searchScope' => $this->searchScope,
+            'showCompleted' => $this->shouldShowCompleted(),
             'quickSection' => property_exists($this, 'quickSection') ? $this->quickSection : 'all',
         ];
     }

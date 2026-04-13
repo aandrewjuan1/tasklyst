@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Event\CreateEventDto;
 use App\DataTransferObjects\Event\CreateEventExceptionDto;
+use App\Enums\EventStatus;
 use App\Models\Event;
 use App\Models\EventException;
 use App\Models\RecurringEvent;
@@ -570,7 +571,93 @@ trait HandlesEvents
             $result = $this->filterEventCollection($result);
         }
 
-        return $result;
+        return $result->filter(function (Event $event): bool {
+            $effective = $event->effectiveStatusForDate ?? $event->status;
+
+            return $effective !== EventStatus::Completed && $effective !== EventStatus::Cancelled;
+        })->values();
+    }
+
+    /**
+     * Completed/cancelled events for the current workspace scope.
+     *
+     * @return Collection<int, Event>
+     */
+    #[Computed]
+    public function completedEvents(): Collection
+    {
+        if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
+            return collect();
+        }
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        if ($filterItemType !== null && $filterItemType !== 'events') {
+            return collect();
+        }
+
+        $userId = Auth::id();
+        if ($userId === null) {
+            return collect();
+        }
+
+        $visibleLimit = (property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 10)
+            * (property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1);
+        $queryLimit = $visibleLimit + 1;
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+
+        $eventQuery = Event::query()
+            ->with([
+                'tasks',
+                'user',
+                'recurringEvent',
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+            ])
+            ->withRecentComments(5)
+            ->withCount('comments')
+            ->withCount('tasks')
+            ->withCount('activityLogs')
+            ->withRecentActivityLogs(5)
+            ->forUser($userId);
+
+        if (! $searchAllItems) {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $eventQuery->activeForDate($date);
+        }
+
+        if (method_exists($this, 'applyEventFilters')) {
+            $this->applyEventFilters($eventQuery);
+        }
+        if (method_exists($this, 'applyWorkspaceSearchToEventQuery')) {
+            $this->applyWorkspaceSearchToEventQuery($eventQuery);
+        }
+
+        $events = $eventQuery
+            ->orderByRaw('COALESCE(start_datetime, end_datetime) DESC')
+            ->orderByDesc('id')
+            ->limit($queryLimit)
+            ->get()
+            ->take($visibleLimit);
+
+        $result = $searchAllItems
+            ? $events
+            : $this->eventService->processRecurringEventsForDate(
+                $events,
+                method_exists($this, 'getParsedSelectedDate') ? $this->getParsedSelectedDate() : Carbon::parse($this->selectedDate)
+            );
+
+        if (method_exists($this, 'filterEventCollection')) {
+            $result = $this->filterEventCollection($result);
+        }
+
+        return $result->filter(function (Event $event): bool {
+            $effective = $event->effectiveStatusForDate ?? $event->status;
+
+            return $effective === EventStatus::Completed || $effective === EventStatus::Cancelled;
+        })->values();
     }
 
     /**

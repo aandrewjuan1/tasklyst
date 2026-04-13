@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Task\CreateTaskDto;
 use App\DataTransferObjects\Task\CreateTaskExceptionDto;
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringTask;
@@ -550,7 +551,112 @@ trait HandlesTasks
             $result = $this->filterTaskCollection($result);
         }
 
-        return $result;
+        return $result->filter(function (Task $task): bool {
+            $effective = $task->effectiveStatusForDate ?? $task->status;
+
+            return $effective !== TaskStatus::Done;
+        })->values();
+    }
+
+    /**
+     * Completed tasks for the current workspace scope.
+     *
+     * @return Collection<int, Task>
+     */
+    #[Computed]
+    public function completedTasks(): Collection
+    {
+        if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
+            return collect();
+        }
+        $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
+        $isKanban = property_exists($this, 'viewMode') && $this->viewMode === 'kanban';
+        if (! $isKanban && $filterItemType !== null && $filterItemType !== 'tasks') {
+            return collect();
+        }
+
+        $userId = Auth::id();
+        if ($userId === null) {
+            return collect();
+        }
+
+        $visibleLimit = (property_exists($this, 'tasksPerPage') ? (int) $this->tasksPerPage : 10)
+            * (property_exists($this, 'tasksPage') ? max(1, (int) $this->tasksPage) : 1);
+        $queryLimit = $visibleLimit + 1;
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+
+        $taskQuery = Task::query()
+            ->with([
+                'project',
+                'event',
+                'user',
+                'recurringTask',
+                'latestUnfinishedFocusSession',
+                'focusSessions' => fn ($query) => $query
+                    ->work()
+                    ->select(['id', 'focusable_type', 'focusable_id', 'type', 'started_at', 'ended_at', 'paused_at', 'paused_seconds']),
+                'tags',
+                'collaborations',
+                'collaborators',
+                'collaborationInvitations.invitee',
+            ])
+            ->withRecentComments(5)
+            ->withCount('comments')
+            ->withCount('activityLogs')
+            ->withRecentActivityLogs(5)
+            ->forUser($userId);
+
+        if (! $searchAllItems) {
+            $date = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $taskQuery->relevantForDate($date);
+        }
+
+        if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
+            $project = Project::query()->forUser($userId)->find((int) $this->listContextProjectId);
+            if ($project !== null) {
+                $this->authorize('view', $project);
+                $taskQuery->forProject($project);
+            }
+        } elseif (property_exists($this, 'listContextEventId') && $this->listContextEventId !== null && $this->listContextEventId !== '') {
+            $event = Event::query()->forUser($userId)->find((int) $this->listContextEventId);
+            if ($event !== null) {
+                $this->authorize('view', $event);
+                $taskQuery->forEvent($event);
+            }
+        }
+
+        if (method_exists($this, 'applyTaskFilters')) {
+            $this->applyTaskFilters($taskQuery);
+        }
+        if (method_exists($this, 'applyWorkspaceSearchToTaskQuery')) {
+            $this->applyWorkspaceSearchToTaskQuery($taskQuery);
+        }
+
+        $tasks = $taskQuery
+            ->orderByRaw('COALESCE(end_datetime, start_datetime) DESC')
+            ->orderByDesc('id')
+            ->limit($queryLimit)
+            ->get()
+            ->take($visibleLimit);
+
+        $result = $searchAllItems
+            ? $tasks
+            : $this->taskService->processRecurringTasksForDate(
+                $tasks,
+                method_exists($this, 'getParsedSelectedDate') ? $this->getParsedSelectedDate() : Carbon::parse($this->selectedDate)
+            );
+
+        if (method_exists($this, 'filterTaskCollection')) {
+            $result = $this->filterTaskCollection($result);
+        }
+
+        return $result->filter(function (Task $task): bool {
+            $effective = $task->effectiveStatusForDate ?? $task->status;
+
+            return $effective === TaskStatus::Done;
+        })->values();
     }
 
     /**

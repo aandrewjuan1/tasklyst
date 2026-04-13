@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\TaskRecurrenceType;
+use App\Enums\TaskStatus;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
@@ -20,6 +21,7 @@ test('recurring task with past parent end_datetime still appears on today worksp
         'title' => 'RecurringPastEndWorkspace',
         'start_datetime' => now()->subWeek()->startOfDay(),
         'end_datetime' => now()->subWeek()->endOfDay(),
+        'status' => TaskStatus::ToDo,
     ]);
 
     RecurringTask::factory()->create([
@@ -49,6 +51,7 @@ test('workspace list dedupes overdue task that also matches selected date', func
         'title' => 'OverlapDup',
         'start_datetime' => $yesterday->copy()->subDay(),
         'end_datetime' => $yesterday->copy()->addHours(12),
+        'status' => TaskStatus::ToDo,
     ]);
 
     $this->actingAs($this->user);
@@ -84,24 +87,28 @@ test('workspace list exposes planner sections in expected order', function (): v
         'title' => 'Overdue Section Task',
         'start_datetime' => Carbon::parse('2026-04-10 08:00:00'),
         'end_datetime' => Carbon::parse('2026-04-10 09:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     Task::factory()->for($this->user)->create([
         'title' => 'Today Section Task',
         'start_datetime' => Carbon::parse('2026-04-13 10:00:00'),
         'end_datetime' => Carbon::parse('2026-04-13 18:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     Task::factory()->for($this->user)->create([
         'title' => 'Tomorrow Section Task',
         'start_datetime' => Carbon::parse('2026-04-14 10:00:00'),
         'end_datetime' => Carbon::parse('2026-04-14 11:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     Task::factory()->for($this->user)->create([
         'title' => 'Upcoming Section Task',
         'start_datetime' => Carbon::parse('2026-04-16 10:00:00'),
         'end_datetime' => Carbon::parse('2026-04-16 11:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     $sections = Livewire::test('pages::workspace.index')
@@ -127,6 +134,7 @@ test('workspace list orders overdue tasks by urgency first', function (): void {
         'priority' => 'low',
         'start_datetime' => Carbon::parse('2026-04-12 08:00:00'),
         'end_datetime' => Carbon::parse('2026-04-12 17:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     Task::factory()->for($this->user)->create([
@@ -134,6 +142,7 @@ test('workspace list orders overdue tasks by urgency first', function (): void {
         'priority' => 'urgent',
         'start_datetime' => Carbon::parse('2026-04-11 08:00:00'),
         'end_datetime' => Carbon::parse('2026-04-11 09:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     $titles = Livewire::test('pages::workspace.index')
@@ -160,12 +169,14 @@ test('workspace list quick section focus filters entries', function (): void {
         'title' => 'Today Focus Item',
         'start_datetime' => Carbon::parse('2026-04-13 09:00:00'),
         'end_datetime' => Carbon::parse('2026-04-13 17:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     Task::factory()->for($this->user)->create([
         'title' => 'Tomorrow Focus Item',
         'start_datetime' => Carbon::parse('2026-04-14 09:00:00'),
         'end_datetime' => Carbon::parse('2026-04-14 17:00:00'),
+        'status' => TaskStatus::ToDo,
     ]);
 
     $component = Livewire::test('pages::workspace.index')
@@ -180,4 +191,41 @@ test('workspace list quick section focus filters entries', function (): void {
 
     expect($titles)->toContain('Tomorrow Focus Item')
         ->and($titles)->not->toContain('Today Focus Item');
+});
+
+test('workspace hides completed tasks by default and shows them when toggle is enabled', function (): void {
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Hidden Done Task',
+        'status' => TaskStatus::Done,
+        'start_datetime' => now()->subHour(),
+        'end_datetime' => now()->addHour(),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('showCompleted', '0');
+
+    $activeTitles = $component->instance()
+        ->getAllListEntries()
+        ->pluck('item.title')
+        ->all();
+
+    expect($activeTitles)->not->toContain('Hidden Done Task');
+
+    $component->set('showCompleted', '1');
+
+    $activeTitlesWhenShowingCompleted = $component->instance()
+        ->getAllListEntries()
+        ->pluck('item.title')
+        ->all();
+
+    $completedTitles = $component->instance()
+        ->completedListEntries()
+        ->pluck('item.title')
+        ->all();
+
+    expect($activeTitlesWhenShowingCompleted)->not->toContain('Hidden Done Task')
+        ->and($completedTitles)->toContain('Hidden Done Task');
 });

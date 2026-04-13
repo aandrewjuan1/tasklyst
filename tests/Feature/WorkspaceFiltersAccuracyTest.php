@@ -1,5 +1,8 @@
 <?php
 
+use App\Enums\EventStatus;
+use App\Enums\TaskStatus;
+use App\Models\Event;
 use App\Models\Project;
 use App\Models\Tag;
 use App\Models\Task;
@@ -85,4 +88,44 @@ test('tag filter includes project when a child task has that tag', function (): 
         ->set('filterTagIds', [$tag->id]);
 
     expect($component->instance()->projects()->pluck('id'))->toContain($project->id);
+});
+
+test('completed entries include done tasks, completed events, and ended projects when toggle is enabled', function (): void {
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Completed Scope Task',
+        'status' => TaskStatus::Done,
+        'start_datetime' => now()->subHour(),
+        'end_datetime' => now()->addHour(),
+    ]);
+
+    Event::factory()->for($this->user)->create([
+        'title' => 'Completed Scope Event',
+        'status' => EventStatus::Completed,
+        'start_datetime' => now()->subHour(),
+        'end_datetime' => now()->addHour(),
+        'all_day' => false,
+    ]);
+
+    Project::factory()->for($this->user)->create([
+        'name' => 'Completed Scope Project',
+        'start_datetime' => now()->subWeek(),
+        'end_datetime' => now()->subDay(),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('showCompleted', '1');
+
+    $completedTitles = $component->instance()
+        ->completedListEntries()
+        ->map(fn (array $entry): string => $entry['kind'] === 'project' ? $entry['item']->name : $entry['item']->title)
+        ->values()
+        ->all();
+
+    expect($completedTitles)
+        ->toContain('Completed Scope Task')
+        ->toContain('Completed Scope Event')
+        ->toContain('Completed Scope Project');
 });

@@ -24,6 +24,11 @@ new class extends Component
     public Collection $tags;
 
     /**
+     * @var Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
+     */
+    public Collection $completedEntries;
+
+    /**
      * @var array<string, mixed>
      */
     #[Reactive]

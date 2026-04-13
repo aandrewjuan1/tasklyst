@@ -20,6 +20,11 @@ new class extends Component
      */
     public Collection $listEntries;
 
+    /**
+     * @var Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
+     */
+    public Collection $completedEntries;
+
     public Collection $projects;
 
     public Collection $tags;

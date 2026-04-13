@@ -15,7 +15,7 @@
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
@@ -144,6 +144,7 @@
                             :items-page="$this->itemsPage"
                             :items-per-page="$this->itemsPerPage"
                             :list-entries="$this->getSectionedListEntries()"
+                            :completed-entries="$this->completedListEntries()"
                             :projects="$this->projects"
                             :tags="$this->tags"
                             :filters="$this->getFilters()"
@@ -172,6 +173,7 @@
                             :events="$this->events"
                             :tasks="$this->tasks"
                             :overdue="$this->overdue"
+                            :completed-entries="$this->completedListEntries()"
                             :tags="$this->tags"
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"

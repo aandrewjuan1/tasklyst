@@ -5,11 +5,15 @@
     $priorityRank = ['urgent' => 1, 'high' => 2, 'medium' => 3, 'low' => 4];
     $nowStart = now()->startOfDay();
     $tomorrowStart = $nowStart->copy()->addDay();
+    $effectiveStatusValue = fn ($task) => $task->effectiveStatusForDate?->value ?? $task->status?->value;
     $quickSection = $filters['quickSection'] ?? 'all';
     $quickSection = in_array($quickSection, ['all', 'overdue', 'today', 'tomorrow', 'upcoming'], true) ? $quickSection : 'all';
+    $showCompleted = (bool) ($filters['showCompleted'] ?? false);
+    $completedItems = $showCompleted ? $completedEntries->values() : collect();
     $allTasks = $tasks
         ->merge($overdueTaskItems)
         ->unique('id')
+        ->reject(fn ($task) => $effectiveStatusValue($task) === TaskStatus::Done->value)
         ->map(function ($task) use ($nowStart, $tomorrowStart) {
             $anchorDate = $task->start_datetime ?? $task->end_datetime;
             $section = 'upcoming';
@@ -60,7 +64,6 @@
     $kanbanSearchQueryDisplay = $filters['searchQuery'] ?? null;
     $kanbanBoardIsEmpty = $allTasks->isEmpty();
 
-    $effectiveStatusValue = fn ($task) => $task->effectiveStatusForDate?->value ?? $task->status?->value;
     $tasksByStatus = collect(TaskStatus::cases())->mapWithKeys(fn (TaskStatus $status) => [$status->value => $allTasks->filter(fn ($task) => $effectiveStatusValue($task) === $status->value)->values()])->all();
     $defaultWorkDurationMinutes = config('focus.default_duration_minutes', config('pomodoro.defaults.work_duration_minutes', 25));
     $kanbanColumns = collect(TaskStatus::cases())
@@ -264,4 +267,30 @@
         </div>
     </div>
 </div>
+    @if ($completedItems->isNotEmpty())
+        <div class="space-y-3 border-t border-border/50 pt-4">
+            <div class="px-1">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ __('Completed') }} ({{ $completedItems->count() }})
+                </h3>
+            </div>
+            <div class="space-y-3">
+                @foreach ($completedItems as $entry)
+                    <x-workspace.list-item-card
+                        :kind="$entry['kind']"
+                        :item="$entry['item']"
+                        layout="kanban"
+                        :list-filter-date="$selectedDate"
+                        :filters="$filters"
+                        :available-tags="$tags"
+                        :is-overdue="false"
+                        :active-focus-session="$activeFocusSession"
+                        :default-work-duration-minutes="$defaultWorkDurationMinutes"
+                        :pomodoro-settings="$pomodoroSettings"
+                        wire:key="kanban-completed-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
+                    />
+                @endforeach
+            </div>
+        </div>
+    @endif
 </div>

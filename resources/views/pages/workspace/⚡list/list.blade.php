@@ -25,6 +25,9 @@
         $hasActiveSearch = $filters['hasActiveSearch'] ?? false;
         $searchQueryDisplay = $filters['searchQuery'] ?? null;
         $visibleItemsInitial = $allItems->isEmpty() ? 0 : $totalItemsCount;
+        $showCompleted = (bool) ($filters['showCompleted'] ?? false);
+        $completedItems = $showCompleted ? $completedEntries->values() : collect();
+        $hasAnyListContent = $allItems->isNotEmpty() || $completedItems->isNotEmpty();
     @endphp
 
     <x-workspace.item-creation
@@ -39,7 +42,7 @@
         :visible-items-initial="$visibleItemsInitial"
     />
 
-    @unless ($allItems->isEmpty())
+    @if ($hasAnyListContent)
         <div
             class="space-y-4"
             data-workspace-list-scope
@@ -139,6 +142,31 @@
                     </div>
                 @endif
             </div>
+            @if ($completedItems->isNotEmpty())
+                <div class="space-y-3 border-t border-border/50 pt-4">
+                    <div class="px-1">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {{ __('Completed') }} ({{ $completedItems->count() }})
+                        </h3>
+                    </div>
+                    <div class="space-y-3">
+                        @foreach ($completedItems as $entry)
+                            <x-workspace.list-item-card
+                                :kind="$entry['kind']"
+                                :item="$entry['item']"
+                                :list-filter-date="$selectedDate"
+                                :filters="$filters"
+                                :available-tags="$tags"
+                                :is-overdue="false"
+                                :active-focus-session="$activeFocusSession ?? null"
+                                :default-work-duration-minutes="$defaultWorkDurationMinutes"
+                                :pomodoro-settings="$this->pomodoroSettings"
+                                wire:key="completed-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
+                            />
+                        @endforeach
+                    </div>
+                </div>
+            @endif
         </div>
-    @endunless
+    @endif
 </div>

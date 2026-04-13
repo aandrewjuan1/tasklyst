@@ -16,6 +16,33 @@ export function parseDateTime(value) {
 }
 
 /**
+ * Format a Date as local YYYY-MM-DD.
+ * @param {Date} date
+ * @returns {string}
+ */
+function toLocalDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+/**
+ * Parse YYYY-MM-DD into local day boundaries.
+ * @param {string} filterDate
+ * @returns {{startOfDay: Date, endOfDay: Date}}
+ */
+function dayWindowForFilterDate(filterDate) {
+    const [yearRaw, monthRaw, dayRaw] = String(filterDate).split('-');
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const startOfDay = new Date(year, month - 1, day, 0, 0, 0, 0);
+    const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999);
+    return { startOfDay, endOfDay };
+}
+
+/**
  * Whether an item with given start/end is still relevant for the filter day.
  * filterDate is string YYYY-MM-DD. Used for task, event, and project list filtering.
  * @param {string|null|undefined} startDatetime
@@ -29,17 +56,12 @@ export function isItemStillRelevantForList(startDatetime, endDatetime, filterDat
     if (!start && !end) {
         return true;
     }
-    const startOfDay = new Date(filterDate + 'T00:00:00');
-    const endOfDay = new Date(filterDate + 'T23:59:59.999');
+    const { startOfDay, endOfDay } = dayWindowForFilterDate(filterDate);
     const startOfDayMs = startOfDay.getTime();
     const endOfDayMs = endOfDay.getTime();
     if (!start && end) {
-        try {
-            const endDate = end.toISOString().slice(0, 10);
-            return endDate >= filterDate;
-        } catch (_) {
-            return true;
-        }
+        const endDate = toLocalDateKey(end);
+        return endDate >= filterDate;
     }
     if (!start) {
         return true;
@@ -53,7 +75,7 @@ export function isItemStillRelevantForList(startDatetime, endDatetime, filterDat
             return true;
         }
         const endMs = end.getTime();
-        return endMs >= endOfDayMs;
+        return endMs >= startOfDayMs;
     }
     return false;
 }

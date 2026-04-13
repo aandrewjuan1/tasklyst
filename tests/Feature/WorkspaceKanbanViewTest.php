@@ -252,3 +252,22 @@ test('kanban quick section from query is persisted on workspace state', function
         ->assertSet('quickSection', 'upcoming')
         ->assertDontSee('data-workspace-quick-sections', false);
 });
+
+test('kanban shows completed section when completed toggle is enabled', function (): void {
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Kanban Done Task',
+        'status' => \App\Enums\TaskStatus::Done,
+        'start_datetime' => now()->subDay(),
+        'end_datetime' => now()->subHour(),
+    ]);
+
+    $html = $this->get(route('workspace', ['view' => 'kanban', 'completed' => '1']))
+        ->assertSuccessful()
+        ->assertSee('Kanban Done Task')
+        ->assertSee('Completed', false)
+        ->getContent();
+
+    expect(substr_count($html, 'Kanban Done Task'))->toBe(1);
+});
