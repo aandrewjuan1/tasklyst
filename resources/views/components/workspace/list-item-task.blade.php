@@ -165,8 +165,8 @@
             );
         },
         syncListItemCardScope() {
-            const rootEl = this.$el.closest('.list-item-card');
             const alpine = typeof window !== 'undefined' ? window.Alpine : null;
+            const rootEl = this.$el.closest('.list-item-card');
             let card = null;
             if (rootEl && alpine && typeof alpine.$data === 'function') {
                 try { card = alpine.$data(rootEl); } catch (e) {}
@@ -174,8 +174,77 @@
             if (!card && rootEl && rootEl._x_dataStack && rootEl._x_dataStack.length) {
                 card = rootEl._x_dataStack[rootEl._x_dataStack.length - 1];
             }
+            if (!card && this.itemId != null && alpine?.store) {
+                try {
+                    const store = alpine.store('listItemCards');
+                    if (store && typeof store === 'object' && store[this.itemId]) {
+                        card = store[this.itemId];
+                    }
+                } catch (e) {}
+            }
             this.listItemCard = card;
-            this.taskProgressSectionShown = !!(card && card.shouldShowTaskProgress && String(this.status ?? '') === 'doing' && (this.embedInFocusModal || !card.isFocusModalOpen));
+            this.taskProgressSectionShown = !!(card && card.shouldShowTaskProgress && String(this.status ?? '') === 'doing' && !this.embedInFocusModal && !card.isFocusModalOpen);
+        },
+        dispatchWindowEvent(name, detail) {
+            if (typeof window === 'undefined') {
+                return;
+            }
+            window.dispatchEvent(new CustomEvent(name, { bubbles: true, detail }));
+        },
+        syncDatePickersFromTaskState() {
+            if (!this.embedInFocusModal) {
+                return;
+            }
+            this.dispatchWindowEvent('date-picker-value', {
+                path: 'startDatetime',
+                value: this.startDatetime,
+                itemId: this.itemId,
+            });
+            this.dispatchWindowEvent('date-picker-value', {
+                path: 'endDatetime',
+                value: this.endDatetime,
+                itemId: this.itemId,
+            });
+        },
+        syncRecurringFromCardState() {
+            if (!this.embedInFocusModal || !this.listItemCard) {
+                return;
+            }
+            const c = this.listItemCard;
+            if (c.kind !== 'task' && c.kind !== 'event') {
+                return;
+            }
+            if (c.recurrence === undefined) {
+                return;
+            }
+            this.dispatchWindowEvent('recurring-value', {
+                path: 'recurrence',
+                value: JSON.parse(JSON.stringify(c.recurrence)),
+                itemId: this.itemId,
+            });
+        },
+        syncTaskFieldsFromParentCard() {
+            if (!this.embedInFocusModal || !this.listItemCard || this.listItemCard.kind !== 'task') {
+                return;
+            }
+            const c = this.listItemCard;
+            if (c.taskStatus !== undefined) {
+                this.status = c.taskStatus;
+            }
+            this.priority = c.taskPriority ?? null;
+            this.complexity = c.taskComplexity ?? null;
+            this.duration = c.taskDurationMinutes != null ? c.taskDurationMinutes : null;
+            if (c.taskStartDatetime !== undefined) {
+                this.startDatetime = c.taskStartDatetime;
+            }
+            if (c.taskEndDatetime !== undefined) {
+                this.endDatetime = c.taskEndDatetime;
+            }
+            if (c.recurrence !== undefined && c.recurrence !== null) {
+                this.recurrence = JSON.parse(JSON.stringify(c.recurrence));
+            }
+            this.syncDatePickersFromTaskState();
+            this.syncRecurringFromCardState();
         },
         itemId: @js($item->id),
         updatePropertyMethod: @js($updatePropertyMethod),
@@ -589,7 +658,8 @@
             }
         },
     }"
-    x-effect="syncListItemCardScope()"
+    x-init="$nextTick(() => { if (embedInFocusModal) { syncListItemCardScope(); syncTaskFieldsFromParentCard(); } })"
+    x-effect="syncListItemCardScope(); if (embedInFocusModal && listItemCard) { syncTaskFieldsFromParentCard(); }"
     @class([
         'contents' => ! $useKanbanCompact,
         'flex w-full min-w-0 flex-col gap-2' => $useKanbanCompact,
@@ -611,6 +681,7 @@
                 position="top"
                 align="start"
                 :initial-value="$startDatetimeInitial"
+                :item-id="$item->id"
                 :readonly="!$canEditDates"
                 compact
                 data-task-creation-safe
@@ -877,7 +948,7 @@
             'flex w-full flex-wrap items-center gap-2' => ! $useKanbanCompact,
         ])
         x-bind:aria-disabled="isModalFocusLocked()"
-        :class="isModalFocusLocked() ? 'focus-modal-task-readonly pointer-events-none select-none opacity-75' : ''"
+        :class="isModalFocusLocked() ? 'pointer-events-none select-none opacity-75' : ''"
     >
     @if($item->status && ! $useKanbanCompact)
         @if(($layout ?? 'list') === 'list' && $showFocusTrigger && $canEdit && ! ($embedInFocusModal ?? false))
@@ -1200,6 +1271,7 @@
         position="top"
         align="{{ $taskDropdownAlign }}"
         :initial-value="$startDatetimeInitial"
+        :item-id="$item->id"
         :readonly="!$canEditDates"
         data-task-creation-safe
     />
@@ -1227,7 +1299,7 @@
 
     @php
     $hideTagsSection = ($isCollaboratedView && $item->tags->isEmpty())
-        || (($embedInFocusModal ?? false) && ! $hasTaskTags);
+        || ($embedInFocusModal ?? false);
     @endphp
 
     @if($canEdit)

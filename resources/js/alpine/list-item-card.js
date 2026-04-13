@@ -1155,6 +1155,11 @@ export function listItemCard(config) {
                     const previousStatus = this.taskStatus;
                     this.taskStatus = d.value;
                     this.applyTaskStatusTransition(previousStatus, this.taskStatus);
+                    const opt = (this.taskStatusOptions || []).find((o) => o.value === d.value);
+                    this.taskStatusLabel = opt?.label ?? '';
+                    this.taskStatusClass = opt
+                        ? `bg-${opt.color}/10 text-${opt.color}`
+                        : 'bg-muted text-muted-foreground';
                 }
                 if (d && d.property === 'status' && this.kind === 'event') {
                     this.eventStatus = d.value ?? null;
@@ -1175,6 +1180,33 @@ export function listItemCard(config) {
                         this.clientOverdue = false;
                         this.clientNotOverdue = true;
                         this.isPastDue = false;
+                    }
+                }
+                if (this.kind === 'task' && d && d.property) {
+                    if (d.property === 'priority') {
+                        this.taskPriority = d.value ?? null;
+                    }
+                    if (d.property === 'complexity') {
+                        this.taskComplexity = d.value ?? null;
+                    }
+                    if (d.property === 'duration') {
+                        this.taskDurationMinutes = d.value != null ? Number(d.value) : null;
+                        this.hasTaskDurationTarget = this.taskDurationMinutes != null && Number(this.taskDurationMinutes) > 0;
+                        this.taskTargetDurationSeconds = this.hasTaskDurationTarget
+                            ? Math.max(0, Math.floor(Number(this.taskDurationMinutes) * 60))
+                            : 0;
+                    }
+                    if (d.property === 'startDatetime') {
+                        this.taskStartDatetime = d.startDatetime ?? d.value ?? null;
+                    }
+                    if (d.property === 'endDatetime') {
+                        this.taskEndDatetime = d.endDatetime ?? d.value ?? null;
+                    }
+                    if (d.property === 'recurrence' && d.value !== undefined) {
+                        this.recurrence =
+                            typeof d.value === 'object' && d.value !== null
+                                ? JSON.parse(JSON.stringify(d.value))
+                                : d.value;
                     }
                 }
             }

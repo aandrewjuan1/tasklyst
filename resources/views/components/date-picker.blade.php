@@ -136,13 +136,26 @@
 
         handleWorkspaceItemUpdated(e) {
             const d = e.detail || {};
-            if (this.itemId == null || d.property !== 'status') {
+            if (this.itemId == null || String(d.itemId) !== String(this.itemId)) {
                 return;
             }
-            if (String(d.itemId) !== String(this.itemId)) {
+            if (d.property === 'status') {
+                this.updateEffectiveOverdue();
                 return;
             }
-            this.updateEffectiveOverdue();
+            if (d.property === 'startDatetime' && this.modelPath === 'startDatetime') {
+                this.currentValue = d.startDatetime ?? d.value ?? null;
+                this.initialApplied = false;
+                this.applyInitialValue();
+                this.updateEffectiveOverdue();
+                return;
+            }
+            if (d.property === 'endDatetime' && this.modelPath === 'endDatetime') {
+                this.currentValue = d.endDatetime ?? d.value ?? null;
+                this.initialApplied = false;
+                this.applyInitialValue();
+                this.updateEffectiveOverdue();
+            }
         },
 
         applyInitialValue() {
@@ -160,8 +173,12 @@
         },
 
         handleDatePickerValue(e) {
-            if (e.detail.path === this.modelPath) {
-                this.currentValue = e.detail.value ?? null;
+            const d = e.detail || {};
+            if (d.itemId != null && String(d.itemId) !== String(this.itemId)) {
+                return;
+            }
+            if (d.path === this.modelPath) {
+                this.currentValue = d.value ?? null;
                 this.initialApplied = false;
                 this.applyInitialValue();
                 this.updateEffectiveOverdue();
@@ -169,8 +186,12 @@
         },
 
         handleDatePickerRevert(e) {
-            if (e.detail.path === this.modelPath) {
-                this.currentValue = e.detail.value ?? null;
+            const d = e.detail || {};
+            if (d.itemId != null && String(d.itemId) !== String(this.itemId)) {
+                return;
+            }
+            if (d.path === this.modelPath) {
+                this.currentValue = d.value ?? null;
                 this.initialApplied = false;
                 this.applyInitialValue();
                 this.updateEffectiveOverdue();
@@ -486,7 +507,9 @@
         },
     }"
     @date-picker-value="handleDatePickerValue($event)"
+    @date-picker-value.window="handleDatePickerValue($event)"
     @date-picker-revert="handleDatePickerRevert($event)"
+    @date-picker-revert.window="handleDatePickerRevert($event)"
     @workspace-item-property-updated.window="handleWorkspaceItemUpdated($event)"
     @keydown.escape.prevent.stop="close($refs.button)"
     x-id="['date-picker-dropdown']"

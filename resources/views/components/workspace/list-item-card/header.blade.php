@@ -16,7 +16,7 @@
         'project' => 'lic-item-type-pill--project',
         default => 'lic-item-type-pill--task',
     };
-    $showRecurringInFocusModal = $kind === 'task' && ! empty($recurringTaskIdForSelection);
+    $showRecurringInFocusModal = $kind === 'task';
     $showRecurringSelection = in_array($kind, ['task', 'event'], true)
         && (! $embedInFocusModal || $showRecurringInFocusModal);
 @endphp
@@ -131,11 +131,12 @@
                             model="recurrence"
                             :initial-value="$headerRecurrenceInitial"
                             :kind="$kind"
+                            :sync-item-id="$item->id"
                             :readonly="$embedInFocusModal ? true : ! $canEditRecurrence"
                             :recurring-event-id="$recurringEventIdForSelection ?? null"
                             :recurring-task-id="$recurringTaskIdForSelection ?? null"
                             compactWhenDisabled
-                            :hide-when-disabled="$embedInFocusModal"
+                            :hide-when-disabled="false"
                             position="top"
                             align="end"
                         />
@@ -316,11 +317,12 @@
                             model="recurrence"
                             :initial-value="$headerRecurrenceInitial"
                             :kind="$kind"
+                            :sync-item-id="$item->id"
                             :readonly="$embedInFocusModal ? true : ! $canEditRecurrence"
                             :recurring-event-id="$recurringEventIdForSelection ?? null"
                             :recurring-task-id="$recurringTaskIdForSelection ?? null"
                             compactWhenDisabled
-                            :hide-when-disabled="$embedInFocusModal"
+                            :hide-when-disabled="false"
                             position="top"
                             align="start"
                         />
@@ -360,11 +362,12 @@
                         model="recurrence"
                         :initial-value="$headerRecurrenceInitial"
                         :kind="$kind"
+                        :sync-item-id="$item->id"
                         :readonly="$embedInFocusModal ? true : ! $canEditRecurrence"
                         :recurring-event-id="$recurringEventIdForSelection ?? null"
                         :recurring-task-id="$recurringTaskIdForSelection ?? null"
                         compactWhenDisabled
-                        :hide-when-disabled="$embedInFocusModal"
+                        :hide-when-disabled="false"
                         position="top"
                         align="end"
                     />

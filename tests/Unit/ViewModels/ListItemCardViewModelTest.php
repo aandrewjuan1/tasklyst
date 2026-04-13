@@ -86,6 +86,7 @@ it('produces alpineConfig with expected keys and no callables for a task', funct
     expect($config)->toHaveKeys([
         'kind', 'itemId', 'canEdit', 'canDelete', 'deleteMethod', 'updatePropertyMethod',
         'editedTitle', 'recurrence', 'activeFocusSession', 'defaultWorkDurationMinutes', 'taskDurationMinutes',
+        'taskStatusOptions', 'taskPriority', 'taskComplexity', 'taskStartDatetime', 'taskEndDatetime',
         'focusModeType', 'focusModeTypes', 'focusModeComingSoonToast',
         'hasTaskDurationTarget', 'taskTargetDurationSeconds', 'taskFocusSpentSeconds', 'taskFocusRemainingSeconds', 'taskFocusProgressPercent',
     ]);

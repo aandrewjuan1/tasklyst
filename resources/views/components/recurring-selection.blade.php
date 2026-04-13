@@ -10,6 +10,8 @@
     'hideWhenDisabled' => false,
     'recurringEventId' => null,
     'recurringTaskId' => null,
+    /** When set, {@see @recurring-value.window} only applies if detail.itemId matches (teleported focus modal sync). */
+    'syncItemId' => null,
 ])
 
 @php
@@ -91,6 +93,7 @@
         dayFullLabels: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
         recurringEventId: @js($recurringEventId ?? null),
         recurringTaskId: @js($recurringTaskId ?? null),
+        syncItemId: @js($syncItemId),
         skippedDates: [],
         loadingSkipped: false,
         restoreInProgressIds: [],
@@ -125,20 +128,45 @@
         },
 
         handleRecurringValue(e) {
-            if (e.detail.path === this.modelPath) {
-                this.currentValue = e.detail.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+            const d = e.detail || {};
+            if (d.itemId != null) {
+                if (this.syncItemId == null || String(d.itemId) !== String(this.syncItemId)) {
+                    return;
+                }
+            }
+            if (d.path === this.modelPath) {
+                this.currentValue = d.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
                 this.initialApplied = false;
                 this.applyInitialValue();
             }
         },
 
         handleRecurringRevert(e) {
-            if (e.detail.path === this.modelPath) {
-                this.currentValue = e.detail.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+            const d = e.detail || {};
+            if (d.itemId != null) {
+                if (this.syncItemId == null || String(d.itemId) !== String(this.syncItemId)) {
+                    return;
+                }
+            }
+            if (d.path === this.modelPath) {
+                this.currentValue = d.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
                 this.initialApplied = false;
                 this.applyInitialValue();
                 this.close(this.$refs.button);
             }
+        },
+
+        handleWorkspaceItemUpdated(e) {
+            const d = e.detail || {};
+            if (this.syncItemId == null || String(d.itemId) !== String(this.syncItemId)) {
+                return;
+            }
+            if (d.property !== 'recurrence' || this.modelPath !== 'recurrence') {
+                return;
+            }
+            this.currentValue = d.value || { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+            this.initialApplied = false;
+            this.applyInitialValue();
         },
 
         toggle() {
@@ -389,7 +417,10 @@
         },
     }"
     @recurring-value="handleRecurringValue($event)"
+    @recurring-value.window="handleRecurringValue($event)"
     @recurring-revert="handleRecurringRevert($event)"
+    @recurring-revert.window="handleRecurringRevert($event)"
+    @workspace-item-property-updated.window="handleWorkspaceItemUpdated($event)"
     @keydown.escape.prevent.stop="open && close($refs.button)"
     @focusin.window="open && $refs.panel && !$refs.panel.contains($event.target) && close($refs.button)"
     x-id="['recurring-selection-dropdown']"
