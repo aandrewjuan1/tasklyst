@@ -245,26 +245,17 @@ test('workspace items fingerprint changes when filters change', function (): voi
     expect($before)->not->toBe($after);
 });
 
-test('workspace items fingerprint changes when quick section changes', function (): void {
+test('workspace items fingerprint changes when search scope changes', function (): void {
     $this->actingAs($this->user);
 
     $component = Livewire::test('pages::workspace.index');
     $before = $component->instance()->workspaceItemsFingerprint();
 
-    $component->set('quickSection', 'today');
+    $component->set('searchScope', 'all_items');
 
     $after = $component->instance()->workspaceItemsFingerprint();
 
     expect($before)->not->toBe($after);
-});
-
-test('clearAllFilters resets quick section to all', function (): void {
-    $this->actingAs($this->user);
-
-    Livewire::test('pages::workspace.index')
-        ->set('quickSection', 'overdue')
-        ->call('clearAllFilters')
-        ->assertSet('quickSection', 'all');
 });
 
 test('workspace renders native search input wired to searchQuery', function (): void {

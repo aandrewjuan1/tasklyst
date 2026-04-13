@@ -320,9 +320,6 @@ trait HandlesFiltering
         $this->filterTagId = null;
         $this->searchQuery = null;
         $this->searchScope = 'selected_date';
-        if (property_exists($this, 'quickSection')) {
-            $this->quickSection = 'all';
-        }
         $this->refreshListAfterFilterChange();
     }
 
@@ -597,7 +594,6 @@ trait HandlesFiltering
             'hasActiveSearch' => $this->hasActiveSearch(),
             'searchScope' => $this->searchScope,
             'showCompleted' => $this->shouldShowCompleted(),
-            'quickSection' => property_exists($this, 'quickSection') ? $this->quickSection : 'all',
         ];
     }
 

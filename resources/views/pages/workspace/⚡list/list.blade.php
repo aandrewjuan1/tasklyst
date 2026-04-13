@@ -100,18 +100,7 @@
             @endphp
             <div x-show="visibleItemCount > 0" class="space-y-4">
                 <div class="space-y-3" id="workspace-list-items-inner">
-                    @php $previousSection = null; @endphp
                     @foreach ($items as $entry)
-                        @php
-                            $section = $entry['plannerSection'] ?? 'upcoming';
-                            $sectionLabel = $entry['plannerSectionLabel'] ?? __('Upcoming');
-                        @endphp
-                        @if ($section !== $previousSection)
-                            <div class="px-1 pt-2">
-                                <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ $sectionLabel }}</h3>
-                            </div>
-                            @php $previousSection = $section; @endphp
-                        @endif
                         <x-workspace.list-item-card
                             :kind="$entry['kind']"
                             :item="$entry['item']"

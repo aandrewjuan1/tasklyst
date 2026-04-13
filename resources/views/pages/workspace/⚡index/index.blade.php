@@ -143,7 +143,7 @@
                             :selected-date="$this->selectedDate"
                             :items-page="$this->itemsPage"
                             :items-per-page="$this->itemsPerPage"
-                            :list-entries="$this->getSectionedListEntries()"
+                            :list-entries="$this->getAllListEntries()"
                             :completed-entries="$this->completedListEntries()"
                             :projects="$this->projects"
                             :tags="$this->tags"

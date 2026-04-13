@@ -231,7 +231,7 @@ test('kanban does not render quick section chips row', function (): void {
     expect($html)->not->toContain('data-workspace-quick-sections');
 });
 
-test('kanban quick section from query is persisted on workspace state', function (): void {
+test('kanban shows tasks regardless of legacy section query param', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
     $this->actingAs($this->user);
 
@@ -249,7 +249,10 @@ test('kanban quick section from query is persisted on workspace state', function
 
     Livewire::withQueryParams(['view' => 'kanban', 'section' => 'upcoming'])
         ->test('pages::workspace.index')
-        ->assertSet('quickSection', 'upcoming')
+        ->set('searchScope', 'all_items')
+        ->assertSet('viewMode', 'kanban')
+        ->assertSee('Kanban Today Item')
+        ->assertSee('Kanban Upcoming Item')
         ->assertDontSee('data-workspace-quick-sections', false);
 });
 

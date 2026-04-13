@@ -78,7 +78,7 @@ test('workspace list view shows empty hint on item creation when there are no it
         );
 });
 
-test('workspace list exposes planner sections in expected order', function (): void {
+test('workspace list aggregates all day tasks without planner section metadata', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
 
     $this->actingAs($this->user);
@@ -111,17 +111,22 @@ test('workspace list exposes planner sections in expected order', function (): v
         'status' => TaskStatus::ToDo,
     ]);
 
-    $sections = Livewire::test('pages::workspace.index')
+    $entries = Livewire::test('pages::workspace.index')
         ->set('searchScope', 'all_items')
         ->set('selectedDate', '2026-04-16')
         ->instance()
-        ->getSectionedListEntries()
-        ->pluck('plannerSection')
-        ->unique()
-        ->values()
-        ->all();
+        ->getAllListEntries();
 
-    expect($sections)->toBe(['overdue', 'today', 'tomorrow', 'upcoming']);
+    $titles = $entries->pluck('item.title')->all();
+
+    expect($titles)->toContain('Overdue Section Task')
+        ->and($titles)->toContain('Today Section Task')
+        ->and($titles)->toContain('Tomorrow Section Task')
+        ->and($titles)->toContain('Upcoming Section Task');
+
+    foreach ($entries as $entry) {
+        expect($entry)->not->toHaveKey('plannerSection');
+    }
 });
 
 test('workspace list orders overdue tasks by urgency first', function (): void {
@@ -148,8 +153,8 @@ test('workspace list orders overdue tasks by urgency first', function (): void {
     $titles = Livewire::test('pages::workspace.index')
         ->set('selectedDate', '2026-04-13')
         ->instance()
-        ->getSectionedListEntries()
-        ->filter(fn (array $entry): bool => $entry['plannerSection'] === 'overdue' && $entry['kind'] === 'task')
+        ->getAllListEntries()
+        ->filter(fn (array $entry): bool => ($entry['isOverdue'] ?? false) === true && $entry['kind'] === 'task')
         ->pluck('item.title')
         ->values()
         ->all();
@@ -158,39 +163,6 @@ test('workspace list orders overdue tasks by urgency first', function (): void {
         'Urgent Earlier Overdue',
         'Low Later Overdue',
     ]);
-});
-
-test('workspace list quick section focus filters entries', function (): void {
-    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
-
-    $this->actingAs($this->user);
-
-    Task::factory()->for($this->user)->create([
-        'title' => 'Today Focus Item',
-        'start_datetime' => Carbon::parse('2026-04-13 09:00:00'),
-        'end_datetime' => Carbon::parse('2026-04-13 17:00:00'),
-        'status' => TaskStatus::ToDo,
-    ]);
-
-    Task::factory()->for($this->user)->create([
-        'title' => 'Tomorrow Focus Item',
-        'start_datetime' => Carbon::parse('2026-04-14 09:00:00'),
-        'end_datetime' => Carbon::parse('2026-04-14 17:00:00'),
-        'status' => TaskStatus::ToDo,
-    ]);
-
-    $component = Livewire::test('pages::workspace.index')
-        ->set('searchScope', 'all_items')
-        ->set('selectedDate', '2026-04-14')
-        ->set('quickSection', 'tomorrow');
-
-    $titles = $component->instance()
-        ->getSectionedListEntries()
-        ->pluck('item.title')
-        ->all();
-
-    expect($titles)->toContain('Tomorrow Focus Item')
-        ->and($titles)->not->toContain('Today Focus Item');
 });
 
 test('workspace hides completed tasks by default and shows them when toggle is enabled', function (): void {

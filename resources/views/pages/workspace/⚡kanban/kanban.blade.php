@@ -3,53 +3,26 @@
 
     $overdueTaskItems = $overdue->filter(fn (array $entry) => ($entry['kind'] ?? '') === 'task')->map(fn (array $entry) => $entry['item']);
     $priorityRank = ['urgent' => 1, 'high' => 2, 'medium' => 3, 'low' => 4];
-    $nowStart = now()->startOfDay();
-    $tomorrowStart = $nowStart->copy()->addDay();
     $effectiveStatusValue = fn ($task) => $task->effectiveStatusForDate?->value ?? $task->status?->value;
-    $quickSection = $filters['quickSection'] ?? 'all';
-    $quickSection = in_array($quickSection, ['all', 'overdue', 'today', 'tomorrow', 'upcoming'], true) ? $quickSection : 'all';
     $showCompleted = (bool) ($filters['showCompleted'] ?? false);
     $completedItems = $showCompleted ? $completedEntries->values() : collect();
     $allTasks = $tasks
         ->merge($overdueTaskItems)
         ->unique('id')
         ->reject(fn ($task) => $effectiveStatusValue($task) === TaskStatus::Done->value)
-        ->map(function ($task) use ($nowStart, $tomorrowStart) {
-            $anchorDate = $task->start_datetime ?? $task->end_datetime;
-            $section = 'upcoming';
-
-            if ($task->end_datetime !== null && $task->end_datetime->isPast()) {
-                $section = 'overdue';
-            } elseif ($anchorDate !== null) {
-                $anchorStart = $anchorDate->copy()->startOfDay();
-                if ($anchorStart->lessThan($nowStart) || $anchorStart->equalTo($nowStart)) {
-                    $section = 'today';
-                } elseif ($anchorStart->equalTo($tomorrowStart)) {
-                    $section = 'tomorrow';
-                }
-            }
-
-            return ['task' => $task, 'section' => $section];
-        })
-        ->when(
-            $quickSection !== 'all',
-            fn ($items) => $items->filter(fn (array $entry): bool => $entry['section'] === $quickSection)->values()
-        )
         ->sortBy(function ($task) use ($priorityRank) {
-            $model = $task['task'];
-            $isOverdue = $model->end_datetime !== null && $model->end_datetime->isPast() ? 0 : 1;
-            $dateRank = $model->end_datetime ?? $model->start_datetime;
-            $priorityValue = is_object($model->priority) ? $model->priority->value : ($model->priority ?? 'medium');
+            $isOverdue = $task->end_datetime !== null && $task->end_datetime->isPast() ? 0 : 1;
+            $dateRank = $task->end_datetime ?? $task->start_datetime;
+            $priorityValue = is_object($task->priority) ? $task->priority->value : ($task->priority ?? 'medium');
             $priority = $priorityRank[$priorityValue] ?? 5;
 
             return [
                 $isOverdue,
                 $priority,
                 $dateRank?->timestamp ?? PHP_INT_MAX,
-                (int) $model->id,
+                (int) $task->id,
             ];
         })
-        ->map(fn (array $entry) => $entry['task'])
         ->values();
     $kanbanDate = $selectedDate ? \Illuminate\Support\Carbon::parse($selectedDate) : now();
     $kanbanEmptyDateLabel = $kanbanDate->isToday()
