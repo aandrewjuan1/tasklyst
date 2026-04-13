@@ -112,6 +112,12 @@ final class WorkspaceListAggregator
             return $ta <=> $tb;
         }
 
+        $pa = self::taskPriorityRank($a);
+        $pb = self::taskPriorityRank($b);
+        if ($pa !== $pb) {
+            return $pa <=> $pb;
+        }
+
         return $a['item']->id <=> $b['item']->id;
     }
 
@@ -161,5 +167,27 @@ final class WorkspaceListAggregator
         $dt = $item->start_datetime ?? $item->end_datetime;
 
         return $dt !== null ? $dt->getTimestamp() : PHP_INT_MAX;
+    }
+
+    /**
+     * @param  array{kind: string, item: Model, isOverdue: bool}  $entry
+     */
+    private static function taskPriorityRank(array $entry): int
+    {
+        if ($entry['kind'] !== 'task' || ! $entry['item'] instanceof Task) {
+            return 99;
+        }
+
+        $priority = is_object($entry['item']->priority)
+            ? $entry['item']->priority->value
+            : ($entry['item']->priority ?? 'medium');
+
+        return match ($priority) {
+            'urgent' => 1,
+            'high' => 2,
+            'medium' => 3,
+            'low' => 4,
+            default => 5,
+        };
     }
 }

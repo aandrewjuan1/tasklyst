@@ -2,10 +2,15 @@
 
 use App\Models\Task;
 use App\Models\User;
+use Carbon\Carbon;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
+});
+
+afterEach(function (): void {
+    Carbon::setTestNow();
 });
 
 test('workspace with view kanban shows Kanban board columns', function (): void {
@@ -108,28 +113,48 @@ test('invalid view mode is normalized to list on mount', function (): void {
         ->assertSet('viewMode', 'list');
 });
 
-test('workspace view mode tab buttons include selected classes on first paint', function (): void {
+test('workspace view mode tab buttons include server first-paint active classes and Alpine runtime overrides', function (): void {
     $this->actingAs($this->user);
 
     $listHtml = $this->get(route('workspace', ['view' => 'list']))->assertSuccessful()->getContent();
 
     preg_match('/id="workspace-view-list"[\s\S]*?class="([^"]*)"/', $listHtml, $listTabClass);
     preg_match('/id="workspace-view-kanban"[\s\S]*?class="([^"]*)"/', $listHtml, $kanbanTabClass);
+    preg_match('/id="workspace-view-list"[\s\S]*?:class="([^"]*)"/', $listHtml, $listTabDynamicClass);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?:class="([^"]*)"/', $listHtml, $kanbanTabDynamicClass);
 
     expect($listTabClass[1] ?? '')->toContain('bg-brand-blue')
         ->not->toContain('text-muted-foreground');
     expect($kanbanTabClass[1] ?? '')->toContain('text-muted-foreground')
         ->not->toContain('bg-brand-blue');
+    expect($listTabDynamicClass[1] ?? '')->toContain("activeViewMode() === 'list'")
+        ->toContain('!bg-brand-blue')
+        ->toContain('!bg-transparent')
+        ->toContain('text-muted-foreground');
+    expect($kanbanTabDynamicClass[1] ?? '')->toContain("activeViewMode() === 'kanban'")
+        ->toContain('!bg-brand-blue')
+        ->toContain('!bg-transparent')
+        ->toContain('text-muted-foreground');
 
     $kanbanHtml = $this->get(route('workspace', ['view' => 'kanban']))->assertSuccessful()->getContent();
 
     preg_match('/id="workspace-view-list"[\s\S]*?class="([^"]*)"/', $kanbanHtml, $listTabClassK);
     preg_match('/id="workspace-view-kanban"[\s\S]*?class="([^"]*)"/', $kanbanHtml, $kanbanTabClassK);
+    preg_match('/id="workspace-view-list"[\s\S]*?:class="([^"]*)"/', $kanbanHtml, $listTabDynamicClassK);
+    preg_match('/id="workspace-view-kanban"[\s\S]*?:class="([^"]*)"/', $kanbanHtml, $kanbanTabDynamicClassK);
 
     expect($listTabClassK[1] ?? '')->toContain('text-muted-foreground')
         ->not->toContain('bg-brand-blue');
     expect($kanbanTabClassK[1] ?? '')->toContain('bg-brand-blue')
         ->not->toContain('text-muted-foreground');
+    expect($listTabDynamicClassK[1] ?? '')->toContain("activeViewMode() === 'list'")
+        ->toContain('!bg-brand-blue')
+        ->toContain('!bg-transparent')
+        ->toContain('text-muted-foreground');
+    expect($kanbanTabDynamicClassK[1] ?? '')->toContain("activeViewMode() === 'kanban'")
+        ->toContain('!bg-brand-blue')
+        ->toContain('!bg-transparent')
+        ->toContain('text-muted-foreground');
 });
 
 test('workspace list view mounts only the nested list livewire component', function (): void {
@@ -188,4 +213,40 @@ test('setFilter updates workspace state without requiring list remount counter',
     Livewire::test('pages::workspace.index')
         ->call('setFilter', 'itemType', 'tasks')
         ->assertSet('filterItemType', 'tasks');
+});
+
+test('kanban renders same quick section chips row as list', function (): void {
+    $this->actingAs($this->user);
+
+    $html = $this->get(route('workspace', ['view' => 'kanban']))
+        ->assertSuccessful()
+        ->getContent();
+
+    expect($html)->toContain('data-workspace-quick-sections')
+        ->and($html)->toContain(__('Overdue'))
+        ->and($html)->toContain(__('Today'))
+        ->and($html)->toContain(__('Tomorrow'))
+        ->and($html)->toContain(__('Upcoming'));
+});
+
+test('kanban quick section from query is persisted on workspace state', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Kanban Today Item',
+        'start_datetime' => Carbon::parse('2026-04-13 08:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-13 18:00:00'),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Kanban Upcoming Item',
+        'start_datetime' => Carbon::parse('2026-04-16 08:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-16 18:00:00'),
+    ]);
+
+    Livewire::withQueryParams(['view' => 'kanban', 'section' => 'upcoming'])
+        ->test('pages::workspace.index')
+        ->assertSet('quickSection', 'upcoming')
+        ->assertSee('data-workspace-quick-sections', false);
 });

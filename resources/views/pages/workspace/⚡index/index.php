@@ -96,6 +96,9 @@ class extends Component
     #[Url(as: 'view')]
     public string $viewMode = 'list';
 
+    #[Url(as: 'section')]
+    public string $quickSection = 'all';
+
     #[Url(as: 'task')]
     public ?int $focusTaskId = null;
 
@@ -344,6 +347,7 @@ class extends Component
         if (! in_array($this->viewMode, ['list', 'kanban'], true)) {
             $this->viewMode = 'list';
         }
+        $this->quickSection = $this->normalizeQuickSection($this->quickSection);
         $this->syncFilterTagIdFromTagIds();
         $this->activeFocusSession = $this->getActiveFocusSession();
         $this->applyWorkspaceDeepLinkFocus();
@@ -448,6 +452,22 @@ class extends Component
         $this->resetListPagination();
     }
 
+    public function updatedViewMode(string $value): void
+    {
+        if (! in_array($value, ['list', 'kanban'], true)) {
+            $this->viewMode = 'list';
+        }
+
+        $this->quickSection = 'all';
+        $this->resetListPagination();
+    }
+
+    public function updatedQuickSection(string $value): void
+    {
+        $this->quickSection = $this->normalizeQuickSection($value);
+        $this->resetListPagination();
+    }
+
     /**
      * Get the parsed selected date, caching it to avoid multiple parses.
      */
@@ -471,8 +491,15 @@ class extends Component
             'date' => $this->selectedDate,
             'listContext' => [$this->listContextProjectId, $this->listContextEventId],
             'filters' => $this->getFilters(),
+            'quickSection' => $this->quickSection,
             'version' => $this->workspaceItemsVersion,
         ], JSON_THROW_ON_ERROR));
+    }
+
+    public function setQuickSection(string $section): void
+    {
+        $this->quickSection = $this->normalizeQuickSection($section);
+        $this->resetListPagination();
     }
 
     /**
@@ -497,11 +524,14 @@ class extends Component
     {
         $this->bumpWorkspaceListPages();
 
-        $allItems = $this->getAllListEntries();
+        $allItems = $this->getSectionedListEntries();
         $effectiveItemsPerPage = $this->itemsPerPage > 0 ? $this->itemsPerPage : 10;
         $start = ($this->itemsPage - 1) * $effectiveItemsPerPage;
         $newItems = $allItems->slice($start, $effectiveItemsPerPage)->values();
         $hasMore = $allItems->count() > ($this->itemsPage * $effectiveItemsPerPage);
+        $previousSection = $start > 0
+            ? ($allItems->get($start - 1)['plannerSection'] ?? null)
+            : null;
 
         $html = view('pages.workspace.list-items-chunk', [
             'items' => $newItems,
@@ -510,6 +540,7 @@ class extends Component
             'tags' => $this->tags,
             'activeFocusSession' => $this->activeFocusSession,
             'pomodoroSettings' => $this->pomodoroSettings,
+            'previousSection' => $previousSection,
         ])->render();
 
         $this->skipRender();
@@ -530,6 +561,152 @@ class extends Component
             $this->events,
             $this->tasks,
         );
+    }
+
+    /**
+     * Build planner sections used by the list UI.
+     *
+     * @return Collection<int, array{kind: string, item: mixed, isOverdue: bool, plannerSection: string, plannerSectionLabel: string}>
+     */
+    public function getSectionedListEntries(): Collection
+    {
+        return $this->getSectionedListEntriesBase()
+            ->when(
+                $this->quickSection !== 'all',
+                fn (Collection $entries): Collection => $entries->filter(
+                    fn (array $entry): bool => ($entry['plannerSection'] ?? 'upcoming') === $this->quickSection
+                )->values()
+            )
+            ->values();
+    }
+
+    /**
+     * Build planner sections before quick-section filtering.
+     *
+     * @return Collection<int, array{kind: string, item: mixed, isOverdue: bool, plannerSection: string, plannerSectionLabel: string}>
+     */
+    public function getSectionedListEntriesBase(): Collection
+    {
+        return $this->getAllListEntries()
+            ->map(function (array $entry): array {
+                $section = $this->plannerSectionForEntry($entry);
+
+                return [
+                    ...$entry,
+                    'plannerSection' => $section,
+                    'plannerSectionLabel' => $this->plannerSectionLabel($section),
+                ];
+            })
+            ->sortBy(fn (array $entry): int => $this->plannerSectionOrder($entry['plannerSection']))
+            ->values();
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    #[Computed]
+    public function quickSectionCounts(): array
+    {
+        $sections = ['overdue', 'today', 'tomorrow', 'upcoming'];
+
+        if ($this->viewMode === 'kanban') {
+            $kanbanEntries = $this->tasks
+                ->map(fn (Task $task): array => ['kind' => 'task', 'item' => $task, 'isOverdue' => false])
+                ->merge(
+                    $this->overdue
+                        ->filter(fn (array $entry): bool => ($entry['kind'] ?? null) === 'task')
+                        ->map(fn (array $entry): array => ['kind' => 'task', 'item' => $entry['item'], 'isOverdue' => true])
+                )
+                ->unique(fn (array $entry): string => 'task-'.((int) $entry['item']->id))
+                ->values()
+                ->map(function (array $entry): array {
+                    $section = $this->plannerSectionForEntry($entry);
+
+                    return [
+                        ...$entry,
+                        'plannerSection' => $section,
+                    ];
+                });
+
+            $counts = collect($sections)->mapWithKeys(
+                fn (string $section): array => [$section => $kanbanEntries->where('plannerSection', $section)->count()]
+            )->all();
+
+            $counts['all'] = $kanbanEntries->count();
+
+            return $counts;
+        }
+
+        $listEntries = $this->getSectionedListEntriesBase();
+        $counts = collect($sections)->mapWithKeys(
+            fn (string $section): array => [$section => $listEntries->where('plannerSection', $section)->count()]
+        )->all();
+        $counts['all'] = $listEntries->count();
+
+        return $counts;
+    }
+
+    private function plannerSectionForEntry(array $entry): string
+    {
+        if (($entry['isOverdue'] ?? false) === true) {
+            return 'overdue';
+        }
+
+        $item = $entry['item'] ?? null;
+        if (! $item instanceof Model) {
+            return 'upcoming';
+        }
+
+        $anchorDate = $item->start_datetime ?? $item->end_datetime;
+        if ($anchorDate === null) {
+            return 'upcoming';
+        }
+
+        $today = now()->startOfDay();
+        $tomorrow = $today->copy()->addDay();
+        $anchor = $anchorDate->copy()->startOfDay();
+
+        if ($anchor->lessThan($today)) {
+            return 'today';
+        }
+
+        if ($anchor->equalTo($today)) {
+            return 'today';
+        }
+
+        if ($anchor->equalTo($tomorrow)) {
+            return 'tomorrow';
+        }
+
+        return 'upcoming';
+    }
+
+    private function plannerSectionLabel(string $section): string
+    {
+        return match ($section) {
+            'overdue' => __('Overdue'),
+            'today' => __('Today'),
+            'tomorrow' => __('Tomorrow'),
+            default => __('Upcoming'),
+        };
+    }
+
+    private function plannerSectionOrder(string $section): int
+    {
+        return match ($section) {
+            'overdue' => 0,
+            'today' => 1,
+            'tomorrow' => 2,
+            default => 3,
+        };
+    }
+
+    private function normalizeQuickSection(?string $section): string
+    {
+        $allowed = ['all', 'overdue', 'today', 'tomorrow', 'upcoming'];
+        $normalized = $section !== null ? strtolower(trim($section)) : 'all';
+
+        return in_array($normalized, $allowed, true) ? $normalized : 'all';
     }
 
     protected function applyWorkspaceDeepLinkFocus(bool $mergeQuery = true, bool $expandPagination = true): void

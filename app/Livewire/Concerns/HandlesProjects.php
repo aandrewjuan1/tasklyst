@@ -366,7 +366,15 @@ trait HandlesProjects
             $query->activeForDate($date);
         }
 
-        $query->orderByDesc('created_at');
+        $query
+            ->orderByRaw(
+                'CASE
+                    WHEN COALESCE(start_datetime, end_datetime) IS NULL THEN 1
+                    ELSE 0
+                END'
+            )
+            ->orderByRaw('COALESCE(start_datetime, end_datetime) ASC')
+            ->orderByDesc('id');
 
         if (method_exists($this, 'applyProjectFilters')) {
             $this->applyProjectFilters($query);

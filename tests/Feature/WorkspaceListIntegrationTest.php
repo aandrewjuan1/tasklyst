@@ -4,10 +4,15 @@ use App\Enums\TaskRecurrenceType;
 use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
+use Carbon\Carbon;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
+});
+
+afterEach(function (): void {
+    Carbon::setTestNow();
 });
 
 test('recurring task with past parent end_datetime still appears on today workspace list', function (): void {
@@ -68,4 +73,111 @@ test('workspace list view shows empty hint on item creation when there are no it
             __('No tasks, projects, or events for :date', ['date' => __('today')]),
             false
         );
+});
+
+test('workspace list exposes planner sections in expected order', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
+
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Overdue Section Task',
+        'start_datetime' => Carbon::parse('2026-04-10 08:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-10 09:00:00'),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Today Section Task',
+        'start_datetime' => Carbon::parse('2026-04-13 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-13 18:00:00'),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Tomorrow Section Task',
+        'start_datetime' => Carbon::parse('2026-04-14 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-14 11:00:00'),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Upcoming Section Task',
+        'start_datetime' => Carbon::parse('2026-04-16 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-16 11:00:00'),
+    ]);
+
+    $sections = Livewire::test('pages::workspace.index')
+        ->set('searchScope', 'all_items')
+        ->set('selectedDate', '2026-04-16')
+        ->instance()
+        ->getSectionedListEntries()
+        ->pluck('plannerSection')
+        ->unique()
+        ->values()
+        ->all();
+
+    expect($sections)->toBe(['overdue', 'today', 'tomorrow', 'upcoming']);
+});
+
+test('workspace list orders overdue tasks by urgency first', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
+
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Low Later Overdue',
+        'priority' => 'low',
+        'start_datetime' => Carbon::parse('2026-04-12 08:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-12 17:00:00'),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Urgent Earlier Overdue',
+        'priority' => 'urgent',
+        'start_datetime' => Carbon::parse('2026-04-11 08:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-11 09:00:00'),
+    ]);
+
+    $titles = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-13')
+        ->instance()
+        ->getSectionedListEntries()
+        ->filter(fn (array $entry): bool => $entry['plannerSection'] === 'overdue' && $entry['kind'] === 'task')
+        ->pluck('item.title')
+        ->values()
+        ->all();
+
+    expect($titles)->toBe([
+        'Urgent Earlier Overdue',
+        'Low Later Overdue',
+    ]);
+});
+
+test('workspace list quick section focus filters entries', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
+
+    $this->actingAs($this->user);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Today Focus Item',
+        'start_datetime' => Carbon::parse('2026-04-13 09:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-13 17:00:00'),
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Tomorrow Focus Item',
+        'start_datetime' => Carbon::parse('2026-04-14 09:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-14 17:00:00'),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('searchScope', 'all_items')
+        ->set('selectedDate', '2026-04-14')
+        ->set('quickSection', 'tomorrow');
+
+    $titles = $component->instance()
+        ->getSectionedListEntries()
+        ->pluck('item.title')
+        ->all();
+
+    expect($titles)->toContain('Tomorrow Focus Item')
+        ->and($titles)->not->toContain('Today Focus Item');
 });

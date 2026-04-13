@@ -511,7 +511,26 @@ trait HandlesTasks
         }
 
         $tasks = $taskQuery
-            ->orderByDesc('created_at')
+            ->orderByRaw(
+                'CASE
+                    WHEN end_datetime IS NOT NULL AND end_datetime < ? THEN 0
+                    WHEN end_datetime IS NOT NULL THEN 1
+                    WHEN start_datetime IS NOT NULL THEN 2
+                    ELSE 3
+                END',
+                [now()]
+            )
+            ->orderByRaw(
+                "CASE COALESCE(priority, 'medium')
+                    WHEN 'urgent' THEN 1
+                    WHEN 'high' THEN 2
+                    WHEN 'medium' THEN 3
+                    WHEN 'low' THEN 4
+                    ELSE 5
+                END"
+            )
+            ->orderByRaw('COALESCE(end_datetime, start_datetime) ASC')
+            ->orderByDesc('id')
             ->limit($queryLimit)
             ->get();
 

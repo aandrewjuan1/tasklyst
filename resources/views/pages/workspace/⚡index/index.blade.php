@@ -15,7 +15,7 @@
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,viewMode,quickSection,setQuickSection,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
@@ -118,10 +118,13 @@
                                         :aria-selected="activeViewMode() === 'list'"
                                         aria-controls="workspace-list-panel"
                                         id="workspace-view-list"
-                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
-                                        :class="activeViewMode() === 'list'
+                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 active:bg-inherit active:text-inherit {{ $this->viewMode === 'list'
                                             ? 'bg-brand-blue text-white shadow-sm hover:bg-brand-blue'
-                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
+                                            : 'bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100' }}"
+                                        :class="activeViewMode() === 'list'
+                                            ? '!bg-brand-blue text-white shadow-sm hover:!bg-brand-blue'
+                                            : '!bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
+                                        style="-webkit-tap-highlight-color: transparent;"
                                         @click="setView('list')"
                                     >
                                         {{ __('List') }}
@@ -132,10 +135,13 @@
                                         :aria-selected="activeViewMode() === 'kanban'"
                                         aria-controls="workspace-kanban-panel"
                                         id="workspace-view-kanban"
-                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
-                                        :class="activeViewMode() === 'kanban'
+                                        class="inline-flex h-full min-w-[3.25rem] items-center justify-center rounded-lg px-3 text-sm font-semibold transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 active:bg-inherit active:text-inherit {{ $this->viewMode === 'kanban'
                                             ? 'bg-brand-blue text-white shadow-sm hover:bg-brand-blue'
-                                            : 'text-muted-foreground hover:bg-white/90 hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
+                                            : 'bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100' }}"
+                                        :class="activeViewMode() === 'kanban'
+                                            ? '!bg-brand-blue text-white shadow-sm hover:!bg-brand-blue'
+                                            : '!bg-transparent text-muted-foreground hover:text-foreground dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-zinc-100'"
+                                        style="-webkit-tap-highlight-color: transparent;"
                                         @click="setView('kanban')"
                                     >
                                         {{ __('Kanban') }}
@@ -208,6 +214,12 @@
                 </div>
             </div>
 
+            <x-workspace.quick-section-chips
+                :current-section="$this->quickSection"
+                :counts="$this->quickSectionCounts"
+                :view-mode="$this->viewMode"
+            />
+
             {{-- List/kanban region only: loading skeletons must not cover the nav strip above --}}
             <div class="relative min-w-0 w-full">
             {{-- Real content - hidden during list/kanban loading targets (see $listLoadingTargets) --}}
@@ -233,7 +245,7 @@
                             :selected-date="$this->selectedDate"
                             :items-page="$this->itemsPage"
                             :items-per-page="$this->itemsPerPage"
-                            :list-entries="$this->getAllListEntries()"
+                            :list-entries="$this->getSectionedListEntries()"
                             :projects="$this->projects"
                             :tags="$this->tags"
                             :filters="$this->getFilters()"

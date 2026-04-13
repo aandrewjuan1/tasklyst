@@ -543,7 +543,14 @@ trait HandlesEvents
         }
 
         $events = $eventQuery
-            ->orderByDesc('created_at')
+            ->orderByRaw(
+                'CASE
+                    WHEN COALESCE(start_datetime, end_datetime) IS NULL THEN 1
+                    ELSE 0
+                END'
+            )
+            ->orderByRaw('COALESCE(start_datetime, end_datetime) ASC')
+            ->orderByDesc('id')
             ->limit($queryLimit)
             ->get();
 
