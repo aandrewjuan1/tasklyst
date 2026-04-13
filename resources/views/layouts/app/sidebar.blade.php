@@ -184,10 +184,6 @@
             </flux:sidebar.nav>
 
             @auth
-                <div class="w-full overflow-visible px-2 py-3">
-                    <livewire:workspace.trash-popover />
-                </div>
-
                 <div class="w-full border-t border-zinc-200/80 px-2 pb-2 pt-3 dark:border-zinc-700/60">
                     <x-desktop-user-menu class="hidden lg:block w-full" :name="auth()->user()->name" />
                 </div>

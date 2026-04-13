@@ -174,8 +174,24 @@
                 const preferLeft = r.left - gap - width;
                 left = Math.max(margin, Math.min(preferLeft, mainRight - width));
             } else {
-                left = Math.max(r.right + gap, sb ? sb.right + gap : r.right + gap);
-                width = Math.min(maxW, Math.max(0, vw - left - margin));
+                const mainLeftMin = sb ? sb.right + gap : margin;
+
+                const leftOpenRight = Math.max(r.right + gap, mainLeftMin);
+                const widthOpenRight = Math.min(maxW, Math.max(0, vw - leftOpenRight - margin));
+
+                const widthOpenLeft = Math.min(maxW, Math.max(0, r.left - gap - mainLeftMin));
+                const leftOpenLeft = r.left - gap - widthOpenLeft;
+
+                const minUseful = 96;
+                if (widthOpenLeft > widthOpenRight && widthOpenLeft >= minUseful) {
+                    left = Math.max(mainLeftMin, leftOpenLeft);
+                    width = widthOpenLeft;
+                } else {
+                    left = leftOpenRight;
+                    width = widthOpenRight;
+                }
+
+                width = Math.min(width, Math.max(0, vw - margin - left));
             }
 
             const top = Math.max(margin, r.top);
@@ -250,6 +266,16 @@
                 await this.$nextTick();
                 this.measurePopoverDock();
             }
+        },
+
+        async togglePanel() {
+            if (this.open) {
+                this.close(this.$refs.dockAnchor ?? this.$refs.trigger);
+
+                return;
+            }
+
+            await this.openPanel();
         },
 
         async loadFirst() {
@@ -386,29 +412,26 @@
     @workspace-item-trashed.window="addTrashedItem($event.detail)"
     @workspace-item-trashed-rollback.window="removeTrashedItemRollback($event.detail)"
     @resize.window="refreshViewportMode()"
-    class="relative z-20 w-full overflow-visible"
+    class="relative z-20 shrink-0 overflow-visible"
 >
     @isset($trigger)
-        <div x-ref="trigger" @click="openPanel()" class="cursor-pointer">
+        <div x-ref="trigger" @click="togglePanel()" class="cursor-pointer">
             {{ $trigger }}
         </div>
     @else
-        <div
-            x-ref="trigger"
-            class="flex w-full justify-start in-data-flux-sidebar-collapsed-desktop:justify-center"
-        >
+        <div x-ref="trigger" class="inline-flex shrink-0">
             <button
                 x-ref="dockAnchor"
                 type="button"
-                @click="openPanel()"
-                class="cursor-pointer inline-flex h-7 min-h-7 max-w-full items-center justify-start gap-2 rounded-md px-2.5 text-xs font-bold leading-none text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 in-data-flux-sidebar-collapsed-desktop:justify-center in-data-flux-sidebar-collapsed-desktop:px-2"
+                @click="togglePanel()"
+                class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-transparent bg-transparent text-red-600 shadow-none transition hover:border-red-200/70 hover:bg-red-500/[0.06] hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/35 dark:text-red-400 dark:hover:border-red-900/50 dark:hover:bg-red-500/10 dark:hover:text-red-300"
                 aria-haspopup="true"
                 :aria-expanded="open"
                 aria-label="{{ __('Open trash bin') }}"
+                x-bind:aria-label="open ? '{{ __('Close trash bin') }}' : '{{ __('Open trash bin') }}'"
                 title="{{ __('Trash') }}"
             >
-                <flux:icon name="trash" class="size-4 shrink-0 text-current" />
-                <span class="in-data-flux-sidebar-collapsed-desktop:hidden">{{ __('Trash') }}</span>
+                <flux:icon name="trash" class="size-[1.125rem] shrink-0 text-current" />
             </button>
         </div>
     @endisset

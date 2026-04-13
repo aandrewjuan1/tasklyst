@@ -142,32 +142,45 @@
                                     </button>
                                 </div>
                             </div>
-                            <input
-                                type="search"
-                                wire:model.live.debounce.300ms="searchQuery"
-                                placeholder="{{ __('Search tasks, events, projects…') }}"
-                                aria-label="{{ __('Search tasks, events, and projects') }}"
-                                autocomplete="off"
-                                class="h-10 min-h-10 min-w-[min(100%,12rem)] flex-1 rounded-xl border border-white/50 bg-white/80 px-3 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:border-brand-blue/40 focus:outline-none focus:ring-2 focus:ring-brand-blue/25 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/50"
-                            />
-                            <flux:tooltip
-                                :content="$this->searchScope === 'selected_date'
-                                    ? __('Currently searching selected date only. (Click to search all items.)')
-                                    : __('Currently searching all items. (Click to search selected date only.)')"
+                            <div
+                                class="flex min-h-10 min-w-[min(100%,12rem)] flex-1 items-stretch overflow-hidden rounded-xl border border-white/50 bg-white/80 shadow-sm ring-1 ring-brand-purple/10 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:ring-zinc-700/40"
+                                role="group"
+                                aria-label="{{ __('Search and scope') }}"
                             >
-                                <flux:button
-                                    type="button"
-                                    variant="ghost"
-                                    size="xs"
-                                    :loading="false"
-                                    :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
-                                    aria-label="{{ __('Toggle search scope') }}"
-                                    class="size-10 h-10 w-10 shrink-0 rounded-xl border border-white/50 bg-white/80 text-zinc-900 shadow-sm transition hover:bg-white focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-600/70 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/80"
-                                    wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
-                                    wire:loading.attr="disabled"
-                                    wire:target="searchScope"
+                                <input
+                                    type="search"
+                                    wire:model.live.debounce.300ms="searchQuery"
+                                    placeholder="{{ __('Search tasks, events, projects…') }}"
+                                    aria-label="{{ __('Search tasks, events, and projects') }}"
+                                    autocomplete="off"
+                                    class="h-10 min-h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/30 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-brand-blue/40"
                                 />
-                            </flux:tooltip>
+                                <div class="flex shrink-0 border-s border-white/45 dark:border-zinc-600/55">
+                                    <flux:tooltip
+                                        :content="$this->searchScope === 'selected_date'
+                                            ? __('Currently searching selected date only. (Click to search all items.)')
+                                            : __('Currently searching all items. (Click to search selected date only.)')"
+                                    >
+                                        <flux:button
+                                            type="button"
+                                            variant="ghost"
+                                            size="xs"
+                                            :loading="false"
+                                            :icon="$this->searchScope === 'selected_date' ? 'calendar-days' : 'globe-alt'"
+                                            aria-label="{{ __('Toggle search scope') }}"
+                                            class="size-10 h-10 shrink-0 rounded-none border-0 bg-transparent text-zinc-800 shadow-none ring-0 transition hover:bg-white/85 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/35 dark:text-zinc-100 dark:hover:bg-zinc-800/85 dark:focus-visible:ring-brand-blue/40"
+                                            wire:click="$wire.set('searchScope', $wire.searchScope === 'selected_date' ? 'all_items' : 'selected_date')"
+                                            wire:loading.attr="disabled"
+                                            wire:target="searchScope"
+                                        />
+                                    </flux:tooltip>
+                                </div>
+                            </div>
+                            <div class="inline-flex shrink-0 items-center gap-2">
+                                @auth
+                                    <livewire:workspace.trash-popover />
+                                @endauth
+                            </div>
                         </div>
                     </div>
                 </div>

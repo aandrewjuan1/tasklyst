@@ -159,7 +159,7 @@
                         data-testid="calendar-jump-to-today"
                         data-app-today="{{ $today }}"
                         @if ($jumpToTodayDisabledInitially) disabled @endif
-                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-blue/30 bg-white/70 px-2.5 py-1 text-[11px] font-semibold text-brand-navy-blue shadow-sm transition hover:bg-white hover:border-brand-blue/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-blue/40 dark:bg-zinc-900/50 dark:text-brand-light-blue dark:hover:bg-zinc-900/70"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-brand-blue/30 bg-brand-blue px-2.5 py-1 text-[11px] font-semibold text-white shadow-md transition hover:border-brand-blue/40 hover:bg-brand-blue/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue disabled:cursor-not-allowed disabled:opacity-50 dark:border-brand-light-blue/40 dark:bg-brand-blue dark:text-white dark:hover:border-brand-light-blue/50 dark:hover:bg-brand-blue/90 dark:focus-visible:ring-brand-light-blue/55 dark:focus-visible:ring-offset-zinc-900"
                         @click="jumpToToday()"
                     >
                         <flux:icon name="calendar-days" class="size-3.5 shrink-0 opacity-90" aria-hidden="true" />
