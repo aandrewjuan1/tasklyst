@@ -21,6 +21,18 @@ return [
         60,
     ],
 
+    'daily_due_summary_hour' => 7,
+    'task_stalled_hours' => 72,
+    'project_deadline_risk_days' => 7,
+    'project_deadline_risk_min_open_tasks' => 3,
+    'recurrence_anomaly_window_days' => 14,
+    'recurrence_anomaly_min_exceptions' => 3,
+    'collaboration_invite_expiring_hours_before' => 24,
+    'calendar_feed_stale_sync_hours' => 6,
+    'focus_drift_weekly_day_of_week' => 1,
+    'focus_drift_weekly_hour' => 8,
+    'assistant_action_required_cooldown_minutes' => 30,
+
     /*
     |--------------------------------------------------------------------------
     | Dedupe / cooldown windows
@@ -28,6 +40,8 @@ return [
     */
 
     'calendar_feed_sync_failed_cooldown_minutes' => 60,
+    'calendar_feed_stale_sync_cooldown_minutes' => 180,
+    'calendar_feed_recovered_cooldown_minutes' => 180,
 
     /*
     |--------------------------------------------------------------------------

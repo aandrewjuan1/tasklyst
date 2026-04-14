@@ -326,3 +326,32 @@ test('prepare open redirect returns null and does not mark read for non task or 
     expect($url)->toBeNull()
         ->and($notification->fresh()->read_at)->toBeNull();
 });
+
+test('prepare open redirect opens workspace for newly actionable task-stalled notifications', function (): void {
+    $user = User::factory()->create();
+    $today = now()->toDateString();
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'task_stalled',
+            'title' => 'Stalled task',
+            'message' => '',
+            'route' => 'workspace',
+            'params' => [
+                'date' => $today,
+                'type' => 'tasks',
+                'task' => 77,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    $url = app(PrepareNotificationOpenRedirectForUserAction::class)->execute($user, $notification->id);
+
+    expect($url)->toBe(route('workspace', ['date' => $today, 'type' => 'tasks', 'task' => 77, 'view' => 'list']))
+        ->and($notification->fresh()->read_at)->not->toBeNull();
+});

@@ -4,10 +4,14 @@ namespace App\Actions\FocusSession;
 
 use App\Enums\ActivityLogAction as ActivityLogActionEnum;
 use App\Enums\FocusSessionType;
+use App\Enums\ReminderStatus;
+use App\Enums\ReminderType;
 use App\Enums\TaskStatus;
 use App\Models\FocusSession;
+use App\Models\Reminder;
 use App\Models\Task;
 use App\Services\ActivityLogRecorder;
+use App\Services\Reminders\ReminderDispatcherService;
 use App\Services\TaskService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -16,7 +20,8 @@ class CompleteFocusSessionAction
 {
     public function __construct(
         private ActivityLogRecorder $activityLogRecorder,
-        private TaskService $taskService
+        private TaskService $taskService,
+        private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
     /**
@@ -76,6 +81,22 @@ class CompleteFocusSessionAction
                     }
                 }
             }
+
+            Reminder::query()->create([
+                'user_id' => $session->user_id,
+                'remindable_type' => $session->getMorphClass(),
+                'remindable_id' => $session->id,
+                'type' => ReminderType::FocusSessionCompleted,
+                'scheduled_at' => now(),
+                'status' => ReminderStatus::Pending,
+                'payload' => [
+                    'focus_session_id' => $session->id,
+                    'task_id' => $session->focusable instanceof Task ? $session->focusable->id : null,
+                    'duration_seconds' => (int) $session->duration_seconds,
+                ],
+            ]);
+
+            $this->reminderDispatcherService->queueProcessDueForRemindable($session);
         }
 
         return $session->fresh();

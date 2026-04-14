@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\EventStatus;
+use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Tag;
@@ -68,12 +69,14 @@ test('clearAllFilters clears search query', function (): void {
 test('search query with exact title shows only matching task', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'ExactMatchTitle',
+        'status' => TaskStatus::ToDo->value,
         'start_datetime' => null,
         'end_datetime' => null,
     ]);
 
     Task::factory()->for($this->user)->create([
         'title' => 'OtherTask',
+        'status' => TaskStatus::ToDo->value,
         'start_datetime' => null,
         'end_datetime' => null,
     ]);
@@ -148,6 +151,7 @@ test('search query matches task by teacher_name', function (): void {
 test('search query matches task by subject_name', function (): void {
     Task::factory()->for($this->user)->create([
         'title' => 'QuizDelta',
+        'status' => TaskStatus::ToDo->value,
         'description' => null,
         'teacher_name' => null,
         'subject_name' => 'MATH 999 UniqueSubjectDelta',

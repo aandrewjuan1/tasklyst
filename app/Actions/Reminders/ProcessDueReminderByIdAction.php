@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\UserNotificationBroadcastService;
 use App\Support\Reminders\ReminderNotificationFactory;
 use Carbon\CarbonInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 final class ProcessDueReminderByIdAction
@@ -81,9 +82,28 @@ final class ProcessDueReminderByIdAction
 
             $reminder->status = ReminderStatus::Sent;
             $reminder->sent_at = $now;
-            $reminder->save();
+
+            try {
+                $reminder->save();
+            } catch (QueryException $exception) {
+                if (! $this->isReminderUniqueStatusCollision($exception)) {
+                    throw $exception;
+                }
+
+                // A duplicate (same remindable/type/scheduled/status) row already exists.
+                // Keep dispatch flow successful and remove this pending duplicate so it
+                // doesn't keep retrying and breaking parent Livewire mutations.
+                $reminder->delete();
+            }
 
             return true;
         });
+    }
+
+    private function isReminderUniqueStatusCollision(QueryException $exception): bool
+    {
+        $message = $exception->getMessage();
+
+        return str_contains($message, 'UNIQUE constraint failed: reminders.remindable_type, reminders.remindable_id, reminders.type, reminders.scheduled_at, reminders.status');
     }
 }

@@ -88,6 +88,8 @@ class CollaborationInvitationService
                 $this->reminderDispatcherService->queueProcessDueForRemindable($invitation);
             }
 
+            $this->scheduleInviteExpiringReminderForInviter($invitation);
+
             return $invitation;
         });
     }
@@ -194,5 +196,34 @@ class CollaborationInvitationService
         }
 
         return [];
+    }
+
+    private function scheduleInviteExpiringReminderForInviter(CollaborationInvitation $invitation): void
+    {
+        if ($invitation->inviter_id === null || $invitation->expires_at === null) {
+            return;
+        }
+
+        $leadHours = max(1, (int) config('reminders.collaboration_invite_expiring_hours_before', 24));
+        $scheduledAt = $invitation->expires_at->copy()->subHours($leadHours);
+        if ($scheduledAt->isPast()) {
+            return;
+        }
+
+        Reminder::query()->create([
+            'user_id' => (int) $invitation->inviter_id,
+            'remindable_type' => $invitation->getMorphClass(),
+            'remindable_id' => (int) $invitation->id,
+            'type' => ReminderType::CollaborationInviteExpiring,
+            'scheduled_at' => $scheduledAt,
+            'status' => ReminderStatus::Pending,
+            'payload' => [
+                'invitation_id' => (int) $invitation->id,
+                'invitee_email' => (string) $invitation->invitee_email,
+                'expires_at' => $invitation->expires_at?->toIso8601String(),
+                'collaboratable_type' => (string) $invitation->collaboratable_type,
+                'collaboratable_id' => (int) $invitation->collaboratable_id,
+            ],
+        ]);
     }
 }

@@ -4,12 +4,22 @@ namespace App\Support\Reminders;
 
 use App\Enums\ReminderType;
 use App\Models\Reminder;
+use App\Notifications\AssistantActionRequiredNotification;
 use App\Notifications\AssistantToolCallFailedNotification;
+use App\Notifications\CalendarFeedRecoveredNotification;
+use App\Notifications\CalendarFeedStaleSyncNotification;
 use App\Notifications\CalendarFeedSyncFailedNotification;
 use App\Notifications\CollaborationInvitationReceivedNotification;
+use App\Notifications\CollaborationInviteExpiringNotification;
+use App\Notifications\DailyDueSummaryNotification;
 use App\Notifications\EventStartSoonNotification;
+use App\Notifications\FocusDriftWeeklyNotification;
+use App\Notifications\FocusSessionCompletedNotification;
+use App\Notifications\ProjectDeadlineRiskNotification;
+use App\Notifications\RecurrenceAnomalyNotification;
 use App\Notifications\TaskDueSoonNotification;
 use App\Notifications\TaskOverdueNotification;
+use App\Notifications\TaskStalledNotification;
 
 final class ReminderNotificationFactory
 {
@@ -54,11 +64,96 @@ final class ReminderNotificationFactory
             );
         }
 
+        if ($type === ReminderType::DailyDueSummary) {
+            return new DailyDueSummaryNotification(
+                date: (string) ($payload['date'] ?? now()->toDateString()),
+                tasksDueTodayCount: (int) ($payload['tasks_due_today_count'] ?? 0),
+                eventsTodayCount: (int) ($payload['events_today_count'] ?? 0),
+                overdueTasksCount: (int) ($payload['overdue_tasks_count'] ?? 0),
+            );
+        }
+
+        if ($type === ReminderType::TaskStalled) {
+            return new TaskStalledNotification(
+                taskId: (int) ($payload['task_id'] ?? $reminder->remindable_id),
+                taskTitle: (string) ($payload['task_title'] ?? ''),
+                hoursStalled: (int) ($payload['hours_stalled'] ?? 0),
+            );
+        }
+
+        if ($type === ReminderType::ProjectDeadlineRisk) {
+            return new ProjectDeadlineRiskNotification(
+                projectId: (int) ($payload['project_id'] ?? $reminder->remindable_id),
+                projectName: (string) ($payload['project_name'] ?? ''),
+                projectEndAt: isset($payload['project_end_at']) ? (string) $payload['project_end_at'] : null,
+                openTasksCount: (int) ($payload['open_tasks_count'] ?? 0),
+            );
+        }
+
+        if ($type === ReminderType::RecurrenceAnomaly) {
+            return new RecurrenceAnomalyNotification(
+                recurringKind: (string) ($payload['recurring_kind'] ?? 'task'),
+                entityId: (int) ($payload['entity_id'] ?? 0),
+                entityTitle: (string) ($payload['entity_title'] ?? ''),
+                exceptionsCount: (int) ($payload['exceptions_count'] ?? 0),
+                windowDays: (int) ($payload['window_days'] ?? 14),
+            );
+        }
+
+        if ($type === ReminderType::CollaborationInviteExpiring) {
+            return new CollaborationInviteExpiringNotification(
+                invitationId: (int) ($payload['invitation_id'] ?? $reminder->remindable_id),
+                inviteeEmail: (string) ($payload['invitee_email'] ?? ''),
+                expiresAtIso: isset($payload['expires_at']) ? (string) $payload['expires_at'] : null,
+            );
+        }
+
         if ($type === ReminderType::CalendarFeedSyncFailed) {
             return new CalendarFeedSyncFailedNotification(
                 feedId: (int) ($payload['feed_id'] ?? $payload['id'] ?? 0),
                 feedName: isset($payload['feed_name']) ? (string) $payload['feed_name'] : null,
                 reason: isset($payload['reason']) ? (string) $payload['reason'] : null,
+            );
+        }
+
+        if ($type === ReminderType::CalendarFeedRecovered) {
+            return new CalendarFeedRecoveredNotification(
+                feedId: (int) ($payload['feed_id'] ?? $reminder->remindable_id),
+                feedName: isset($payload['feed_name']) ? (string) $payload['feed_name'] : null,
+            );
+        }
+
+        if ($type === ReminderType::CalendarFeedStaleSync) {
+            return new CalendarFeedStaleSyncNotification(
+                feedId: (int) ($payload['feed_id'] ?? $reminder->remindable_id),
+                feedName: isset($payload['feed_name']) ? (string) $payload['feed_name'] : null,
+                lastSyncedAt: isset($payload['last_synced_at']) ? (string) $payload['last_synced_at'] : null,
+                staleHours: (int) ($payload['stale_hours'] ?? 6),
+            );
+        }
+
+        if ($type === ReminderType::FocusSessionCompleted) {
+            return new FocusSessionCompletedNotification(
+                focusSessionId: (int) ($payload['focus_session_id'] ?? $reminder->remindable_id),
+                taskId: isset($payload['task_id']) ? (int) $payload['task_id'] : null,
+                durationSeconds: (int) ($payload['duration_seconds'] ?? 0),
+            );
+        }
+
+        if ($type === ReminderType::FocusDriftWeekly) {
+            return new FocusDriftWeeklyNotification(
+                weekStart: (string) ($payload['week_start'] ?? ''),
+                weekEnd: (string) ($payload['week_end'] ?? ''),
+                plannedSeconds: (int) ($payload['planned_seconds'] ?? 0),
+                completedSeconds: (int) ($payload['completed_seconds'] ?? 0),
+            );
+        }
+
+        if ($type === ReminderType::AssistantActionRequired) {
+            return new AssistantActionRequiredNotification(
+                threadId: (int) ($payload['thread_id'] ?? $reminder->remindable_id),
+                threadTitle: (string) ($payload['thread_title'] ?? ''),
+                pendingProposalsCount: (int) ($payload['pending_proposals_count'] ?? 0),
             );
         }
 

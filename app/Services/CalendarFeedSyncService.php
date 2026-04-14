@@ -144,6 +144,8 @@ class CalendarFeedSyncService
 
             $feed->update(['last_synced_at' => now()]);
         });
+
+        $this->createSyncRecoveredReminderIfAllowed($feed);
     }
 
     private function createSyncFailedReminderIfAllowed(CalendarFeed $feed, string $reason): void
@@ -174,6 +176,51 @@ class CalendarFeedSyncService
                 'feed_id' => $feed->id,
                 'feed_name' => $feed->name,
                 'reason' => $reason,
+            ],
+        ]);
+
+        $this->reminderDispatcherService->queueProcessDueForRemindable($feed);
+    }
+
+    private function createSyncRecoveredReminderIfAllowed(CalendarFeed $feed): void
+    {
+        $cooldownMinutes = (int) config('reminders.calendar_feed_recovered_cooldown_minutes', 180);
+        $cooldownMinutes = max(1, $cooldownMinutes);
+
+        $hadRecentFailure = Reminder::query()
+            ->where('user_id', $feed->user_id)
+            ->where('remindable_type', $feed->getMorphClass())
+            ->where('remindable_id', $feed->id)
+            ->where('type', ReminderType::CalendarFeedSyncFailed->value)
+            ->where('created_at', '>=', now()->subDay())
+            ->exists();
+
+        if (! $hadRecentFailure) {
+            return;
+        }
+
+        $recentRecoveredExists = Reminder::query()
+            ->where('user_id', $feed->user_id)
+            ->where('remindable_type', $feed->getMorphClass())
+            ->where('remindable_id', $feed->id)
+            ->where('type', ReminderType::CalendarFeedRecovered->value)
+            ->where('created_at', '>=', now()->subMinutes($cooldownMinutes))
+            ->exists();
+
+        if ($recentRecoveredExists) {
+            return;
+        }
+
+        Reminder::query()->create([
+            'user_id' => $feed->user_id,
+            'remindable_type' => $feed->getMorphClass(),
+            'remindable_id' => $feed->id,
+            'type' => ReminderType::CalendarFeedRecovered,
+            'scheduled_at' => now(),
+            'status' => ReminderStatus::Pending,
+            'payload' => [
+                'feed_id' => $feed->id,
+                'feed_name' => $feed->name,
             ],
         ]);
 

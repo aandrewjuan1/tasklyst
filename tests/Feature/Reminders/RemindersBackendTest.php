@@ -7,13 +7,16 @@ use App\Enums\ReminderType;
 use App\Enums\TaskStatus;
 use App\Events\UserNotificationCreated;
 use App\Models\CalendarFeed;
+use App\Models\FocusSession;
 use App\Models\Reminder;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\CalendarFeedSyncService;
 use App\Services\CollaborationInvitationService;
 use App\Services\EventService;
+use App\Services\FocusSessionService;
 use App\Services\Reminders\ReminderDispatcherService;
+use App\Services\Reminders\ReminderInsightsSchedulerService;
 use App\Services\TaskService;
 use App\Tools\LLM\TaskAssistant\DelegatingTool;
 use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
@@ -614,4 +617,88 @@ test('declining collaboration invitation cancels pending invite reminder', funct
         ->count();
 
     expect($pendingAfter)->toBe(0);
+});
+
+test('insight scheduler creates daily summary and stalled task reminders', function (): void {
+    /** @var ReminderInsightsSchedulerService $service */
+    $service = app(ReminderInsightsSchedulerService::class);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Due today',
+        'end_datetime' => now()->setTime(18, 0),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'Stalled urgent',
+        'priority' => 'urgent',
+        'completed_at' => null,
+        'updated_at' => now()->subDays(4),
+    ]);
+
+    $created = $service->evaluateDueInsights(now()->setTime((int) config('reminders.daily_due_summary_hour', 7), 0));
+
+    expect($created)->toBeGreaterThan(0)
+        ->and(Reminder::query()->where('user_id', $this->user->id)->where('type', ReminderType::DailyDueSummary->value)->exists())->toBeTrue()
+        ->and(Reminder::query()->where('user_id', $this->user->id)->where('type', ReminderType::TaskStalled->value)->exists())->toBeTrue();
+});
+
+test('focus session completion schedules and dispatches completion notification reminder', function (): void {
+    /** @var FocusSessionService $focusSessionService */
+    $focusSessionService = app(FocusSessionService::class);
+
+    $task = Task::factory()->for($this->user)->create([
+        'title' => 'Focus target',
+    ]);
+
+    $session = $focusSessionService->startWorkSession(
+        user: $this->user,
+        task: $task,
+        startedAt: now()->subMinutes(25),
+        durationSeconds: 1500,
+    );
+
+    $focusSessionService->completeSession(
+        session: $session,
+        endedAt: now(),
+        completed: true,
+    );
+
+    $exists = Reminder::query()
+        ->where('user_id', $this->user->id)
+        ->where('remindable_type', FocusSession::class)
+        ->where('remindable_id', $session->id)
+        ->where('type', ReminderType::FocusSessionCompleted->value)
+        ->where('status', ReminderStatus::Sent->value)
+        ->exists();
+
+    expect($exists)->toBeTrue();
+});
+
+test('calendar feed successful sync after failure creates recovered reminder', function (): void {
+    Http::fakeSequence()
+        ->push('', 500)
+        ->push("BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:abc-123\nSUMMARY:Recovered sync\nDTSTART:20260501T090000Z\nDTEND:20260501T100000Z\nEND:VEVENT\nEND:VCALENDAR", 200);
+
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $this->user->id,
+        'name' => 'Recoverable feed',
+        'feed_url' => 'https://example.com/feed.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    /** @var CalendarFeedSyncService $service */
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed);
+    $service->sync($feed);
+
+    $recoveredExists = Reminder::query()
+        ->where('user_id', $this->user->id)
+        ->where('remindable_type', $feed->getMorphClass())
+        ->where('remindable_id', $feed->id)
+        ->where('type', ReminderType::CalendarFeedRecovered->value)
+        ->exists();
+
+    expect($recoveredExists)->toBeTrue();
 });
