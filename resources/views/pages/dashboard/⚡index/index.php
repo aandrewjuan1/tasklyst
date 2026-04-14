@@ -19,6 +19,7 @@ use App\Livewire\Concerns\HandlesWorkspaceCalendar;
 use App\Models\User;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
+use App\Services\TaskService;
 use App\Services\UserAnalyticsService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -63,6 +64,7 @@ class extends Component
     public string $analyticsPreset = 'daily';
 
     public string $trendPreset = 'daily';
+    public bool $insightsOpen = false;
 
     /**
      * Cached parsed date to avoid parsing multiple times.
@@ -71,16 +73,19 @@ class extends Component
     protected ?CarbonInterface $parsedSelectedDate = null;
 
     protected UserAnalyticsService $userAnalyticsService;
+    protected TaskService $taskService;
     protected AssistantCandidateProvider $assistantCandidateProvider;
     protected TaskPrioritizationService $taskPrioritizationService;
 
     public function boot(
         UserAnalyticsService $userAnalyticsService,
+        TaskService $taskService,
         AssistantCandidateProvider $assistantCandidateProvider,
         TaskPrioritizationService $taskPrioritizationService
     ): void
     {
         $this->userAnalyticsService = $userAnalyticsService;
+        $this->taskService = $taskService;
         $this->assistantCandidateProvider = $assistantCandidateProvider;
         $this->taskPrioritizationService = $taskPrioritizationService;
     }
@@ -101,29 +106,14 @@ class extends Component
         $this->resetCalendarViewForSelectedDateChange();
     }
 
-    public function setAnalyticsPreset(string $preset): void
+    public function toggleInsights(): void
     {
-        $this->analyticsPreset = $this->normalizeAnalyticsPreset($preset);
+        $this->insightsOpen = ! $this->insightsOpen;
     }
-    
+
     public function setTrendPreset(string $preset): void
     {
         $this->trendPreset = $this->normalizeAnalyticsPreset($preset);
-    }
-
-    #[Computed]
-    public function analytics(): ?DashboardAnalyticsOverview
-    {
-        $user = Auth::user();
-        if ($user === null) {
-            return null;
-        }
-
-        return $this->userAnalyticsService->dashboardOverview(
-            user: $user,
-            preset: $this->analyticsPreset,
-            anchor: $this->analyticsAnchor(),
-        );
     }
     
     #[Computed]
@@ -134,11 +124,25 @@ class extends Component
             return null;
         }
 
-        return $this->userAnalyticsService->dashboardOverview(
-            user: $user,
-            preset: $this->trendPreset,
-            anchor: $this->analyticsAnchor(),
+        $cacheKey = sprintf(
+            'dashboard:trend-analytics:%d:%s:%s',
+            $user->id,
+            $this->trendPreset,
+            now()->format('YmdHi')
         );
+
+        /** @var DashboardAnalyticsOverview $overview */
+        $overview = Cache::remember(
+            $cacheKey,
+            now()->addSeconds(60),
+            fn (): DashboardAnalyticsOverview => $this->userAnalyticsService->dashboardOverview(
+                user: $user,
+                preset: $this->trendPreset,
+                anchor: $this->analyticsAnchor(),
+            )
+        );
+
+        return $overview;
     }
 
     private function analyticsAnchor(): CarbonInterface
@@ -181,6 +185,33 @@ class extends Component
             ->forUser($userId)
             ->incomplete()
             ->where('status', TaskStatus::ToDo)
+            ->count();
+    }
+
+    #[Computed]
+    public function dashboardTotalTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        return Task::query()
+            ->forUser($userId)
+            ->count();
+    }
+
+    #[Computed]
+    public function dashboardCompletedTasksCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        return Task::query()
+            ->forUser($userId)
+            ->whereNotNull('completed_at')
             ->count();
     }
 
@@ -238,7 +269,7 @@ class extends Component
             return new EloquentCollection;
         }
 
-        return Task::query()
+        $nonRecurringDoingTasks = Task::query()
             ->with([
                 'project',
                 'focusSessions' => fn ($query) => $query->work(),
@@ -249,24 +280,53 @@ class extends Component
             ->whereDoesntHave('recurringTask')
             ->orderByPriority()
             ->orderBy('end_datetime')
-            ->limit(self::AT_A_GLANCE_LIMIT)
             ->get();
+
+        $selectedDate = $this->getParsedSelectedDate();
+        $recurringCandidates = Task::query()
+            ->with([
+                'project',
+                'recurringTask',
+                'focusSessions' => fn ($query) => $query->work(),
+            ])
+            ->forUser($userId)
+            ->incomplete()
+            ->whereHas('recurringTask')
+            ->relevantForDate($selectedDate)
+            ->orderByPriority()
+            ->orderByRaw('COALESCE(end_datetime, start_datetime) ASC')
+            ->orderByDesc('id')
+            ->get();
+
+        $recurringDoingTasks = $this->taskService
+            ->processRecurringTasksForDate($recurringCandidates, $selectedDate)
+            ->filter(fn (Task $task): bool => $task->effectiveStatusForDate === TaskStatus::Doing);
+
+        return new EloquentCollection(
+            $nonRecurringDoingTasks
+                ->merge($recurringDoingTasks)
+                ->unique('id')
+                ->sortBy([
+                    fn (Task $task): int => match ($task->priority?->value ?? $task->priority) {
+                        'urgent' => 1,
+                        'high' => 2,
+                        'medium' => 3,
+                        'low' => 4,
+                        default => 5,
+                    },
+                    fn (Task $task): int => $task->end_datetime?->getTimestamp() ?? PHP_INT_MAX,
+                    fn (Task $task): int => -$task->id,
+                ])
+                ->take(self::AT_A_GLANCE_LIMIT)
+                ->values()
+                ->all()
+        );
     }
 
     #[Computed]
     public function dashboardDoingTasksCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        return Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->where('status', TaskStatus::Doing)
-            ->whereDoesntHave('recurringTask')
-            ->count();
+        return $this->dashboardDoingTasks->count();
     }
 
     /**
@@ -327,10 +387,11 @@ class extends Component
             return new EloquentCollection;
         }
 
-        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
-        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
+        $selectedDate = $this->getParsedSelectedDate();
+        $startOfDay = $selectedDate->copy()->startOfDay();
+        $endOfDay = $selectedDate->copy()->endOfDay();
 
-        return Task::query()
+        $datedRecurringTasks = Task::query()
             ->with(['project', 'recurringTask'])
             ->forUser($userId)
             ->incomplete()
@@ -338,29 +399,50 @@ class extends Component
             ->whereNotNull('end_datetime')
             ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
             ->orderByPriority()
-            ->orderBy('end_datetime')
-            ->limit(self::RECURRING_DUE_LIMIT)
             ->get();
+
+        $undatedRecurringCandidates = Task::query()
+            ->with(['project', 'recurringTask'])
+            ->forUser($userId)
+            ->incomplete()
+            ->whereHas('recurringTask')
+            ->whereNull('end_datetime')
+            ->relevantForDate($selectedDate)
+            ->orderByPriority()
+            ->get();
+
+        $undatedRecurringTasks = $this->taskService
+            ->processRecurringTasksForDate($undatedRecurringCandidates, $selectedDate)
+            ->filter(fn (Task $task): bool => $task->effectiveStatusForDate !== TaskStatus::Done);
+
+        /** @var EloquentCollection<int, Task> $processedTasks */
+        $processedTasks = new EloquentCollection(
+            $datedRecurringTasks
+                ->merge($undatedRecurringTasks)
+                ->unique('id')
+                ->sortBy([
+                    fn (Task $task): int => match ($task->priority?->value ?? $task->priority) {
+                        'urgent' => 1,
+                        'high' => 2,
+                        'medium' => 3,
+                        'low' => 4,
+                        default => 5,
+                    },
+                    fn (Task $task): int => $task->end_datetime?->getTimestamp() ?? PHP_INT_MAX,
+                    fn (Task $task): int => -$task->id,
+                ])
+                ->take(self::RECURRING_DUE_LIMIT)
+                ->values()
+                ->all()
+        );
+
+        return $processedTasks;
     }
 
     #[Computed]
     public function dashboardRecurringDueCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
-        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
-
-        return Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->whereHas('recurringTask')
-            ->whereNotNull('end_datetime')
-            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
-            ->count();
+        return $this->dashboardRecurringDueTasks->count();
     }
 
     #[Computed]
@@ -652,71 +734,80 @@ class extends Component
             return collect();
         }
 
-        $now = now();
-        $soonThreshold = $now->copy()->addDays(3);
+        $rows = $this->rememberMetric(
+            key: sprintf('project-health:%d:%s', $userId, $this->getParsedSelectedDate()->toDateString()),
+            ttlSeconds: 60,
+            callback: function () use ($userId): array {
+                $now = now();
+                $soonThreshold = $now->copy()->addDays(3);
 
-        return Project::query()
-            ->forUser($userId)
-            ->notArchived()
-            ->withCount('tasks')
-            ->withCount([
-                'tasks as incomplete_tasks_count' => fn ($query) => $query->incomplete(),
-                'tasks as overdue_tasks_count' => fn ($query) => $query->incomplete()->overdue($now),
-            ])
-            ->withMin([
-                'tasks as nearest_deadline' => fn ($query) => $query
-                    ->incomplete()
-                    ->whereNotNull('end_datetime'),
-            ], 'end_datetime')
-            ->orderByDesc('overdue_tasks_count')
-            ->orderBy('nearest_deadline')
-            ->limit(self::PROJECT_HEALTH_LIMIT)
-            ->get()
-            ->map(function (Project $project) use ($soonThreshold): array {
-                $totalTasks = (int) ($project->tasks_count ?? 0);
-                $incompleteTasks = (int) ($project->incomplete_tasks_count ?? 0);
-                $overdueTasks = (int) ($project->overdue_tasks_count ?? 0);
-                $completedTasks = max(0, $totalTasks - $incompleteTasks);
-                $completionRate = $totalTasks > 0 ? (int) round(($completedTasks / $totalTasks) * 100) : 0;
-                $nearestDeadline = $project->nearest_deadline;
-                $nearestDeadlineDate = $nearestDeadline ? \Carbon\Carbon::parse($nearestDeadline) : null;
-                $daysToDeadline = $nearestDeadlineDate !== null ? max(0, now()->startOfDay()->diffInDays($nearestDeadlineDate->startOfDay(), false)) : null;
+                return Project::query()
+                    ->forUser($userId)
+                    ->notArchived()
+                    ->withCount('tasks')
+                    ->withCount([
+                        'tasks as incomplete_tasks_count' => fn ($query) => $query->incomplete(),
+                        'tasks as overdue_tasks_count' => fn ($query) => $query->incomplete()->overdue($now),
+                    ])
+                    ->withMin([
+                        'tasks as nearest_deadline' => fn ($query) => $query
+                            ->incomplete()
+                            ->whereNotNull('end_datetime'),
+                    ], 'end_datetime')
+                    ->orderByDesc('overdue_tasks_count')
+                    ->orderBy('nearest_deadline')
+                    ->limit(self::PROJECT_HEALTH_LIMIT)
+                    ->get()
+                    ->map(function (Project $project) use ($soonThreshold): array {
+                        $totalTasks = (int) ($project->tasks_count ?? 0);
+                        $incompleteTasks = (int) ($project->incomplete_tasks_count ?? 0);
+                        $overdueTasks = (int) ($project->overdue_tasks_count ?? 0);
+                        $completedTasks = max(0, $totalTasks - $incompleteTasks);
+                        $completionRate = $totalTasks > 0 ? (int) round(($completedTasks / $totalTasks) * 100) : 0;
+                        $nearestDeadline = $project->nearest_deadline;
+                        $nearestDeadlineDate = $nearestDeadline ? \Carbon\Carbon::parse($nearestDeadline) : null;
+                        $daysToDeadline = $nearestDeadlineDate !== null ? max(0, now()->startOfDay()->diffInDays($nearestDeadlineDate->startOfDay(), false)) : null;
 
-                $risk = 'On Track';
-                $riskReason = __('Healthy progress and no immediate blockers.');
-                if ($overdueTasks > 0) {
-                    $risk = 'Critical';
-                    $riskReason = __('Has overdue tasks that need immediate action.');
-                } elseif ($incompleteTasks >= 6 && $completionRate < 35) {
-                    $risk = 'Critical';
-                    $riskReason = __('Large backlog with low completion velocity.');
-                } elseif ($nearestDeadlineDate !== null && $nearestDeadlineDate->lte($soonThreshold) && $completionRate < 60) {
-                    $risk = 'At Risk';
-                    $riskReason = __('Deadline is close and completion is below target.');
-                } elseif ($daysToDeadline !== null && $daysToDeadline <= 7 && $incompleteTasks >= 3) {
-                    $risk = 'At Risk';
-                    $riskReason = __('Upcoming deadline with several tasks still open.');
-                }
+                        $risk = 'On Track';
+                        $riskReason = __('Healthy progress and no immediate blockers.');
+                        if ($overdueTasks > 0) {
+                            $risk = 'Critical';
+                            $riskReason = __('Has overdue tasks that need immediate action.');
+                        } elseif ($incompleteTasks >= 6 && $completionRate < 35) {
+                            $risk = 'Critical';
+                            $riskReason = __('Large backlog with low completion velocity.');
+                        } elseif ($nearestDeadlineDate !== null && $nearestDeadlineDate->lte($soonThreshold) && $completionRate < 60) {
+                            $risk = 'At Risk';
+                            $riskReason = __('Deadline is close and completion is below target.');
+                        } elseif ($daysToDeadline !== null && $daysToDeadline <= 7 && $incompleteTasks >= 3) {
+                            $risk = 'At Risk';
+                            $riskReason = __('Upcoming deadline with several tasks still open.');
+                        }
 
-                return [
-                    'id' => $project->id,
-                    'name' => (string) $project->name,
-                    'total_tasks' => $totalTasks,
-                    'incomplete_tasks' => $incompleteTasks,
-                    'overdue_tasks' => $overdueTasks,
-                    'completion_rate' => $completionRate,
-                    'nearest_deadline' => $nearestDeadlineDate?->toIso8601String(),
-                    'risk' => $risk,
-                    'risk_reason' => $riskReason,
-                    'workspace_url' => route('workspace', [
-                        'date' => $this->getParsedSelectedDate()->toDateString(),
-                        'view' => 'list',
-                        'type' => 'projects',
-                        'project' => $project->id,
-                    ]),
-                ];
-            })
-            ->values();
+                        return [
+                            'id' => $project->id,
+                            'name' => (string) $project->name,
+                            'total_tasks' => $totalTasks,
+                            'incomplete_tasks' => $incompleteTasks,
+                            'overdue_tasks' => $overdueTasks,
+                            'completion_rate' => $completionRate,
+                            'nearest_deadline' => $nearestDeadlineDate?->toIso8601String(),
+                            'risk' => $risk,
+                            'risk_reason' => $riskReason,
+                            'workspace_url' => route('workspace', [
+                                'date' => $this->getParsedSelectedDate()->toDateString(),
+                                'view' => 'list',
+                                'type' => 'projects',
+                                'project' => $project->id,
+                            ]),
+                        ];
+                    })
+                    ->values()
+                    ->all();
+            }
+        );
+
+        return collect($rows);
     }
 
     /**
@@ -740,43 +831,49 @@ class extends Component
             ];
         }
 
-        $selectedDate = $this->getParsedSelectedDate()->copy();
-        $dayStart = $selectedDate->copy()->startOfDay();
-        $dayEnd = $selectedDate->copy()->endOfDay();
-        $weekStart = $selectedDate->copy()->startOfWeek();
-        $weekEnd = $selectedDate->copy()->endOfWeek();
+        return $this->rememberMetric(
+            key: sprintf('focus-throughput:%d:%s', $userId, $this->getParsedSelectedDate()->toDateString()),
+            ttlSeconds: 60,
+            callback: function () use ($userId): array {
+                $selectedDate = $this->getParsedSelectedDate()->copy();
+                $dayStart = $selectedDate->copy()->startOfDay();
+                $dayEnd = $selectedDate->copy()->endOfDay();
+                $weekStart = $selectedDate->copy()->startOfWeek();
+                $weekEnd = $selectedDate->copy()->endOfWeek();
 
-        $dailyWorkSeconds = FocusSession::query()
-            ->forUser($userId)
-            ->work()
-            ->completed()
-            ->whereBetween('started_at', [$dayStart, $dayEnd])
-            ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
-            ->value('aggregate');
+                $dailyWorkSeconds = FocusSession::query()
+                    ->forUser($userId)
+                    ->work()
+                    ->completed()
+                    ->whereBetween('started_at', [$dayStart, $dayEnd])
+                    ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
+                    ->value('aggregate');
 
-        $weeklyWorkSeconds = FocusSession::query()
-            ->forUser($userId)
-            ->work()
-            ->completed()
-            ->whereBetween('started_at', [$weekStart, $weekEnd])
-            ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
-            ->value('aggregate');
+                $weeklyWorkSeconds = FocusSession::query()
+                    ->forUser($userId)
+                    ->work()
+                    ->completed()
+                    ->whereBetween('started_at', [$weekStart, $weekEnd])
+                    ->selectRaw('COALESCE(SUM(duration_seconds), 0) as aggregate')
+                    ->value('aggregate');
 
-        $completedToday = Task::query()
-            ->forUser($userId)
-            ->whereNotNull('completed_at')
-            ->whereBetween('completed_at', [$dayStart, $dayEnd])
-            ->count();
+                $completedToday = Task::query()
+                    ->forUser($userId)
+                    ->whereNotNull('completed_at')
+                    ->whereBetween('completed_at', [$dayStart, $dayEnd])
+                    ->count();
 
-        $dailyMinutes = (int) floor(((int) $dailyWorkSeconds) / 60);
-        $weeklyMinutes = (int) floor(((int) $weeklyWorkSeconds) / 60);
+                $dailyMinutes = (int) floor(((int) $dailyWorkSeconds) / 60);
+                $weeklyMinutes = (int) floor(((int) $weeklyWorkSeconds) / 60);
 
-        return [
-            'daily_focus_minutes' => $dailyMinutes,
-            'weekly_focus_minutes' => $weeklyMinutes,
-            'completed_today' => $completedToday,
-            'focus_per_completed_minutes' => $completedToday > 0 ? (int) floor($dailyMinutes / $completedToday) : 0,
-        ];
+                return [
+                    'daily_focus_minutes' => $dailyMinutes,
+                    'weekly_focus_minutes' => $weeklyMinutes,
+                    'completed_today' => $completedToday,
+                    'focus_per_completed_minutes' => $completedToday > 0 ? (int) floor($dailyMinutes / $completedToday) : 0,
+                ];
+            }
+        );
     }
 
     /**
@@ -1018,92 +1115,98 @@ class extends Component
             ];
         }
 
-        $windowStart = now();
-        $windowEnd = now()->copy()->addHours(self::CALENDAR_LOAD_WINDOW_HOURS);
+        return $this->rememberMetric(
+            key: sprintf('calendar-load:%d:%s', $userId, now()->format('YmdHi')),
+            ttlSeconds: 30,
+            callback: function () use ($userId): array {
+                $windowStart = now();
+                $windowEnd = now()->copy()->addHours(self::CALENDAR_LOAD_WINDOW_HOURS);
 
-        $events = Event::query()
-            ->forUser($userId)
-            ->notCancelled()
-            ->notCompleted()
-            ->whereNotNull('start_datetime')
-            ->where('start_datetime', '<', $windowEnd)
-            ->where(function ($query) use ($windowStart): void {
-                $query->whereNull('end_datetime')
-                    ->orWhere('end_datetime', '>', $windowStart);
-            })
-            ->orderBy('start_datetime')
-            ->get(['id', 'start_datetime', 'end_datetime', 'all_day']);
+                $events = Event::query()
+                    ->forUser($userId)
+                    ->notCancelled()
+                    ->notCompleted()
+                    ->whereNotNull('start_datetime')
+                    ->where('start_datetime', '<', $windowEnd)
+                    ->where(function ($query) use ($windowStart): void {
+                        $query->whereNull('end_datetime')
+                            ->orWhere('end_datetime', '>', $windowStart);
+                    })
+                    ->orderBy('start_datetime')
+                    ->get(['id', 'start_datetime', 'end_datetime', 'all_day']);
 
-        $eventsCount = $events->count();
-        $allDayCount = $events->where('all_day', true)->count();
+                $eventsCount = $events->count();
+                $allDayCount = $events->where('all_day', true)->count();
 
-        $overlapConflicts = 0;
-        $eventWindows = [];
+                $overlapConflicts = 0;
+                $eventWindows = [];
 
-        foreach ($events as $event) {
-            if ($event->all_day) {
-                $eventWindows[] = [$windowStart->copy(), $windowEnd->copy()];
-                continue;
-            }
-
-            $start = $event->start_datetime?->copy();
-            $end = $event->end_datetime?->copy() ?? $event->start_datetime?->copy()->addHour();
-            if ($start === null || $end === null) {
-                continue;
-            }
-
-            if ($end->lessThanOrEqualTo($windowStart) || $start->greaterThanOrEqualTo($windowEnd)) {
-                continue;
-            }
-
-            $clampedStart = $start->lessThan($windowStart) ? $windowStart->copy() : $start;
-            $clampedEnd = $end->greaterThan($windowEnd) ? $windowEnd->copy() : $end;
-            $eventWindows[] = [$clampedStart, $clampedEnd];
-        }
-
-        usort($eventWindows, static function (array $left, array $right): int {
-            return $left[0]->getTimestamp() <=> $right[0]->getTimestamp();
-        });
-
-        for ($i = 1; $i < count($eventWindows); $i++) {
-            if ($eventWindows[$i][0]->lessThan($eventWindows[$i - 1][1])) {
-                $overlapConflicts++;
-            }
-        }
-
-        $windowMinutes = self::CALENDAR_LOAD_WINDOW_HOURS * 60;
-        $busyMinutes = 0;
-        if ($eventWindows !== []) {
-            $mergedStart = $eventWindows[0][0]->copy();
-            $mergedEnd = $eventWindows[0][1]->copy();
-
-            for ($i = 1; $i < count($eventWindows); $i++) {
-                $candidateStart = $eventWindows[$i][0];
-                $candidateEnd = $eventWindows[$i][1];
-
-                if ($candidateStart->lessThanOrEqualTo($mergedEnd)) {
-                    if ($candidateEnd->greaterThan($mergedEnd)) {
-                        $mergedEnd = $candidateEnd->copy();
+                foreach ($events as $event) {
+                    if ($event->all_day) {
+                        $eventWindows[] = [$windowStart->copy(), $windowEnd->copy()];
+                        continue;
                     }
-                    continue;
+
+                    $start = $event->start_datetime?->copy();
+                    $end = $event->end_datetime?->copy() ?? $event->start_datetime?->copy()->addHour();
+                    if ($start === null || $end === null) {
+                        continue;
+                    }
+
+                    if ($end->lessThanOrEqualTo($windowStart) || $start->greaterThanOrEqualTo($windowEnd)) {
+                        continue;
+                    }
+
+                    $clampedStart = $start->lessThan($windowStart) ? $windowStart->copy() : $start;
+                    $clampedEnd = $end->greaterThan($windowEnd) ? $windowEnd->copy() : $end;
+                    $eventWindows[] = [$clampedStart, $clampedEnd];
                 }
 
-                $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
-                $mergedStart = $candidateStart->copy();
-                $mergedEnd = $candidateEnd->copy();
+                usort($eventWindows, static function (array $left, array $right): int {
+                    return $left[0]->getTimestamp() <=> $right[0]->getTimestamp();
+                });
+
+                for ($i = 1; $i < count($eventWindows); $i++) {
+                    if ($eventWindows[$i][0]->lessThan($eventWindows[$i - 1][1])) {
+                        $overlapConflicts++;
+                    }
+                }
+
+                $windowMinutes = self::CALENDAR_LOAD_WINDOW_HOURS * 60;
+                $busyMinutes = 0;
+                if ($eventWindows !== []) {
+                    $mergedStart = $eventWindows[0][0]->copy();
+                    $mergedEnd = $eventWindows[0][1]->copy();
+
+                    for ($i = 1; $i < count($eventWindows); $i++) {
+                        $candidateStart = $eventWindows[$i][0];
+                        $candidateEnd = $eventWindows[$i][1];
+
+                        if ($candidateStart->lessThanOrEqualTo($mergedEnd)) {
+                            if ($candidateEnd->greaterThan($mergedEnd)) {
+                                $mergedEnd = $candidateEnd->copy();
+                            }
+                            continue;
+                        }
+
+                        $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
+                        $mergedStart = $candidateStart->copy();
+                        $mergedEnd = $candidateEnd->copy();
+                    }
+
+                    $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
+                }
+
+                return [
+                    'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,
+                    'events_in_window' => $eventsCount,
+                    'all_day_events' => $allDayCount,
+                    'overlap_conflicts' => $overlapConflicts,
+                    'busy_minutes' => $busyMinutes,
+                    'free_minutes' => max(0, $windowMinutes - $busyMinutes),
+                ];
             }
-
-            $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
-        }
-
-        return [
-            'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,
-            'events_in_window' => $eventsCount,
-            'all_day_events' => $allDayCount,
-            'overlap_conflicts' => $overlapConflicts,
-            'busy_minutes' => $busyMinutes,
-            'free_minutes' => max(0, $windowMinutes - $busyMinutes),
-        ];
+        );
     }
 
     /**
@@ -1129,30 +1232,36 @@ class extends Component
             ];
         }
 
-        $totalThreads = TaskAssistantThread::query()
-            ->where('user_id', $userId)
-            ->count();
+        return $this->rememberMetric(
+            key: sprintf('llm-activity:%d', $userId),
+            ttlSeconds: 60,
+            callback: function () use ($userId): array {
+                $totalThreads = TaskAssistantThread::query()
+                    ->where('user_id', $userId)
+                    ->count();
 
-        $recentThreads = TaskAssistantThread::query()
-            ->where('user_id', $userId)
-            ->latest('updated_at')
-            ->limit(self::LLM_RECENT_THREADS_LIMIT)
-            ->count();
+                $recentThreads = TaskAssistantThread::query()
+                    ->where('user_id', $userId)
+                    ->latest('updated_at')
+                    ->limit(self::LLM_RECENT_THREADS_LIMIT)
+                    ->count();
 
-        $toolCallCounts = LlmToolCall::query()
-            ->selectRaw('status, COUNT(*) as aggregate')
-            ->where('user_id', $userId)
-            ->whereIn('status', ['pending', 'success', 'failed'])
-            ->groupBy('status')
-            ->pluck('aggregate', 'status');
+                $toolCallCounts = LlmToolCall::query()
+                    ->selectRaw('status, COUNT(*) as aggregate')
+                    ->where('user_id', $userId)
+                    ->whereIn('status', ['pending', 'success', 'failed'])
+                    ->groupBy('status')
+                    ->pluck('aggregate', 'status');
 
-        return [
-            'total_threads' => $totalThreads,
-            'recent_threads' => $recentThreads,
-            'pending_tool_calls' => (int) ($toolCallCounts['pending'] ?? 0),
-            'successful_tool_calls' => (int) ($toolCallCounts['success'] ?? 0),
-            'failed_tool_calls' => (int) ($toolCallCounts['failed'] ?? 0),
-        ];
+                return [
+                    'total_threads' => $totalThreads,
+                    'recent_threads' => $recentThreads,
+                    'pending_tool_calls' => (int) ($toolCallCounts['pending'] ?? 0),
+                    'successful_tool_calls' => (int) ($toolCallCounts['success'] ?? 0),
+                    'failed_tool_calls' => (int) ($toolCallCounts['failed'] ?? 0),
+                ];
+            }
+        );
     }
 
     protected function getParsedSelectedDate(): CarbonInterface
@@ -1251,6 +1360,21 @@ class extends Component
             'fresh' => 4,
             default => 5,
         };
+    }
+
+    /**
+     * @template T
+     *
+     * @param  callable():T  $callback
+     * @return T
+     */
+    private function rememberMetric(string $key, int $ttlSeconds, callable $callback): mixed
+    {
+        return Cache::remember(
+            'dashboard:metric:'.$key,
+            now()->addSeconds($ttlSeconds),
+            $callback
+        );
     }
 
     protected function requireAuth(string $message): ?User

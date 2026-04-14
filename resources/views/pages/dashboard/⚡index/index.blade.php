@@ -1,16 +1,17 @@
 @php
-    $analytics = $this->analytics;
     $urgentNow = $this->urgentNow;
     $urgentNowDisplayed = $this->urgentNowDisplayed;
     $urgentNowHasMore = $this->urgentNowHasMore;
-    $projectHealth = $this->projectHealth;
-    $focusThroughput = $this->focusThroughput;
     $calendarLoadInsights = $this->calendarLoadInsights;
-    $collaborationPulseCounts = $this->collaborationPulseCounts;
-    $collaborationInboxInvites = $this->collaborationInboxInvites;
-    $collaborationPulseRecentActivity = $this->collaborationPulseRecentActivity;
-    $llmActivity = $this->llmActivity;
     $recurringSummary = $this->dashboardRecurringSummary;
+    $insightsOpen = $this->insightsOpen;
+    $projectHealth = $this->projectHealth;
+    $focusThroughput = $insightsOpen
+        ? $this->focusThroughput
+        : ['daily_focus_minutes' => 0, 'weekly_focus_minutes' => 0, 'completed_today' => 0, 'focus_per_completed_minutes' => 0];
+    $llmActivity = $insightsOpen
+        ? $this->llmActivity
+        : ['total_threads' => 0, 'recent_threads' => 0, 'successful_tool_calls' => 0, 'pending_tool_calls' => 0, 'failed_tool_calls' => 0];
     $assistantQuickActions = [
         __('Prioritize my tasks for today'),
         __('Suggest focus blocks around my events'),
@@ -40,6 +41,22 @@
             'icon' => 'arrow-path',
             'shell' => 'border-blue-200/55 ring-blue-500/10 dark:border-blue-900/40',
             'icon_shell' => 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200',
+        ],
+        [
+            'key' => 'total',
+            'label' => __('Total tasks'),
+            'value' => $this->dashboardTotalTasksCount,
+            'icon' => 'queue-list',
+            'shell' => 'border-indigo-200/55 ring-indigo-500/10 dark:border-indigo-900/40',
+            'icon_shell' => 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200',
+        ],
+        [
+            'key' => 'completed',
+            'label' => __('Completed tasks'),
+            'value' => $this->dashboardCompletedTasksCount,
+            'icon' => 'check-badge',
+            'shell' => 'border-emerald-200/55 ring-emerald-500/10 dark:border-emerald-900/40',
+            'icon_shell' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200',
         ],
     ];
 
@@ -85,18 +102,23 @@
 <section class="space-y-6">
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         <div class="min-w-0 space-y-4">
-            <section
-                x-data="dashboardAnalyticsCharts({ analytics: @js($analytics), preset: @js($this->analyticsPreset) })"
-                x-effect="sync(@js($this->analytics), @js($this->analyticsPreset))"
-                class="flex h-full w-full flex-1 flex-col gap-4"
-            >
+            <section class="flex h-full w-full flex-1 flex-col gap-4">
                 <div class="min-h-0 flex-1 space-y-4">
-                    <div class="{{ $dashboardPanelShell['default'] }} p-4 sm:p-5">
+                    <div class="hero-brand-gradient-shell p-4 sm:p-5">
+                        <div
+                            class="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl"
+                            aria-hidden="true"
+                        >
+                            <div class="absolute inset-0 bg-linear-to-r from-brand-blue/15 via-brand-purple/10 to-brand-green/15"></div>
+                            <div class="absolute -right-4 -top-4 flex size-48 items-center justify-center rounded-full bg-brand-blue/15 blur-2xl"></div>
+                        </div>
+                        <div class="hero-brand-gradient-glass" aria-hidden="true"></div>
+                        <div class="relative z-10 flex w-full min-w-0 flex-col gap-2">
                         @php
                             $greetingName = auth()->user()?->firstName() ?? '';
                         @endphp
-                        <div class="flex w-full min-w-0 items-start justify-between gap-4">
-                            <div class="space-y-2">
+                        <div class="flex w-full min-w-0 items-start justify-between gap-3 sm:gap-4">
+                            <div class="min-w-0 flex-1 space-y-2">
                                 <p class="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                                     @if ($greetingName !== '')
                                         {{ __('Dashboard — Hello, :name!', ['name' => $greetingName]) }}
@@ -104,11 +126,16 @@
                                         {{ __('Dashboard — Hello!') }}
                                     @endif
                                 </p>
-                                <h2 class="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                                <h2 class="min-w-0 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                                     {{ __('Focus on what needs attention right now.') }}
                                 </h2>
+                                <p class="max-w-2xl text-sm text-muted-foreground">
+                                    {{ __('Tasklyst helps you manage tasks and schedules in one workspace, with AI guidance to prioritize what matters next and plan your day with confidence.') }}
+                                </p>
                             </div>
-                            <x-notifications.bell-cluster variant="hero" />
+                            <div class="inline-flex shrink-0 self-start items-center">
+                                <x-notifications.bell-cluster variant="hero" />
+                            </div>
                         </div>
                         <div class="mt-4 flex flex-wrap items-center gap-2">
                             <a
@@ -123,7 +150,7 @@
                                 <flux:modal.trigger name="task-assistant-chat">
                                     <button
                                         type="button"
-                                        class="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 dark:border-zinc-700"
+                                        class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
                                     >
                                         <flux:icon name="sparkles" class="size-4" />
                                         <span>{{ __('Ask AI assistant') }}</span>
@@ -131,18 +158,19 @@
                                 </flux:modal.trigger>
                             @endauth
                         </div>
+                        </div>
                     </div>
 
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                         @foreach ($topKpis as $kpi)
-                            <div class="rounded-xl border bg-background p-3 shadow-sm ring-1 sm:p-4 {{ $kpi['shell'] }}" data-testid="dashboard-kpi-{{ $kpi['key'] }}">
-                                <div class="flex items-center gap-2">
-                                    <div class="flex size-9 shrink-0 items-center justify-center rounded-lg {{ $kpi['icon_shell'] }}">
-                                        <flux:icon name="{{ $kpi['icon'] }}" class="size-5" />
+                            <div class="rounded-xl border bg-background px-3 py-2.5 shadow-sm ring-1 sm:px-3.5 sm:py-3 {{ $kpi['shell'] }}" data-testid="dashboard-kpi-{{ $kpi['key'] }}">
+                                <div class="flex items-center gap-2 sm:gap-2.5">
+                                    <div class="flex size-8 shrink-0 items-center justify-center rounded-lg {{ $kpi['icon_shell'] }}">
+                                        <flux:icon name="{{ $kpi['icon'] }}" class="size-4.5" />
                                     </div>
                                     <div class="min-w-0">
                                         <p class="text-xs text-muted-foreground">{{ $kpi['label'] }}</p>
-                                        <p class="text-2xl font-bold tabular-nums leading-none text-foreground" data-testid="dashboard-kpi-{{ $kpi['key'] }}-value">{{ $kpi['value'] }}</p>
+                                        <p class="text-xl font-bold tabular-nums leading-none text-foreground sm:text-2xl" data-testid="dashboard-kpi-{{ $kpi['key'] }}-value">{{ $kpi['value'] }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -358,21 +386,85 @@
                         </div>
                     @endauth
 
-                    <div x-data="{ insightsOpen: false }" class="{{ $dashboardPanelShell['default'] }}">
+                    @auth
+                        <div class="{{ $dashboardPanelShell['default'] }}">
+                            <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
+                                <flux:icon name="briefcase" class="size-4 text-foreground/80" />
+                                <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-project-health-heading">
+                                    {{ __('Project Health') }}
+                                </span>
+                            </div>
+                            @if ($projectHealth->isEmpty())
+                                <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No active projects yet.') }}</p>
+                            @else
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full text-left text-xs">
+                                        <thead class="bg-muted/40 text-muted-foreground">
+                                            <tr>
+                                                <th class="px-4 py-2.5 font-semibold">{{ __('Project') }}</th>
+                                                <th class="px-4 py-2.5 font-semibold">{{ __('Progress') }}</th>
+                                                <th class="px-4 py-2.5 font-semibold">{{ __('Overdue') }}</th>
+                                                <th class="px-4 py-2.5 font-semibold">{{ __('Nearest deadline') }}</th>
+                                                <th class="px-4 py-2.5 font-semibold">{{ __('Risk') }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-border/60 dark:divide-zinc-800">
+                                            @foreach ($projectHealth as $project)
+                                                <tr data-testid="dashboard-row-project-health">
+                                                    <td class="px-4 py-2.5">
+                                                        <a href="{{ $project['workspace_url'] }}" wire:navigate class="truncate font-semibold text-foreground transition hover:text-brand-blue">
+                                                            {{ $project['name'] }}
+                                                        </a>
+                                                        <p class="text-xs text-muted-foreground">
+                                                            {{ __(':incomplete of :total open', ['incomplete' => $project['incomplete_tasks'], 'total' => $project['total_tasks']]) }}
+                                                        </p>
+                                                    </td>
+                                                    <td class="px-4 py-2.5">
+                                                        <p class="font-semibold text-foreground">{{ $project['completion_rate'] }}%</p>
+                                                        <div class="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
+                                                            <div
+                                                                class="h-full rounded-full bg-emerald-600 dark:bg-emerald-500"
+                                                                style="width: {{ $project['completion_rate'] }}%;"
+                                                            ></div>
+                                                        </div>
+                                                    </td>
+                                                    <td class="px-4 py-2.5 font-semibold {{ $project['overdue_tasks'] > 0 ? 'text-red-700 dark:text-red-300' : 'text-muted-foreground' }}">
+                                                        {{ $project['overdue_tasks'] }}
+                                                    </td>
+                                                    <td class="px-4 py-2.5 text-muted-foreground">
+                                                        {{ $project['nearest_deadline'] ? \Carbon\Carbon::parse($project['nearest_deadline'])->translatedFormat('M j') : __('No deadline') }}
+                                                    </td>
+                                                    <td class="px-4 py-2.5">
+                                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold {{ $riskBadgeClass($project['risk']) }}">
+                                                            {{ __($project['risk']) }}
+                                                        </span>
+                                                        <p class="mt-1 text-xs text-muted-foreground">{{ $project['risk_reason'] }}</p>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
+                        </div>
+                    @endauth
+
+                    <div class="{{ $dashboardPanelShell['default'] }}">
                         <button
                             type="button"
                             class="flex w-full items-center justify-between px-4 py-3 text-left"
-                            @click="insightsOpen = !insightsOpen"
-                            :aria-expanded="insightsOpen.toString()"
+                            wire:click="toggleInsights"
+                            aria-expanded="{{ $insightsOpen ? 'true' : 'false' }}"
                         >
                             <div class="flex items-center gap-2">
                                 <flux:icon name="chart-bar" class="size-4 text-foreground/80" />
                                 <span class="text-sm font-semibold text-foreground">{{ __('Show insights') }}</span>
                             </div>
-                            <flux:icon name="chevron-down" class="size-4 transition-transform" x-bind:class="insightsOpen ? 'rotate-180' : ''" />
+                            <flux:icon name="chevron-down" class="size-4 transition-transform {{ $insightsOpen ? 'rotate-180' : '' }}" />
                         </button>
 
-                        <div x-cloak x-show="insightsOpen" x-transition class="space-y-4 border-t border-border/60 p-4 dark:border-zinc-800">
+                        @if ($insightsOpen)
+                            <div class="space-y-4 border-t border-border/60 p-4 dark:border-zinc-800">
                             @auth
 
                                 <div class="{{ $dashboardPanelShell['default'] }}">
@@ -398,67 +490,6 @@
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['focus_per_completed_minutes'] }} {{ __('min') }}</p>
                                         </div>
                                     </div>
-                                </div>
-
-                                <div class="{{ $dashboardPanelShell['default'] }}">
-                                    <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
-                                        <flux:icon name="briefcase" class="size-4 text-foreground/80" />
-                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-project-health-heading">
-                                            {{ __('Project Health') }}
-                                        </span>
-                                    </div>
-                                    @if ($projectHealth->isEmpty())
-                                        <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No active projects yet.') }}</p>
-                                    @else
-                                        <div class="overflow-x-auto">
-                                            <table class="min-w-full text-left text-xs">
-                                                <thead class="bg-muted/40 text-muted-foreground">
-                                                    <tr>
-                                                        <th class="px-4 py-2.5 font-semibold">{{ __('Project') }}</th>
-                                                        <th class="px-4 py-2.5 font-semibold">{{ __('Progress') }}</th>
-                                                        <th class="px-4 py-2.5 font-semibold">{{ __('Overdue') }}</th>
-                                                        <th class="px-4 py-2.5 font-semibold">{{ __('Nearest deadline') }}</th>
-                                                        <th class="px-4 py-2.5 font-semibold">{{ __('Risk') }}</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-border/60 dark:divide-zinc-800">
-                                                    @foreach ($projectHealth as $project)
-                                                        <tr data-testid="dashboard-row-project-health">
-                                                            <td class="px-4 py-2.5">
-                                                                <a href="{{ $project['workspace_url'] }}" wire:navigate class="truncate font-semibold text-foreground transition hover:text-brand-blue">
-                                                                    {{ $project['name'] }}
-                                                                </a>
-                                                                <p class="text-xs text-muted-foreground">
-                                                                    {{ __(':incomplete of :total open', ['incomplete' => $project['incomplete_tasks'], 'total' => $project['total_tasks']]) }}
-                                                                </p>
-                                                            </td>
-                                                            <td class="px-4 py-2.5">
-                                                                <p class="font-semibold text-foreground">{{ $project['completion_rate'] }}%</p>
-                                                                <div class="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                                                                    <div
-                                                                        class="h-full rounded-full bg-emerald-600 dark:bg-emerald-500"
-                                                                        style="width: {{ $project['completion_rate'] }}%;"
-                                                                    ></div>
-                                                                </div>
-                                                            </td>
-                                                            <td class="px-4 py-2.5 font-semibold {{ $project['overdue_tasks'] > 0 ? 'text-red-700 dark:text-red-300' : 'text-muted-foreground' }}">
-                                                                {{ $project['overdue_tasks'] }}
-                                                            </td>
-                                                            <td class="px-4 py-2.5 text-muted-foreground">
-                                                                {{ $project['nearest_deadline'] ? \Carbon\Carbon::parse($project['nearest_deadline'])->translatedFormat('M j') : __('No deadline') }}
-                                                            </td>
-                                                            <td class="px-4 py-2.5">
-                                                                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold {{ $riskBadgeClass($project['risk']) }}">
-                                                                    {{ __($project['risk']) }}
-                                                                </span>
-                                                                <p class="mt-1 text-xs text-muted-foreground">{{ $project['risk_reason'] }}</p>
-                                                            </td>
-                                                        </tr>
-                                                    @endforeach
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    @endif
                                 </div>
 
                                 <div class="{{ $dashboardPanelShell['default'] }}">
@@ -497,7 +528,7 @@
                                 </div>
                             @endauth
 
-                            @if ($analytics)
+                            @if ($this->trendAnalytics)
                                 @island(name: 'dashboard-trend')
                                     <div
                                         x-data="dashboardAnalyticsCharts({ analytics: @js($this->trendAnalytics), preset: @js($this->trendPreset) })"
@@ -537,7 +568,8 @@
                             @else
                                 <p class="text-sm text-muted-foreground">{{ __('No analytics to show.') }}</p>
                             @endif
-                        </div>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </section>

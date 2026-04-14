@@ -30,17 +30,17 @@ class UserAnalyticsService
         $currentCreatedCount = $this->tasksCreatedBaseQuery($user, $period->currentStart, $period->currentEnd)->count();
         $previousCreatedCount = $this->tasksCreatedBaseQuery($user, $period->previousStart, $period->previousEnd)->count();
 
-        [$currentFocusWorkSecondsTotal, $currentFocusWorkSessionsCount] = $this->focusWorkPeriodTotals(
+        $currentFocusSummary = $this->focusWorkSummary(
             $user,
             $period->currentStart,
             $period->currentEnd,
-            $period->currentEnd
+            includeDailyBuckets: true
         );
-        [$previousFocusWorkSecondsTotal, $previousFocusWorkSessionsCount] = $this->focusWorkPeriodTotals(
+        $previousFocusSummary = $this->focusWorkSummary(
             $user,
             $period->previousStart,
             $period->previousEnd,
-            $period->previousEnd
+            includeDailyBuckets: false
         );
 
         $currentOverdueCount = $this->overdueCount($user, $period->currentEnd);
@@ -57,14 +57,14 @@ class UserAnalyticsService
             ),
             'overdue' => $this->card($currentOverdueCount, $previousOverdueCount),
             'due_soon' => $this->card($currentDueSoonCount, $previousDueSoonCount),
-            'focus_work_seconds' => $this->card($currentFocusWorkSecondsTotal, $previousFocusWorkSecondsTotal),
-            'focus_sessions' => $this->card($currentFocusWorkSessionsCount, $previousFocusWorkSessionsCount),
+            'focus_work_seconds' => $this->card($currentFocusSummary['total_seconds'], $previousFocusSummary['total_seconds']),
+            'focus_sessions' => $this->card($currentFocusSummary['total_sessions'], $previousFocusSummary['total_sessions']),
         ];
 
         $dailyCompleted = $this->tasksCompletedByDay($user, $period->currentStart, $period->currentEnd);
         $dailyCreated = $this->tasksCreatedByDay($user, $period->currentStart, $period->currentEnd);
-        $dailyFocusWorkSeconds = $this->focusWorkSecondsByDay($user, $period->currentStart, $period->currentEnd);
-        $dailyFocusWorkSessions = $this->focusWorkSessionsByDay($user, $period->currentStart, $period->currentEnd);
+        $dailyFocusWorkSeconds = $currentFocusSummary['seconds_by_day'];
+        $dailyFocusWorkSessions = $currentFocusSummary['sessions_by_day'];
         $labels = $this->dateLabelsInPeriod($period->currentStart, $period->currentEnd);
 
         $trends = [
@@ -104,6 +104,63 @@ class UserAnalyticsService
             trends: $trends,
             breakdowns: $breakdowns,
         );
+    }
+
+    /**
+     * @return array{
+     *   total_seconds:int,
+     *   total_sessions:int,
+     *   seconds_by_day:array<string,int>,
+     *   sessions_by_day:array<string,int>
+     * }
+     */
+    private function focusWorkSummary(
+        User $user,
+        CarbonImmutable $periodStart,
+        CarbonImmutable $periodEnd,
+        bool $includeDailyBuckets
+    ): array {
+        $timezone = (string) config('app.timezone');
+        $sessions = $this->endedWorkSessionsBaseQuery($user, $periodStart, $periodEnd)->get();
+
+        $totalSeconds = 0;
+        $totalSessions = 0;
+        $secondsByDay = [];
+        $sessionsByDay = [];
+
+        foreach ($sessions as $session) {
+            if (! $session instanceof FocusSession) {
+                continue;
+            }
+
+            $effective = $session->effectiveWorkSeconds($periodEnd);
+            if ($effective === null) {
+                continue;
+            }
+
+            $totalSeconds += $effective;
+            $totalSessions++;
+
+            if (! $includeDailyBuckets) {
+                continue;
+            }
+
+            $day = $session->started_at->timezone($timezone)->format('Y-m-d');
+            $secondsByDay[$day] = ($secondsByDay[$day] ?? 0) + $effective;
+            $sessionsByDay[$day] = ($sessionsByDay[$day] ?? 0) + 1;
+        }
+
+        if ($includeDailyBuckets) {
+            ksort($secondsByDay);
+            ksort($sessionsByDay);
+        }
+
+        return [
+            'total_seconds' => $totalSeconds,
+            'total_sessions' => $totalSessions,
+            'seconds_by_day' => $secondsByDay,
+            'sessions_by_day' => $sessionsByDay,
+        ];
     }
 
     /**
@@ -218,6 +275,10 @@ class UserAnalyticsService
         $count = 0;
 
         foreach ($sessions as $session) {
+            if (! $session instanceof FocusSession) {
+                continue;
+            }
+
             $effective = $session->effectiveWorkSeconds($referenceTime);
             if ($effective !== null) {
                 $seconds += $effective;
@@ -283,6 +344,10 @@ class UserAnalyticsService
 
         $map = [];
         foreach ($sessions as $session) {
+            if (! $session instanceof FocusSession) {
+                continue;
+            }
+
             $effective = $session->effectiveWorkSeconds($periodEnd);
             if ($effective === null) {
                 continue;
@@ -307,6 +372,10 @@ class UserAnalyticsService
 
         $map = [];
         foreach ($sessions as $session) {
+            if (! $session instanceof FocusSession) {
+                continue;
+            }
+
             if ($session->effectiveWorkSeconds($periodEnd) === null) {
                 continue;
             }

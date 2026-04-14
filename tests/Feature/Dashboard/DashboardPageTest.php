@@ -133,6 +133,68 @@ test('dashboard top kpi shows doing tasks count', function () {
     expect($matches[1])->toBe('2');
 });
 
+test('dashboard doing tasks includes recurring instance doing on selected day', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 08:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    $recurringTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Instance Doing Task',
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => null,
+        'completed_at' => null,
+    ]);
+
+    $recurring = RecurringTask::factory()->create([
+        'task_id' => $recurringTask->id,
+        'recurrence_type' => 'daily',
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-04-10 09:00:00'),
+        'end_datetime' => null,
+    ]);
+
+    \App\Models\TaskInstance::query()->create([
+        'task_id' => $recurringTask->id,
+        'recurring_task_id' => $recurring->id,
+        'instance_date' => Carbon::parse($selectedDate),
+        'status' => TaskStatus::Doing,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Recurring Instance Doing Task', false);
+    expect(preg_match('/data-testid="dashboard-kpi-doing-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
+    expect($matches[1])->toBe('1');
+
+    Carbon::setTestNow();
+});
+
+test('dashboard top kpi shows total and completed tasks counts', function () {
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->count(2)->create([
+        'status' => TaskStatus::ToDo,
+        'completed_at' => null,
+    ]);
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::Done,
+        'completed_at' => now(),
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard'));
+
+    $response->assertSuccessful();
+    $response->assertSee(__('Total tasks'), false);
+    $response->assertSee(__('Completed tasks'), false);
+
+    expect(preg_match('/data-testid="dashboard-kpi-total-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $totalMatches))->toBe(1);
+    expect($totalMatches[1])->toBe('5');
+
+    expect(preg_match('/data-testid="dashboard-kpi-completed-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $completedMatches))->toBe(1);
+    expect($completedMatches[1])->toBe('3');
+});
+
 test('dashboard urgent now shows at most three rows and see all link when more exist', function () {
     $user = User::factory()->create();
     $project = Project::factory()->for($user)->create();
@@ -198,6 +260,7 @@ test('dashboard phase 1 sections render with seeded data', function () {
     $response->assertSee('Project Health', false);
     $response->assertSee('Urgent Dashboard Task', false);
     $response->assertSee('Phase 1 Project', false);
+    $response->assertSee('Show insights', false);
 });
 
 test('dashboard phase 2 sections render with calendar feed health data', function () {
@@ -320,10 +383,11 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
 
     $response->assertSuccessful();
     $response->assertSee('No-date Backlog', false);
-    $response->assertSee('Focus + Throughput', false);
     $response->assertSee('Calendar load (next 24h)', false);
-    $response->assertSee('LLM Assistant Activity', false);
-    $response->assertSee('Quick actions', false);
+    $response->assertSee('Show insights', false);
+    $response->assertDontSee('Focus + Throughput', false);
+    $response->assertDontSee('LLM Assistant Activity', false);
+    $response->assertDontSee('Quick actions', false);
     $response->assertSee('No Date Backlog Task', false);
 
     expect(preg_match('/data-testid="dashboard-no-date-backlog-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
@@ -558,6 +622,35 @@ test('dashboard recurring section excludes non-recurring and off-date tasks', fu
 
     $response->assertSuccessful();
     $response->assertSee('Recurring On Date', false);
+    expect(substr_count((string) $response->getContent(), 'data-testid="dashboard-row-recurring-task"'))->toBe(1);
+
+    Carbon::setTestNow();
+});
+
+test('dashboard recurring section includes recurring task without due datetime when occurrence matches selected day', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 08:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    $recurringTask = Task::factory()->for($user)->create([
+        'title' => 'Recurring Without Due Datetime',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'completed_at' => null,
+    ]);
+    RecurringTask::factory()->create([
+        'task_id' => $recurringTask->id,
+        'recurrence_type' => 'daily',
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-04-10 09:00:00'),
+        'end_datetime' => null,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee('Recurring Without Due Datetime', false);
     expect(substr_count((string) $response->getContent(), 'data-testid="dashboard-row-recurring-task"'))->toBe(1);
 
     Carbon::setTestNow();
