@@ -54,7 +54,6 @@ class extends Component
     private const FEED_HEALTH_LIMIT = 5;
     private const NO_DATE_BACKLOG_LIMIT = 7;
     private const RECURRING_DUE_LIMIT = 7;
-    private const CALENDAR_LOAD_WINDOW_HOURS = 24;
     private const LLM_RECENT_THREADS_LIMIT = 5;
 
     #[Url(as: 'date')]
@@ -618,6 +617,7 @@ class extends Component
      *   score: int,
      *   reasoning: string,
      *   priority: string|null,
+     *   complexity: string|null,
      *   ends_at: string|null,
      *   urgency_level: 'critical'|'high'|'normal',
      *   workspace_url: string
@@ -657,8 +657,10 @@ class extends Component
             ->map(function (array $item): array {
                 $raw = is_array($item['raw'] ?? null) ? $item['raw'] : [];
                 $priority = is_string($raw['priority'] ?? null) ? (string) $raw['priority'] : null;
+                $complexity = is_string($raw['complexity'] ?? null) ? (string) $raw['complexity'] : null;
                 $endsAt = is_string($raw['ends_at'] ?? null) ? (string) $raw['ends_at'] : null;
-                $urgencyLevel = $this->resolveUrgencyLevel($priority, $endsAt);
+                $status = is_string($raw['status'] ?? null) ? (string) $raw['status'] : null;
+                $urgencyLevel = $this->resolveUrgencyLevel($priority, $endsAt, $status);
                 $itemType = (string) ($item['type'] ?? 'task');
                 $itemId = (int) ($item['id'] ?? 0);
                 $workspaceParams = [
@@ -679,6 +681,7 @@ class extends Component
                     'score' => (int) ($item['score'] ?? 0),
                     'reasoning' => (string) ($item['reasoning'] ?? ''),
                     'priority' => $priority,
+                    'complexity' => $complexity,
                     'ends_at' => $endsAt,
                     'urgency_level' => $urgencyLevel,
                     'workspace_url' => route('workspace', $workspaceParams),
@@ -695,6 +698,7 @@ class extends Component
      *   score: int,
      *   reasoning: string,
      *   priority: string|null,
+     *   complexity: string|null,
      *   ends_at: string|null,
      *   urgency_level: 'critical'|'high'|'normal',
      *   workspace_url: string
@@ -1092,125 +1096,6 @@ class extends Component
 
     /**
      * @return array{
-     *   window_hours: int,
-     *   events_in_window: int,
-     *   all_day_events: int,
-     *   overlap_conflicts: int,
-     *   busy_minutes: int,
-     *   free_minutes: int
-     * }
-     */
-    #[Computed]
-    public function calendarLoadInsights(): array
-    {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return [
-                'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,
-                'events_in_window' => 0,
-                'all_day_events' => 0,
-                'overlap_conflicts' => 0,
-                'busy_minutes' => 0,
-                'free_minutes' => self::CALENDAR_LOAD_WINDOW_HOURS * 60,
-            ];
-        }
-
-        return $this->rememberMetric(
-            key: sprintf('calendar-load:%d:%s', $userId, now()->format('YmdHi')),
-            ttlSeconds: 30,
-            callback: function () use ($userId): array {
-                $windowStart = now();
-                $windowEnd = now()->copy()->addHours(self::CALENDAR_LOAD_WINDOW_HOURS);
-
-                $events = Event::query()
-                    ->forUser($userId)
-                    ->notCancelled()
-                    ->notCompleted()
-                    ->whereNotNull('start_datetime')
-                    ->where('start_datetime', '<', $windowEnd)
-                    ->where(function ($query) use ($windowStart): void {
-                        $query->whereNull('end_datetime')
-                            ->orWhere('end_datetime', '>', $windowStart);
-                    })
-                    ->orderBy('start_datetime')
-                    ->get(['id', 'start_datetime', 'end_datetime', 'all_day']);
-
-                $eventsCount = $events->count();
-                $allDayCount = $events->where('all_day', true)->count();
-
-                $overlapConflicts = 0;
-                $eventWindows = [];
-
-                foreach ($events as $event) {
-                    if ($event->all_day) {
-                        $eventWindows[] = [$windowStart->copy(), $windowEnd->copy()];
-                        continue;
-                    }
-
-                    $start = $event->start_datetime?->copy();
-                    $end = $event->end_datetime?->copy() ?? $event->start_datetime?->copy()->addHour();
-                    if ($start === null || $end === null) {
-                        continue;
-                    }
-
-                    if ($end->lessThanOrEqualTo($windowStart) || $start->greaterThanOrEqualTo($windowEnd)) {
-                        continue;
-                    }
-
-                    $clampedStart = $start->lessThan($windowStart) ? $windowStart->copy() : $start;
-                    $clampedEnd = $end->greaterThan($windowEnd) ? $windowEnd->copy() : $end;
-                    $eventWindows[] = [$clampedStart, $clampedEnd];
-                }
-
-                usort($eventWindows, static function (array $left, array $right): int {
-                    return $left[0]->getTimestamp() <=> $right[0]->getTimestamp();
-                });
-
-                for ($i = 1; $i < count($eventWindows); $i++) {
-                    if ($eventWindows[$i][0]->lessThan($eventWindows[$i - 1][1])) {
-                        $overlapConflicts++;
-                    }
-                }
-
-                $windowMinutes = self::CALENDAR_LOAD_WINDOW_HOURS * 60;
-                $busyMinutes = 0;
-                if ($eventWindows !== []) {
-                    $mergedStart = $eventWindows[0][0]->copy();
-                    $mergedEnd = $eventWindows[0][1]->copy();
-
-                    for ($i = 1; $i < count($eventWindows); $i++) {
-                        $candidateStart = $eventWindows[$i][0];
-                        $candidateEnd = $eventWindows[$i][1];
-
-                        if ($candidateStart->lessThanOrEqualTo($mergedEnd)) {
-                            if ($candidateEnd->greaterThan($mergedEnd)) {
-                                $mergedEnd = $candidateEnd->copy();
-                            }
-                            continue;
-                        }
-
-                        $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
-                        $mergedStart = $candidateStart->copy();
-                        $mergedEnd = $candidateEnd->copy();
-                    }
-
-                    $busyMinutes += max(0, (int) $mergedEnd->diffInMinutes($mergedStart));
-                }
-
-                return [
-                    'window_hours' => self::CALENDAR_LOAD_WINDOW_HOURS,
-                    'events_in_window' => $eventsCount,
-                    'all_day_events' => $allDayCount,
-                    'overlap_conflicts' => $overlapConflicts,
-                    'busy_minutes' => $busyMinutes,
-                    'free_minutes' => max(0, $windowMinutes - $busyMinutes),
-                ];
-            }
-        );
-    }
-
-    /**
-     * @return array{
      *   total_threads: int,
      *   recent_threads: int,
      *   pending_tool_calls: int,
@@ -1289,7 +1174,7 @@ class extends Component
         };
     }
 
-    private function resolveUrgencyLevel(?string $priority, ?string $endsAt): string
+    private function resolveUrgencyLevel(?string $priority, ?string $endsAt, ?string $status): string
     {
         if ($endsAt !== null) {
             try {
@@ -1297,7 +1182,8 @@ class extends Component
                 if ($deadline->isPast() || $deadline->isToday()) {
                     return 'critical';
                 }
-                if ($deadline->isTomorrow()) {
+                $daysUntilDue = now()->startOfDay()->diffInDays($deadline->copy()->startOfDay(), false);
+                if ($daysUntilDue >= 1 && $daysUntilDue <= 3) {
                     return 'high';
                 }
             } catch (\Throwable) {
@@ -1305,11 +1191,21 @@ class extends Component
             }
         }
 
-        return match ($priority) {
+        $priorityUrgency = match ($priority) {
             'urgent' => 'critical',
             'high' => 'high',
             default => 'normal',
         };
+
+        if ($priorityUrgency !== 'normal') {
+            return $priorityUrgency;
+        }
+
+        if ($status === TaskStatus::Doing->value) {
+            return 'high';
+        }
+
+        return 'normal';
     }
 
     /**

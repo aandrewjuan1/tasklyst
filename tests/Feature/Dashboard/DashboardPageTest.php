@@ -105,7 +105,7 @@ test('dashboard top kpi shows due on selected day count', function () {
     $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
 
     $response->assertSuccessful();
-    $response->assertSee(__('Due on selected day'), false);
+    $response->assertSee(__('Due on April 12'), false);
 
     expect(preg_match('/data-testid="dashboard-kpi-due_today-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('2');
@@ -236,6 +236,46 @@ test('dashboard urgent now omits see all when at most three items', function () 
     $response->assertSuccessful();
     expect(substr_count((string) $response->getContent(), 'data-testid="dashboard-row-urgent-item"'))->toBe(3);
     $response->assertDontSee('data-testid="dashboard-urgent-now-see-all"', false);
+});
+
+test('dashboard urgent now assigns urgency levels from deadline and status heuristics', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+    $user = User::factory()->create();
+    $project = Project::factory()->for($user)->create();
+
+    Task::factory()->for($user)->for($project)->create([
+        'title' => 'Critical Today Task',
+        'priority' => TaskPriority::Low,
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-09 18:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->for($project)->create([
+        'title' => 'High Due Soon Task',
+        'priority' => TaskPriority::Low,
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 12:00:00'),
+        'completed_at' => null,
+    ]);
+
+    Task::factory()->for($user)->for($project)->create([
+        'title' => 'High Doing Task',
+        'priority' => TaskPriority::Low,
+        'status' => TaskStatus::Doing,
+        'end_datetime' => null,
+        'completed_at' => null,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard'));
+    $response->assertSuccessful();
+    $html = (string) $response->getContent();
+
+    expect(preg_match('/data-urgency-level="critical"[\s\S]*Critical Today Task/', $html))->toBe(1);
+    expect(preg_match('/data-urgency-level="high"[\s\S]*High Due Soon Task/', $html))->toBe(1);
+    expect(preg_match('/data-urgency-level="high"[\s\S]*High Doing Task/', $html))->toBe(1);
+
+    Carbon::setTestNow();
 });
 
 test('dashboard phase 1 sections render with seeded data', function () {
@@ -383,7 +423,6 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
 
     $response->assertSuccessful();
     $response->assertSee('No-date Backlog', false);
-    $response->assertSee('Calendar load (next 24h)', false);
     $response->assertSee('Show insights', false);
     $response->assertDontSee('Focus + Throughput', false);
     $response->assertDontSee('LLM Assistant Activity', false);
@@ -506,9 +545,6 @@ test('dashboard selected date drives due and events panels', function () {
     expect(preg_match('/data-testid="dashboard-kpi-due_today-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $dueMatches))->toBe(1);
     expect($dueMatches[1])->toBe('1');
 
-    expect(preg_match('/data-testid="dashboard-calendar-events-in-window"[^>]*>\s*(\d+)\s*</', $response->getContent(), $eventMatches))->toBe(1);
-    expect((int) $eventMatches[1])->toBeGreaterThanOrEqual(0);
-
     Carbon::setTestNow();
 });
 
@@ -573,7 +609,7 @@ test('dashboard recurring section shows selected-day due and completed counts', 
     $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
 
     $response->assertSuccessful();
-    $response->assertSee('Repeating tasks on selected day', false);
+    $response->assertSee('Repeating tasks on April 12', false);
     $response->assertSee('Recurring Due Task', false);
     $response->assertDontSee('Recurring Completed Task', false);
 

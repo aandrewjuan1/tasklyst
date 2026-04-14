@@ -1,8 +1,11 @@
 @php
+    $dashboardSelectedDate = $this->getParsedSelectedDate();
+    $selectedDayContextPhrase = $dashboardSelectedDate->isToday()
+        ? __('for today')
+        : __('on :date', ['date' => $dashboardSelectedDate->translatedFormat('F j')]);
     $urgentNow = $this->urgentNow;
     $urgentNowDisplayed = $this->urgentNowDisplayed;
     $urgentNowHasMore = $this->urgentNowHasMore;
-    $calendarLoadInsights = $this->calendarLoadInsights;
     $recurringSummary = $this->dashboardRecurringSummary;
     $insightsOpen = $this->insightsOpen;
     $projectHealth = $this->projectHealth;
@@ -28,7 +31,7 @@
         ],
         [
             'key' => 'due_today',
-            'label' => __('Due on selected day'),
+            'label' => __('Due :when', ['when' => $selectedDayContextPhrase]),
             'value' => $this->dashboardDueTodayTasksCount,
             'icon' => 'sun',
             'shell' => 'border-amber-200/55 ring-amber-500/10 dark:border-amber-900/40',
@@ -78,6 +81,7 @@
 
         return (int) min(100, max(0, round(($spentSeconds / $targetSeconds) * 100)));
     };
+    $doingDisplayLimit = 3;
     $doingTasksForDisplay = $this->dashboardDoingTasks
         ->map(function (\App\Models\Task $task) use ($taskFocusProgressPercent): array {
             return [
@@ -86,8 +90,9 @@
             ];
         })
         ->sortByDesc(fn (array $item): int => $item['progress_percent'] ?? -1)
-        ->take(5)
+        ->take($doingDisplayLimit)
         ->values();
+    $doingTasksHasMore = $this->dashboardDoingTasksCount > $doingDisplayLimit;
     $dashboardPanelShell = [
         'default' => 'rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5',
         'urgent' => 'min-w-0 rounded-xl border border-red-200/55 bg-background shadow-sm ring-1 ring-red-500/8 dark:border-red-900/40 dark:bg-zinc-900/50 dark:ring-red-500/10',
@@ -178,12 +183,15 @@
                     </div>
 
                     @auth
-                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
+                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
                             <div class="{{ $dashboardPanelShell['urgent'] }}">
                                 <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['urgent'] }}">
                                     <flux:icon name="bolt" class="size-4 text-red-600 dark:text-red-400" />
                                     <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-urgent-now-heading">
                                         {{ __('Urgent Now') }}
+                                    </span>
+                                    <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-urgent-now-count">
+                                        {{ $urgentNow->count() }}
                                     </span>
                                 </div>
                                 @if ($urgentNow->isEmpty())
@@ -191,16 +199,28 @@
                                 @else
                                     <ul class="divide-y divide-border/60 dark:divide-zinc-800">
                                         @foreach ($urgentNowDisplayed as $row)
-                                            <li class="px-4 py-3" data-testid="dashboard-row-urgent-item">
+                                            <li class="px-4 py-3" data-testid="dashboard-row-urgent-item" data-urgency-level="{{ $row['urgency_level'] }}">
                                                 <a href="{{ $row['workspace_url'] }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
                                                     <div class="min-w-0 space-y-1">
                                                         <p class="truncate text-sm font-semibold text-foreground">{{ $row['title'] }}</p>
                                                         <p class="text-xs text-muted-foreground">{{ $row['reasoning'] }}</p>
-                                                        @if (! empty($row['ends_at']))
-                                                            <p class="text-xs text-muted-foreground">
-                                                                {{ __('Due: :date', ['date' => \Carbon\Carbon::parse($row['ends_at'])->translatedFormat('M j · H:i')]) }}
-                                                            </p>
-                                                        @endif
+                                                        <div class="flex flex-wrap gap-1.5 pt-0.5 text-[11px]">
+                                                            @if (! empty($row['ends_at']))
+                                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                    {{ __('Due :date', ['date' => \Carbon\Carbon::parse($row['ends_at'])->translatedFormat('M j · H:i')]) }}
+                                                                </span>
+                                                            @endif
+                                                            @if (! empty($row['priority']))
+                                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                    {{ __('Priority: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['priority'])]) }}
+                                                                </span>
+                                                            @endif
+                                                            @if (! empty($row['complexity']))
+                                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                    {{ __('Complexity: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['complexity'])]) }}
+                                                                </span>
+                                                            @endif
+                                                        </div>
                                                     </div>
                                                 </a>
                                             </li>
@@ -235,7 +255,7 @@
                                 @if ($doingTasksForDisplay->isEmpty())
                                     <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No tasks in progress.') }}</p>
                                 @else
-                                    <ul class="max-h-72 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
+                                    <ul class="divide-y divide-border/60 dark:divide-zinc-800">
                                         @foreach ($doingTasksForDisplay as $taskWithProgress)
                                             @php
                                                 /** @var \App\Models\Task $task */
@@ -262,6 +282,21 @@
                                                             <span class="tabular-nums">{{ $progressPercent }}% {{ __('Progress') }}</span>
                                                         @endif
                                                     </p>
+                                                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                                                        <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                            {{ __('Due: :date', ['date' => $task->end_datetime?->translatedFormat('M j · H:i') ?? __('No date')]) }}
+                                                        </span>
+                                                        @if ($task->priority !== null)
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Priority: :value', ['value' => $task->priority->label()]) }}
+                                                            </span>
+                                                        @endif
+                                                        @if ($task->complexity !== null)
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Complexity: :value', ['value' => $task->complexity->label()]) }}
+                                                            </span>
+                                                        @endif
+                                                    </div>
                                                     @if ($progressPercent !== null)
                                                         <div
                                                             class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"
@@ -281,41 +316,22 @@
                                             </li>
                                         @endforeach
                                     </ul>
-                                    <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
-                                        <a
-                                            href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list']) }}"
-                                            wire:navigate
-                                            class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
-                                            data-testid="dashboard-doing-see-all"
-                                        >
-                                            <span>{{ __('Open in Workspace') }}</span>
-                                            <flux:icon name="arrow-right" class="size-3.5" />
-                                        </a>
-                                    </div>
+                                    @if ($doingTasksHasMore)
+                                        <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
+                                            <a
+                                                href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list']) }}"
+                                                wire:navigate
+                                                class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
+                                                data-testid="dashboard-doing-see-all"
+                                            >
+                                                <span>{{ __('See all in Workspace') }}</span>
+                                                <flux:icon name="arrow-right" class="size-3.5" />
+                                            </a>
+                                        </div>
+                                    @endif
                                 @endif
                             </div>
 
-                            <div class="{{ $dashboardPanelShell['default'] }}">
-                                <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
-                                    <flux:icon name="calendar-days" class="size-4 text-foreground/80" />
-                                    <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-calendar-load-heading">{{ __('Calendar load (next 24h)') }}</span>
-                                </div>
-                                <div class="space-y-2 px-4 py-3">
-                                    <div class="grid grid-cols-2 gap-2 text-xs">
-                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-muted-foreground">{{ __('Events') }}</p>
-                                                    <p class="text-base font-bold text-foreground" data-testid="dashboard-calendar-events-in-window">{{ $calendarLoadInsights['events_in_window'] }}</p>
-                                        </div>
-                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-muted-foreground">{{ __('Conflicts') }}</p>
-                                            <p class="text-base font-bold text-foreground">{{ $calendarLoadInsights['overlap_conflicts'] }}</p>
-                                        </div>
-                                    </div>
-                                    <p class="text-xs text-muted-foreground">
-                                        {{ __('Busy :busy min · Free :free min · All-day :allDay', ['busy' => $calendarLoadInsights['busy_minutes'], 'free' => $calendarLoadInsights['free_minutes'], 'allDay' => $calendarLoadInsights['all_day_events']]) }}
-                                    </p>
-                                </div>
-                            </div>
                         </div>
                     @endauth
 
@@ -324,7 +340,7 @@
                             <div class="{{ $dashboardPanelShell['default'] }}">
                                 <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
                                     <flux:icon name="arrow-path" class="size-4 text-foreground/80" />
-                                    <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-recurring-heading">{{ __('Repeating tasks on selected day') }}</span>
+                                    <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-recurring-heading">{{ __('Repeating tasks :when', ['when' => $selectedDayContextPhrase]) }}</span>
                                     <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-due-count">{{ $recurringSummary['due'] }}</span>
                                 </div>
                                 <div class="grid grid-cols-2 gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
@@ -343,7 +359,7 @@
                                     </p>
                                 </div>
                                 @if ($this->dashboardRecurringDueTasks->isEmpty())
-                                    <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No repeating tasks due on selected day.') }}</p>
+                                    <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No repeating tasks due :when.', ['when' => $selectedDayContextPhrase]) }}</p>
                                 @else
                                     <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
                                         @foreach ($this->dashboardRecurringDueTasks as $task)
@@ -474,7 +490,7 @@
                                     </div>
                                     <div class="grid grid-cols-2 gap-2 px-4 py-3">
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-xs text-muted-foreground">{{ __('Focus on selected day') }}</p>
+                                            <p class="text-xs text-muted-foreground">{{ __('Focus :when', ['when' => $selectedDayContextPhrase]) }}</p>
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['daily_focus_minutes'] }} {{ __('min') }}</p>
                                         </div>
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
@@ -482,7 +498,7 @@
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['weekly_focus_minutes'] }} {{ __('min') }}</p>
                                         </div>
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-xs text-muted-foreground">{{ __('Completed on selected day') }}</p>
+                                            <p class="text-xs text-muted-foreground">{{ __('Completed :when', ['when' => $selectedDayContextPhrase]) }}</p>
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['completed_today'] }}</p>
                                         </div>
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
