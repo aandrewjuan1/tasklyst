@@ -71,6 +71,30 @@ test('create invitation sets collaboratable inviter and invitee email', function
         ->and($invitation->status)->toBe('pending');
 });
 
+test('create invitation is idempotent for the same pending invitation key', function (): void {
+    $task = Task::factory()->for($this->user)->create();
+
+    $attributes = [
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $this->user->id,
+        'invitee_email' => $this->invitee->email,
+        'permission' => CollaborationPermission::Edit,
+        'status' => 'pending',
+    ];
+
+    $first = $this->invitationService->createInvitation($attributes);
+    $second = $this->invitationService->createInvitation($attributes);
+
+    expect($first->id)->toBe($second->id)
+        ->and(CollaborationInvitation::query()
+            ->where('collaboratable_type', Task::class)
+            ->where('collaboratable_id', $task->id)
+            ->where('invitee_email', $this->invitee->email)
+            ->where('status', 'pending')
+            ->count())->toBe(1);
+});
+
 test('mark accepted updates invitation status and creates collaboration', function (): void {
     $task = Task::factory()->for($this->user)->create();
     $invitation = CollaborationInvitation::factory()->create([

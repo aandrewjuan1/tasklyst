@@ -92,6 +92,7 @@
         todayCache: null,
         valueChangedDebounceTimer: null,
         effectiveOverdue: @js($initialEffectiveOverdue),
+        baseTriggerLabel: @js((string) $triggerLabel),
 
         init() {
             this.applyInitialValue();
@@ -425,6 +426,20 @@
             }
         },
 
+        get triggerLabelText() {
+            const isEndDate = this.modelPath && String(this.modelPath).includes('endDatetime');
+            if (!isEndDate || !this.effectiveOverdue) {
+                return this.baseTriggerLabel;
+            }
+
+            const card = this.resolveListItemCard();
+            if (card && card.kind === 'task' && this.baseTriggerLabel === 'Due') {
+                return 'Overdue';
+            }
+
+            return this.baseTriggerLabel;
+        },
+
         formatDisplayValue(value) {
             if (!value) return this.notSetLabel;
             try {
@@ -546,7 +561,7 @@
         @if(! $compact)
             <span class="inline-flex items-baseline gap-1">
                 <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    {{ $triggerLabel }}:
+                    <span x-text="triggerLabelText"></span>:
                 </span>
                 <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
             </span>

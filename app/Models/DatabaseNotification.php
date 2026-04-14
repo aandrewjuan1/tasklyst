@@ -10,6 +10,7 @@ class DatabaseNotification extends IlluminateDatabaseNotification
     protected function casts(): array
     {
         return [
+            'data' => 'array',
             'collaboration_invite_state' => CollaborationInviteNotificationState::class,
         ];
     }

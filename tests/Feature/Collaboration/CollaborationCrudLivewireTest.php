@@ -1,12 +1,15 @@
 <?php
 
+use App\Enums\CollaborationInviteNotificationState;
 use App\Enums\CollaborationPermission;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
+use App\Models\DatabaseNotification;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\CollaborationInvitationReceivedNotification;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -411,6 +414,40 @@ test('invitee can accept collaboration invitation and becomes collaborator', fun
         )->toBeTrue();
 });
 
+test('token accept updates invitee collaboration notification state', function (): void {
+    $this->actingAs($this->collaborator);
+
+    $task = Task::factory()->for($this->owner)->create();
+
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $this->owner->id,
+        'invitee_email' => $this->collaborator->email,
+        'invitee_user_id' => $this->collaborator->id,
+        'permission' => CollaborationPermission::Edit,
+        'status' => 'pending',
+    ]);
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => CollaborationInvitationReceivedNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $this->collaborator->id,
+        'data' => [
+            'type' => 'collaboration_invite_received',
+            'entity' => ['kind' => 'collaboration_invitation', 'id' => $invitation->id],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('acceptCollaborationInvitation', $invitation->token);
+
+    expect($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Accepted)
+        ->and($notification->fresh()->read_at)->not->toBeNull();
+});
+
 test('other user cannot accept collaboration invitation they did not receive', function (): void {
     $task = Task::factory()->for($this->owner)->create();
 
@@ -500,6 +537,63 @@ test('invitee can decline collaboration invitation and it is not accepted', func
                 ->where('user_id', $this->collaborator->id)
                 ->exists()
         )->toBeFalse();
+});
+
+test('token decline updates invitee collaboration notification state', function (): void {
+    $this->actingAs($this->collaborator);
+
+    $task = Task::factory()->for($this->owner)->create();
+
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $this->owner->id,
+        'invitee_email' => $this->collaborator->email,
+        'invitee_user_id' => $this->collaborator->id,
+        'permission' => CollaborationPermission::View,
+        'status' => 'pending',
+    ]);
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => CollaborationInvitationReceivedNotification::class,
+        'notifiable_type' => User::class,
+        'notifiable_id' => $this->collaborator->id,
+        'data' => [
+            'type' => 'collaboration_invite_received',
+            'entity' => ['kind' => 'collaboration_invitation', 'id' => $invitation->id],
+        ],
+        'read_at' => null,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('declineCollaborationInvitation', $invitation->token);
+
+    expect($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Declined)
+        ->and($notification->fresh()->read_at)->not->toBeNull();
+});
+
+test('invitee cannot decline an expired collaboration invitation', function (): void {
+    $this->actingAs($this->collaborator);
+
+    $task = Task::factory()->for($this->owner)->create();
+
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $this->owner->id,
+        'invitee_email' => $this->collaborator->email,
+        'invitee_user_id' => $this->collaborator->id,
+        'permission' => CollaborationPermission::View,
+        'status' => 'pending',
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('declineCollaborationInvitation', $invitation->token)
+        ->assertForbidden();
+
+    expect($invitation->fresh()->status)->toBe('pending');
 });
 
 test('other user cannot decline collaboration invitation they did not receive', function (): void {

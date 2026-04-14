@@ -3,12 +3,14 @@
 namespace App\Actions\Notification;
 
 use App\Models\User;
+use App\Services\UserNotificationBroadcastService;
 use App\Support\NotificationBellState;
 
 final class PrepareNotificationOpenRedirectForUserAction
 {
     public function __construct(
         private FindOwnedDatabaseNotificationAction $findOwnedDatabaseNotification,
+        private UserNotificationBroadcastService $userNotificationBroadcastService,
     ) {}
 
     public function execute(User $user, string $notificationId): ?string
@@ -25,6 +27,7 @@ final class PrepareNotificationOpenRedirectForUserAction
 
         if ($notification->read_at === null) {
             $notification->markAsRead();
+            $this->userNotificationBroadcastService->broadcastInboxUpdated($user);
         }
 
         return NotificationBellState::resolveTargetUrl($notification->fresh());

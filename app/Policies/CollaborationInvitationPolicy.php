@@ -50,6 +50,10 @@ class CollaborationInvitationPolicy
             return false;
         }
 
+        if ($invitation->expires_at !== null && $invitation->expires_at->isPast()) {
+            return false;
+        }
+
         $emailMatches = strcasecmp($invitation->invitee_email, $user->email) === 0;
         $idMatches = $invitation->invitee_user_id !== null && $invitation->invitee_user_id === $user->id;
 

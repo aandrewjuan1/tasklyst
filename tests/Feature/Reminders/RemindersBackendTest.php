@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Enums\EventStatus;
 use App\Enums\ReminderStatus;
 use App\Enums\ReminderType;
@@ -97,6 +98,31 @@ test('task end_datetime update cancels old reminders and schedules new ones', fu
         ->and($scheduledAts)->toContain($newDue->copy()->subMinutes(1440)->timestamp);
 });
 
+test('syncing task reminders repeatedly does not create duplicate pending rows', function (): void {
+    /** @var TaskService $service */
+    $service = app(TaskService::class);
+
+    $dueAt = now()->addDays(2)->setTime(10, 0);
+    $task = $service->createTask($this->user, [
+        'title' => 'Deduplicate reminder rows',
+        'status' => TaskStatus::ToDo->value,
+        'end_datetime' => $dueAt,
+    ]);
+
+    $service->updateTask($task, [
+        'title' => 'Deduplicate reminder rows v2',
+        'end_datetime' => $dueAt,
+    ]);
+
+    $pendingCount = Reminder::query()
+        ->where('remindable_type', $task->getMorphClass())
+        ->where('remindable_id', $task->id)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($pendingCount)->toBe(3);
+});
+
 test('task completion cancels pending reminders', function (): void {
     /** @var TaskService $service */
     $service = app(TaskService::class);
@@ -116,6 +142,46 @@ test('task completion cancels pending reminders', function (): void {
         ->count();
 
     expect($pending)->toBe(0);
+});
+
+test('task reminder sync tolerates existing cancelled duplicates', function (): void {
+    /** @var TaskService $service */
+    $service = app(TaskService::class);
+
+    $dueAt = now()->addDays(2)->setTime(11, 0);
+    $task = $service->createTask($this->user, [
+        'title' => 'Duplicate cancellation safety',
+        'status' => TaskStatus::ToDo->value,
+        'end_datetime' => $dueAt,
+    ]);
+
+    $pendingDueSoon = Reminder::query()
+        ->where('remindable_type', $task->getMorphClass())
+        ->where('remindable_id', $task->id)
+        ->where('type', ReminderType::TaskDueSoon->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->firstOrFail();
+
+    Reminder::query()->create([
+        'user_id' => $this->user->id,
+        'remindable_type' => $pendingDueSoon->remindable_type,
+        'remindable_id' => $pendingDueSoon->remindable_id,
+        'type' => $pendingDueSoon->type,
+        'scheduled_at' => $pendingDueSoon->scheduled_at,
+        'status' => ReminderStatus::Cancelled,
+        'cancelled_at' => now(),
+        'payload' => $pendingDueSoon->payload,
+    ]);
+
+    $service->updateTask($task, ['title' => 'Duplicate cancellation safety v2']);
+
+    $pendingCount = Reminder::query()
+        ->where('remindable_type', $task->getMorphClass())
+        ->where('remindable_id', $task->id)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($pendingCount)->toBe(3);
 });
 
 test('task due-soon fallback creates immediate reminder when configured offsets are already in the past', function (): void {
@@ -435,4 +501,117 @@ test('assistant tool call failure creates a reminder (deduped by operation token
         ->count();
 
     expect($count)->toBe(1);
+});
+
+test('accepting collaboration invitation cancels pending invite reminder', function (): void {
+    $inviter = User::factory()->create();
+    $invitee = User::factory()->create(['email' => 'invitee-accept@example.com']);
+    $task = Task::factory()->for($inviter)->create();
+
+    /** @var CollaborationInvitationService $service */
+    $service = app(CollaborationInvitationService::class);
+
+    $invitation = $service->createInvitation([
+        'collaboratable_type' => $task->getMorphClass(),
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $inviter->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'permission' => 'view',
+        'status' => 'pending',
+        'expires_at' => now()->addDays(7),
+    ]);
+
+    Reminder::query()->create([
+        'user_id' => $invitee->id,
+        'remindable_type' => $invitation->getMorphClass(),
+        'remindable_id' => $invitation->id,
+        'type' => ReminderType::CollaborationInviteReceived,
+        'scheduled_at' => now()->addMinutes(10),
+        'status' => ReminderStatus::Pending,
+        'payload' => [
+            'invitation_id' => $invitation->id,
+            'invitee_email' => $invitee->email,
+            'collaboratable_type' => $task->getMorphClass(),
+            'collaboratable_id' => $task->id,
+            'permission' => 'view',
+        ],
+    ]);
+
+    $pendingBefore = Reminder::query()
+        ->where('remindable_type', $invitation->getMorphClass())
+        ->where('remindable_id', $invitation->id)
+        ->where('type', ReminderType::CollaborationInviteReceived->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($pendingBefore)->toBe(1);
+
+    $service->markAccepted($invitation->fresh(), $invitee);
+
+    $pendingAfter = Reminder::query()
+        ->where('remindable_type', $invitation->getMorphClass())
+        ->where('remindable_id', $invitation->id)
+        ->where('type', ReminderType::CollaborationInviteReceived->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($pendingAfter)->toBe(0);
+});
+
+test('declining collaboration invitation cancels pending invite reminder', function (): void {
+    $inviter = User::factory()->create();
+    $invitee = User::factory()->create(['email' => 'invitee-decline@example.com']);
+    $task = Task::factory()->for($inviter)->create();
+
+    /** @var CollaborationInvitationService $service */
+    $service = app(CollaborationInvitationService::class);
+
+    $invitation = $service->createInvitation([
+        'collaboratable_type' => $task->getMorphClass(),
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $inviter->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'permission' => 'view',
+        'status' => 'pending',
+        'expires_at' => now()->addDays(7),
+    ]);
+
+    Reminder::query()->create([
+        'user_id' => $invitee->id,
+        'remindable_type' => $invitation->getMorphClass(),
+        'remindable_id' => $invitation->id,
+        'type' => ReminderType::CollaborationInviteReceived,
+        'scheduled_at' => now()->addMinutes(10),
+        'status' => ReminderStatus::Pending,
+        'payload' => [
+            'invitation_id' => $invitation->id,
+            'invitee_email' => $invitee->email,
+            'collaboratable_type' => $task->getMorphClass(),
+            'collaboratable_id' => $task->id,
+            'permission' => 'view',
+        ],
+    ]);
+
+    $pendingBefore = Reminder::query()
+        ->where('remindable_type', $invitation->getMorphClass())
+        ->where('remindable_id', $invitation->id)
+        ->where('type', ReminderType::CollaborationInviteReceived->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($pendingBefore)->toBe(1);
+
+    $ok = app(DeclineCollaborationInvitationAction::class)->execute($invitation->fresh(), $invitee);
+    expect($ok)->toBeTrue();
+
+    $pendingAfter = Reminder::query()
+        ->where('remindable_type', $invitation->getMorphClass())
+        ->where('remindable_id', $invitation->id)
+        ->where('type', ReminderType::CollaborationInviteReceived->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($pendingAfter)->toBe(0);
 });

@@ -9,6 +9,7 @@ use App\Enums\CollaborationInviteNotificationState;
 use App\Models\CollaborationInvitation;
 use App\Models\DatabaseNotification;
 use App\Notifications\CollaborationInvitationReceivedNotification;
+use App\Services\UserNotificationBroadcastService;
 use App\Support\NotificationBellState;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Locked;
@@ -168,6 +169,7 @@ new class extends Component
 
         if ($notification->read_at === null) {
             $notification->markAsRead();
+            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
         }
 
         $this->syncNotificationStateFromDatabase();
@@ -334,7 +336,13 @@ new class extends Component
             return;
         }
 
-        $data = is_array($notification->data) ? $notification->data : [];
+        $rawData = $notification->data;
+        $data = is_array($rawData) ? $rawData : [];
+        if ($data === [] && is_string($rawData) && $rawData !== '') {
+            $decoded = json_decode($rawData, true);
+            $data = is_array($decoded) ? $decoded : [];
+        }
+
         if ($state === CollaborationInviteNotificationState::Accepted) {
             $data['title'] = __('Collaboration invite accepted');
             $data['message'] = __('You accepted this collaboration invitation.');
@@ -348,5 +356,10 @@ new class extends Component
             'collaboration_invite_state' => $state,
             'read_at' => now(),
         ])->save();
+
+        $user = Auth::user();
+        if ($user !== null) {
+            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+        }
     }
 };

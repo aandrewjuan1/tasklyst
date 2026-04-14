@@ -6,7 +6,6 @@ use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\User;
 use App\Services\CollaborationInvitationService;
-use Illuminate\Support\Carbon;
 
 class AcceptCollaborationInvitationAction
 {
@@ -34,10 +33,7 @@ class AcceptCollaborationInvitationAction
         if ($invitation->collaboratable?->collaborations()
             ->where('user_id', $user->id)
             ->exists()) {
-            $invitation->status = 'accepted';
-            $invitation->invitee_user_id = $invitation->invitee_user_id ?? $user->id;
-            $invitation->expires_at = $invitation->expires_at ?? Carbon::now();
-            $invitation->save();
+            $this->invitationService->finalizeAcceptedInvitation($invitation, $user);
 
             return null;
         }

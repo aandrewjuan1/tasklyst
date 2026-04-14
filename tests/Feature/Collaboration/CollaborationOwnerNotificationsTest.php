@@ -1,12 +1,16 @@
 <?php
 
+use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use App\Actions\Task\UpdateTaskPropertyAction;
 use App\Enums\ActivityLogAction;
 use App\Enums\CollaborationPermission;
+use App\Enums\ReminderStatus;
+use App\Enums\ReminderType;
 use App\Events\UserNotificationCreated;
 use App\Models\ActivityLog;
 use App\Models\CollaborationInvitation;
+use App\Models\Reminder;
 use App\Models\Task;
 use App\Models\User;
 use App\Notifications\CollaborationInvitationRespondedForOwnerNotification;
@@ -105,6 +109,60 @@ test('decline notifies owner with declined payload', function (): void {
         ->and($latest->data['message'] ?? '')->toContain('Decline me');
 
     Event::assertDispatched(UserNotificationCreated::class, fn (UserNotificationCreated $event): bool => $event->userId === (int) $owner->id);
+});
+
+test('accept action still notifies owner and cancels reminder when invitee is already collaborator', function (): void {
+    Event::fake([UserNotificationCreated::class]);
+
+    $owner = User::factory()->create();
+    $invitee = User::factory()->create();
+    $task = Task::factory()->for($owner)->create([
+        'title' => 'Already collaborating',
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $task->collaborations()->create([
+        'user_id' => $invitee->id,
+        'permission' => CollaborationPermission::Edit,
+    ]);
+
+    $invitation = CollaborationInvitation::factory()->create([
+        'collaboratable_type' => Task::class,
+        'collaboratable_id' => $task->id,
+        'inviter_id' => $owner->id,
+        'invitee_email' => $invitee->email,
+        'invitee_user_id' => $invitee->id,
+        'permission' => CollaborationPermission::Edit,
+        'status' => 'pending',
+    ]);
+
+    Reminder::query()->create([
+        'user_id' => $invitee->id,
+        'remindable_type' => $invitation->getMorphClass(),
+        'remindable_id' => $invitation->id,
+        'type' => ReminderType::CollaborationInviteReceived,
+        'scheduled_at' => now()->addMinutes(10),
+        'status' => ReminderStatus::Pending,
+        'payload' => ['invitation_id' => $invitation->id],
+    ]);
+
+    $before = $owner->notifications()
+        ->where('type', CollaborationInvitationRespondedForOwnerNotification::class)
+        ->count();
+
+    $result = app(AcceptCollaborationInvitationAction::class)->execute($invitation, $invitee);
+
+    expect($result)->toBeNull()
+        ->and($invitation->fresh()->status)->toBe('accepted')
+        ->and(Reminder::query()
+            ->where('remindable_type', $invitation->getMorphClass())
+            ->where('remindable_id', $invitation->id)
+            ->where('type', ReminderType::CollaborationInviteReceived->value)
+            ->where('status', ReminderStatus::Pending->value)
+            ->count())->toBe(0)
+        ->and($owner->notifications()
+            ->where('type', CollaborationInvitationRespondedForOwnerNotification::class)
+            ->count())->toBe($before + 1);
 });
 
 test('collaborator field update notifies owner with activity log message', function (): void {

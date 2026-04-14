@@ -120,6 +120,10 @@ trait HandlesCollaborations
             return ['success' => false, 'message' => __('Could not send invitation. Please try again.')];
         }
 
+        if (! $invitation->wasRecentlyCreated) {
+            return ['success' => false, 'message' => __('An invitation has already been sent to this email for this item.')];
+        }
+
         $this->dispatch('collaboration-invitation-created');
         $this->dispatch('toast', type: 'success', message: __('Invitation sent.'));
 

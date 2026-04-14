@@ -4,9 +4,11 @@ use App\Actions\Notification\MarkAllUnreadNotificationsReadForUserAction;
 use App\Actions\Notification\MarkNotificationReadForUserAction;
 use App\Actions\Notification\MarkVisibleNotificationsReadForUserAction;
 use App\Actions\Notification\PrepareNotificationOpenRedirectForUserAction;
+use App\Events\UserNotificationCreated;
 use App\Http\Middleware\ValidateWorkOSSession;
 use App\Models\DatabaseNotification;
 use App\Models\User;
+use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
     $this->withoutMiddleware(ValidateWorkOSSession::class);
@@ -82,6 +84,29 @@ test('mark all unread notifications read updates every unread row for the user',
 
     expect($count)->toBe(3)
         ->and($user->fresh()->unreadNotifications()->count())->toBe(0);
+});
+
+test('mark all unread notifications read broadcasts inbox update when rows were changed', function (): void {
+    Event::fake([UserNotificationCreated::class]);
+    $user = User::factory()->create();
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Unread',
+            'message' => '',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    app(MarkAllUnreadNotificationsReadForUserAction::class)->execute($user);
+
+    Event::assertDispatched(UserNotificationCreated::class);
 });
 
 test('mark all unread notifications read returns zero when nothing is unread', function (): void {
@@ -252,6 +277,30 @@ test('prepare open redirect returns workspace url and marks unread notification 
 
     expect($url)->toBe(route('workspace', ['date' => $today, 'type' => 'tasks']))
         ->and($notification->fresh()->read_at)->not->toBeNull();
+});
+
+test('prepare open redirect broadcasts inbox update when it marks an unread row read', function (): void {
+    Event::fake([UserNotificationCreated::class]);
+    $user = User::factory()->create();
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'task_due_soon',
+            'title' => 'Open',
+            'message' => '',
+            'route' => 'workspace',
+            'params' => ['date' => now()->toDateString(), 'type' => 'tasks'],
+        ],
+        'read_at' => null,
+    ]);
+
+    app(PrepareNotificationOpenRedirectForUserAction::class)->execute($user, $notification->id);
+
+    Event::assertDispatched(UserNotificationCreated::class);
 });
 
 test('prepare open redirect returns null and does not mark read for non task or event notification types', function (): void {

@@ -407,7 +407,7 @@ test('collaboration invite notification row shows accept and decline in the bell
                 'model' => CollaborationInvitation::class,
             ],
             'route' => 'workspace',
-            'params' => [],
+            'params' => ['date' => now()->toDateString()],
             'meta' => [
                 'invitee_email' => $invitee->email,
                 'collaboratable_type' => Task::class,
@@ -469,9 +469,15 @@ test('bell accept collaboration invite updates invitation and notification state
         ->test('notifications.bell-dropdown')
         ->call('acceptCollaborationInvite', $notification->id);
 
+    $payload = $notification->fresh()->data;
+
     expect($invitation->fresh()->status)->toBe('accepted')
         ->and($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Accepted)
-        ->and($notification->fresh()->read_at)->not->toBeNull();
+        ->and($notification->fresh()->read_at)->not->toBeNull()
+        ->and(data_get($payload, 'type'))->toBe('collaboration_invite_received')
+        ->and((int) data_get($payload, 'entity.id'))->toBe($invitation->id)
+        ->and((string) data_get($payload, 'route'))->toBe('workspace')
+        ->and((string) data_get($payload, 'meta.invitee_email'))->toBe($invitee->email);
 });
 
 test('bell decline collaboration invite updates invitation and notification state', function (): void {
@@ -502,7 +508,7 @@ test('bell decline collaboration invite updates invitation and notification stat
                 'model' => CollaborationInvitation::class,
             ],
             'route' => 'workspace',
-            'params' => [],
+            'params' => ['date' => now()->toDateString()],
             'meta' => [
                 'invitee_email' => $invitee->email,
                 'collaboratable_type' => Task::class,
@@ -517,9 +523,15 @@ test('bell decline collaboration invite updates invitation and notification stat
         ->test('notifications.bell-dropdown')
         ->call('declineCollaborationInvite', $notification->id);
 
+    $payload = $notification->fresh()->data;
+
     expect($invitation->fresh()->status)->toBe('declined')
         ->and($notification->fresh()->collaboration_invite_state)->toBe(CollaborationInviteNotificationState::Declined)
-        ->and($notification->fresh()->read_at)->not->toBeNull();
+        ->and($notification->fresh()->read_at)->not->toBeNull()
+        ->and(data_get($payload, 'type'))->toBe('collaboration_invite_received')
+        ->and((int) data_get($payload, 'entity.id'))->toBe($invitation->id)
+        ->and((string) data_get($payload, 'route'))->toBe('workspace')
+        ->and((string) data_get($payload, 'meta.invitee_email'))->toBe($invitee->email);
 });
 
 test('bell accept collaboration invite does nothing for another users notification', function (): void {
