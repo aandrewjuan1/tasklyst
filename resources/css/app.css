@@ -616,6 +616,38 @@ select:focus[data-flux-control] {
     .workspace-filter-property-pill .workspace-filter-pill-trigger:focus-visible {
         @apply ring-zinc-400/55 ring-offset-1 dark:ring-zinc-500 dark:ring-offset-zinc-900;
     }
+
+    .login-page-shell {
+        @apply min-h-screen bg-brand-light-lavender text-brand-navy-blue dark:bg-zinc-950 dark:text-zinc-100;
+    }
+
+    .login-hero-panel {
+        @apply overflow-hidden px-6 py-7 sm:px-8 sm:py-9;
+    }
+
+    .login-card-shell {
+        @apply flex items-center justify-center;
+    }
+
+    .login-card {
+        @apply flex w-full max-w-md flex-col items-center gap-6 rounded-2xl border border-zinc-200/75 bg-white/90 p-6 text-center shadow-xl ring-1 ring-zinc-200/55 backdrop-blur-sm dark:border-zinc-700/70 dark:bg-zinc-900/75 dark:ring-zinc-700/50;
+    }
+
+    .login-brand {
+        @apply gap-1;
+    }
+
+    .login-brand > span:last-child {
+        @apply text-3xl;
+    }
+
+    .login-google-cta {
+        @apply inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 dark:focus-visible:ring-brand-light-blue/50 dark:focus-visible:ring-offset-zinc-900;
+    }
+
+    .login-feature-pill {
+        @apply rounded-lg border border-white/55 bg-white/50 px-3 py-2 text-sm text-brand-navy-blue shadow-xs dark:border-zinc-700/55 dark:bg-zinc-900/35 dark:text-zinc-100;
+    }
 }
 
 /* Fixed sidebar on desktop: full viewport height on the left, no empty space when scrolling */

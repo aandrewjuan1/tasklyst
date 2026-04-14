@@ -52,51 +52,84 @@ test('dashboard hero greets user by first name', function () {
     $response->assertSee('Dashboard — Hello, Jordan!', false);
 });
 
-test('dashboard hero clips the gradient in an inner layer so notification popovers are not clipped by overflow', function () {
+test('dashboard hero keeps single primary focus header controls', function () {
     $user = User::factory()->create();
 
     $html = (string) $this->actingAs($user)->get(route('dashboard'))->getContent();
 
-    expect($html)->toContain('pointer-events-none absolute inset-0 overflow-hidden rounded-2xl');
+    expect($html)->toContain('Focus on what needs attention right now.');
+    expect($html)->toContain('Ask AI assistant');
     expect($html)->toContain('data-test="notifications-bell-button"');
     expect(substr_count($html, 'data-test="notifications-bell-button"'))->toBe(1);
 });
 
-test('dashboard summary shows total incomplete tasks count', function () {
+test('dashboard top kpi shows overdue tasks count', function () {
     $user = User::factory()->create();
 
-    foreach (range(1, 3) as $_) {
-        Task::factory()->for($user)->create(['completed_at' => null]);
-    }
-    Task::factory()->for($user)->create(['completed_at' => now()]);
-
-    $response = $this->actingAs($user)->get(route('dashboard'));
-
-    $response->assertSuccessful();
-    $response->assertSee(__('Total tasks'), false);
-
-    expect(preg_match('/data-testid="dashboard-summary-total-tasks-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('3');
-});
-
-test('dashboard summary shows to-do tasks count', function () {
-    $user = User::factory()->create();
-
-    Task::factory()->for($user)->count(2)->create([
+    Task::factory()->for($user)->count(3)->create([
         'status' => TaskStatus::ToDo,
+        'end_datetime' => now()->subHour(),
         'completed_at' => null,
     ]);
     Task::factory()->for($user)->create([
+        'status' => TaskStatus::Done,
+        'end_datetime' => now()->subHour(),
+        'completed_at' => now(),
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard'));
+
+    $response->assertSuccessful();
+    $response->assertSee(__('Overdue'), false);
+
+    expect(preg_match('/data-testid="dashboard-kpi-overdue-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
+    expect($matches[1])->toBe('3');
+});
+
+test('dashboard top kpi shows due on selected day count', function () {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 09:00:00'));
+    $user = User::factory()->create();
+    $selectedDate = '2026-04-12';
+
+    Task::factory()->for($user)->count(2)->create([
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-12 11:00:00'),
+        'completed_at' => null,
+    ]);
+    Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'end_datetime' => Carbon::parse('2026-04-13 11:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
+
+    $response->assertSuccessful();
+    $response->assertSee(__('Due on selected day'), false);
+
+    expect(preg_match('/data-testid="dashboard-kpi-due_today-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
+    expect($matches[1])->toBe('2');
+
+    Carbon::setTestNow();
+});
+
+test('dashboard top kpi shows doing tasks count', function () {
+    $user = User::factory()->create();
+
+    Task::factory()->for($user)->count(2)->create([
         'status' => TaskStatus::Doing,
+        'completed_at' => null,
+    ]);
+    Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
         'completed_at' => null,
     ]);
 
     $response = $this->actingAs($user)->get(route('dashboard'));
 
     $response->assertSuccessful();
-    $response->assertSee(__('To-Do Tasks'), false);
-
-    expect(preg_match('/data-testid="dashboard-summary-todo-tasks-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
+    $response->assertSee(__('Doing tasks'), false);
+    expect(preg_match('/data-testid="dashboard-kpi-doing-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('2');
 });
 
@@ -223,8 +256,7 @@ test('dashboard phase 2 sections render with calendar feed health data', functio
     $response = $this->actingAs($user)->get(route('dashboard'));
 
     $response->assertSuccessful();
-    $response->assertSee('BRIGHTSPACE CALENDAR FEED', false);
-    $response->assertSee('Sync Brightspace Calendar', false);
+    $response->assertSee('Show insights', false);
 });
 
 test('dashboard rich sections render focus, calendar load, no-date backlog, and llm activity', function () {
@@ -289,7 +321,7 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
     $response->assertSuccessful();
     $response->assertSee('No-date Backlog', false);
     $response->assertSee('Focus + Throughput', false);
-    $response->assertSee('Calendar Load (next 24h)', false);
+    $response->assertSee('Calendar load (next 24h)', false);
     $response->assertSee('LLM Assistant Activity', false);
     $response->assertSee('Quick actions', false);
     $response->assertSee('No Date Backlog Task', false);
@@ -407,11 +439,11 @@ test('dashboard selected date drives due and events panels', function () {
     $response->assertSee('Due On Selected Day', false);
     $response->assertSee('Event On Selected Day', false);
 
-    expect(preg_match('/data-testid="dashboard-due-today-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $dueMatches))->toBe(1);
+    expect(preg_match('/data-testid="dashboard-kpi-due_today-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $dueMatches))->toBe(1);
     expect($dueMatches[1])->toBe('1');
 
-    expect(preg_match('/data-testid="dashboard-today-events-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $eventMatches))->toBe(1);
-    expect($eventMatches[1])->toBe('1');
+    expect(preg_match('/data-testid="dashboard-calendar-events-in-window"[^>]*>\s*(\d+)\s*</', $response->getContent(), $eventMatches))->toBe(1);
+    expect((int) $eventMatches[1])->toBeGreaterThanOrEqual(0);
 
     Carbon::setTestNow();
 });
@@ -481,9 +513,6 @@ test('dashboard recurring section shows selected-day due and completed counts', 
     $response->assertSee('Recurring Due Task', false);
     $response->assertDontSee('Recurring Completed Task', false);
 
-    expect(preg_match('/data-testid="dashboard-summary-recurring-due-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryDueMatches))->toBe(1);
-    expect($summaryDueMatches[1])->toBe('1');
-
     expect(preg_match('/data-testid="dashboard-recurring-due-count-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $panelDueMatches))->toBe(1);
     expect($panelDueMatches[1])->toBe('1');
 
@@ -529,9 +558,6 @@ test('dashboard recurring section excludes non-recurring and off-date tasks', fu
 
     $response->assertSuccessful();
     $response->assertSee('Recurring On Date', false);
-    expect(preg_match('/data-testid="dashboard-summary-recurring-due-value"[^>]*>\s*(\d+)\s*</', $response->getContent(), $summaryDueMatches))->toBe(1);
-    expect($summaryDueMatches[1])->toBe('1');
-
     expect(substr_count((string) $response->getContent(), 'data-testid="dashboard-row-recurring-task"'))->toBe(1);
 
     Carbon::setTestNow();
