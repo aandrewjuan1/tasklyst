@@ -648,6 +648,10 @@ select:focus[data-flux-control] {
     .login-feature-pill {
         @apply rounded-lg border border-white/55 bg-white/50 px-3 py-2 text-sm text-brand-navy-blue shadow-xs dark:border-zinc-700/55 dark:bg-zinc-900/35 dark:text-zinc-100;
     }
+
+    .error-back-button {
+        @apply inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800 dark:focus-visible:ring-zinc-500/60 dark:focus-visible:ring-offset-zinc-900;
+    }
 }
 
 /* Fixed sidebar on desktop: full viewport height on the left, no empty space when scrolling */
