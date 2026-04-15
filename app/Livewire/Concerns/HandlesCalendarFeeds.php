@@ -5,6 +5,7 @@ namespace App\Livewire\Concerns;
 use App\Actions\CalendarFeed\ConnectCalendarFeedAction;
 use App\Actions\CalendarFeed\DisconnectCalendarFeedAction;
 use App\Actions\CalendarFeed\SyncCalendarFeedAction;
+use App\DataTransferObjects\CalendarFeed\CalendarFeedSyncResult;
 use App\DataTransferObjects\CalendarFeed\CreateCalendarFeedDto;
 use App\Models\CalendarFeed;
 use App\Models\User;
@@ -66,7 +67,7 @@ trait HandlesCalendarFeeds
         $dto = CreateCalendarFeedDto::fromValidated($payload);
 
         try {
-            $feed = $this->connectCalendarFeedAction->execute($user, $dto);
+            $connection = $this->connectCalendarFeedAction->execute($user, $dto);
         } catch (\Throwable $e) {
             Log::error('Failed to connect calendar feed.', [
                 'user_id' => $user->id,
@@ -81,8 +82,8 @@ trait HandlesCalendarFeeds
 
         $this->calendarFeedPayload = CalendarFeedPayloadValidation::defaults();
 
-        $this->dispatch('toast', type: 'success', message: __('Connected Brightspace calendar.'));
-        $this->dispatch('calendar-feed-connected', id: $feed->id);
+        $this->dispatchCalendarFeedSyncToast($connection->sync, forConnect: true);
+        $this->dispatch('calendar-feed-connected', id: $connection->feed->id);
     }
 
     public function syncCalendarFeed(int $feedId): bool
@@ -106,7 +107,7 @@ trait HandlesCalendarFeeds
         $this->authorize('update', $feed);
 
         try {
-            $this->syncCalendarFeedAction->execute($feed);
+            $result = $this->syncCalendarFeedAction->execute($feed);
         } catch (\Throwable $e) {
             Log::error('Failed to sync calendar feed.', [
                 'user_id' => $user->id,
@@ -114,14 +115,24 @@ trait HandlesCalendarFeeds
                 'exception' => $e,
             ]);
 
-            $this->dispatch('toast', type: 'error', message: __('Couldn’t sync the calendar feed. Try again.'));
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t sync the calendar feed. Try again.'), skipDedupe: true);
 
             return false;
         }
 
-        $this->dispatch('toast', type: 'success', message: __('Synced Brightspace calendar.'));
+        $this->dispatchCalendarFeedSyncToast($result, forConnect: false);
 
         return true;
+    }
+
+    private function dispatchCalendarFeedSyncToast(CalendarFeedSyncResult $result, bool $forConnect): void
+    {
+        $this->dispatch(
+            'toast',
+            type: $result->toastType($forConnect),
+            message: $result->toastMessage($forConnect),
+            skipDedupe: true,
+        );
     }
 
     public function disconnectCalendarFeed(int $feedId): bool

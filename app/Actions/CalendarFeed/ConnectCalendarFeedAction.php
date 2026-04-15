@@ -2,6 +2,7 @@
 
 namespace App\Actions\CalendarFeed;
 
+use App\DataTransferObjects\CalendarFeed\ConnectCalendarFeedResult;
 use App\DataTransferObjects\CalendarFeed\CreateCalendarFeedDto;
 use App\Models\CalendarFeed;
 use App\Models\User;
@@ -15,7 +16,7 @@ class ConnectCalendarFeedAction
         private CalendarFeedSyncService $calendarFeedSyncService
     ) {}
 
-    public function execute(User $user, CreateCalendarFeedDto $dto): CalendarFeed
+    public function execute(User $user, CreateCalendarFeedDto $dto): ConnectCalendarFeedResult
     {
         $existing = CalendarFeed::query()
             ->where('user_id', $user->id)
@@ -35,15 +36,15 @@ class ConnectCalendarFeedAction
                 $existing = $this->calendarFeedService->updateFeed($existing, $attributes);
             }
 
-            $this->calendarFeedSyncService->sync($existing);
+            $syncResult = $this->calendarFeedSyncService->sync($existing);
 
-            return $existing;
+            return new ConnectCalendarFeedResult($existing, $syncResult);
         }
 
         $feed = $this->calendarFeedService->createFeed($user, $dto->toServiceAttributes());
 
-        $this->calendarFeedSyncService->sync($feed);
+        $syncResult = $this->calendarFeedSyncService->sync($feed);
 
-        return $feed;
+        return new ConnectCalendarFeedResult($feed, $syncResult);
     }
 }

@@ -20,6 +20,14 @@
         shouldDedupe(toast) {
             const now = Date.now();
             const fingerprint = this.fingerprintFor(toast);
+
+            if (toast.skipDedupe === true) {
+                this.lastToastFingerprint = fingerprint;
+                this.lastToastAt = now;
+
+                return false;
+            }
+
             const isDuplicate =
                 fingerprint === this.lastToastFingerprint &&
                 now - this.lastToastAt <= this.dedupeWindowMs;
@@ -44,6 +52,7 @@
                 type: normalizedType,
                 icon: typeof raw.icon === 'string' ? raw.icon : '',
                 message: typeof raw.message === 'string' ? raw.message : '',
+                skipDedupe: raw.skipDedupe === true,
             };
 
             if (next.message.trim() === '') {

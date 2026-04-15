@@ -288,7 +288,7 @@ ICS;
     expect($feed->last_synced_at)->not->toBeNull();
 });
 
-it('includes events that ended within the last six months', function () {
+it('includes events that ended within the last 90 days', function () {
     $user = User::factory()->create();
 
     /** @var CalendarFeed $feed */
@@ -300,7 +300,7 @@ it('includes events that ended within the last six months', function () {
         'sync_enabled' => true,
     ]);
 
-    $start = now()->subDays(7)->setTime(9, 0)->utc();
+    $start = now()->subDays(30)->setTime(9, 0)->utc();
     $end = $start->copy()->addHour();
 
     $ics = <<<ICS
@@ -325,4 +325,44 @@ ICS;
     expect(Task::query()->count())->toBe(1);
     $task = Task::query()->first();
     expect($task->title)->toBe('Recent Assignment');
+});
+
+it('skips events that ended more than 90 days ago', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->subDays(100)->setTime(9, 0)->utc();
+    $end = $start->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:too-old@example.com
+SUMMARY:Stale Assignment
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+
+    $service->sync($feed);
+
+    expect(Task::query()->count())->toBe(0);
+
+    $feed->refresh();
+    expect($feed->last_synced_at)->not->toBeNull();
 });

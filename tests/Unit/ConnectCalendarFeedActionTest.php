@@ -30,12 +30,12 @@ it('connects a feed and triggers initial sync', function () {
         source: 'brightspace',
     );
 
-    $feed = $action->execute($user, $dto);
+    $result = $action->execute($user, $dto);
 
-    expect($feed)->toBeInstanceOf(CalendarFeed::class);
-    expect($feed->user_id)->toBe($user->id);
-    expect($feed->feed_url)->toBe('https://example.test/calendar.ics');
-    expect($feed->last_synced_at)->not->toBeNull();
+    expect($result->feed)->toBeInstanceOf(CalendarFeed::class);
+    expect($result->feed->user_id)->toBe($user->id);
+    expect($result->feed->feed_url)->toBe('https://example.test/calendar.ics');
+    expect($result->feed->last_synced_at)->not->toBeNull();
 });
 
 it('reuses existing feed and resyncs when connecting the same url again', function () {
@@ -56,8 +56,8 @@ it('reuses existing feed and resyncs when connecting the same url again', functi
         source: 'brightspace',
     );
 
-    $firstFeed = $action->execute($user, $dto);
-    $firstId = $firstFeed->id;
+    $firstResult = $action->execute($user, $dto);
+    $firstId = $firstResult->feed->id;
 
     // Change the name to ensure it can be updated on reconnect
     $secondDto = new CreateCalendarFeedDto(
@@ -66,12 +66,12 @@ it('reuses existing feed and resyncs when connecting the same url again', functi
         source: 'brightspace',
     );
 
-    $secondFeed = $action->execute($user, $secondDto);
+    $secondResult = $action->execute($user, $secondDto);
 
-    $secondFeed->refresh();
+    $secondResult->feed->refresh();
 
-    expect($secondFeed->id)->toBe($firstId)
-        ->and($secondFeed->name)->toBe('Updated Name');
+    expect($secondResult->feed->id)->toBe($firstId)
+        ->and($secondResult->feed->name)->toBe('Updated Name');
 
     expect(CalendarFeed::query()->where('user_id', $user->id)->count())->toBe(1);
 });

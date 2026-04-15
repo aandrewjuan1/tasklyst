@@ -2,6 +2,7 @@
 
 namespace App\Actions\CalendarFeed;
 
+use App\DataTransferObjects\CalendarFeed\CalendarFeedSyncResult;
 use App\Models\CalendarFeed;
 use App\Services\CalendarFeedSyncService;
 
@@ -11,8 +12,8 @@ class SyncCalendarFeedAction
         private CalendarFeedSyncService $calendarFeedSyncService
     ) {}
 
-    public function execute(CalendarFeed $feed): void
+    public function execute(CalendarFeed $feed): CalendarFeedSyncResult
     {
-        $this->calendarFeedSyncService->sync($feed);
+        return $this->calendarFeedSyncService->sync($feed);
     }
 }

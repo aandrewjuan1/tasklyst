@@ -145,6 +145,12 @@
 
             this.connecting = true;
 
+            $wire.$dispatch('toast', {
+                type: 'info',
+                message: @js(__('Connecting your calendar…')),
+                skipDedupe: true,
+            });
+
             try {
                 await $wire.$call('connectCalendarFeed', {
                     feedUrl: url,
@@ -173,6 +179,12 @@
             const previousFeedHealth = Array.isArray(this.feedHealth)
                 ? this.feedHealth.map((feed) => ({ ...feed }))
                 : [];
+
+            $wire.$dispatch('toast', {
+                type: 'info',
+                message: @js(__('Syncing calendar…')),
+                skipDedupe: true,
+            });
 
             try {
                 await $wire.$call('syncCalendarFeed', Number(id));

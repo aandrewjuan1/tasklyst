@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\CalendarFeed\SyncCalendarFeedAction;
+use App\Enums\CalendarFeedSyncStatus;
 use App\Models\CalendarFeed;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
@@ -76,8 +77,13 @@ class SyncCalendarFeedsCommand extends Command
         $this->line(sprintf('Syncing feed #%d (%s)...', $feed->id, $feed->name ?? 'Brightspace'));
 
         try {
-            $this->syncCalendarFeedAction->execute($feed);
-            $this->info(sprintf('Synced feed #%d.', $feed->id));
+            $result = $this->syncCalendarFeedAction->execute($feed);
+
+            if ($result->status === CalendarFeedSyncStatus::Completed) {
+                $this->info($result->toastMessage(false));
+            } else {
+                $this->warn($result->toastMessage(false));
+            }
         } catch (\Throwable $e) {
             Log::error('Failed to sync calendar feed from console command.', [
                 'feed_id' => $feed->id,

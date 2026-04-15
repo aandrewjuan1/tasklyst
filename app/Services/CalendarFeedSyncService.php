@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\DataTransferObjects\CalendarFeed\CalendarFeedSyncResult;
+use App\Enums\CalendarFeedSyncStatus;
 use App\Enums\ReminderStatus;
 use App\Enums\ReminderType;
 use App\Enums\TaskComplexity;
@@ -24,10 +26,10 @@ class CalendarFeedSyncService
         private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
-    public function sync(CalendarFeed $feed): void
+    public function sync(CalendarFeed $feed): CalendarFeedSyncResult
     {
         if (! $feed->sync_enabled) {
-            return;
+            return new CalendarFeedSyncResult(CalendarFeedSyncStatus::SyncDisabled);
         }
 
         try {
@@ -36,12 +38,15 @@ class CalendarFeedSyncService
             if (! $response->successful()) {
                 $this->createSyncFailedReminderIfAllowed($feed, 'http_'.$response->status());
 
-                return;
+                return new CalendarFeedSyncResult(
+                    CalendarFeedSyncStatus::HttpFailed,
+                    httpStatus: $response->status(),
+                );
             }
 
             $body = $response->body();
             if ($body === null || trim($body) === '') {
-                return;
+                return new CalendarFeedSyncResult(CalendarFeedSyncStatus::EmptyBody);
             }
 
             $events = $this->icsParserService->parse($body);
@@ -54,20 +59,33 @@ class CalendarFeedSyncService
 
             $this->createSyncFailedReminderIfAllowed($feed, 'exception');
 
-            return;
+            return new CalendarFeedSyncResult(CalendarFeedSyncStatus::Exception);
         }
 
+        $eventsInRawFeed = count($events);
         $events = $this->filterEventsWithinSyncWindow($events);
+        $eventsInWindow = count($events);
 
         if ($events === []) {
             $feed->update(['last_synced_at' => now()]);
 
-            return;
+            return new CalendarFeedSyncResult(
+                CalendarFeedSyncStatus::Completed,
+                eventsInWindow: 0,
+                eventsInRawFeed: $eventsInRawFeed,
+            );
         }
 
-        DB::transaction(function () use ($feed, $events): void {
+        $stats = DB::transaction(function () use ($feed, $events): array {
+            $itemsApplied = 0;
+            $skippedNoUid = 0;
+            $created = 0;
+            $updated = 0;
+
             foreach ($events as $event) {
                 if (! isset($event['uid'])) {
+                    $skippedNoUid++;
+
                     continue;
                 }
 
@@ -118,7 +136,7 @@ class CalendarFeedSyncService
                     }
                 }
 
-                Task::query()->updateOrCreate(
+                $task = Task::query()->updateOrCreate(
                     [
                         'user_id' => $feed->user_id,
                         'source_type' => TaskSourceType::Brightspace,
@@ -140,12 +158,36 @@ class CalendarFeedSyncService
                         'event_id' => null,
                     ]
                 );
+
+                $itemsApplied++;
+                if ($task->wasRecentlyCreated) {
+                    $created++;
+                } else {
+                    $updated++;
+                }
             }
 
             $feed->update(['last_synced_at' => now()]);
+
+            return [
+                'itemsApplied' => $itemsApplied,
+                'eventsSkippedNoUid' => $skippedNoUid,
+                'tasksCreated' => $created,
+                'tasksUpdated' => $updated,
+            ];
         });
 
         $this->createSyncRecoveredReminderIfAllowed($feed);
+
+        return new CalendarFeedSyncResult(
+            CalendarFeedSyncStatus::Completed,
+            itemsApplied: $stats['itemsApplied'],
+            eventsInWindow: $eventsInWindow,
+            eventsInRawFeed: $eventsInRawFeed,
+            eventsSkippedNoUid: $stats['eventsSkippedNoUid'],
+            tasksCreated: $stats['tasksCreated'],
+            tasksUpdated: $stats['tasksUpdated'],
+        );
     }
 
     private function createSyncFailedReminderIfAllowed(CalendarFeed $feed, string $reason): void
@@ -232,8 +274,8 @@ class CalendarFeedSyncService
      * import thousands of long‑past or far‑future items from feeds.
      *
      * Currently:
-     * - Include events that ended within the last 1 month (e.g. if today is Feb 25, limit is Jan 25).
-     * - Skip events that ended more than 1 month ago.
+     * - Include events that ended on or after the rolling date 90 days before today (start of day).
+     * - Skip events that ended more than 90 days ago.
      * - Skip events that start more than 1 year in the future.
      *
      * @param  array<int, array<string, mixed>>  $events
@@ -242,7 +284,7 @@ class CalendarFeedSyncService
     private function filterEventsWithinSyncWindow(array $events): array
     {
         $today = now()->startOfDay();
-        $pastLimit = $today->copy()->subMonth()->startOfDay();
+        $pastLimit = $today->copy()->subDays(90)->startOfDay();
         $futureLimit = $today->copy()->addYear()->endOfDay();
 
         return array_values(array_filter($events, static function (array $event) use ($pastLimit, $futureLimit): bool {
