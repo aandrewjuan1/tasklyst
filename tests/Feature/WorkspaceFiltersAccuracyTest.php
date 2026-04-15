@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\EventStatus;
+use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
@@ -65,6 +66,60 @@ test('recurring-only filter hides overdue bucket', function (): void {
         ->set('filterRecurring', 'recurring');
 
     expect($component->instance()->overdue())->toBeEmpty();
+});
+
+test('task source filter brightspace shows only Brightspace-sourced tasks', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'BrightspaceFilteredTask',
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Brightspace,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    Task::factory()->for($this->user)->create([
+        'title' => 'ManualFilteredTask',
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('filterTaskSource', 'brightspace');
+
+    $titles = $component->instance()->tasks()->pluck('title');
+    expect($titles)->toContain('BrightspaceFilteredTask')
+        ->and($titles)->not->toContain('ManualFilteredTask');
+});
+
+test('task source filter manual excludes Brightspace-sourced tasks', function (): void {
+    Task::factory()->for($this->user)->create([
+        'title' => 'BrightspaceExcludedTask',
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Brightspace,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+    Task::factory()->for($this->user)->create([
+        'title' => 'ManualIncludedTask',
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('filterTaskSource', 'manual');
+
+    $titles = $component->instance()->tasks()->pluck('title');
+    expect($titles)->toContain('ManualIncludedTask')
+        ->and($titles)->not->toContain('BrightspaceExcludedTask');
 });
 
 test('tag filter includes project when a child task has that tag', function (): void {

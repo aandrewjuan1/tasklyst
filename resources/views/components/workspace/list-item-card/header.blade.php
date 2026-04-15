@@ -19,6 +19,11 @@
     $showRecurringInFocusModal = $kind === 'task';
     $showRecurringSelection = in_array($kind, ['task', 'event'], true)
         && (! $embedInFocusModal || $showRecurringInFocusModal);
+    $headerSourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
+    $showBrightspaceBadgeLink = $kind === 'task'
+        && $headerSourceUrl !== null
+        && $headerSourceUrl !== ''
+        && ($item->source_type === \App\Enums\TaskSourceType::Brightspace);
 @endphp
 <div>
     <div class="flex items-start justify-between gap-2">
@@ -123,6 +128,19 @@
         {{-- Right-side actions: inline with title in list layout; ellipsis only in kanban layout --}}
         @if(! $isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
             <div class="ml-2 flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                @if($showBrightspaceBadgeLink)
+                    <flux:tooltip :content="__('Open in Brightspace')">
+                        <a
+                            href="{{ $headerSourceUrl }}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex size-6 items-center justify-center rounded-full border border-border/60 bg-white shadow-sm transition-colors hover:bg-zinc-50 dark:border-border dark:bg-white dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label="{{ __('Open in Brightspace') }}"
+                        >
+                            <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3.5 object-contain" />
+                        </a>
+                    </flux:tooltip>
+                @endif
                 @include('components.workspace.list-item-card._item-type-pill')
 
                 @if($showRecurringSelection)
@@ -309,6 +327,19 @@
     @if($isKanbanLayout && ($type || ($currentUserIsOwner && $deleteMethod)))
         <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div class="flex flex-wrap items-center gap-2">
+                @if($showBrightspaceBadgeLink)
+                    <flux:tooltip :content="__('Open in Brightspace')">
+                        <a
+                            href="{{ $headerSourceUrl }}"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex size-6 items-center justify-center rounded-full border border-border/60 bg-white shadow-sm transition-colors hover:bg-zinc-50 dark:border-border dark:bg-white dark:hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label="{{ __('Open in Brightspace') }}"
+                        >
+                            <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3.5 object-contain" />
+                        </a>
+                    </flux:tooltip>
+                @endif
                 @include('components.workspace.list-item-card._item-type-pill')
 
                 @if($showRecurringSelection)

@@ -16,10 +16,12 @@
     $notSetLabel = __('Not set');
     $initialDisplayText = $notSetLabel;
     $isEndDatePicker = $model && str_contains((string) $model, 'endDatetime');
-    $initialEffectiveOverdue = $overdue && $isEndDatePicker;
+    $initialParsedDate = null;
+    $initialEffectiveOverdue = false;
     if ($initialValue) {
         try {
             $dt = \Carbon\Carbon::parse($initialValue);
+            $initialParsedDate = $dt;
             $initialDisplayText = $type === 'datetime-local'
                 ? $dt->translatedFormat('M j, Y') . ' ' . $dt->translatedFormat('g:i A')
                 : $dt->translatedFormat('M j, Y');
@@ -27,6 +29,15 @@
             // keep notSetLabel
         }
     }
+    if ($isEndDatePicker) {
+        $initialEffectiveOverdue = (bool) $overdue;
+        if ($initialParsedDate !== null) {
+            $initialEffectiveOverdue = $initialParsedDate->lt(now());
+        }
+    }
+    $initialTriggerLabelText = ($isEndDatePicker && $initialEffectiveOverdue && (string) $triggerLabel === 'Due')
+        ? 'Overdue'
+        : (string) $triggerLabel;
 
     $compact = filter_var($compact, FILTER_VALIDATE_BOOLEAN);
     $datePickerTriggerAriaLabelBase = (string) $label;
@@ -561,7 +572,7 @@
         @if(! $compact)
             <span class="inline-flex items-baseline gap-1">
                 <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    <span x-text="triggerLabelText"></span>:
+                    <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
                 </span>
                 <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
             </span>

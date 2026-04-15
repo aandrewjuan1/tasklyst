@@ -916,30 +916,6 @@
                 </flux:tooltip>
             @endif
 
-            @php
-                $kanbanSourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
-            @endphp
-            @if($kanbanSourceUrl !== null && $kanbanSourceUrl !== '')
-                @php
-                    $kanbanIsBrightspace = $item->source_type === \App\Enums\TaskSourceType::Brightspace;
-                    $kanbanLinkLabel = $kanbanIsBrightspace ? __('Open in Brightspace') : __('Open link');
-                @endphp
-                <a
-                    href="{{ $kanbanSourceUrl }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800"
-                >
-                    @if($kanbanIsBrightspace)
-                        <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3 shrink-0 object-contain" />
-                    @else
-                        <flux:icon name="link" class="size-3" />
-                    @endif
-                    <span class="truncate max-w-[160px]">
-                        {{ $kanbanLinkLabel }}
-                    </span>
-                </a>
-            @endif
         </div>
     @endif
 
@@ -1483,30 +1459,4 @@
 </div>
 @endunless
     </div>
-
-@php
-    $sourceUrl = is_string($item->source_url ?? null) ? trim($item->source_url) : null;
-@endphp
-
-@if($sourceUrl !== null && $sourceUrl !== '' && ! $useKanbanCompact)
-    @php
-        $isBrightspace = $item->source_type === \App\Enums\TaskSourceType::Brightspace;
-        $linkLabel = $isBrightspace ? __('Open in Brightspace') : __('Open link');
-    @endphp
-    <a
-        href="{{ $sourceUrl }}"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800"
-    >
-        @if($isBrightspace)
-            <img src="{{ asset('images/brightspace-icon.png') }}" alt="" class="size-3 shrink-0 object-contain" />
-        @else
-            <flux:icon name="link" class="size-3" />
-        @endif
-        <span class="truncate max-w-[160px]">
-            {{ $linkLabel }}
-        </span>
-    </a>
-@endif
 

@@ -5,6 +5,7 @@ namespace App\Livewire\Concerns;
 use App\Enums\EventStatus;
 use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
+use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Task;
@@ -39,6 +40,9 @@ trait HandlesFiltering
     #[Url(as: 'recurring')]
     public ?string $filterRecurring = null;
 
+    #[Url(as: 'source')]
+    public ?string $filterTaskSource = null;
+
     #[Url(as: 'q')]
     public ?string $searchQuery = null;
 
@@ -63,7 +67,7 @@ trait HandlesFiltering
     {
         return [
             'events' => ['eventStatus'],
-            'tasks' => ['taskStatus', 'taskPriority', 'taskComplexity'],
+            'tasks' => ['taskStatus', 'taskPriority', 'taskComplexity', 'taskSource'],
         ];
     }
 
@@ -95,6 +99,7 @@ trait HandlesFiltering
             'eventStatus' => 'filterEventStatus',
             'tagIds' => 'filterTagIds',
             'recurring' => 'filterRecurring',
+            'taskSource' => 'filterTaskSource',
         ];
     }
 
@@ -110,7 +115,8 @@ trait HandlesFiltering
         $hasEventFilter = $this->normalizeFilterValue($this->filterEventStatus) !== null;
         $hasTaskFilter = $this->normalizeFilterValue($this->filterTaskStatus) !== null
             || $this->normalizeFilterValue($this->filterTaskPriority) !== null
-            || $this->normalizeFilterValue($this->filterTaskComplexity) !== null;
+            || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
+            || $this->normalizeFilterValue($this->filterTaskSource) !== null;
 
         if ($hasEventFilter && $hasTaskFilter) {
             if ($this->userManuallySetItemType) {
@@ -178,6 +184,15 @@ trait HandlesFiltering
 
         if ($key === 'recurring') {
             $allowed = ['all', 'recurring', 'oneTime'];
+            if ($value === null || $value === '' || $value === 'all') {
+                $value = null;
+            } elseif (! in_array($value, $allowed, true)) {
+                return;
+            }
+        }
+
+        if ($key === 'taskSource') {
+            $allowed = ['all', 'brightspace', 'manual'];
             if ($value === null || $value === '' || $value === 'all') {
                 $value = null;
             } elseif (! in_array($value, $allowed, true)) {
@@ -293,6 +308,15 @@ trait HandlesFiltering
         if ($value === '') {
             $this->filterRecurring = null;
         }
+        $this->refreshListAfterFilterChange();
+    }
+
+    public function updatedFilterTaskSource(?string $value): void
+    {
+        if ($value === '') {
+            $this->filterTaskSource = null;
+        }
+        $this->syncItemTypeFromTypeSpecificFilters();
         $this->refreshListAfterFilterChange();
     }
 
@@ -548,8 +572,8 @@ trait HandlesFiltering
             || $this->normalizeFilterValue($this->filterTaskPriority) !== null
             || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
             || $this->normalizeFilterValue($this->filterEventStatus) !== null
-            || ($this->filterTagIds !== null && $this->filterTagIds !== [])
-            || $this->normalizeFilterValue($this->filterRecurring) !== null;
+            || $this->normalizeFilterValue($this->filterRecurring) !== null
+            || $this->normalizeFilterValue($this->filterTaskSource) !== null;
     }
 
     /**
@@ -561,7 +585,8 @@ trait HandlesFiltering
             || $this->normalizeFilterValue($this->filterTaskPriority) !== null
             || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
             || ($this->filterTagIds !== null && $this->filterTagIds !== [])
-            || $this->normalizeFilterValue($this->filterRecurring) !== null;
+            || $this->normalizeFilterValue($this->filterRecurring) !== null
+            || $this->normalizeFilterValue($this->filterTaskSource) !== null;
     }
 
     /**
@@ -588,6 +613,7 @@ trait HandlesFiltering
             'eventStatus' => $this->normalizeFilterValue($this->filterEventStatus),
             'tagIds' => $this->filterTagIds ?? [],
             'recurring' => $this->normalizeFilterValue($this->filterRecurring),
+            'taskSource' => $this->normalizeFilterValue($this->filterTaskSource),
             'hasActiveFilters' => $this->hasActiveFilters(),
             'hasActiveTaskBoardFilters' => $this->hasActiveTaskBoardFilters(),
             'searchQuery' => $this->getTrimmedSearchQuery(),
@@ -619,6 +645,7 @@ trait HandlesFiltering
         }
 
         $this->applyRecurringFilterToTaskQuery($query);
+        $this->applyTaskSourceFilterToTaskQuery($query);
     }
 
     /**
@@ -630,15 +657,25 @@ trait HandlesFiltering
     public function filterTaskCollection(Collection $tasks): Collection
     {
         $taskStatus = $this->normalizeFilterValue($this->filterTaskStatus);
-        if ($taskStatus === null || TaskStatus::tryFrom($taskStatus) === null) {
-            return $tasks;
+        if ($taskStatus !== null && TaskStatus::tryFrom($taskStatus) !== null) {
+            $tasks = $tasks->filter(function (Task $task) use ($taskStatus): bool {
+                $effective = $task->effectiveStatusForDate ?? $task->status;
+
+                return $effective !== null && $effective->value === $taskStatus;
+            })->values();
         }
 
-        return $tasks->filter(function (Task $task) use ($taskStatus): bool {
-            $effective = $task->effectiveStatusForDate ?? $task->status;
+        $taskSource = $this->normalizeFilterValue($this->filterTaskSource);
+        if ($taskSource === 'brightspace') {
+            return $tasks->filter(fn (Task $task): bool => $task->source_type === TaskSourceType::Brightspace)->values();
+        }
+        if ($taskSource === 'manual') {
+            return $tasks->filter(function (Task $task): bool {
+                return $task->source_type === null || $task->source_type === TaskSourceType::Manual;
+            })->values();
+        }
 
-            return $effective !== null && $effective->value === $taskStatus;
-        })->values();
+        return $tasks;
     }
 
     /**
@@ -734,6 +771,8 @@ trait HandlesFiltering
                 $tagQuery->whereIn('tags.id', $this->filterTagIds);
             });
         }
+
+        $this->applyTaskSourceFilterToTaskQuery($query);
     }
 
     /**
@@ -760,6 +799,22 @@ trait HandlesFiltering
             $query->whereHas('recurringTask');
         } elseif ($recurring === 'oneTime') {
             $query->whereDoesntHave('recurringTask');
+        }
+    }
+
+    private function applyTaskSourceFilterToTaskQuery(Builder $query): void
+    {
+        $source = $this->normalizeFilterValue($this->filterTaskSource);
+        if ($source === 'brightspace') {
+            $query->where('source_type', TaskSourceType::Brightspace);
+
+            return;
+        }
+        if ($source === 'manual') {
+            $query->where(function (Builder $q): void {
+                $q->whereNull('source_type')
+                    ->orWhere('source_type', TaskSourceType::Manual);
+            });
         }
     }
 

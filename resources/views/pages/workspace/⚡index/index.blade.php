@@ -15,7 +15,7 @@
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}

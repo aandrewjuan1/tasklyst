@@ -9,14 +9,14 @@ test('guest can view the login page', function (): void {
     $response = $this->get(route('login'));
 
     $response->assertSuccessful();
-    $response->assertSee('Welcome to Tasklyst', false);
+    $response->assertSee('Sign in · taskLyst', false);
 });
 
 test('login blade contains google cta and tasklyst content', function (): void {
     $response = $this->view('auth.login');
 
-    $response->assertSee('Welcome to Tasklyst', false);
     $response->assertSee('Continue with Google', false);
+    $response->assertSee('Use your Google account', false);
     $response->assertSee(route('login', ['redirect' => 1]), false);
 });
 

@@ -8,6 +8,7 @@
     use App\Enums\EventStatus;
     use App\Enums\TaskComplexity;
     use App\Enums\TaskPriority;
+    use App\Enums\TaskSourceType;
     use App\Enums\TaskStatus;
 
     $taskStatuses = collect(TaskStatus::cases())->mapWithKeys(fn ($c) => [$c->value => $c->label()])->all();
@@ -24,6 +25,10 @@
         'recurring' => __('Recurring'),
         'oneTime' => __('One-time'),
     ];
+    $taskSourceLabels = [
+        'brightspace' => TaskSourceType::Brightspace->label(),
+        'manual' => TaskSourceType::Manual->label(),
+    ];
 
     $tags = $tags instanceof \Illuminate\Support\Collection ? $tags : collect($tags);
     $tagsForJs = $tags->map(fn ($t) => ['id' => $t->id, 'name' => $t->name])->values()->all();
@@ -35,6 +40,7 @@
         'taskComplexity' => ['' => __('All'), ...$taskComplexities],
         'eventStatus' => ['' => __('All'), ...$eventStatuses],
         'recurring' => ['' => __('All'), ...$recurringLabels],
+        'taskSource' => ['' => __('All'), ...$taskSourceLabels],
     ];
 
     $pillLabels = [
@@ -45,6 +51,7 @@
         'eventStatus' => __('Event status'),
         'tagIds' => __('Tags'),
         'recurring' => __('Recurring'),
+        'taskSource' => __('Source'),
     ];
 
     $tagIds = $filters['tagIds'] ?? [];
@@ -53,7 +60,8 @@
         : '';
     $hasOtherActiveFilters = ($filters['taskStatus'] ?? null) || ($filters['taskPriority'] ?? null)
         || ($filters['taskComplexity'] ?? null) || ($filters['eventStatus'] ?? null)
-        || (is_array($tagIds) && $tagIds !== []) || ($filters['recurring'] ?? null);
+        || (is_array($tagIds) && $tagIds !== []) || ($filters['recurring'] ?? null)
+        || ($filters['taskSource'] ?? null);
 
     $filterPillEnumFillClass = static fn (string $color): string => 'bg-' . $color . '/10 text-' . $color;
 
@@ -75,6 +83,9 @@
 
     $filterPillRecurringRecurring =
         'border-amber-200/55 bg-yellow-50 text-stone-600 shadow-sm dark:border-amber-900/20 dark:bg-yellow-950/12 dark:text-stone-400';
+
+    $filterPillTaskSourceBrightspace =
+        'border-blue-500/25 bg-blue-500/10 text-blue-800 shadow-sm dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200';
 @endphp
 
 <div
@@ -90,6 +101,7 @@
             eventStatus: false,
             tagIds: false,
             recurring: false,
+            taskSource: false,
         },
         togglePillMenu(key) {
             const opening = !this.menus[key];
@@ -110,6 +122,7 @@
             eventStatus: @js($filters['eventStatus'] ?? null),
             tagIds: @js($filters['tagIds'] ?? []),
             recurring: @js($filters['recurring'] ?? null),
+            taskSource: @js($filters['taskSource'] ?? null),
             showCompleted: @js((bool) ($filters['showCompleted'] ?? false)),
         },
         _m(cls) {
@@ -120,6 +133,15 @@
         filterPillTaskComplexityColors: @js($filterPillTaskComplexityColors),
         filterPillEventStatusColors: @js($filterPillEventStatusColors),
         filterPillRecurringRecurring: @js($filterPillRecurringRecurring),
+        filterPillTaskSourceBrightspace: @js($filterPillTaskSourceBrightspace),
+        pillClassesTaskSource() {
+            const v = this.displayFilters.taskSource;
+            if (v === 'brightspace') {
+                return this._m(this.filterPillTaskSourceBrightspace);
+            }
+            const fill = 'bg-muted text-muted-foreground';
+            return [...this._m(fill), 'border', 'border-black/10', 'dark:border-white/10'];
+        },
         pillClassesTaskStatus() {
             const v = this.displayFilters.taskStatus;
             const fill = this.filterPillTaskStatusColors[v] ?? 'bg-muted text-muted-foreground';
@@ -154,7 +176,8 @@
             const hasEvent = this.displayFilters.eventStatus != null && this.displayFilters.eventStatus !== '';
             const hasTask = (this.displayFilters.taskStatus != null && this.displayFilters.taskStatus !== '') ||
                 (this.displayFilters.taskPriority != null && this.displayFilters.taskPriority !== '') ||
-                (this.displayFilters.taskComplexity != null && this.displayFilters.taskComplexity !== '');
+                (this.displayFilters.taskComplexity != null && this.displayFilters.taskComplexity !== '') ||
+                (this.displayFilters.taskSource != null && this.displayFilters.taskSource !== '');
             let newVal = null;
             if (hasEvent && hasTask) {
                 if (this.userManuallySetItemType) return;
@@ -179,6 +202,7 @@
                 this.displayFilters.eventStatus = $wire.filterEventStatus ?? null;
                 this.displayFilters.tagIds = $wire.filterTagIds ?? [];
                 this.displayFilters.recurring = $wire.filterRecurring ?? null;
+                this.displayFilters.taskSource = $wire.filterTaskSource ?? null;
                 this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1';
             };
             this.$watch('$wire.filterItemType', () => { this.displayFilters.itemType = $wire.filterItemType ?? null; });
@@ -188,8 +212,9 @@
             this.$watch('$wire.filterEventStatus', () => { this.displayFilters.eventStatus = $wire.filterEventStatus ?? null; });
             this.$watch('$wire.filterTagIds', () => { this.displayFilters.tagIds = $wire.filterTagIds ?? []; });
             this.$watch('$wire.filterRecurring', () => { this.displayFilters.recurring = $wire.filterRecurring ?? null; });
+            this.$watch('$wire.filterTaskSource', () => { this.displayFilters.taskSource = $wire.filterTaskSource ?? null; });
             this.$watch('$wire.showCompleted', () => { this.displayFilters.showCompleted = ($wire.showCompleted ?? '0') === '1'; });
-            const typeSpecificKeys = ['taskStatus', 'taskPriority', 'taskComplexity', 'eventStatus'];
+            const typeSpecificKeys = ['taskStatus', 'taskPriority', 'taskComplexity', 'taskSource', 'eventStatus'];
             const handler = (e) => {
                 const { key, value } = e.detail || {};
                 if (key === 'itemType') {
@@ -204,6 +229,7 @@
                     this.displayFilters.eventStatus = null;
                     this.displayFilters.tagIds = [];
                     this.displayFilters.recurring = null;
+                    this.displayFilters.taskSource = null;
                 } else if (key === 'tagIds') {
                     this.displayFilters.tagIds = Array.isArray(value) ? value : (value ? [value] : []);
                 } else if (key) {
@@ -232,12 +258,12 @@
         hasActiveFilters() {
             return this.displayFilters.itemType || this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
-                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring;
+                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource;
         },
         hasOtherActiveFilters() {
             return this.displayFilters.taskStatus || this.displayFilters.taskPriority ||
                 this.displayFilters.taskComplexity || this.displayFilters.eventStatus ||
-                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring;
+                (this.displayFilters.tagIds?.length > 0) || this.displayFilters.recurring || this.displayFilters.taskSource;
         },
         setItemType(value) {
             this.displayFilters.itemType = value || null;
@@ -260,6 +286,7 @@
             this.displayFilters.eventStatus = null;
             this.displayFilters.tagIds = [];
             this.displayFilters.recurring = null;
+            this.displayFilters.taskSource = null;
             window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'clearAll' } }));
             $wire.clearAllFilters();
         },
@@ -524,6 +551,68 @@
             class="workspace-filter-pill-clear"
             :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskComplexity)"
             @click.stop="clearFilter('taskComplexity')"
+        >
+            <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+    </span>
+
+    {{-- Task source (Brightspace / Manual) --}}
+    <span
+        x-show="showValue('taskSource')"
+        style="{{ ($filters['taskSource'] ?? null) ? '' : 'display:none' }}"
+        class="workspace-filter-property-pill max-w-full"
+        :class="pillClassesTaskSource()"
+    >
+        <div class="relative min-w-0" @click.outside="closePillMenu('taskSource')">
+            <button
+                type="button"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('taskSource')"
+                :aria-expanded="menus.taskSource"
+                aria-haspopup="menu"
+            >
+                <span class="inline-flex min-w-0 items-center gap-1">
+                    <img
+                        x-show="displayFilters.taskSource === 'brightspace'"
+                        src="{{ asset('images/brightspace-icon.png') }}"
+                        alt=""
+                        class="size-3 shrink-0 object-contain"
+                        @if(($filters['taskSource'] ?? null) !== 'brightspace') style="display: none" @endif
+                    />
+                    <span class="truncate" x-text="pillLabels.taskSource + ': ' + showValue('taskSource')">{{ $pillLabels['taskSource'] }}: {{ ($filters['taskSource'] ?? null) ? ($taskSourceLabels[$filters['taskSource']] ?? '') : '' }}</span>
+                </span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+            <div
+                x-cloak
+                x-show="menus.taskSource"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
+                role="menu"
+            >
+                @foreach ($taskSourceLabels as $value => $label)
+                    <label wire:key="pill-tsrc-{{ $value }}" class="workspace-filter-option" @click="closePillMenu('taskSource')">
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterTaskSource"
+                            value="{{ $value }}"
+                            @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskSource', value: @js($value) } }))"
+                        />
+                        <span class="min-w-0 flex-1">{{ $label }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
+        <button
+            type="button"
+            class="workspace-filter-pill-clear"
+            :aria-label="'{{ __('Clear :filter filter', ['filter' => '__PLACEHOLDER__']) }}'.replace('__PLACEHOLDER__', pillLabels.taskSource)"
+            @click.stop="clearFilter('taskSource')"
         >
             <svg class="size-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />

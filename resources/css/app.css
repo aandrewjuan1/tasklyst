@@ -543,6 +543,10 @@ select:focus[data-flux-control] {
         @apply bg-teal-100 text-teal-900 dark:bg-teal-950/50 dark:text-teal-100;
     }
 
+    .workspace-filter-category-row--task-source .workspace-filter-category-icon {
+        @apply bg-white text-zinc-800 ring-1 ring-border/60 dark:bg-zinc-950 dark:text-zinc-100 dark:ring-border/50 [&>img]:size-5;
+    }
+
     .workspace-filter-flyout {
         @apply absolute left-full top-0 z-[70] min-w-[11.5rem] max-w-[min(100vw-2rem,16rem)] max-h-[min(60vh,22rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-200/90 bg-white/98 p-1.5 shadow-xl ring-1 ring-zinc-200/45 backdrop-blur-md dark:border-zinc-700/90 dark:bg-zinc-900/98 dark:ring-zinc-700/55;
         margin-left: -0.25rem;
@@ -630,7 +634,7 @@ select:focus[data-flux-control] {
     }
 
     .login-card {
-        @apply flex w-full max-w-md flex-col items-center gap-6 rounded-2xl border border-zinc-200/75 bg-white/90 p-6 text-center shadow-xl ring-1 ring-zinc-200/55 backdrop-blur-sm dark:border-zinc-700/70 dark:bg-zinc-900/75 dark:ring-zinc-700/50;
+        @apply flex w-full max-w-md flex-col items-stretch gap-7 rounded-2xl border border-zinc-200/75 bg-white/90 p-6 text-left shadow-xl ring-1 ring-zinc-200/55 backdrop-blur-sm sm:p-8 dark:border-zinc-700/70 dark:bg-zinc-900/75 dark:ring-zinc-700/50;
     }
 
     .login-brand {
