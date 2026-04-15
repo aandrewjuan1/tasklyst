@@ -507,11 +507,11 @@
                                     <flux:tooltip.content class="max-w-[18rem] space-y-2">
                                         <p class="text-xs font-semibold leading-snug">{{ __('How to Get Brightspace Calendar Link') }}</p>
                                         <ol class="list-decimal space-y-1 pl-4 text-xs leading-snug text-muted-foreground">
+                                            <li>{{ __('Go to Brightspace and log in') }}</li>
                                             <li>{{ __('Open Calendar from navbar') }}</li>
                                             <li>{{ __('Click Settings or Calendar Feeds') }}</li>
                                             <li>{{ __('Turn ON Enable Calendar Feeds') }}</li>
-                                            <li>{{ __('Click Subscribe') }}</li>
-                                            <li>{{ __('Copy the ICS subscription URL') }}</li>
+                                            <li>{{ __('Click Subscribe and copy the ICS subscription URL') }}</li>
                                         </ol>
                                     </flux:tooltip.content>
                                 </flux:tooltip>
