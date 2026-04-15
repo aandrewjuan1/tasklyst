@@ -136,7 +136,7 @@
             sticky 
             collapsible 
             persist="false"
-            class="border-e border-zinc-200 bg-brand-light-lavender"
+            class="z-80 border-e border-zinc-200 bg-brand-light-lavender lg:z-auto"
         >
             <flux:sidebar.header class="pb-1">
                 <x-app-logo
@@ -191,7 +191,7 @@
         </flux:sidebar>
 
         <!-- Mobile User Menu: omit top-bar bell on dashboard/workspace — hero already includes it. -->
-        <flux:header class="lg:hidden">
+        <flux:header class="z-90 lg:hidden">
             <flux:sidebar.toggle class="lg:hidden" icon="bars-2" inset="left" />
 
             <flux:spacer />
@@ -261,7 +261,7 @@
 
         {{-- Trash popover teleports here so it stacks above the Flux sidebar (ui-sidebar z-index). --}}
         {{-- Do not use pointer-events-none on this wrapper: it breaks hit-testing for the fixed teleported panel. --}}
-        <div id="workspace-trash-portal" class="relative z-[2147483646] isolate"></div>
+        <div id="workspace-trash-portal" class="relative z-2147483646 isolate"></div>
 
         @fluxScripts
     </body>

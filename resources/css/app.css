@@ -123,7 +123,7 @@ select:focus[data-flux-control] {
      * Dashboard / workspace hero: glass stack over brand gradient (no solid border); soft brand-tinted depth.
      */
     .hero-brand-gradient-shell {
-        @apply relative isolate z-20 flex w-full items-center rounded-2xl px-5 py-4 lg:px-7;
+        @apply relative isolate z-0 flex w-full items-center rounded-2xl px-5 py-4 lg:z-20 lg:px-7;
         box-shadow:
             0 22px 44px -14px rgb(71 134 215 / 0.14),
             0 10px 22px -10px rgb(33 52 72 / 0.09),
@@ -544,7 +544,7 @@ select:focus[data-flux-control] {
     }
 
     .workspace-filter-category-row--task-source .workspace-filter-category-icon {
-        @apply bg-white text-zinc-800 ring-1 ring-border/60 dark:bg-zinc-950 dark:text-zinc-100 dark:ring-border/50 [&>img]:size-5;
+        @apply bg-white text-zinc-800 ring-1 ring-zinc-300/60 dark:bg-zinc-950 dark:text-zinc-100 dark:ring-zinc-700/50 [&>img]:size-5;
     }
 
     .workspace-filter-flyout {

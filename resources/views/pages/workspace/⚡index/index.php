@@ -808,10 +808,9 @@ class extends Component
                     'collaborations',
                     'collaborators',
                     'collaborationInvitations.invitee',
-                    'comments.user',
                 ])
+                ->withCount('comments')
                 ->withCount('activityLogs')
-                ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->overdue($overdueAsOf)
                 ->where('status', '!=', TaskStatus::Done->value)
@@ -842,8 +841,8 @@ class extends Component
                     'collaborators',
                     'collaborationInvitations.invitee',
                 ])
+                ->withCount('comments')
                 ->withCount('activityLogs')
-                ->withRecentActivityLogs(5)
                 ->forUser($userId)
                 ->notCancelled()
                 ->where('status', '!=', EventStatus::Completed->value)

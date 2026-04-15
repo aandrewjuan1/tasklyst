@@ -179,59 +179,92 @@ class extends Component
     }
 
     #[Computed]
-    public function dashboardIncompleteTasksCount(): int
+    public function dashboardTaskCounts(): array
     {
         $userId = Auth::id();
         if ($userId === null) {
-            return 0;
+            return [
+                'incomplete' => 0,
+                'todo' => 0,
+                'total' => 0,
+                'completed' => 0,
+                'overdue' => 0,
+                'due_today' => 0,
+            ];
         }
 
-        return Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->count();
+        $selectedDate = $this->getParsedSelectedDate()->toDateString();
+        // Use a short, deterministic time bucket to avoid a per-request "max(updated_at)" query.
+        $cacheWindowBucket = now()->format('YmdHi');
+
+        /** @var array{incomplete:int,todo:int,total:int,completed:int,overdue:int,due_today:int} $counts */
+        $counts = $this->rememberMetric(
+            key: sprintf('task-counts:%d:%s:%s', $userId, $selectedDate, $cacheWindowBucket),
+            ttlSeconds: 60,
+            callback: function () use ($userId): array {
+                $now = now();
+                $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
+                $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
+
+                $baseCounts = Task::query()
+                    ->forUser($userId)
+                    ->selectRaw('COUNT(*) as total')
+                    ->selectRaw('SUM(CASE WHEN completed_at IS NOT NULL THEN 1 ELSE 0 END) as completed')
+                    ->selectRaw('SUM(CASE WHEN completed_at IS NULL THEN 1 ELSE 0 END) as incomplete')
+                    ->selectRaw('SUM(CASE WHEN completed_at IS NULL AND status = ? THEN 1 ELSE 0 END) as todo', [TaskStatus::ToDo->value])
+                    ->first();
+
+                $overdueCount = Task::query()
+                    ->forUser($userId)
+                    ->incomplete()
+                    ->overdue($now)
+                    ->whereDoesntHave('recurringTask')
+                    ->count();
+
+                $dueTodayCount = Task::query()
+                    ->forUser($userId)
+                    ->incomplete()
+                    ->whereNotNull('end_datetime')
+                    ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
+                    ->whereDoesntHave('recurringTask')
+                    ->count();
+
+                return [
+                    'incomplete' => (int) ($baseCounts?->incomplete ?? 0),
+                    'todo' => (int) ($baseCounts?->todo ?? 0),
+                    'total' => (int) ($baseCounts?->total ?? 0),
+                    'completed' => (int) ($baseCounts?->completed ?? 0),
+                    'overdue' => $overdueCount,
+                    'due_today' => $dueTodayCount,
+                ];
+            }
+        );
+
+        return $counts;
+    }
+
+    #[Computed]
+    public function dashboardIncompleteTasksCount(): int
+    {
+        return (int) ($this->dashboardTaskCounts['incomplete'] ?? 0);
     }
 
     #[Computed]
     public function dashboardTodoTasksCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        return Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->where('status', TaskStatus::ToDo)
-            ->count();
+        return (int) ($this->dashboardTaskCounts['todo'] ?? 0);
     }
 
     #[Computed]
     public function dashboardTotalTasksCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        return Task::query()
-            ->forUser($userId)
-            ->count();
+        return (int) ($this->dashboardTaskCounts['total'] ?? 0);
     }
 
     #[Computed]
     public function dashboardCompletedTasksCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        return Task::query()
-            ->forUser($userId)
-            ->whereNotNull('completed_at')
-            ->count();
+        return (int) ($this->dashboardTaskCounts['completed'] ?? 0);
     }
 
     /**
@@ -262,19 +295,7 @@ class extends Component
     #[Computed]
     public function dashboardOverdueTasksCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        $now = now();
-
-        return Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->overdue($now)
-            ->whereDoesntHave('recurringTask')
-            ->count();
+        return (int) ($this->dashboardTaskCounts['overdue'] ?? 0);
     }
 
     /**
@@ -378,21 +399,7 @@ class extends Component
     #[Computed]
     public function dashboardDueTodayTasksCount(): int
     {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return 0;
-        }
-
-        $startOfDay = $this->getParsedSelectedDate()->copy()->startOfDay();
-        $endOfDay = $this->getParsedSelectedDate()->copy()->endOfDay();
-
-        return Task::query()
-            ->forUser($userId)
-            ->incomplete()
-            ->whereNotNull('end_datetime')
-            ->whereBetween('end_datetime', [$startOfDay, $endOfDay])
-            ->whereDoesntHave('recurringTask')
-            ->count();
+        return (int) ($this->dashboardTaskCounts['due_today'] ?? 0);
     }
 
     /**

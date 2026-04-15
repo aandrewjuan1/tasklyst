@@ -467,10 +467,8 @@ trait HandlesTasks
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
-            ->withRecentComments(5)
             ->withCount('comments')
             ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
             ->forUser($userId);
 
         if (! $searchAllItems) {
@@ -621,10 +619,8 @@ trait HandlesTasks
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
-            ->withRecentComments(5)
             ->withCount('comments')
             ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
             ->forUser($userId);
 
         if (! $searchAllItems) {

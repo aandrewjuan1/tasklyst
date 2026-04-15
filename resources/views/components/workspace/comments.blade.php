@@ -87,6 +87,9 @@
         loadingMoreComments: false,
         toggle() {
             this.isOpen = !this.isOpen;
+            if (this.isOpen && this.comments.length === 0 && this.totalCount > 0) {
+                this.loadMore();
+            }
         },
         updateVisibleComments() {
             this.visibleComments = this.comments.slice(0, this.visibleCount);
@@ -547,7 +550,7 @@
                                 "
                             >
                                 <div x-show="editingCommentId !== comment.id" x-cloak>
-                                    <p class="whitespace-pre-line break-words text-[11px] text-foreground/90" x-text="comment.content"></p>
+                                    <p class="whitespace-pre-line wrap-break-word text-[11px] text-foreground/90" x-text="comment.content"></p>
                                 </div>
                                 <div x-show="editingCommentId === comment.id" x-cloak>
                                     <textarea

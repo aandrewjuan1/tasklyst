@@ -116,7 +116,7 @@
                         @php
                             $greetingName = auth()->user()?->firstName() ?? '';
                         @endphp
-                        <div class="flex w-full min-w-0 items-start justify-between gap-3 sm:gap-4">
+                        <div class="flex w-full min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
                             <div class="min-w-0 flex-1 space-y-2">
                                 <p class="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                                     @if ($greetingName !== '')
@@ -334,10 +334,10 @@
                             <div class="{{ $dashboardPanelShell['default'] }}">
                                 <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
                                     <flux:icon name="arrow-path" class="size-4 text-foreground/80" />
-                                    <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-recurring-heading">{{ __('Repeating tasks :when', ['when' => $selectedDayContextPhrase]) }}</span>
+                                    <span class="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" data-testid="dashboard-section-recurring-heading">{{ __('Repeating tasks :when', ['when' => $selectedDayContextPhrase]) }}</span>
                                     <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-due-count">{{ $recurringSummary['due'] }}</span>
                                 </div>
-                                <div class="grid grid-cols-2 gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+                                <div class="grid grid-cols-1 gap-2 border-b border-border/60 px-4 py-3 sm:grid-cols-2 dark:border-zinc-800">
                                     <div class="rounded-lg bg-muted/50 px-3 py-2">
                                         <p class="text-xs text-muted-foreground">{{ __('Due') }}</p>
                                         <p class="text-base font-bold text-foreground" data-testid="dashboard-recurring-due-count-value">{{ $recurringSummary['due'] }}</p>
@@ -482,7 +482,7 @@
                                             @foreach ($projectHealth as $project)
                                                 <tr data-testid="dashboard-row-project-health">
                                                     <td class="px-4 py-2.5">
-                                                        <a href="{{ $project['workspace_url'] }}" wire:navigate class="truncate font-semibold text-foreground transition hover:text-brand-blue">
+                                                        <a href="{{ $project['workspace_url'] }}" wire:navigate class="block max-w-48 truncate font-semibold text-foreground transition hover:text-brand-blue sm:max-w-none">
                                                             {{ $project['name'] }}
                                                         </a>
                                                         <p class="text-xs text-muted-foreground">
@@ -542,7 +542,7 @@
                                         <flux:icon name="bolt" class="size-4 text-foreground/80" />
                                         <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-focus-throughput-heading">{{ __('Focus + Throughput') }}</span>
                                     </div>
-                                    <div class="grid grid-cols-2 gap-2 px-4 py-3">
+                                    <div class="grid grid-cols-1 gap-2 px-4 py-3 sm:grid-cols-2">
                                         <div class="rounded-lg bg-muted/50 px-3 py-2">
                                             <p class="text-xs text-muted-foreground">{{ __('Focus :when', ['when' => $selectedDayContextPhrase]) }}</p>
                                             <p class="text-base font-bold text-foreground">{{ $focusThroughput['daily_focus_minutes'] }} {{ __('min') }}</p>
@@ -700,12 +700,12 @@
                                             x-effect="sync(@js($trendOverview), @js($this->trendPreset))"
                                             class="relative overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5"
                                         >
-                                            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 dark:border-zinc-800">
+                                            <div class="flex flex-wrap items-start justify-between gap-2 border-b border-border/60 px-3 py-2 dark:border-zinc-800">
                                                 <div class="min-w-0">
                                                     <div class="text-sm font-semibold text-foreground">{{ __('Charts') }}</div>
                                                     <div class="text-xs text-muted-foreground">{{ __('Trends and how your tasks are distributed in this period.') }}</div>
                                                 </div>
-                                                <div class="inline-flex shrink-0 items-center gap-1 rounded-lg bg-muted p-1">
+                                                <div class="inline-flex w-full items-center gap-1 rounded-lg bg-muted p-1 sm:w-auto sm:shrink-0">
                                                     @foreach (['daily' => __('Daily'), 'weekly' => __('Weekly'), 'monthly' => __('Monthly')] as $presetValue => $presetLabel)
                                                         <button
                                                             type="button"

@@ -353,11 +353,9 @@ trait HandlesProjects
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
-            ->withRecentComments(5)
             ->withCount('comments')
             ->withCount('tasks')
             ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notArchived();
 
@@ -432,11 +430,9 @@ trait HandlesProjects
                 'collaborators',
                 'collaborationInvitations.invitee',
             ])
-            ->withRecentComments(5)
             ->withCount('comments')
             ->withCount('tasks')
             ->withCount('activityLogs')
-            ->withRecentActivityLogs(5)
             ->forUser($userId)
             ->notArchived()
             ->whereNotNull('end_datetime')

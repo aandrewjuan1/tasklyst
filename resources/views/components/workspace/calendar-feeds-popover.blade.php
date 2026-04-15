@@ -15,6 +15,8 @@
 
         feedHealth: [],
         loadingFeedHealth: false,
+        lastFeedHealthLoadedAt: 0,
+        feedHealthRefreshWindowMs: 30000,
         syncingIds: new Set(),
         disconnectingIds: new Set(),
         editingFeedId: null,
@@ -37,6 +39,13 @@
         },
 
         async ensureFeedHealthLoaded(force = false) {
+            const nowMs = Date.now();
+            const isFresh = this.lastFeedHealthLoadedAt > 0
+                && (nowMs - this.lastFeedHealthLoadedAt) < this.feedHealthRefreshWindowMs;
+
+            if (!force && isFresh) {
+                return;
+            }
             if (!force && this.feedHealth && this.feedHealth.length > 0) {
                 return;
             }
@@ -48,6 +57,7 @@
             try {
                 const result = await $wire.$call('loadCalendarFeedHealth');
                 this.feedHealth = Array.isArray(result) ? result : [];
+                this.lastFeedHealthLoadedAt = Date.now();
             } catch (error) {
                 this.feedHealth = [];
             } finally {

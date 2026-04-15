@@ -64,6 +64,12 @@
         panelWidthEst: 384,
         panelHeightEst: 320,
 
+        maybeLoadInitialLogs() {
+            if (this.logs.length === 0 && this.hasMore && !this.loadingMore) {
+                this.loadMore();
+            }
+        },
+
         openFromMenu() {
             if (this.open) {
                 return;
@@ -84,6 +90,7 @@
                 this.open = true;
                 this.openedAt = Date.now();
                 this.$dispatch('dropdown-opened');
+                this.maybeLoadInitialLogs();
 
                 return;
             }
@@ -139,6 +146,7 @@
             this.open = true;
             this.openedAt = Date.now();
             this.$dispatch('dropdown-opened');
+            this.maybeLoadInitialLogs();
         },
 
         close(focusAfter) {
