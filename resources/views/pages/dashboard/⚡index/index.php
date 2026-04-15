@@ -4,18 +4,16 @@ use App\Data\Analytics\DashboardAnalyticsOverview;
 use App\Enums\ActivityLogAction;
 use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
+use App\Livewire\Concerns\HandlesCalendarFeeds;
+use App\Livewire\Concerns\HandlesWorkspaceCalendar;
 use App\Models\ActivityLog;
 use App\Models\CalendarFeed;
 use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\FocusSession;
-use App\Models\LlmToolCall;
 use App\Models\Project;
 use App\Models\Task;
-use App\Models\TaskAssistantThread;
-use App\Livewire\Concerns\HandlesCalendarFeeds;
-use App\Livewire\Concerns\HandlesWorkspaceCalendar;
 use App\Models\User;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
@@ -23,14 +21,14 @@ use App\Services\TaskService;
 use App\Services\UserAnalyticsService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Support\Collection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Livewire\Component;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
+use Livewire\Component;
 
 new
 #[Title('Dashboard')]
@@ -43,17 +41,26 @@ class extends Component
     private const ANALYTICS_PRESETS = ['daily', 'weekly', 'monthly'];
 
     private const AT_A_GLANCE_LIMIT = 7;
+
     /** Maximum rows shown in the Urgent Now panel before “See all”. */
     private const URGENT_NOW_DISPLAY_LIMIT = 3;
 
     /** Ranked items loaded; one past display limit signals additional items exist. */
     private const URGENT_NOW_PREVIEW_LIMIT = 4;
+
     private const PROJECT_HEALTH_LIMIT = 5;
+
     private const COLLAB_ACTIVITY_LIMIT = 6;
+
     private const COLLAB_INVITES_LIMIT = 5;
+
     private const FEED_HEALTH_LIMIT = 5;
-    private const NO_DATE_BACKLOG_LIMIT = 7;
+
+    /** Rows shown in the No-date Backlog panel before “See all”. */
+    private const NO_DATE_BACKLOG_DISPLAY_LIMIT = 3;
+
     private const RECURRING_DUE_LIMIT = 7;
+
     private const LLM_RECENT_THREADS_LIMIT = 5;
 
     #[Url(as: 'date')]
@@ -63,7 +70,9 @@ class extends Component
     public string $analyticsPreset = 'daily';
 
     public string $trendPreset = 'daily';
+
     public bool $insightsOpen = false;
+    public bool $insightsChartsReady = false;
 
     /**
      * Cached parsed date to avoid parsing multiple times.
@@ -72,8 +81,11 @@ class extends Component
     protected ?CarbonInterface $parsedSelectedDate = null;
 
     protected UserAnalyticsService $userAnalyticsService;
+
     protected TaskService $taskService;
+
     protected AssistantCandidateProvider $assistantCandidateProvider;
+
     protected TaskPrioritizationService $taskPrioritizationService;
 
     public function boot(
@@ -81,8 +93,7 @@ class extends Component
         TaskService $taskService,
         AssistantCandidateProvider $assistantCandidateProvider,
         TaskPrioritizationService $taskPrioritizationService
-    ): void
-    {
+    ): void {
         $this->userAnalyticsService = $userAnalyticsService;
         $this->taskService = $taskService;
         $this->assistantCandidateProvider = $assistantCandidateProvider;
@@ -110,11 +121,20 @@ class extends Component
         $this->insightsOpen = ! $this->insightsOpen;
     }
 
+    public function loadInsightsCharts(): void
+    {
+        if (! $this->insightsOpen) {
+            return;
+        }
+
+        $this->insightsChartsReady = true;
+    }
+
     public function setTrendPreset(string $preset): void
     {
         $this->trendPreset = $this->normalizeAnalyticsPreset($preset);
     }
-    
+
     #[Computed]
     public function trendAnalytics(): ?DashboardAnalyticsOverview
     {
@@ -523,6 +543,11 @@ class extends Component
         return $streakDays;
     }
 
+    public function noDateBacklogDisplayLimit(): int
+    {
+        return self::NO_DATE_BACKLOG_DISPLAY_LIMIT;
+    }
+
     /**
      * @return EloquentCollection<int, Task>
      */
@@ -535,14 +560,17 @@ class extends Component
         }
 
         return Task::query()
-            ->with(['project'])
+            ->with([
+                'project',
+                'focusSessions' => fn ($query) => $query->work(),
+            ])
             ->forUser($userId)
             ->incomplete()
             ->withNoDate()
             ->whereDoesntHave('recurringTask')
             ->orderByPriority()
             ->orderByDesc('updated_at')
-            ->limit(self::NO_DATE_BACKLOG_LIMIT)
+            ->limit(self::NO_DATE_BACKLOG_DISPLAY_LIMIT)
             ->get();
     }
 
@@ -1092,61 +1120,6 @@ class extends Component
             })
             ->values()
             ->all();
-    }
-
-    /**
-     * @return array{
-     *   total_threads: int,
-     *   recent_threads: int,
-     *   pending_tool_calls: int,
-     *   successful_tool_calls: int,
-     *   failed_tool_calls: int
-     * }
-     */
-    #[Computed]
-    public function llmActivity(): array
-    {
-        $userId = Auth::id();
-        if ($userId === null) {
-            return [
-                'total_threads' => 0,
-                'recent_threads' => 0,
-                'pending_tool_calls' => 0,
-                'successful_tool_calls' => 0,
-                'failed_tool_calls' => 0,
-            ];
-        }
-
-        return $this->rememberMetric(
-            key: sprintf('llm-activity:%d', $userId),
-            ttlSeconds: 60,
-            callback: function () use ($userId): array {
-                $totalThreads = TaskAssistantThread::query()
-                    ->where('user_id', $userId)
-                    ->count();
-
-                $recentThreads = TaskAssistantThread::query()
-                    ->where('user_id', $userId)
-                    ->latest('updated_at')
-                    ->limit(self::LLM_RECENT_THREADS_LIMIT)
-                    ->count();
-
-                $toolCallCounts = LlmToolCall::query()
-                    ->selectRaw('status, COUNT(*) as aggregate')
-                    ->where('user_id', $userId)
-                    ->whereIn('status', ['pending', 'success', 'failed'])
-                    ->groupBy('status')
-                    ->pluck('aggregate', 'status');
-
-                return [
-                    'total_threads' => $totalThreads,
-                    'recent_threads' => $recentThreads,
-                    'pending_tool_calls' => (int) ($toolCallCounts['pending'] ?? 0),
-                    'successful_tool_calls' => (int) ($toolCallCounts['success'] ?? 0),
-                    'failed_tool_calls' => (int) ($toolCallCounts['failed'] ?? 0),
-                ];
-            }
-        );
     }
 
     protected function getParsedSelectedDate(): CarbonInterface

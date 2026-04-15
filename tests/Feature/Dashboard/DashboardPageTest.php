@@ -431,6 +431,29 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
 
     expect(preg_match('/data-testid="dashboard-no-date-backlog-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
     expect($matches[1])->toBe('1');
+    $response->assertSee('data-testid="dashboard-row-no-date-backlog-task"', false);
+});
+
+test('dashboard no-date backlog shows see all in workspace when more than three backlog tasks exist', function () {
+    $user = User::factory()->create();
+
+    foreach (range(1, 4) as $index) {
+        Task::factory()->for($user)->create([
+            'title' => 'No Date Backlog '.$index,
+            'status' => TaskStatus::ToDo,
+            'start_datetime' => null,
+            'end_datetime' => null,
+            'completed_at' => null,
+        ]);
+    }
+
+    $response = $this->actingAs($user)->get(route('dashboard'));
+
+    $response->assertSuccessful();
+    $response->assertSee('data-testid="dashboard-no-date-backlog-see-all"', false);
+    $response->assertSee('See all in Workspace', false);
+    expect(preg_match('/data-testid="dashboard-no-date-backlog-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
+    expect($matches[1])->toBe('4');
 });
 
 test('dashboard calendar renders selected-day agenda and summary counts', function () {

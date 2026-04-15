@@ -12,14 +12,6 @@
     $focusThroughput = $insightsOpen
         ? $this->focusThroughput
         : ['daily_focus_minutes' => 0, 'weekly_focus_minutes' => 0, 'completed_today' => 0, 'focus_per_completed_minutes' => 0];
-    $llmActivity = $insightsOpen
-        ? $this->llmActivity
-        : ['total_threads' => 0, 'recent_threads' => 0, 'successful_tool_calls' => 0, 'pending_tool_calls' => 0, 'failed_tool_calls' => 0];
-    $assistantQuickActions = [
-        __('Prioritize my tasks for today'),
-        __('Suggest focus blocks around my events'),
-        __('Summarize what I should do next'),
-    ];
     $topKpis = [
         [
             'key' => 'overdue',
@@ -93,6 +85,8 @@
         ->take($doingDisplayLimit)
         ->values();
     $doingTasksHasMore = $this->dashboardDoingTasksCount > $doingDisplayLimit;
+    $noDateBacklogDisplayLimit = $this->noDateBacklogDisplayLimit();
+    $noDateBacklogHasMore = $this->dashboardNoDateBacklogCount > $noDateBacklogDisplayLimit;
     $dashboardPanelShell = [
         'default' => 'rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5',
         'urgent' => 'min-w-0 rounded-xl border border-red-200/55 bg-background shadow-sm ring-1 ring-red-500/8 dark:border-red-900/40 dark:bg-zinc-900/50 dark:ring-red-500/10',
@@ -387,16 +381,76 @@
                                 @if ($this->dashboardNoDateBacklogTasks->isEmpty())
                                     <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No no-date tasks right now.') }}</p>
                                 @else
-                                    <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
+                                    <ul class="divide-y divide-border/60 dark:divide-zinc-800">
                                         @foreach ($this->dashboardNoDateBacklogTasks as $task)
-                                            <li class="px-4 py-2.5">
-                                                <a href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
-                                                    <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
-                                                    <p class="text-xs text-muted-foreground">{{ $task->project?->name ?? __('No project') }}</p>
+                                            @php
+                                                $noDateBacklogProgressPercent = $taskFocusProgressPercent($task);
+                                            @endphp
+                                            <li class="px-4 py-3" data-testid="dashboard-row-no-date-backlog-task">
+                                                <a
+                                                    href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}"
+                                                    wire:navigate
+                                                    class="block rounded-md transition hover:bg-muted/40"
+                                                >
+                                                    <p class="truncate text-sm font-semibold text-foreground">
+                                                        {{ $task->title ?: __('Untitled') }}
+                                                    </p>
+                                                    <p class="mt-1 text-xs text-muted-foreground">
+                                                        <span class="tabular-nums">{{ \App\Models\Task::formatDuration($task->duration) }}</span>
+                                                        <span class="text-muted-foreground/80"> · </span>
+                                                        <span>{{ $task->project?->name ?? __('No project') }}</span>
+                                                        @if ($noDateBacklogProgressPercent !== null)
+                                                            <span class="text-muted-foreground/80"> · </span>
+                                                            <span class="tabular-nums">{{ $noDateBacklogProgressPercent }}% {{ __('Progress') }}</span>
+                                                        @endif
+                                                    </p>
+                                                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                                                        <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                            {{ __('Due: :date', ['date' => __('No date')]) }}
+                                                        </span>
+                                                        @if ($task->priority !== null)
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Priority: :value', ['value' => $task->priority->label()]) }}
+                                                            </span>
+                                                        @endif
+                                                        @if ($task->complexity !== null)
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Complexity: :value', ['value' => $task->complexity->label()]) }}
+                                                            </span>
+                                                        @endif
+                                                    </div>
+                                                    @if ($noDateBacklogProgressPercent !== null)
+                                                        <div
+                                                            class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700"
+                                                            role="progressbar"
+                                                            aria-valuenow="{{ $noDateBacklogProgressPercent }}"
+                                                            aria-valuemin="0"
+                                                            aria-valuemax="100"
+                                                            aria-label="{{ __('Task progress') }}"
+                                                        >
+                                                            <div
+                                                                class="block h-full min-w-0 rounded-full bg-blue-800 transition-[width] duration-300 ease-linear dark:bg-blue-500"
+                                                                style="width: {{ $noDateBacklogProgressPercent }}%; min-width: {{ $noDateBacklogProgressPercent > 0 ? '2px' : '0' }};"
+                                                            ></div>
+                                                        </div>
+                                                    @endif
                                                 </a>
                                             </li>
                                         @endforeach
                                     </ul>
+                                    @if ($noDateBacklogHasMore)
+                                        <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
+                                            <a
+                                                href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list']) }}"
+                                                wire:navigate
+                                                class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
+                                                data-testid="dashboard-no-date-backlog-see-all"
+                                            >
+                                                <span>{{ __('See all in Workspace') }}</span>
+                                                <flux:icon name="arrow-right" class="size-3.5" />
+                                            </a>
+                                        </div>
+                                    @endif
                                 @endif
                             </div>
                         </div>
@@ -508,81 +562,265 @@
                                     </div>
                                 </div>
 
-                                <div class="{{ $dashboardPanelShell['default'] }}">
-                                    <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
-                                        <flux:icon name="sparkles" class="size-4 text-foreground/80" />
-                                        <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-llm-activity-heading">{{ __('LLM Assistant Activity') }}</span>
-                                    </div>
-                                    <div class="grid grid-cols-2 gap-2 px-4 py-3">
-                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-xs text-muted-foreground">{{ __('Threads') }}</p>
-                                            <p class="text-base font-bold text-foreground">{{ $llmActivity['total_threads'] }}</p>
+                            @endauth
+
+                            @if (! $this->insightsChartsReady)
+                                <div wire:init="loadInsightsCharts" class="space-y-3">
+                                    <div class="rounded-xl border border-border/70 bg-background p-4 shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5">
+                                        <div class="flex items-start gap-3">
+                                            <div class="mt-0.5 flex size-9 items-center justify-center rounded-lg bg-muted/60">
+                                                <flux:icon name="chart-bar" class="size-4 text-muted-foreground" />
+                                            </div>
+                                            <div class="min-w-0 flex-1">
+                                                <p class="text-sm font-semibold text-foreground">{{ __('Preparing your insights…') }}</p>
+                                                <p class="mt-1 text-sm text-muted-foreground">{{ __('Crunching your recent activity and getting charts ready.') }}</p>
+                                            </div>
                                         </div>
-                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-xs text-muted-foreground">{{ __('Recent threads') }}</p>
-                                            <p class="text-base font-bold text-foreground">{{ $llmActivity['recent_threads'] }}</p>
-                                        </div>
-                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-xs text-muted-foreground">{{ __('Tool calls success') }}</p>
-                                            <p class="text-base font-bold text-foreground">{{ $llmActivity['successful_tool_calls'] }}</p>
-                                        </div>
-                                        <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                            <p class="text-xs text-muted-foreground">{{ __('Tool calls pending/failed') }}</p>
-                                            <p class="text-base font-bold text-foreground">{{ $llmActivity['pending_tool_calls'] }} / {{ $llmActivity['failed_tool_calls'] }}</p>
-                                        </div>
-                                    </div>
-                                    <div class="border-t border-border/60 px-4 py-3 dark:border-zinc-800">
-                                        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{{ __('Quick actions') }}</p>
-                                        <div class="flex flex-wrap gap-2">
-                                            @foreach ($assistantQuickActions as $action)
-                                                <span class="inline-flex items-center rounded-full border border-zinc-300/80 px-2.5 py-1 text-xs font-semibold text-foreground dark:border-zinc-700">
-                                                    {{ $action }}
-                                                </span>
+                                        <div class="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-hidden="true">
+                                            @foreach (range(1, 8) as $skeletonIndex)
+                                                <div class="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 dark:border-zinc-800">
+                                                    <div class="h-3 w-28 rounded bg-muted/60"></div>
+                                                    <div class="mt-2 h-6 w-20 rounded bg-muted/60"></div>
+                                                    <div class="mt-2 h-3 w-24 rounded bg-muted/60"></div>
+                                                </div>
                                             @endforeach
                                         </div>
                                     </div>
-                                </div>
-                            @endauth
 
-                            @if ($this->trendAnalytics)
-                                @island(name: 'dashboard-trend')
-                                    <div
-                                        x-data="dashboardAnalyticsCharts({ analytics: @js($this->trendAnalytics), preset: @js($this->trendPreset) })"
-                                        x-effect="sync(@js($this->trendAnalytics), @js($this->trendPreset))"
-                                        wire:key="dashboard-trend-{{ $this->selectedDate }}-{{ $this->trendPreset }}"
-                                        class="overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5"
-                                    >
-                                        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 dark:border-zinc-800">
-                                            <div class="text-sm font-semibold text-foreground">{{ __('Trend') }}</div>
-                                            <div class="inline-flex items-center gap-1 rounded-lg bg-muted p-1">
-                                                @foreach (['daily' => __('Daily'), 'weekly' => __('Weekly'), 'monthly' => __('Monthly')] as $presetValue => $presetLabel)
-                                                    <button
-                                                        type="button"
-                                                        wire:click="setTrendPreset('{{ $presetValue }}')"
-                                                        wire:island="dashboard-trend"
-                                                        class="{{ $this->trendPreset === $presetValue
-                                                            ? 'bg-background text-foreground shadow-sm'
-                                                            : 'text-muted-foreground hover:text-foreground' }} rounded-md px-2.5 py-1 text-xs font-semibold transition"
-                                                    >
-                                                        {{ $presetLabel }}
-                                                    </button>
+                                    <div class="rounded-xl border border-border/70 bg-background p-4 shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5" aria-hidden="true">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <div class="h-4 w-24 rounded bg-muted/60"></div>
+                                            <div class="h-8 w-40 rounded-lg bg-muted/60"></div>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                            <div class="h-64 rounded-lg bg-muted/30"></div>
+                                            <div class="h-64 rounded-lg bg-muted/30"></div>
+                                        </div>
+                                        <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                                            <div class="h-52 rounded-lg bg-muted/30"></div>
+                                            <div class="h-52 rounded-lg bg-muted/30"></div>
+                                            <div class="h-52 rounded-lg bg-muted/30"></div>
+                                        </div>
+                                        <div class="mt-4 h-64 rounded-lg bg-muted/30"></div>
+                                    </div>
+                                </div>
+                            @elseif ($this->trendAnalytics)
+                                    @php
+                                        $trendOverview = $this->trendAnalytics;
+                                        $analyticsPeriodLabel = $trendOverview->periodStart->translatedFormat('M j, Y')
+                                            . ' – '
+                                            . $trendOverview->periodEnd->translatedFormat('M j, Y');
+                                        $analyticsSummaryKeys = [
+                                            'tasks_created' => __('Tasks created'),
+                                            'tasks_completed' => __('Tasks completed'),
+                                            'completion_rate' => __('Completion rate'),
+                                            'overdue' => __('Overdue (open)'),
+                                            'due_soon' => __('Due soon (7 days)'),
+                                            'focus_work_seconds' => __('Focus time'),
+                                            'focus_sessions' => __('Focus sessions'),
+                                        ];
+                                        $formatAnalyticsCardCurrent = static function (string $key, float|int $current): string {
+                                            return match ($key) {
+                                                'completion_rate' => number_format((float) $current, 1).'%',
+                                                'focus_work_seconds' => (static function (int $seconds): string {
+                                                    if ($seconds >= 3600) {
+                                                        $h = round($seconds / 3600, 1);
+
+                                                        return $h.' '.__('h');
+                                                    }
+                                                    if ($seconds >= 60) {
+                                                        return (int) round($seconds / 60).' '.__('min');
+                                                    }
+
+                                                    return $seconds.' '.__('s');
+                                                })((int) $current),
+                                                default => (string) (int) round((float) $current),
+                                            };
+                                        };
+                                        $formatAnalyticsCardDelta = static function (string $key, float|int $delta): string {
+                                            return match ($key) {
+                                                'completion_rate' => sprintf('%+.1f%%', (float) $delta),
+                                                'focus_work_seconds' => (static function (int $d): string {
+                                                    if (abs($d) >= 3600) {
+                                                        return sprintf('%+.1f %s', round($d / 3600, 1), __('h'));
+                                                    }
+
+                                                    return sprintf('%+d %s', (int) round($d / 60), __('min'));
+                                                })((int) $delta),
+                                                default => sprintf('%+d', (int) round((float) $delta)),
+                                            };
+                                        };
+                                    @endphp
+                                    <div class="space-y-4" wire:key="dashboard-trend-{{ $this->selectedDate }}-{{ $this->trendPreset }}">
+                                        <div
+                                            class="overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5"
+                                            data-testid="dashboard-insights-period-summary"
+                                        >
+                                            <div class="border-b border-border/60 px-3 py-2 dark:border-zinc-800">
+                                                <p class="text-sm font-semibold text-foreground">{{ __('Period summary') }}</p>
+                                                <p class="text-xs text-muted-foreground">{{ $analyticsPeriodLabel }}</p>
+                                                <p class="mt-0.5 text-[11px] text-muted-foreground">{{ __('vs previous period of the same length') }}</p>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                                                @foreach ($analyticsSummaryKeys as $cardKey => $cardTitle)
+                                                    @php
+                                                        $card = $trendOverview->cards[$cardKey] ?? null;
+                                                    @endphp
+                                                    @if ($card !== null)
+                                                        <div
+                                                            class="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 dark:border-zinc-800"
+                                                            data-testid="dashboard-insights-summary-{{ $cardKey }}"
+                                                        >
+                                                            <p class="text-xs text-muted-foreground">{{ $cardTitle }}</p>
+                                                            <p class="text-lg font-bold tabular-nums text-foreground">
+                                                                {{ $formatAnalyticsCardCurrent($cardKey, $card['current']) }}
+                                                            </p>
+                                                            @php
+                                                                $delta = $card['delta'];
+                                                                $deltaTone = $delta > 0 ? 'text-emerald-600 dark:text-emerald-400' : ($delta < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground');
+                                                            @endphp
+                                                            <p class="text-xs font-medium tabular-nums {{ $deltaTone }}">
+                                                                @if ((float) $delta !== 0.0)
+                                                                    {{ $formatAnalyticsCardDelta($cardKey, $delta) }}
+                                                                    @if ($card['delta_percentage'] !== null)
+                                                                        <span class="text-muted-foreground">({{ sprintf('%+.1f%%', (float) $card['delta_percentage']) }})</span>
+                                                                    @endif
+                                                                @else
+                                                                    {{ __('No change') }}
+                                                                @endif
+                                                            </p>
+                                                        </div>
+                                                    @endif
                                                 @endforeach
                                             </div>
                                         </div>
-                                        <div class="grid grid-cols-1 gap-4 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6">
-                                            <div class="min-w-0 space-y-1">
-                                                <div class="text-sm font-semibold text-foreground">{{ __('Tasks') }}</div>
-                                                <div x-ref="trendChart" wire:ignore class="h-64 min-h-[240px] w-full"></div>
+
+                                        <div
+                                            x-data="dashboardAnalyticsCharts({ analytics: @js($trendOverview), preset: @js($this->trendPreset) })"
+                                            x-effect="sync(@js($trendOverview), @js($this->trendPreset))"
+                                            class="relative overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5"
+                                        >
+                                            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2 dark:border-zinc-800">
+                                                <div class="min-w-0">
+                                                    <div class="text-sm font-semibold text-foreground">{{ __('Charts') }}</div>
+                                                    <div class="text-xs text-muted-foreground">{{ __('Trends and how your tasks are distributed in this period.') }}</div>
+                                                </div>
+                                                <div class="inline-flex shrink-0 items-center gap-1 rounded-lg bg-muted p-1">
+                                                    @foreach (['daily' => __('Daily'), 'weekly' => __('Weekly'), 'monthly' => __('Monthly')] as $presetValue => $presetLabel)
+                                                        <button
+                                                            type="button"
+                                                            wire:click="setTrendPreset('{{ $presetValue }}')"
+                                                            wire:loading.attr="disabled"
+                                                            wire:target="setTrendPreset"
+                                                            class="{{ $this->trendPreset === $presetValue
+                                                                ? 'bg-background text-foreground shadow-sm'
+                                                                : 'text-muted-foreground hover:text-foreground' }} rounded-md px-2.5 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+                                                        >
+                                                            {{ $presetLabel }}
+                                                        </button>
+                                                    @endforeach
+                                                </div>
                                             </div>
-                                            <div class="min-w-0 space-y-2 border-t border-border/60 pt-4 dark:border-zinc-800 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-                                                <div class="text-sm font-semibold text-foreground">{{ __('Focus') }}</div>
-                                                <div x-ref="focusSessionsChart" wire:ignore class="h-64 min-h-[240px] w-full"></div>
+                                            <div class="grid grid-cols-1 gap-4 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-6">
+                                                <div class="min-w-0 space-y-1">
+                                                    <div class="text-sm font-semibold text-foreground">{{ __('Tasks over time') }}</div>
+                                                    <div class="relative">
+                                                        <div x-ref="trendChart" wire:ignore class="h-64 min-h-[240px] w-full"></div>
+                                                        <div x-cloak x-show="!echartsReady" class="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-muted/20">
+                                                            <div class="text-center">
+                                                                <p class="text-sm font-semibold text-foreground">{{ __('Loading chart…') }}</p>
+                                                                <p class="mt-1 text-xs text-muted-foreground">{{ __('Just a moment.') }}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="min-w-0 space-y-2 border-t border-border/60 pt-4 dark:border-zinc-800 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+                                                    <div class="text-sm font-semibold text-foreground">{{ __('Focus over time') }}</div>
+                                                    <div class="relative">
+                                                        <div x-ref="focusSessionsChart" wire:ignore class="h-64 min-h-[240px] w-full"></div>
+                                                        <div x-cloak x-show="!echartsReady" class="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-muted/20">
+                                                            <div class="text-center">
+                                                                <p class="text-sm font-semibold text-foreground">{{ __('Loading chart…') }}</p>
+                                                                <p class="mt-1 text-xs text-muted-foreground">{{ __('Just a moment.') }}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
+                                                <div class="text-sm font-semibold text-foreground">{{ __('Task distribution') }}</div>
+                                                <p class="text-xs text-muted-foreground">{{ __('Tasks created in this period by status, priority, and complexity; completions by project.') }}</p>
+                                            </div>
+                                            <div class="grid grid-cols-1 gap-4 p-3 lg:grid-cols-3 lg:gap-4">
+                                                <div class="min-w-0 space-y-1">
+                                                    <div class="text-xs font-semibold text-muted-foreground">{{ __('By status') }}</div>
+                                                    <div class="relative">
+                                                        <div x-ref="statusChart" wire:ignore class="h-52 min-h-[208px] w-full"></div>
+                                                        <div x-cloak x-show="!echartsReady" class="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-muted/20">
+                                                            <p class="text-xs font-semibold text-muted-foreground">{{ __('Preparing…') }}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="min-w-0 space-y-1">
+                                                    <div class="text-xs font-semibold text-muted-foreground">{{ __('By priority') }}</div>
+                                                    <div class="relative">
+                                                        <div x-ref="priorityChart" wire:ignore class="h-52 min-h-[208px] w-full"></div>
+                                                        <div x-cloak x-show="!echartsReady" class="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-muted/20">
+                                                            <p class="text-xs font-semibold text-muted-foreground">{{ __('Preparing…') }}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="min-w-0 space-y-1">
+                                                    <div class="text-xs font-semibold text-muted-foreground">{{ __('By complexity') }}</div>
+                                                    <div class="relative">
+                                                        <div x-ref="complexityChart" wire:ignore class="h-52 min-h-[208px] w-full"></div>
+                                                        <div x-cloak x-show="!echartsReady" class="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-muted/20">
+                                                            <p class="text-xs font-semibold text-muted-foreground">{{ __('Preparing…') }}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div
+                                                wire:loading.flex
+                                                wire:target="setTrendPreset"
+                                                class="absolute inset-0 z-10 items-center justify-center bg-background/75 backdrop-blur-[1px] dark:bg-zinc-900/70"
+                                                aria-live="polite"
+                                                aria-busy="true"
+                                            >
+                                                <div class="flex items-center gap-2 rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-semibold text-foreground shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                                                    <flux:icon name="arrow-path" class="size-4 animate-spin text-muted-foreground" />
+                                                    <span>{{ __('Updating charts...') }}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                @endisland
                             @else
-                                <p class="text-sm text-muted-foreground">{{ __('No analytics to show.') }}</p>
+                                <div class="rounded-xl border border-border/70 bg-background p-4 shadow-sm ring-1 ring-black/5 dark:border-zinc-800 dark:bg-zinc-900/50 dark:ring-white/5" data-testid="dashboard-insights-empty">
+                                    <div class="flex items-start gap-3">
+                                        <div class="mt-0.5 flex size-9 items-center justify-center rounded-lg bg-muted/60">
+                                            <flux:icon name="chart-bar" class="size-4 text-muted-foreground" />
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-sm font-semibold text-foreground">{{ __('No insights yet') }}</p>
+                                            <p class="mt-1 text-sm text-muted-foreground">
+                                                {{ __('Once you start creating and completing tasks (and logging focus sessions), charts will appear here.') }}
+                                            </p>
+                                            <div class="mt-3 flex flex-wrap gap-2">
+                                                <a
+                                                    href="{{ $this->workspaceUrlForToday }}"
+                                                    wire:navigate
+                                                    class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50"
+                                                >
+                                                    <span>{{ __('Open workspace') }}</span>
+                                                    <flux:icon name="arrow-right" class="size-3.5" />
+                                                </a>
+                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2.5 py-1 text-xs font-semibold text-foreground">
+                                                    {{ __('Tip: complete a few tasks to populate trends.') }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             @endif
                             </div>
                         @endif

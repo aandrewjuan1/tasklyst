@@ -22,9 +22,6 @@ test('authenticated user can view dashboard with trend presets in query', functi
             $this->actingAs($user)
                 ->get(route('dashboard', ['preset' => $preset]))
                 ->assertOk()
-                ->assertSeeText('Trend')
-                ->assertSeeText('Daily')
-                ->assertSeeText('Weekly')
-                ->assertSeeText('Monthly');
+                ->assertSeeText(__('Show insights'));
         });
 });

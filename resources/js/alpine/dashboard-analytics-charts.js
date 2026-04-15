@@ -51,12 +51,13 @@ export function dashboardAnalyticsCharts(config = {}) {
         analytics: config.analytics ?? null,
         preset: config.preset ?? '30d',
         activeAnalyticsSection: resolveSectionFromUrl(),
+        echartsReady: false,
         charts: {
             trend: null,
             focusSessions: null,
+            status: null,
             priority: null,
             complexity: null,
-            project: null,
         },
         resizeHandler: null,
         renderRetryTimer: null,
@@ -67,6 +68,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             window.addEventListener('resize', this.resizeHandler);
             void (async () => {
                 await ensureEchartsLoaded();
+                this.echartsReady = true;
                 this.$nextTick(() => {
                     this.safeRenderCharts();
                 });
@@ -88,6 +90,7 @@ export function dashboardAnalyticsCharts(config = {}) {
 
             void (async () => {
                 await ensureEchartsLoaded();
+                this.echartsReady = true;
                 this.$nextTick(() => {
                     this.safeRenderCharts();
                 });
@@ -99,6 +102,7 @@ export function dashboardAnalyticsCharts(config = {}) {
             this.preset = nextPreset ?? this.preset;
             void (async () => {
                 await ensureEchartsLoaded();
+                this.echartsReady = true;
                 this.$nextTick(() => {
                     this.safeRenderCharts();
                 });
@@ -130,9 +134,9 @@ export function dashboardAnalyticsCharts(config = {}) {
             const refs = [
                 this.$refs.trendChart,
                 this.$refs.focusSessionsChart,
+                this.$refs.statusChart,
                 this.$refs.priorityChart,
                 this.$refs.complexityChart,
-                this.$refs.projectChart,
             ].filter(Boolean);
 
             if (refs.length === 0) {
@@ -151,9 +155,9 @@ export function dashboardAnalyticsCharts(config = {}) {
             const refMap = {
                 trend: this.$refs.trendChart,
                 focusSessions: this.$refs.focusSessionsChart,
+                status: this.$refs.statusChart,
                 priority: this.$refs.priorityChart,
                 complexity: this.$refs.complexityChart,
-                project: this.$refs.projectChart,
             };
 
             return refMap[chartKey] ?? null;
@@ -179,12 +183,12 @@ export function dashboardAnalyticsCharts(config = {}) {
                 if (!safeOption.grid) {
                     safeOption.grid = { left: 52, right: 52, top: 36, bottom: 56, containLabel: true };
                 }
-                if (!safeOption.xAxis) {
+                if (!safeOption.xAxis || (Array.isArray(safeOption.xAxis) && safeOption.xAxis.length === 0)) {
                     safeOption.xAxis = [{ type: 'category', data: [] }];
                 } else if (!Array.isArray(safeOption.xAxis)) {
                     safeOption.xAxis = [safeOption.xAxis];
                 }
-                if (!safeOption.yAxis) {
+                if (!safeOption.yAxis || (Array.isArray(safeOption.yAxis) && safeOption.yAxis.length === 0)) {
                     safeOption.yAxis = [{ type: 'value' }];
                 } else if (!Array.isArray(safeOption.yAxis)) {
                     safeOption.yAxis = [safeOption.yAxis];
@@ -224,9 +228,9 @@ export function dashboardAnalyticsCharts(config = {}) {
 
             this.charts.trend = this.initChartRef(this.$refs.trendChart, this.charts.trend);
             this.charts.focusSessions = this.initChartRef(this.$refs.focusSessionsChart, this.charts.focusSessions);
+            this.charts.status = this.initChartRef(this.$refs.statusChart, this.charts.status);
             this.charts.priority = this.initChartRef(this.$refs.priorityChart, this.charts.priority);
             this.charts.complexity = this.initChartRef(this.$refs.complexityChart, this.charts.complexity);
-            this.charts.project = this.initChartRef(this.$refs.projectChart, this.charts.project);
         },
 
         initChartRef(element, existingChart) {
@@ -270,9 +274,9 @@ export function dashboardAnalyticsCharts(config = {}) {
             this.applyFocusChartHeight();
             this.setTrendOption();
             this.setFocusSessionsOption();
-            this.setPriorityBarOption();
-            this.setComplexityBarOption();
-            this.setProjectBarOption();
+            this.setStatusPieOption();
+            this.setPriorityPieOption();
+            this.setComplexityPieOption();
             this.resizeCharts();
         },
 
@@ -430,44 +434,114 @@ export function dashboardAnalyticsCharts(config = {}) {
             });
         },
 
-        setPriorityBarOption() {
-            this.setBarOption(this.charts.priority, this.analytics?.breakdowns?.priority ?? [], 'Priority');
+        setStatusPieOption() {
+            this.setPieOption(this.charts.status, this.analytics?.breakdowns?.status ?? [], 'Status');
         },
 
-        setComplexityBarOption() {
-            this.setBarOption(this.charts.complexity, this.analytics?.breakdowns?.complexity ?? [], 'Complexity');
+        setPriorityPieOption() {
+            this.setPieOption(this.charts.priority, this.analytics?.breakdowns?.priority ?? [], 'Priority');
         },
 
-        setProjectBarOption() {
-            const rows = this.analytics?.breakdowns?.project ?? [];
-            this.setBarOption(this.charts.project, rows.slice(0, 10), 'Project');
+        setComplexityPieOption() {
+            this.setPieOption(this.charts.complexity, this.analytics?.breakdowns?.complexity ?? [], 'Complexity');
         },
 
-        setBarOption(chart, rows, seriesName) {
+        setPieOption(chart, rows, seriesName) {
             if (!chart) {
                 return;
             }
-
-            const labels = rows.map((row) => row.label);
-            const values = rows.map((row) => row.value);
 
             const chartKey = Object.keys(this.charts).find((key) => this.charts[key] === chart);
             if (!chartKey) {
                 return;
             }
 
+            const pieData = rows
+                .filter((row) => Number(row.value) > 0)
+                .map((row) => ({
+                    name: row.label,
+                    value: Number(row.value) || 0,
+                }));
+
+            if (pieData.length === 0) {
+                this.applyChartOption(chartKey, this.emptyPieOption(seriesName));
+                return;
+            }
+
             this.applyChartOption(chartKey, {
-                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-                grid: { left: 8, right: 10, top: 12, bottom: 8, containLabel: true },
-                xAxis: { type: 'value' },
-                yAxis: {
-                    type: 'category',
-                    data: labels,
-                    inverse: true,
-                    axisLabel: { width: 96, overflow: 'truncate', fontSize: 11 },
+                tooltip: {
+                    trigger: 'item',
+                    formatter: '{b}: {c} ({d}%)',
                 },
-                series: [{ name: seriesName, type: 'bar', data: values }],
+                legend: {
+                    type: 'scroll',
+                    bottom: 0,
+                    left: 'center',
+                    textStyle: { fontSize: 11 },
+                },
+                series: [
+                    {
+                        name: seriesName,
+                        type: 'pie',
+                        radius: ['42%', '72%'],
+                        center: ['50%', '44%'],
+                        avoidLabelOverlap: true,
+                        itemStyle: {
+                            borderRadius: 6,
+                            borderColor: '#fff',
+                            borderWidth: 1,
+                        },
+                        label: {
+                            show: false,
+                        },
+                        emphasis: {
+                            label: {
+                                show: true,
+                                formatter: '{b}\n{c} ({d}%)',
+                                fontSize: 11,
+                                fontWeight: 600,
+                            },
+                        },
+                        labelLine: {
+                            show: false,
+                        },
+                        data: pieData,
+                    },
+                ],
             });
+        },
+
+        emptyPieOption(seriesName) {
+            return {
+                tooltip: {
+                    show: false,
+                },
+                legend: {
+                    show: false,
+                },
+                series: [
+                    {
+                        name: seriesName,
+                        type: 'pie',
+                        radius: ['42%', '72%'],
+                        center: ['50%', '44%'],
+                        silent: true,
+                        label: {
+                            show: false,
+                        },
+                        labelLine: {
+                            show: false,
+                        },
+                        itemStyle: {
+                            borderRadius: 6,
+                            borderColor: '#fff',
+                            borderWidth: 1,
+                            color: '#e4e4e7',
+                        },
+                        data: [{ name: 'Empty', value: 1 }],
+                    },
+                ],
+            };
         },
 
         noDataOption(text) {
