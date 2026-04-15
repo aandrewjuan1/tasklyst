@@ -77,7 +77,7 @@ class SyncCalendarFeedsCommand extends Command
         $this->line(sprintf('Syncing feed #%d (%s)...', $feed->id, $feed->name ?? 'Brightspace'));
 
         try {
-            $result = $this->syncCalendarFeedAction->execute($feed);
+            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: false);
 
             if ($result->status === CalendarFeedSyncStatus::Completed) {
                 $this->info($result->toastMessage(false));

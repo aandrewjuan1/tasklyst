@@ -107,7 +107,7 @@ trait HandlesCalendarFeeds
         $this->authorize('update', $feed);
 
         try {
-            $result = $this->syncCalendarFeedAction->execute($feed);
+            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: true);
         } catch (\Throwable $e) {
             Log::error('Failed to sync calendar feed.', [
                 'user_id' => $user->id,

@@ -4,6 +4,7 @@ use App\Enums\TaskSourceType;
 use App\Models\CalendarFeed;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\CalendarFeedSyncCompletedNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
@@ -52,4 +53,10 @@ ICS;
 
     $feed->refresh();
     expect($feed->last_synced_at)->not->toBeNull();
+
+    expect(
+        $user->notifications()
+            ->where('type', CalendarFeedSyncCompletedNotification::class)
+            ->count()
+    )->toBe(0);
 });

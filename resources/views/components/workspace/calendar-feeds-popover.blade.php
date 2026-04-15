@@ -491,13 +491,30 @@
                             <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                                 <flux:icon name="calendar-days" class="size-3" />
                             </div>
-                            <div class="min-w-0">
-                                <p class="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            <div class="flex min-w-0 items-center gap-1">
+                                <p class="truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                                     {{ __('Connect Brightspace calendar') }}
                                 </p>
-                                <p class="text-[11px] text-muted-foreground/80">
-                                    {{ __('Paste your Brightspace calendar subscribe URL to sync assignments and exams as tasks.') }}
-                                </p>
+                                <flux:tooltip toggleable position="top">
+                                    <flux:button
+                                        type="button"
+                                        size="xs"
+                                        variant="ghost"
+                                        icon="information-circle"
+                                        class="h-4 w-4 p-0 text-muted-foreground/80 hover:text-foreground"
+                                        aria-label="{{ __('How to get Brightspace calendar link') }}"
+                                    />
+                                    <flux:tooltip.content class="max-w-[18rem] space-y-2">
+                                        <p class="text-xs font-semibold leading-snug">{{ __('How to Get Brightspace Calendar Link') }}</p>
+                                        <ol class="list-decimal space-y-1 pl-4 text-xs leading-snug text-muted-foreground">
+                                            <li>{{ __('Open Calendar from navbar') }}</li>
+                                            <li>{{ __('Click Settings or Calendar Feeds') }}</li>
+                                            <li>{{ __('Turn ON Enable Calendar Feeds') }}</li>
+                                            <li>{{ __('Click Subscribe') }}</li>
+                                            <li>{{ __('Copy the ICS subscription URL') }}</li>
+                                        </ol>
+                                    </flux:tooltip.content>
+                                </flux:tooltip>
                             </div>
                         </div>
 

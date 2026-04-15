@@ -157,6 +157,30 @@
                                 @endif
                             </div>
                         </div>
+                    @elseif (($notification['click_behavior'] ?? null) === 'calendar_feed_sync_completed')
+                        <div
+                            wire:key="notification-bell-row-{{ $nid }}"
+                            class="border-b border-zinc-100 px-3 py-2.5 last:border-b-0 dark:border-zinc-600/60"
+                        >
+                            <button
+                                type="button"
+                                wire:click="openCalendarFeedSyncCompletedNotification('{{ $nid }}')"
+                                wire:loading.attr="disabled"
+                                wire:target="openCalendarFeedSyncCompletedNotification"
+                                class="flex min-w-0 w-full flex-col gap-1 rounded-md px-1 py-0.5 text-left text-zinc-900 transition hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/50 disabled:opacity-60 dark:text-zinc-50 dark:hover:bg-zinc-700/40"
+                            >
+                                <div class="flex min-w-0 items-center gap-2">
+                                    @if ($isUnread)
+                                        <span class="inline-block size-2 shrink-0 rounded-full bg-blue-500" aria-hidden="true"></span>
+                                    @endif
+                                    <span class="min-w-0 truncate text-sm font-semibold">{{ $notification['title'] }}</span>
+                                </div>
+                                @if (($notification['message'] ?? '') !== '')
+                                    <span class="max-h-48 overflow-y-auto whitespace-pre-line text-xs leading-snug text-zinc-600 dark:text-zinc-300">{{ $notification['message'] }}</span>
+                                @endif
+                                <span class="text-[11px] text-zinc-500 dark:text-zinc-400">{{ $notification['created_at_human'] }}</span>
+                            </button>
+                        </div>
                     @else
                         @php
                             $opensWorkspace = (bool) ($notification['click_opens_workspace'] ?? false);

@@ -12,8 +12,8 @@ class SyncCalendarFeedAction
         private CalendarFeedSyncService $calendarFeedSyncService
     ) {}
 
-    public function execute(CalendarFeed $feed): CalendarFeedSyncResult
+    public function execute(CalendarFeed $feed, bool $notifyUserOnSuccess = false): CalendarFeedSyncResult
     {
-        return $this->calendarFeedSyncService->sync($feed);
+        return $this->calendarFeedSyncService->sync($feed, $notifyUserOnSuccess);
     }
 }

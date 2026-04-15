@@ -36,14 +36,14 @@ class ConnectCalendarFeedAction
                 $existing = $this->calendarFeedService->updateFeed($existing, $attributes);
             }
 
-            $syncResult = $this->calendarFeedSyncService->sync($existing);
+            $syncResult = $this->calendarFeedSyncService->sync($existing, notifyUserOnSuccess: true);
 
             return new ConnectCalendarFeedResult($existing, $syncResult);
         }
 
         $feed = $this->calendarFeedService->createFeed($user, $dto->toServiceAttributes());
 
-        $syncResult = $this->calendarFeedSyncService->sync($feed);
+        $syncResult = $this->calendarFeedSyncService->sync($feed, notifyUserOnSuccess: true);
 
         return new ConnectCalendarFeedResult($feed, $syncResult);
     }

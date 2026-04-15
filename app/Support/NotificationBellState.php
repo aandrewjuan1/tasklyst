@@ -224,6 +224,7 @@ final class NotificationBellState
      *   read_at: string|null,
      *   created_at_human: string,
      *   click_opens_workspace: bool,
+     *   click_behavior: 'calendar_feed_sync_completed'|null,
      *   collaboration_invite?: array<string, mixed>
      * }
      */
@@ -235,6 +236,10 @@ final class NotificationBellState
         $route = trim((string) ($data['route'] ?? ''));
         $params = is_array($data['params'] ?? null) ? $data['params'] : [];
 
+        $clickBehavior = ($data['type'] ?? '') === 'calendar_feed_sync_completed'
+            ? 'calendar_feed_sync_completed'
+            : null;
+
         $base = [
             'id' => (string) $notification->id,
             'notification_kind' => 'standard',
@@ -245,6 +250,7 @@ final class NotificationBellState
             'read_at' => $notification->read_at?->toIso8601String(),
             'created_at_human' => $notification->created_at?->diffForHumans() ?? __('Just now'),
             'click_opens_workspace' => self::notificationDataOpensWorkspaceRow($data),
+            'click_behavior' => $clickBehavior,
         ];
 
         if (! self::isCollaborationInviteNotification($notification, $data)) {

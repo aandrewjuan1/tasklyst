@@ -13,6 +13,8 @@ use App\Enums\TaskStatus;
 use App\Models\CalendarFeed;
 use App\Models\Reminder;
 use App\Models\Task;
+use App\Models\User;
+use App\Notifications\CalendarFeedSyncCompletedNotification;
 use App\Services\Reminders\ReminderDispatcherService;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\DB;
@@ -24,9 +26,10 @@ class CalendarFeedSyncService
     public function __construct(
         private IcsParserService $icsParserService,
         private ReminderDispatcherService $reminderDispatcherService,
+        private UserNotificationBroadcastService $userNotificationBroadcastService,
     ) {}
 
-    public function sync(CalendarFeed $feed): CalendarFeedSyncResult
+    public function sync(CalendarFeed $feed, bool $notifyUserOnSuccess = false): CalendarFeedSyncResult
     {
         if (! $feed->sync_enabled) {
             return new CalendarFeedSyncResult(CalendarFeedSyncStatus::SyncDisabled);
@@ -69,11 +72,14 @@ class CalendarFeedSyncService
         if ($events === []) {
             $feed->update(['last_synced_at' => now()]);
 
-            return new CalendarFeedSyncResult(
+            $result = new CalendarFeedSyncResult(
                 CalendarFeedSyncStatus::Completed,
                 eventsInWindow: 0,
                 eventsInRawFeed: $eventsInRawFeed,
             );
+            $this->notifyUserOfSuccessfulSync($feed, $result, $notifyUserOnSuccess);
+
+            return $result;
         }
 
         $stats = DB::transaction(function () use ($feed, $events): array {
@@ -179,7 +185,7 @@ class CalendarFeedSyncService
 
         $this->createSyncRecoveredReminderIfAllowed($feed);
 
-        return new CalendarFeedSyncResult(
+        $result = new CalendarFeedSyncResult(
             CalendarFeedSyncStatus::Completed,
             itemsApplied: $stats['itemsApplied'],
             eventsInWindow: $eventsInWindow,
@@ -188,6 +194,38 @@ class CalendarFeedSyncService
             tasksCreated: $stats['tasksCreated'],
             tasksUpdated: $stats['tasksUpdated'],
         );
+        $this->notifyUserOfSuccessfulSync($feed, $result, $notifyUserOnSuccess);
+
+        return $result;
+    }
+
+    private function notifyUserOfSuccessfulSync(CalendarFeed $feed, CalendarFeedSyncResult $result, bool $notifyUserOnSuccess): void
+    {
+        if (! $notifyUserOnSuccess) {
+            return;
+        }
+
+        if ($result->status !== CalendarFeedSyncStatus::Completed) {
+            return;
+        }
+
+        $user = User::query()->find((int) $feed->user_id);
+        if ($user === null) {
+            return;
+        }
+
+        $user->notify(new CalendarFeedSyncCompletedNotification(
+            feedId: (int) $feed->id,
+            feedName: $feed->name,
+            itemsApplied: $result->itemsApplied,
+            tasksCreated: $result->tasksCreated,
+            tasksUpdated: $result->tasksUpdated,
+            eventsInWindow: $result->eventsInWindow,
+            eventsInRawFeed: $result->eventsInRawFeed,
+            eventsSkippedNoUid: $result->eventsSkippedNoUid,
+        ));
+
+        $this->userNotificationBroadcastService->broadcastInboxUpdated($user);
     }
 
     private function createSyncFailedReminderIfAllowed(CalendarFeed $feed, string $reason): void

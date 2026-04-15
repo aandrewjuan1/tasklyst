@@ -9,6 +9,7 @@ use App\Enums\CollaborationInviteNotificationState;
 use App\Models\CollaborationInvitation;
 use App\Models\DatabaseNotification;
 use App\Notifications\CollaborationInvitationReceivedNotification;
+use App\Notifications\CalendarFeedSyncCompletedNotification;
 use App\Services\UserNotificationBroadcastService;
 use App\Support\NotificationBellState;
 use Illuminate\Support\Facades\Auth;
@@ -36,6 +37,7 @@ new class extends Component
      *   read_at: string|null,
      *   created_at_human: string,
      *   click_opens_workspace: bool,
+     *   click_behavior?: 'calendar_feed_sync_completed'|null,
      *   workspace_focus_kind?: 'task'|'event'|'project'|null,
      *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
@@ -119,6 +121,44 @@ new class extends Component
         if ($count > 0) {
             $this->dispatch('toast', type: 'success', message: __('Notifications marked as read.'));
         }
+    }
+
+    public function openCalendarFeedSyncCompletedNotification(string $notificationId): void
+    {
+        $user = Auth::user();
+        if ($user === null) {
+            return;
+        }
+
+        $notification = app(FindOwnedDatabaseNotificationAction::class)->execute($user, $notificationId);
+        if ($notification === null) {
+            return;
+        }
+
+        if ($notification->type !== CalendarFeedSyncCompletedNotification::class) {
+            return;
+        }
+
+        $data = NotificationBellState::notificationDataAsArray($notification);
+        if (($data['type'] ?? '') !== 'calendar_feed_sync_completed') {
+            return;
+        }
+
+        if ($notification->read_at === null) {
+            $notification->markAsRead();
+            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+        }
+
+        $this->syncNotificationStateFromDatabase();
+        $this->panelOpen = false;
+
+        if (request()->routeIs('workspace')) {
+            $this->js('window.location.reload()');
+
+            return;
+        }
+
+        $this->redirect(route('workspace'), navigate: true);
     }
 
     public function openNotification(string $notificationId): void

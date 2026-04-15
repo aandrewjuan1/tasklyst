@@ -4,6 +4,7 @@ use App\Enums\TaskSourceType;
 use App\Models\CalendarFeed;
 use App\Models\Task;
 use App\Models\User;
+use App\Notifications\CalendarFeedSyncCompletedNotification;
 use App\Services\CalendarFeedSyncService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -365,4 +366,80 @@ ICS;
 
     $feed->refresh();
     expect($feed->last_synced_at)->not->toBeNull();
+});
+
+it('stores a completion inbox notification when notifyUserOnSuccess is true', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->utc()->addDays(10)->setTime(9, 0, 0);
+    $end = $start->copy()->addMinutes(30);
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:event-notify@example.com
+SUMMARY:Quiz notify
+DTSTART:{$start->format('Ymd\THis\Z')}
+DTEND:{$end->format('Ymd\THis\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed, true);
+
+    $notification = $user->fresh()->notifications()->first();
+
+    expect($notification)->not->toBeNull();
+    expect($notification->type)->toBe(CalendarFeedSyncCompletedNotification::class);
+    $data = $notification->data;
+    expect($data['type'] ?? null)->toBe('calendar_feed_sync_completed');
+    expect($data['meta']['items_applied'] ?? null)->toBe(1);
+});
+
+it('does not store a completion inbox notification when notifyUserOnSuccess is false', function () {
+    $user = User::factory()->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->utc()->addDays(10)->setTime(9, 0, 0);
+    $end = $start->copy()->addMinutes(30);
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:event-no-notify@example.com
+SUMMARY:Quiz no notify
+DTSTART:{$start->format('Ymd\THis\Z')}
+DTEND:{$end->format('Ymd\THis\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+    $service->sync($feed, false);
+
+    expect($user->fresh()->notifications()->count())->toBe(0);
 });
