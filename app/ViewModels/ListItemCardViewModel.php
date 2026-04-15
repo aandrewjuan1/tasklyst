@@ -167,6 +167,8 @@ class ListItemCardViewModel
                 'type' => null,
                 'interval' => 1,
                 'daysOfWeek' => [],
+                'startDatetime' => $item->start_datetime?->toIso8601String(),
+                'usesCreationAnchorFallback' => false,
             ];
             if ($item->recurringTask) {
                 $rt = $item->recurringTask;
@@ -176,6 +178,9 @@ class ListItemCardViewModel
                     'type' => $rt->recurrence_type?->value,
                     'interval' => $rt->interval ?? 1,
                     'daysOfWeek' => is_array($daysOfWeek) ? $daysOfWeek : [],
+                    'startDatetime' => $item->start_datetime?->toIso8601String(),
+                    'usesCreationAnchorFallback' => $item->start_datetime === null
+                        && in_array($rt->recurrence_type?->value, ['weekly', 'monthly', 'yearly'], true),
                 ];
             }
         }
@@ -210,6 +215,8 @@ class ListItemCardViewModel
                 'type' => null,
                 'interval' => 1,
                 'daysOfWeek' => [],
+                'startDatetime' => $item->start_datetime?->toIso8601String(),
+                'usesCreationAnchorFallback' => false,
             ];
 
             if ($item->recurringEvent) {
@@ -220,6 +227,9 @@ class ListItemCardViewModel
                     'type' => $re->recurrence_type?->value,
                     'interval' => $re->interval ?? 1,
                     'daysOfWeek' => is_array($daysOfWeek) ? $daysOfWeek : [],
+                    'startDatetime' => $item->start_datetime?->toIso8601String(),
+                    'usesCreationAnchorFallback' => $item->start_datetime === null
+                        && in_array($re->recurrence_type?->value, ['weekly', 'monthly', 'yearly'], true),
                 ];
             }
         }

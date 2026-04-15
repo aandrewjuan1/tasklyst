@@ -3,6 +3,7 @@
 use App\Enums\TaskRecurrenceType;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
+use App\Models\Task;
 use App\Models\TaskException;
 use App\Models\TaskInstance;
 use App\Services\RecurrenceExpander;
@@ -249,6 +250,111 @@ test('getRelevantRecurringIdsForDate includes recurring with null start and end 
     $result = $this->expander->getRelevantRecurringIdsForDate(collect([$taskRecurring]), collect(), Carbon::parse('2025-02-10'));
 
     expect($result['task_ids'])->toContain($taskRecurring->id);
+});
+
+test('getRelevantRecurringIdsForDate anchors weekly recurrence with null start to task created date', function (): void {
+    $task = Task::factory()->create([
+        'created_at' => Carbon::parse('2025-02-03 09:00:00'), // Monday
+    ]);
+    $taskRecurring = RecurringTask::factory()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Weekly,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $monday = Carbon::parse('2025-02-10');
+    $tuesday = Carbon::parse('2025-02-11');
+
+    $mondayResult = $this->expander->getRelevantRecurringIdsForDate(collect([$taskRecurring]), collect(), $monday);
+    $tuesdayResult = $this->expander->getRelevantRecurringIdsForDate(collect([$taskRecurring]), collect(), $tuesday);
+
+    expect($mondayResult['task_ids'])->toContain($taskRecurring->id)
+        ->and($tuesdayResult['task_ids'])->not->toContain($taskRecurring->id);
+});
+
+test('expand monthly anchors recurrence with null start to task creation day', function (): void {
+    $task = Task::factory()->create([
+        'created_at' => Carbon::parse('2025-01-15 08:30:00'),
+    ]);
+    $taskRecurring = RecurringTask::factory()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Monthly,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $dates = $this->expander->expand($taskRecurring, Carbon::parse('2025-02-01'), Carbon::parse('2025-04-30'));
+    $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
+
+    expect($formatted)->toEqual([
+        '2025-02-15',
+        '2025-03-15',
+        '2025-04-15',
+    ]);
+});
+
+test('expand yearly anchors recurrence with null start to task creation month and day', function (): void {
+    $task = Task::factory()->create([
+        'created_at' => Carbon::parse('2023-06-20 10:00:00'),
+    ]);
+    $taskRecurring = RecurringTask::factory()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Yearly,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    $dates = $this->expander->expand($taskRecurring, Carbon::parse('2025-01-01'), Carbon::parse('2027-12-31'));
+    $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
+
+    expect($formatted)->toEqual([
+        '2025-06-20',
+        '2026-06-20',
+        '2027-06-20',
+    ]);
+});
+
+test('expand monthly includes first occurrence when explicit start has time component', function (): void {
+    $recurring = RecurringTask::factory()->create([
+        'recurrence_type' => TaskRecurrenceType::Monthly,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-04-14 14:45:00'),
+        'end_datetime' => null,
+    ]);
+
+    $dates = $this->expander->expand($recurring, Carbon::parse('2026-04-14 00:00:00'), Carbon::parse('2026-06-30 23:59:59'));
+    $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
+
+    expect($formatted)->toEqual([
+        '2026-04-14',
+        '2026-05-14',
+        '2026-06-14',
+    ]);
+});
+
+test('expand yearly includes first occurrence when explicit start has time component', function (): void {
+    $recurring = RecurringTask::factory()->create([
+        'recurrence_type' => TaskRecurrenceType::Yearly,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2026-04-14 14:45:00'),
+        'end_datetime' => null,
+    ]);
+
+    $dates = $this->expander->expand($recurring, Carbon::parse('2026-01-01 00:00:00'), Carbon::parse('2028-12-31 23:59:59'));
+    $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
+
+    expect($formatted)->toEqual([
+        '2026-04-14',
+        '2027-04-14',
+        '2028-04-14',
+    ]);
 });
 
 test('getRelevantRecurringIdsForDate excludes recurring with null start and end when exception skips that date', function (): void {

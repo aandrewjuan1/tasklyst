@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\TaskRecurrenceType;
+use App\Models\RecurringTask;
 use App\Models\Task;
 use App\Models\User;
 use Carbon\Carbon;
@@ -273,4 +275,35 @@ test('kanban shows completed section when completed toggle is enabled', function
         ->getContent();
 
     expect(substr_count($html, 'Kanban Done Task'))->toBe(1);
+});
+
+test('kanban only shows weekly no-start recurrence on anchored weekday', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-14 12:00:00')); // Tuesday
+    $this->actingAs($this->user);
+
+    $task = Task::factory()->for($this->user)->create([
+        'title' => 'Weekly Anchored Task',
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'created_at' => Carbon::parse('2026-04-13 09:00:00'), // Monday anchor
+    ]);
+
+    RecurringTask::factory()->create([
+        'task_id' => $task->id,
+        'recurrence_type' => TaskRecurrenceType::Weekly,
+        'interval' => 1,
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'days_of_week' => null,
+    ]);
+
+    Livewire::withQueryParams(['view' => 'kanban'])
+        ->test('pages::workspace.index')
+        ->assertDontSee('Weekly Anchored Task');
+
+    Carbon::setTestNow(Carbon::parse('2026-04-20 12:00:00')); // Monday
+
+    Livewire::withQueryParams(['view' => 'kanban'])
+        ->test('pages::workspace.index')
+        ->assertSee('Weekly Anchored Task');
 });

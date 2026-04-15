@@ -106,6 +106,7 @@
         restoreErrorPermission: @js(__('You do not have permission to restore this occurrence.')),
         restoreErrorNotFound: @js(__('Exception not found.')),
         restoreErrorValidation: @js(__('Invalid request. Please try again.')),
+        creationAnchorHint: @js(__('No start date is set, so weekly/monthly/yearly repeats are anchored to this item\'s creation date.')),
 
         init() {
             this.applyInitialValue();
@@ -341,7 +342,20 @@
                 type: this.type,
                 interval: this.interval,
                 daysOfWeek: [...this.daysOfWeek],
+                startDatetime: this.currentValue?.startDatetime ?? null,
+                usesCreationAnchorFallback: this.currentValue?.usesCreationAnchorFallback ?? false,
             };
+        },
+
+        get shouldShowCreationAnchorHint() {
+            const fallbackTypes = ['weekly', 'monthly', 'yearly'];
+            const hasStartDate = !!(this.currentValue && this.currentValue.startDatetime);
+            const fallbackEnabled = this.currentValue?.usesCreationAnchorFallback ?? false;
+
+            return this.enabled
+                && fallbackTypes.includes(this.type)
+                && !hasStartDate
+                && fallbackEnabled;
         },
 
         updateField(field, value) {
@@ -556,6 +570,10 @@
                         x-text="intervalLabel"
                     ></span>
                 </div>
+            </template>
+
+            <template x-if="shouldShowCreationAnchorHint">
+                <p class="text-center text-xs text-muted-foreground" x-text="creationAnchorHint"></p>
             </template>
 
             <!-- Days of Week (Weekly only) -->

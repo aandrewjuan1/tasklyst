@@ -23,7 +23,7 @@ class RecurrenceExpander
     {
         $recurrenceType = $recurring->recurrence_type;
         $interval = max(1, (int) $recurring->interval);
-        $recurringStart = $recurring->start_datetime ? Carbon::parse($recurring->start_datetime) : null;
+        $recurringStart = $this->resolveRecurrenceAnchorStart($recurring);
         $recurringEnd = $recurring->end_datetime ? Carbon::parse($recurring->end_datetime) : null;
 
         $effectiveStart = $recurringStart
@@ -157,6 +157,15 @@ class RecurrenceExpander
 
         foreach ($recurringTasks as $recurring) {
             if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
+                if ($recurring->recurrence_type?->value !== 'daily') {
+                    $occurrences = $this->expand($recurring, $date, $date, $taskExceptionMap[$recurring->id] ?? null);
+                    if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr)) {
+                        $taskIds[] = $recurring->id;
+                    }
+
+                    continue;
+                }
+
                 if (! $this->dateHasExcludedException($taskExceptionMap[$recurring->id] ?? null, $dateStr)) {
                     $taskIds[] = $recurring->id;
                 }
@@ -171,6 +180,15 @@ class RecurrenceExpander
 
         foreach ($recurringEvents as $recurring) {
             if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
+                if ($recurring->recurrence_type?->value !== 'daily') {
+                    $occurrences = $this->expand($recurring, $date, $date, $eventExceptionMap[$recurring->id] ?? null);
+                    if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr)) {
+                        $eventIds[] = $recurring->id;
+                    }
+
+                    continue;
+                }
+
                 if (! $this->dateHasExcludedException($eventExceptionMap[$recurring->id] ?? null, $dateStr)) {
                     $eventIds[] = $recurring->id;
                 }
@@ -237,6 +255,18 @@ class RecurrenceExpander
      */
     private function expandDaily(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
     {
+        if ($recurring->start_datetime === null) {
+            $dates = [];
+            $current = $effectiveStart->copy()->startOfDay();
+
+            while ($current->lte($effectiveEnd)) {
+                $dates[] = $current->copy();
+                $current->addDays($interval);
+            }
+
+            return $dates;
+        }
+
         $dates = [];
         $recurringStart = Carbon::parse($recurring->start_datetime)->startOfDay();
 
@@ -256,13 +286,18 @@ class RecurrenceExpander
      */
     private function expandWeekly(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
     {
+        $anchorStart = $this->resolveRecurrenceAnchorStart($recurring);
+        if ($anchorStart === null) {
+            return [];
+        }
+
         $daysOfWeek = $this->parseDaysOfWeek($recurring->days_of_week);
         if (empty($daysOfWeek)) {
-            $daysOfWeek = [Carbon::parse($recurring->start_datetime)->dayOfWeek];
+            $daysOfWeek = [$anchorStart->dayOfWeek];
         }
 
         $dates = [];
-        $recurringStart = Carbon::parse($recurring->start_datetime)->startOfDay();
+        $recurringStart = $anchorStart->copy()->startOfDay();
 
         $weekStart = $recurringStart->copy()->startOfWeek(Carbon::MONDAY);
         $currentWeekStart = $weekStart->copy();
@@ -287,8 +322,13 @@ class RecurrenceExpander
      */
     private function expandMonthly(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
     {
+        $anchorStart = $this->resolveRecurrenceAnchorStart($recurring);
+        if ($anchorStart === null) {
+            return [];
+        }
+
         $dates = [];
-        $recurringStart = Carbon::parse($recurring->start_datetime);
+        $recurringStart = $anchorStart->copy()->startOfDay();
         $dayOfMonth = $recurringStart->day;
 
         $current = $recurringStart->copy()->startOfMonth();
@@ -309,8 +349,13 @@ class RecurrenceExpander
      */
     private function expandYearly(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
     {
+        $anchorStart = $this->resolveRecurrenceAnchorStart($recurring);
+        if ($anchorStart === null) {
+            return [];
+        }
+
         $dates = [];
-        $recurringStart = Carbon::parse($recurring->start_datetime);
+        $recurringStart = $anchorStart->copy()->startOfDay();
         $month = $recurringStart->month;
         $dayOfMonth = $recurringStart->day;
 
@@ -339,5 +384,32 @@ class RecurrenceExpander
         $decoded = json_decode($daysOfWeek, true);
 
         return is_array($decoded) ? array_map('intval', $decoded) : [];
+    }
+
+    private function resolveRecurrenceAnchorStart(RecurringTask|RecurringEvent $recurring): ?Carbon
+    {
+        if ($recurring->start_datetime !== null) {
+            return Carbon::parse($recurring->start_datetime);
+        }
+
+        if ($recurring->recurrence_type?->value === 'daily') {
+            return null;
+        }
+
+        if ($recurring instanceof RecurringTask) {
+            $recurring->loadMissing('task:id,created_at');
+
+            if ($recurring->task?->created_at !== null) {
+                return Carbon::parse($recurring->task->created_at);
+            }
+        } else {
+            $recurring->loadMissing('event:id,created_at');
+
+            if ($recurring->event?->created_at !== null) {
+                return Carbon::parse($recurring->event->created_at);
+            }
+        }
+
+        return $recurring->created_at ? Carbon::parse($recurring->created_at) : null;
     }
 }
