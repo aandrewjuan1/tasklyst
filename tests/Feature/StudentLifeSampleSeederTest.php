@@ -7,6 +7,7 @@ use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\EventException;
 use App\Models\EventInstance;
+use App\Models\FocusSession;
 use App\Models\RecurringEvent;
 use App\Models\RecurringTask;
 use App\Models\Reminder;
@@ -234,4 +235,11 @@ it('seeds brightspace tasks chores extra tasks and events for the demo user', fu
 
     expect($user->unreadNotifications()->exists())->toBeTrue();
     expect($user->readNotifications()->exists())->toBeTrue();
+
+    expect(
+        FocusSession::query()
+            ->where('user_id', $user->id)
+            ->inProgress()
+            ->exists()
+    )->toBeFalse();
 });

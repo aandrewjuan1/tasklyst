@@ -752,9 +752,10 @@ class StudentLifeSampleSeeder extends Seeder
                 'duration_seconds' => 1200,
                 'completed' => false,
                 'started_at' => $now->copy()->subMinutes(45),
-                'ended_at' => null,
+                // Keep one resumable historical session, but avoid seeding an active in-progress focus state.
+                'ended_at' => $now->copy()->subMinutes(8),
                 'paused_seconds' => 90,
-                'paused_at' => $now->copy()->subMinutes(8),
+                'paused_at' => null,
                 'payload' => ['source' => 'student-life-seeder'],
             ]);
         }
