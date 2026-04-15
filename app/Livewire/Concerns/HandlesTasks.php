@@ -442,6 +442,15 @@ trait HandlesTasks
         $queryLimit = $visibleLimit + 1;
 
         $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $statusFilter = method_exists($this, 'normalizeFilterValue')
+            ? $this->normalizeFilterValue($this->filterTaskStatus ?? null)
+            : null;
+        $hasStatusFilter = $statusFilter !== null && TaskStatus::tryFrom($statusFilter) !== null;
+        if ($hasStatusFilter) {
+            // Status filtering is applied after recurrence/effective-status computation.
+            // Use a larger fetch window so seeded datasets don't truncate valid matches.
+            $queryLimit = max($queryLimit, 250);
+        }
 
         $taskQuery = Task::query()
             ->with([
@@ -505,6 +514,11 @@ trait HandlesTasks
 
         if (method_exists($this, 'applyTaskFilters')) {
             $this->applyTaskFilters($taskQuery);
+        }
+        if ($searchAllItems && $hasStatusFilter) {
+            // In global search mode we don't compute per-date effective recurring status.
+            // Push status constraint down to SQL to keep results consistent.
+            $taskQuery->byStatus($statusFilter);
         }
 
         if (method_exists($this, 'applyWorkspaceSearchToTaskQuery')) {
@@ -584,6 +598,13 @@ trait HandlesTasks
             * (property_exists($this, 'tasksPage') ? max(1, (int) $this->tasksPage) : 1);
         $queryLimit = $visibleLimit + 1;
         $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $statusFilter = method_exists($this, 'normalizeFilterValue')
+            ? $this->normalizeFilterValue($this->filterTaskStatus ?? null)
+            : null;
+        $hasStatusFilter = $statusFilter !== null && TaskStatus::tryFrom($statusFilter) !== null;
+        if ($hasStatusFilter) {
+            $queryLimit = max($queryLimit, 250);
+        }
 
         $taskQuery = Task::query()
             ->with([
@@ -629,6 +650,9 @@ trait HandlesTasks
 
         if (method_exists($this, 'applyTaskFilters')) {
             $this->applyTaskFilters($taskQuery);
+        }
+        if ($searchAllItems && $hasStatusFilter) {
+            $taskQuery->byStatus($statusFilter);
         }
         if (method_exists($this, 'applyWorkspaceSearchToTaskQuery')) {
             $this->applyWorkspaceSearchToTaskQuery($taskQuery);
