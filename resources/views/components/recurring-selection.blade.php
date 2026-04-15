@@ -129,8 +129,8 @@
 
         handleRecurringValue(e) {
             const d = e.detail || {};
-            if (d.itemId != null) {
-                if (this.syncItemId == null || String(d.itemId) !== String(this.syncItemId)) {
+            if (this.syncItemId != null) {
+                if (d.itemId == null || String(d.itemId) !== String(this.syncItemId)) {
                     return;
                 }
             }
@@ -143,8 +143,8 @@
 
         handleRecurringRevert(e) {
             const d = e.detail || {};
-            if (d.itemId != null) {
-                if (this.syncItemId == null || String(d.itemId) !== String(this.syncItemId)) {
+            if (this.syncItemId != null) {
+                if (d.itemId == null || String(d.itemId) !== String(this.syncItemId)) {
                     return;
                 }
             }

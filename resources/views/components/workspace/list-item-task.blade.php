@@ -629,7 +629,7 @@
             if (!ok) {
                 const realValue = this.recurrence;
                 e.target.dispatchEvent(new CustomEvent('recurring-revert', {
-                    detail: { path: 'recurrence', value: realValue ?? null },
+                    detail: { path: 'recurrence', value: realValue ?? null, itemId: this.itemId },
                     bubbles: true,
                 }));
             }

@@ -1101,7 +1101,7 @@ export function listItemCard(config) {
                 if (!ok) {
                     this.recurrence = snapshot;
                     applyRevert();
-                    this.$dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
+                    this.$dispatch('recurring-revert', { path: 'recurrence', value: snapshot, itemId: this.itemId });
                     this.$wire.$dispatch('toast', { type: 'error', message: this.recurrenceUpdateErrorToast });
                     return;
                 }
@@ -1110,11 +1110,11 @@ export function listItemCard(config) {
                     if (result.recurringTaskId != null) this.recurringTaskId = result.recurringTaskId;
                     if (result.recurringEventId != null) this.recurringEventId = result.recurringEventId;
                 }
-                this.$dispatch('recurring-value', { path: 'recurrence', value });
+                this.$dispatch('recurring-value', { path: 'recurrence', value, itemId: this.itemId });
             } catch (e) {
                 this.recurrence = snapshot;
                 applyRevert();
-                this.$dispatch('recurring-revert', { path: 'recurrence', value: snapshot });
+                this.$dispatch('recurring-revert', { path: 'recurrence', value: snapshot, itemId: this.itemId });
                 this.$wire.$dispatch('toast', { type: 'error', message: this.recurrenceUpdateErrorToast });
             }
         },
