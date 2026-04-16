@@ -4,7 +4,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
-use Inertia\Inertia;
 use Laravel\WorkOS\Http\Requests\AuthKitAuthenticationRequest;
 use Laravel\WorkOS\Http\Requests\AuthKitLogoutRequest;
 use Laravel\WorkOS\WorkOS;
@@ -19,7 +18,7 @@ $loginHandler = function (Request $request) {
         WorkOS::configure();
 
         $redirectUrl = config('services.workos.redirect_url') ?: route('workos.authenticate');
-        $provider = (string) config('services.workos.provider', UserManagement::AUTHORIZATION_PROVIDER_GOOGLE_OAUTH);
+        $provider = (string) config('services.workos.provider', 'authkit');
 
         $url = (new UserManagement)->getAuthorizationUrl(
             $redirectUrl,
@@ -29,8 +28,10 @@ $loginHandler = function (Request $request) {
 
         $request->session()->put('state', $state);
 
-        return class_exists(Inertia::class)
-            ? Inertia::location($url)
+        $inertiaClass = 'Inertia\\Inertia';
+
+        return class_exists($inertiaClass)
+            ? $inertiaClass::location($url)
             : redirect($url);
     }
 
