@@ -1,5 +1,5 @@
 <div
-    class="grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto]"
+    class="relative isolate grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto] overflow-hidden rounded-xl bg-linear-to-r from-brand-light-blue via-white to-white text-zinc-900 shadow-sm ring-1 ring-black/5 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-white/5"
     wire:poll.5s="checkStreamingTimeout"
     x-data="{
         loadingPhrases: [
@@ -10,6 +10,8 @@
         ],
         loadingPhraseIndex: 0,
         loadingTimer: null,
+        scrollQueued: false,
+        pendingScrollBehavior: 'smooth',
         currentLoadingPhrase() {
             return this.loadingPhrases[this.loadingPhraseIndex] ?? this.loadingPhrases[0];
         },
@@ -31,15 +33,50 @@
 
             this.loadingPhraseIndex = 0;
         },
-        scrollToBottom() {
-            $refs.messagesEnd?.scrollIntoView({ behavior: 'smooth' });
+        isNearBottom(thresholdPx = 80) {
+            const container = this.$refs.messagesContainer ?? null;
+            if (!container) {
+                return true;
+            }
+
+            const remaining = container.scrollHeight - container.scrollTop - container.clientHeight;
+            return remaining <= thresholdPx;
+        },
+        queueScrollToBottom(behavior = 'smooth') {
+            if (this.scrollQueued) {
+                this.pendingScrollBehavior = behavior;
+
+                return;
+            }
+
+            this.scrollQueued = true;
+            this.pendingScrollBehavior = behavior;
+
+            requestAnimationFrame(() => {
+                const end = this.$refs.messagesEnd ?? null;
+                if (!end) {
+                    this.scrollQueued = false;
+
+                    return;
+                }
+
+                end.scrollIntoView({ behavior: this.pendingScrollBehavior, block: 'end' });
+                this.scrollQueued = false;
+            });
         },
         init() {
-            this.$nextTick(() => this.scrollToBottom());
+            this.$nextTick(() => this.queueScrollToBottom('auto'));
             this.$watch('$wire.streamingContent', () => {
-                this.scrollToBottom();
+                // Streaming content updates frequently; only auto-scroll when the user is near the bottom.
+                if (this.isNearBottom()) {
+                    this.queueScrollToBottom('auto');
+                }
             });
-            this.$watch(() => ($wire.chatMessages?.length ?? 0), () => this.scrollToBottom());
+            this.$watch(() => ($wire.chatMessages?.length ?? 0), () => {
+                if (this.isNearBottom(140)) {
+                    this.queueScrollToBottom('smooth');
+                }
+            });
             this.$watch('$wire.isStreaming', (value) => {
                 if (value) {
                     this.startLoadingPhraseRotation();
@@ -54,25 +91,55 @@
         },
     }"
 >
-    <div class="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-4 py-3 dark:border-zinc-700">
+    <div class="relative z-10 flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
         <flux:heading size="md">{{ __('Task assistant') }}</flux:heading>
-
-        <flux:button
-            size="xs"
-            variant="ghost"
-            class="ml-auto"
-            wire:click="startNewChat"
-        >
-            {{ __('New chat') }}
-        </flux:button>
     </div>
 
-    <div class="flex min-h-0 flex-col gap-4 overflow-y-auto p-4" wire:key="messages-container">
+    <div
+        class="relative z-10 flex min-h-0 flex-col gap-4 overflow-y-auto p-4"
+        wire:key="messages-container"
+        x-ref="messagesContainer"
+    >
         @if ($chatMessages->isEmpty() && ! $isStreaming)
-            <div class="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-                <flux:text class="text-zinc-500 dark:text-zinc-400">
-                    {{ __('Send a message to get started.') }}
-                </flux:text>
+            <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+                <div class="max-w-[24rem]">
+                    <flux:text class="block text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+                        {{ __('Send a message to get started') }}
+                    </flux:text>
+                    <flux:text class="mt-2 block text-base leading-relaxed text-zinc-700 dark:text-zinc-300">
+                        {{ __('You can ask to prioritize tasks, create a plan, or schedule focus blocks.') }}
+                    </flux:text>
+                </div>
+
+                <div class="flex max-w-md flex-wrap items-center justify-center gap-2.5">
+                    <flux:button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                        wire:click="applyQuickPromptChip('{{ __('What should I do first') }}')"
+                    >
+                        {{ __('What should I do first') }}
+                    </flux:button>
+                    <flux:button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                        wire:click="applyQuickPromptChip('{{ __('Schedule my most important task') }}')"
+                    >
+                        {{ __('Schedule my most important task') }}
+                    </flux:button>
+                    <flux:button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                        wire:click="applyQuickPromptChip('{{ __('Create a plan for today') }}')"
+                    >
+                        {{ __('Create a plan for today') }}
+                    </flux:button>
+                </div>
             </div>
         @else
             @foreach ($chatMessages as $message)
@@ -81,8 +148,8 @@
                         wire:key="message-{{ $message->id }}"
                         class="flex justify-end"
                     >
-                        <div class="max-w-[85%] min-w-0 rounded-lg bg-zinc-200 px-3 py-2 dark:bg-zinc-600">
-                            <flux:text class="wrap-break-word text-sm">{{ $message->content }}</flux:text>
+                        <div class="max-w-[85%] min-w-0 rounded-xl border border-brand-blue/25 bg-brand-blue/15 px-3 py-2 shadow-sm dark:border-brand-blue/35 dark:bg-brand-blue/20">
+                            <flux:text class="wrap-break-word text-sm text-zinc-900 dark:text-zinc-100">{{ $message->content }}</flux:text>
                         </div>
                     </div>
                 @elseif ($message->role->value === 'assistant' && $message->id !== $streamingMessageId)
@@ -90,7 +157,7 @@
                         wire:key="message-{{ $message->id }}"
                         class="flex justify-start"
                     >
-                        <div class="max-w-[85%] min-w-0 rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-700">
+                        <div class="max-w-[85%] min-w-0 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 shadow-sm dark:border-border/70 dark:bg-muted/15">
                             @php
                                 $isStopped = data_get($message->metadata, 'stream.status') === 'stopped';
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
@@ -121,10 +188,10 @@
                                 $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
                             @endphp
                             @if ($isStopped)
-                                <flux:text class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">{{ __('Stopped') }}</flux:text>
+                                <flux:text class="mb-1 block text-xs text-zinc-600 dark:text-zinc-400">{{ __('Stopped') }}</flux:text>
                             @endif
                             @if ($display !== '')
-                                <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $display }}</flux:text>
+                                <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $display }}</flux:text>
                             @endif
 
                             @if (! $hideScheduleProposalCards && is_array($proposals) && count($proposals) > 0)
@@ -199,12 +266,12 @@
                                                     $timeLabel = $startAt;
                                                 }
                                             @endphp
-                                            <div class="rounded-md border border-zinc-300 p-2 dark:border-zinc-600">
-                                                <flux:text class="text-sm font-medium">{{ $title }}</flux:text>
-                                                <flux:text class="text-xs text-zinc-500 dark:text-zinc-400">
+                                            <div class="rounded-md border border-border/60 bg-muted/20 p-2 dark:border-border/60 dark:bg-muted/15">
+                                                <flux:text class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ $title }}</flux:text>
+                                                <flux:text class="text-xs text-zinc-700 dark:text-zinc-300">
                                                     {{ $timeLabel }}
                                                 </flux:text>
-                                                <flux:text class="text-xs">{{ __('Status: :status', ['status' => $status]) }}</flux:text>
+                                                <flux:text class="text-xs text-zinc-700 dark:text-zinc-300">{{ __('Status: :status', ['status' => $status]) }}</flux:text>
                                             </div>
                                         @endif
                                     @endforeach
@@ -229,6 +296,7 @@
                                         <flux:button
                                             size="xs"
                                             variant="ghost"
+                                            class="rounded-full border border-border/60 bg-muted/20 px-2 text-zinc-700 transition-colors hover:bg-muted/40 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-muted/10 dark:text-zinc-300 dark:hover:text-zinc-100 dark:hover:bg-muted/20 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                                             wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
                                             wire:loading.attr="disabled"
                                             wire:target="submitNextOptionChip,submitMessage"
@@ -248,11 +316,11 @@
                     wire:key="streaming-assistant"
                     class="flex justify-start"
                 >
-                    <div class="max-w-[85%] min-w-0 overflow-visible rounded-lg bg-zinc-100 px-3 py-2 dark:bg-zinc-700">
+                    <div class="max-w-[85%] min-w-0 overflow-visible rounded-xl border border-border/70 bg-muted/30 px-3 py-2 shadow-sm dark:border-border/70 dark:bg-muted/15">
                         <div
                             x-show="$wire.isStreaming && ($wire.streamingContent?.length ?? 0) === 0"
                             x-transition.opacity.duration.200ms
-                            class="mb-1 flex items-center gap-2 text-zinc-500 dark:text-zinc-400"
+                            class="mb-1 flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
                         >
                             <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
                             <flux:text class="text-sm" x-text="currentLoadingPhrase()">{{ __('Thinking...') }}</flux:text>
@@ -278,16 +346,25 @@
     </div>
 
     <form
-        class="flex shrink-0 items-center gap-2 border-t border-zinc-200 p-4 dark:border-zinc-700"
+        class="relative z-10 flex shrink-0 items-center gap-2 border-t border-border/60 p-4 dark:border-zinc-800"
         wire:submit="submitMessage"
     >
+        <button
+            type="button"
+            wire:click="startNewChat"
+            @disabled($isStreaming)
+            class="inline-flex shrink-0 items-center rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm transition hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-60 dark:border-border/70 dark:bg-muted/10 dark:text-zinc-300 dark:hover:bg-muted/20"
+        >
+            {{ __('New chat') }}
+        </button>
+
         <div class="min-w-0 flex-1">
             <input
                 type="text"
                 wire:model="newMessage"
                 placeholder="{{ __('Type a message…') }}"
                 aria-label="{{ __('Message') }}"
-                class="block h-10 w-full min-w-0 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-base text-zinc-700 shadow-xs placeholder-zinc-400 outline-none transition focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:opacity-70 dark:border-zinc-600 dark:bg-white/10 dark:text-zinc-300 dark:placeholder-zinc-500 dark:focus:border-zinc-500 dark:focus:ring-zinc-600 sm:text-sm"
+                class="block h-10 w-full min-w-0 rounded-lg border border-border/70 bg-background px-3 py-2 text-base text-zinc-900 shadow-xs placeholder:text-zinc-500 outline-none transition focus:border-brand-blue/45 focus:ring-2 focus:ring-brand-blue/30 disabled:opacity-70 dark:border-border/70 dark:bg-zinc-900/20 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/55 dark:focus:ring-brand-blue/40 sm:text-sm"
                 wire:loading.attr="disabled"
                 wire:target="submitMessage"
                 @disabled($isStreaming)
@@ -298,7 +375,7 @@
         </div>
         <button
             type="submit"
-            class="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-75 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus:ring-zinc-400 dark:focus:ring-offset-zinc-900"
+            class="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 disabled:pointer-events-none disabled:opacity-75"
             wire:loading.attr="disabled"
             wire:target="submitMessage"
             aria-label="{{ __('Send') }}"

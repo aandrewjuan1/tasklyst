@@ -96,6 +96,29 @@ new class extends Component
         $this->streamingTimedOutAt = null;
     }
 
+    public function applyQuickPromptChip(string $value): void
+    {
+        if ($this->isStreaming) {
+            return;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return;
+        }
+
+        $current = (string) $this->newMessage;
+        if (trim($current) === '') {
+            $this->newMessage = $value;
+
+            return;
+        }
+
+        $current = rtrim($current);
+        $separator = str_ends_with($current, "\n") ? '' : "\n";
+        $this->newMessage = $current.$separator.$value;
+    }
+
     /**
      * Prevent MethodNotFoundException when Livewire/Alpine serializes the component.
      */

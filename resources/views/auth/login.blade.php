@@ -64,7 +64,7 @@
                         <a
                             href="{{ route('login', ['redirect' => 1]) }}"
                             class="login-google-cta"
-                            aria-label="Sign in with Google — continue to your Tasklyst account"
+                            aria-label="Sign in with Google — continue to your taskLyst account"
                         >
                             <svg class="size-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path

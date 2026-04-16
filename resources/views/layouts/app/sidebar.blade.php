@@ -254,7 +254,12 @@
         <x-toast />
 
         @auth
-            <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">
+            <flux:modal
+                name="task-assistant-chat"
+                flyout
+                position="right"
+                class="h-full max-h-full w-full max-w-lg p-0! bg-transparent! border-transparent!"
+            >
                 <livewire:assistant.chat-flyout />
             </flux:modal>
         @endauth

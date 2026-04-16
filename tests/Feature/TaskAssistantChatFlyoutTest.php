@@ -72,6 +72,31 @@ test('chat flyout rate limits rapid submissions per user', function () {
         ->assertHasErrors(['newMessage']);
 });
 
+test('chat flyout quick prompt chip inserts into input', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', '')
+        ->call('applyQuickPromptChip', 'What should I do first')
+        ->assertSet('newMessage', 'What should I do first');
+});
+
+test('chat flyout quick prompt chip does nothing while streaming', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', 'Existing text')
+        ->set('isStreaming', true)
+        ->call('applyQuickPromptChip', 'Schedule my most important task')
+        ->assertSet('newMessage', 'Existing text');
+});
+
 test('chat flyout submits prioritize-oriented message and dispatches job', function () {
     /** @var \Illuminate\Foundation\Testing\TestCase $this */
     Bus::fake();
@@ -132,6 +157,7 @@ test('chat flyout submits list message and dispatches job', function () {
 });
 
 test('chat flyout can accept all schedule proposals and apply updates', function () {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -176,6 +202,7 @@ test('chat flyout can accept all schedule proposals and apply updates', function
 });
 
 test('chat flyout accept all applies multiple pending task proposals', function () {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -242,6 +269,7 @@ test('chat flyout accept all applies multiple pending task proposals', function 
 });
 
 test('chat flyout does not accept all on stale schedule card when a newer assistant message exists', function () {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
