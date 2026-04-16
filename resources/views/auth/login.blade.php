@@ -31,7 +31,7 @@
                         Your week, organized around what matters next.
                     </h1>
                     <p class="max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
-                        Keep classes, assignments, and deadlines in one workspace—so you spend less time juggling tabs and
+                        Keep classes, assignments, and deadlines in one workspace, so you spend less time juggling tabs and
                         more time studying.
                     </p>
                     <ul class="grid gap-2.5 text-sm text-foreground/90">

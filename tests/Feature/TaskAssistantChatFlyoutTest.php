@@ -102,6 +102,18 @@ test('chat flyout quick prompt chip inserts into input', function (): void {
         ->assertSet('newMessage', 'What should I do first');
 });
 
+test('chat flyout quick prompt chip replaces existing input', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', 'Existing text')
+        ->call('applyQuickPromptChip', 'Schedule my most important task')
+        ->assertSet('newMessage', 'Schedule my most important task');
+});
+
 test('chat flyout quick prompt chip does nothing while streaming', function (): void {
     $user = User::factory()->create();
     assert($user instanceof User);

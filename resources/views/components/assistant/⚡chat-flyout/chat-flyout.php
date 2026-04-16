@@ -107,16 +107,9 @@ new class extends Component
             return;
         }
 
-        $current = (string) $this->newMessage;
-        if (trim($current) === '') {
-            $this->newMessage = $value;
-
-            return;
-        }
-
-        $current = rtrim($current);
-        $separator = str_ends_with($current, "\n") ? '' : "\n";
-        $this->newMessage = $current.$separator.$value;
+        // UX: quick prompt chips should *replace* the current draft input,
+        // not append/stack lines.
+        $this->newMessage = $value;
     }
 
     /**

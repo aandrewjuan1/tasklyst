@@ -156,7 +156,7 @@
                         wire:key="message-{{ $message->id }}"
                         class="flex justify-end"
                     >
-                        <div class="max-w-[85%] min-w-0 rounded-xl border border-brand-blue/25 bg-brand-blue/15 px-3 py-2 shadow-sm dark:border-brand-blue/35 dark:bg-brand-blue/20">
+                        <div class="max-w-[85%] min-w-0 rounded-xl border border-brand-blue/20 bg-brand-blue/15 px-3 py-2 shadow-sm ring-1 ring-brand-blue/10 dark:border-brand-blue/30 dark:bg-brand-blue/20 dark:ring-white/5">
                             <flux:text class="wrap-break-word text-sm text-zinc-900 dark:text-zinc-100">{{ $message->content }}</flux:text>
                         </div>
                     </div>
@@ -169,7 +169,7 @@
                             <div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
                                 <x-icons.assistant-robot class="size-4 text-brand-navy-blue dark:text-brand-light-blue" title="" />
                             </div>
-                            <div class="min-w-0 flex-1 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 shadow-sm dark:border-border/70 dark:bg-muted/15">
+                                <div class="min-w-0 flex-1 rounded-xl border border-border/60 bg-muted/30 px-3 py-2 shadow-sm ring-1 ring-black/5 dark:border-border/60 dark:bg-muted/15 dark:ring-white/5">
                             @php
                                 $isStopped = data_get($message->metadata, 'stream.status') === 'stopped';
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
@@ -285,7 +285,7 @@
                                                     $timeLabel = $startAt;
                                                 }
                                             @endphp
-                                            <div class="rounded-md border border-border/60 bg-muted/20 p-2 dark:border-border/60 dark:bg-muted/15">
+                                            <div class="rounded-md border border-border/55 bg-muted/20 p-2 shadow-sm ring-1 ring-black/5 dark:border-border/55 dark:bg-muted/15 dark:ring-white/5">
                                                 <flux:text class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ $title }}</flux:text>
                                                 <flux:text class="text-xs text-zinc-700 dark:text-zinc-300">
                                                     {{ $timeLabel }}
@@ -315,7 +315,7 @@
                                         <flux:button
                                             size="xs"
                                             variant="ghost"
-                                            class="rounded-full border border-border/60 bg-muted/20 px-2 text-zinc-700 transition-colors hover:bg-muted/40 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-muted/10 dark:text-zinc-300 dark:hover:text-zinc-100 dark:hover:bg-muted/20 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-brand-light-blue dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                                             wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
                                             wire:loading.attr="disabled"
                                             wire:target="submitNextOptionChip,submitMessage"
@@ -340,7 +340,7 @@
                         <div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
                             <x-icons.assistant-robot class="size-4 text-brand-navy-blue dark:text-brand-light-blue" title="" />
                         </div>
-                        <div class="min-w-0 flex-1 overflow-visible rounded-xl border border-border/70 bg-white/85 px-3 py-3 shadow-sm dark:border-border/70 dark:bg-zinc-900/70">
+                        <div class="min-w-0 flex-1 overflow-visible rounded-xl border border-border/60 bg-white/85 px-3 py-3 shadow-sm ring-1 ring-black/5 dark:border-border/60 dark:bg-zinc-900/70 dark:ring-white/5">
                         <div
                             x-show="$wire.isStreaming && ($wire.streamingContent?.length ?? 0) === 0"
                             x-transition.opacity.duration.200ms
@@ -392,13 +392,32 @@
 
     <form
         class="relative z-10 flex shrink-0 items-center gap-2 border-t border-border/60 p-4 dark:border-zinc-800"
-        wire:submit="submitMessage"
+        x-data="{
+            hasText: false,
+            submit() {
+                const value = ($refs.input ? $refs.input.value : '').trim();
+
+                if (value.length === 0) {
+                    return;
+                }
+
+                // Ensure Livewire receives the latest value even if wire:model.defer is used.
+                $wire.set('newMessage', value);
+                $wire.submitMessage();
+            },
+            init() {
+                this.hasText = ($wire.newMessage ?? '').toString().trim().length > 0;
+            },
+        }"
+        @submit.prevent="submit()"
+        x-init="init()"
+        x-effect="hasText = ($wire.newMessage ?? '').toString().trim().length > 0"
     >
         <button
             type="button"
             wire:click="startNewChat"
             @disabled($isStreaming)
-            class="inline-flex shrink-0 items-center rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm transition hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-60 dark:border-border/70 dark:bg-muted/10 dark:text-zinc-300 dark:hover:bg-muted/20"
+            class="inline-flex shrink-0 items-center rounded-lg border border-border/60 bg-white/90 px-3 py-2 text-xs font-semibold text-zinc-700 shadow-sm transition hover:bg-white/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-60 dark:border-border/70 dark:bg-zinc-900/20 dark:text-zinc-300 dark:hover:bg-zinc-900/30"
         >
             {{ __('New chat') }}
         </button>
@@ -406,25 +425,27 @@
         <div class="min-w-0 flex-1">
             <input
                 type="text"
-                wire:model="newMessage"
                 placeholder="{{ __('Type a message…') }}"
                 aria-label="{{ __('Message') }}"
-                class="block h-10 w-full min-w-0 rounded-lg border border-border/70 bg-background px-3 py-2 text-base text-zinc-900 shadow-xs placeholder:text-zinc-500 outline-none transition focus:border-brand-blue/45 focus:ring-2 focus:ring-brand-blue/30 disabled:opacity-70 dark:border-border/70 dark:bg-zinc-900/20 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/55 dark:focus:ring-brand-blue/40 sm:text-sm"
-                wire:loading.attr="disabled"
-                wire:target="submitMessage"
+                x-ref="input"
+                maxlength="16000"
+                wire:model.defer="newMessage"
                 @disabled($isStreaming)
+                x-bind:disabled="$wire.isStreaming"
+                x-on:input="hasText = $event.target.value.trim().length > 0"
+                class="block h-10 w-full min-w-0 rounded-lg border border-border/70 bg-background px-3 py-2 text-base text-zinc-900 shadow-xs placeholder:text-zinc-500 outline-none transition focus:border-brand-blue/45 focus:ring-2 focus:ring-brand-blue/30 disabled:opacity-70 dark:border-border/70 dark:bg-zinc-900/20 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:border-brand-blue/55 dark:focus:ring-brand-blue/40 sm:text-sm"
             />
             @error('newMessage')
                 <flux:text class="mt-1 text-sm text-red-600 dark:text-red-400" role="alert">{{ $message }}</flux:text>
             @enderror
         </div>
         <button
-            type="submit"
+            type="button"
             class="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus:outline-none focus:ring-2 focus:ring-brand-blue/50 disabled:pointer-events-none disabled:opacity-75"
-            wire:loading.attr="disabled"
-            wire:target="submitMessage"
             aria-label="{{ __('Send') }}"
-            @disabled($isStreaming || trim($newMessage) === '')
+            @disabled($isStreaming)
+            x-bind:disabled="$wire.isStreaming || !hasText"
+            @click.prevent="submit()"
         >
             <flux:icon name="paper-airplane" class="size-4" />
         </button>
