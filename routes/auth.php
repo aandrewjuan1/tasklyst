@@ -18,8 +18,10 @@ $loginHandler = function (Request $request) {
     if ($request->boolean('redirect')) {
         WorkOS::configure();
 
+        $redirectUrl = config('services.workos.redirect_url') ?: route('workos.authenticate');
+
         $url = (new UserManagement)->getAuthorizationUrl(
-            config('services.workos.redirect_url'),
+            $redirectUrl,
             ['state' => $state = Str::random(20)],
         );
 
@@ -38,7 +40,7 @@ Route::get('signin', $loginHandler);
 
 Route::get('authenticate', function (AuthKitAuthenticationRequest $request) {
     return tap(redirect()->intended(route('dashboard')), fn () => $request->authenticate());
-})->middleware(['guest']);
+})->middleware(['guest'])->name('workos.authenticate');
 
 Route::post('logout', function (AuthKitLogoutRequest $request) {
     return $request->logout();
