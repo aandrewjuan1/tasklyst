@@ -184,3 +184,45 @@ test('completed entries include done tasks, completed events, and ended projects
         ->toContain('Completed Scope Event')
         ->toContain('Completed Scope Project');
 });
+
+test('selecting done task status auto-enables completed visibility', function (): void {
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('showCompleted', '0')
+        ->set('filterTaskStatus', TaskStatus::Done->value);
+
+    expect($component->get('showCompleted'))->toBe('1');
+});
+
+test('selecting completed or cancelled event status auto-enables completed visibility', function (): void {
+    $this->actingAs($this->user);
+
+    $completedComponent = Livewire::test('pages::workspace.index')
+        ->set('showCompleted', '0')
+        ->set('filterEventStatus', EventStatus::Completed->value);
+
+    expect($completedComponent->get('showCompleted'))->toBe('1');
+
+    $cancelledComponent = Livewire::test('pages::workspace.index')
+        ->set('showCompleted', '0')
+        ->set('filterEventStatus', EventStatus::Cancelled->value);
+
+    expect($cancelledComponent->get('showCompleted'))->toBe('1');
+});
+
+test('non-completed status filters do not auto-enable completed visibility', function (): void {
+    $this->actingAs($this->user);
+
+    $taskComponent = Livewire::test('pages::workspace.index')
+        ->set('showCompleted', '0')
+        ->set('filterTaskStatus', TaskStatus::ToDo->value);
+
+    expect($taskComponent->get('showCompleted'))->toBe('0');
+
+    $eventComponent = Livewire::test('pages::workspace.index')
+        ->set('showCompleted', '0')
+        ->set('filterEventStatus', EventStatus::Scheduled->value);
+
+    expect($eventComponent->get('showCompleted'))->toBe('0');
+});

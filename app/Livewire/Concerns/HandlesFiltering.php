@@ -272,6 +272,7 @@ trait HandlesFiltering
         if ($value === '') {
             $this->filterTaskStatus = null;
         }
+        $this->autoEnableCompletedVisibilityForStatusFilters();
         $this->syncItemTypeFromTypeSpecificFilters();
         $this->refreshListAfterFilterChange();
     }
@@ -299,6 +300,7 @@ trait HandlesFiltering
         if ($value === '') {
             $this->filterEventStatus = null;
         }
+        $this->autoEnableCompletedVisibilityForStatusFilters();
         $this->syncItemTypeFromTypeSpecificFilters();
         $this->refreshListAfterFilterChange();
     }
@@ -391,6 +393,20 @@ trait HandlesFiltering
         }
 
         $this->refreshListAfterFilterChange();
+    }
+
+    private function autoEnableCompletedVisibilityForStatusFilters(): void
+    {
+        $taskStatus = $this->normalizeFilterValue($this->filterTaskStatus);
+        $eventStatus = $this->normalizeFilterValue($this->filterEventStatus);
+
+        $selectedCompletedTaskStatus = $taskStatus === TaskStatus::Done->value;
+        $selectedCompletedEventStatus = $eventStatus === EventStatus::Completed->value
+            || $eventStatus === EventStatus::Cancelled->value;
+
+        if ($selectedCompletedTaskStatus || $selectedCompletedEventStatus) {
+            $this->showCompleted = '1';
+        }
     }
 
     /**
