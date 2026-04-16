@@ -1,11 +1,11 @@
 <?php
 
+use App\Http\Requests\AuthKitLogoutRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Laravel\WorkOS\Http\Requests\AuthKitAuthenticationRequest;
-use Laravel\WorkOS\Http\Requests\AuthKitLogoutRequest;
 use Laravel\WorkOS\WorkOS;
 use WorkOS\UserManagement;
 

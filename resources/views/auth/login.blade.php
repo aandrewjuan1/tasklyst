@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="scroll-smooth">
     <head>
-        @include('partials.head', ['title' => 'Sign in · taskLyst'])
+        @include('partials.head', ['title' => 'Sign in'])
     </head>
     <body class="login-page-shell">
         <main
@@ -31,7 +31,7 @@
                         Your week, organized around what matters next.
                     </h1>
                     <p class="max-w-xl text-pretty text-sm leading-relaxed text-muted-foreground sm:text-base">
-                        Keep classes, assignments, and deadlines in one workspace—so you spend less time juggling tabs and
+                        Keep classes, assignments, and deadlines in one workspace, so you spend less time juggling tabs and
                         more time studying.
                     </p>
                     <ul class="grid gap-2.5 text-sm text-foreground/90">
@@ -64,7 +64,7 @@
                         <a
                             href="{{ route('login', ['redirect' => 1]) }}"
                             class="login-google-cta"
-                            aria-label="Sign in with Google — continue to your Tasklyst account"
+                            aria-label="Sign in with Google — continue to your taskLyst account"
                         >
                             <svg class="size-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path

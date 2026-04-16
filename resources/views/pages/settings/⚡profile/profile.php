@@ -5,8 +5,11 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
+use Livewire\Attributes\Title;
 
-new class extends Component {
+new 
+#[Title('Settings')]
+class extends Component {
     public string $name = '';
     public string $email = '';
 

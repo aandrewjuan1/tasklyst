@@ -96,6 +96,22 @@ new class extends Component
         $this->streamingTimedOutAt = null;
     }
 
+    public function applyQuickPromptChip(string $value): void
+    {
+        if ($this->isStreaming) {
+            return;
+        }
+
+        $value = trim($value);
+        if ($value === '') {
+            return;
+        }
+
+        // UX: quick prompt chips should *replace* the current draft input,
+        // not append/stack lines.
+        $this->newMessage = $value;
+    }
+
     /**
      * Prevent MethodNotFoundException when Livewire/Alpine serializes the component.
      */
@@ -207,6 +223,11 @@ new class extends Component
 
     public function submitMessage(): void
     {
+        $content = trim((string) $this->newMessage);
+        if ($content === '') {
+            return;
+        }
+
         try {
             $this->validate();
         } catch (ValidationException $e) {
@@ -220,10 +241,7 @@ new class extends Component
             return;
         }
 
-        $content = trim($this->newMessage);
-        if ($content === '') {
-            return;
-        }
+        // $content already computed and validated as non-empty above.
 
         Log::info('task-assistant.submit', [
             'layer' => 'ui',

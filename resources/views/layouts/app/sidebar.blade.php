@@ -233,14 +233,15 @@
 
                     <flux:menu.separator />
 
-                    <form method="POST" action="{{ route('logout') }}" class="w-full">
+                    <form x-data method="POST" action="{{ route('logout') }}" class="w-full">
                         @csrf
                         <flux:menu.item
                             as="button"
-                            type="submit"
+                            type="button"
                             icon="arrow-right-start-on-rectangle"
                             class="w-full cursor-pointer"
                             data-test="logout-button"
+                            x-on:click.prevent.stop="$root.requestSubmit()"
                         >
                             {{ __('Log Out') }}
                         </flux:menu.item>
@@ -254,7 +255,12 @@
         <x-toast />
 
         @auth
-            <flux:modal name="task-assistant-chat" flyout position="right" class="h-full max-h-full w-full max-w-lg">
+            <flux:modal
+                name="task-assistant-chat"
+                flyout
+                position="right"
+                class="h-full max-h-full w-full max-w-lg p-0! bg-transparent! border-transparent!"
+            >
                 <livewire:assistant.chat-flyout />
             </flux:modal>
         @endauth

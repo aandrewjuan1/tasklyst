@@ -19,6 +19,7 @@ test('authenticated user sees task assistant flyout trigger and can open chat', 
     $response = $this->get(route('workspace'));
     $response->assertSuccessful();
     $response->assertSee('Assistant', false);
+    $response->assertDontSee('wire:click="applyQuickPromptChip', false);
 });
 
 test('chat flyout component dispatches job on submit', function () {
@@ -42,6 +43,23 @@ test('chat flyout component dispatches job on submit', function () {
     });
 });
 
+test('chat flyout does nothing when submitting empty input', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', '')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', false)
+        ->assertSet('streamingMessageId', null)
+        ->assertSet('newMessage', '');
+
+    Bus::assertNotDispatched(BroadcastTaskAssistantStreamJob::class);
+});
+
 test('chat flyout shows loading spinner text while streaming and no reconnect hint', function () {
     Bus::fake();
     $user = User::factory()->create();
@@ -52,7 +70,8 @@ test('chat flyout shows loading spinner text while streaming and no reconnect hi
         ->set('newMessage', 'Please help me plan my day')
         ->call('submitMessage')
         ->assertSet('isStreaming', true)
-        ->assertSee('Thinking...')
+        ->assertSee('Thinking through this for you...')
+        ->assertSee('This usually takes just a moment.')
         ->assertDontSee('Reconnecting to assistant...');
 });
 
@@ -70,6 +89,43 @@ test('chat flyout rate limits rapid submissions per user', function () {
         ->set('newMessage', 'Second')
         ->call('submitMessage')
         ->assertHasErrors(['newMessage']);
+});
+
+test('chat flyout quick prompt chip inserts into input', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', '')
+        ->call('applyQuickPromptChip', 'What should I do first')
+        ->assertSet('newMessage', 'What should I do first');
+});
+
+test('chat flyout quick prompt chip replaces existing input', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', 'Existing text')
+        ->call('applyQuickPromptChip', 'Schedule my most important task')
+        ->assertSet('newMessage', 'Schedule my most important task');
+});
+
+test('chat flyout quick prompt chip does nothing while streaming', function (): void {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', 'Existing text')
+        ->set('isStreaming', true)
+        ->call('applyQuickPromptChip', 'Schedule my most important task')
+        ->assertSet('newMessage', 'Existing text');
 });
 
 test('chat flyout submits prioritize-oriented message and dispatches job', function () {
@@ -132,6 +188,7 @@ test('chat flyout submits list message and dispatches job', function () {
 });
 
 test('chat flyout can accept all schedule proposals and apply updates', function () {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -176,6 +233,7 @@ test('chat flyout can accept all schedule proposals and apply updates', function
 });
 
 test('chat flyout accept all applies multiple pending task proposals', function () {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -242,6 +300,7 @@ test('chat flyout accept all applies multiple pending task proposals', function 
 });
 
 test('chat flyout does not accept all on stale schedule card when a newer assistant message exists', function () {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -321,7 +380,7 @@ test('chat flyout restores streaming state from persisted thread metadata after 
     Livewire::test('assistant.chat-flyout')
         ->assertSet('isStreaming', true)
         ->assertSet('streamingMessageId', $assistant->id)
-        ->assertSee('Thinking...');
+        ->assertSee('Thinking through this for you...');
 });
 
 test('chat flyout can request stop and marks assistant message as stopped', function () {
@@ -334,10 +393,10 @@ test('chat flyout can request stop and marks assistant message as stopped', func
         ->set('newMessage', 'Help me plan this afternoon')
         ->call('submitMessage')
         ->assertSet('isStreaming', true)
-        ->assertSee('Stop generation')
+        ->assertSee('Cancel')
         ->call('requestStopStreaming')
         ->assertSet('isStreaming', false)
-        ->assertDontSee('Stop generation');
+        ->assertDontSee('Cancel');
 
     $threadId = (int) data_get($component->get('thread'), 'id', 0);
     expect($threadId)->toBeGreaterThan(0);
@@ -379,7 +438,7 @@ test('chat flyout shows stopped label for stopped assistant message', function (
     ]);
 
     Livewire::test('assistant.chat-flyout')
-        ->assertSee('Stopped');
+        ->assertSee('Response stopped');
 });
 
 test('chat flyout does not append late deltas after stop request', function () {

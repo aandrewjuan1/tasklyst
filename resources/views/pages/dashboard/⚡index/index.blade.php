@@ -129,7 +129,7 @@
                                     {{ __('Focus on what needs attention right now.') }}
                                 </h2>
                                 <p class="max-w-2xl text-sm text-muted-foreground">
-                                    {{ __('Tasklyst helps you manage tasks and schedules in one workspace, with AI guidance to prioritize what matters next and plan your day with confidence.') }}
+                                    {{ __('taskLyst helps you manage tasks and schedules in one workspace, with AI guidance to prioritize what matters next and plan your day with confidence.') }}
                                 </p>
                             </div>
                             <div class="inline-flex shrink-0 self-start items-center">
