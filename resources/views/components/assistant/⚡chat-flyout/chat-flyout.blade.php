@@ -125,7 +125,7 @@
                         size="sm"
                         variant="ghost"
                         class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                        wire:click="applyQuickPromptChip('{{ __('What should I do first') }}')"
+                        x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
                     >
                         {{ __('What should I do first') }}
                     </flux:button>
@@ -134,7 +134,7 @@
                         size="sm"
                         variant="ghost"
                         class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                        wire:click="applyQuickPromptChip('{{ __('Schedule my most important task') }}')"
+                        x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
                     >
                         {{ __('Schedule my most important task') }}
                     </flux:button>
@@ -143,7 +143,7 @@
                         size="sm"
                         variant="ghost"
                         class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                        wire:click="applyQuickPromptChip('{{ __('Create a plan for today') }}')"
+                        x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
                     >
                         {{ __('Create a plan for today') }}
                     </flux:button>
@@ -394,6 +394,11 @@
         class="relative z-10 flex shrink-0 items-center gap-2 border-t border-border/60 p-4 dark:border-zinc-800"
         x-data="{
             hasText: false,
+            applyQuickPrompt(value) {
+                const trimmed = (value ?? '').toString().trim();
+                this.$refs.input.value = trimmed;
+                this.$refs.input.dispatchEvent(new Event('input', { bubbles: true }));
+            },
             submit() {
                 const value = ($refs.input ? $refs.input.value : '').trim();
 
@@ -412,6 +417,7 @@
         @submit.prevent="submit()"
         x-init="init()"
         x-effect="hasText = ($wire.newMessage ?? '').toString().trim().length > 0"
+        x-on:quick-prompt.window="applyQuickPrompt($event.detail.value)"
     >
         <button
             type="button"

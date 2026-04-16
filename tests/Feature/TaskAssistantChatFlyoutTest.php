@@ -19,6 +19,7 @@ test('authenticated user sees task assistant flyout trigger and can open chat', 
     $response = $this->get(route('workspace'));
     $response->assertSuccessful();
     $response->assertSee('Assistant', false);
+    $response->assertDontSee('wire:click="applyQuickPromptChip', false);
 });
 
 test('chat flyout component dispatches job on submit', function () {

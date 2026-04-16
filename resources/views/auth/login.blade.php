@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="scroll-smooth">
     <head>
-        @include('partials.head', ['title' => 'Sign in · taskLyst'])
+        @include('partials.head', ['title' => 'Sign in'])
     </head>
     <body class="login-page-shell">
         <main

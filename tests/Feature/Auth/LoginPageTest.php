@@ -9,7 +9,7 @@ test('guest can view the login page', function (): void {
     $response = $this->get(route('login'));
 
     $response->assertSuccessful();
-    $response->assertSee('Sign in · taskLyst', false);
+    $response->assertSee('taskLyst | Sign in', false);
 });
 
 test('login blade contains google cta and tasklyst content', function (): void {
