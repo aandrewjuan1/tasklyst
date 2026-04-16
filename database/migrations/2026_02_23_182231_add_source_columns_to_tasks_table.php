@@ -16,12 +16,19 @@ return new class extends Migration
             $table->string('source_id')->nullable()->after('source_type');
             $table->foreignId('calendar_feed_id')
                 ->nullable()
-                ->after('event_id')
-                ->constrained('calendar_feeds')
-                ->nullOnDelete();
+                ->after('event_id');
 
             $table->unique(['user_id', 'source_type', 'source_id'], 'tasks_user_source_unique');
         });
+
+        if (Schema::hasTable('calendar_feeds')) {
+            Schema::table('tasks', function (Blueprint $table) {
+                $table->foreign('calendar_feed_id')
+                    ->references('id')
+                    ->on('calendar_feeds')
+                    ->nullOnDelete();
+            });
+        }
     }
 
     /**
@@ -32,7 +39,8 @@ return new class extends Migration
         Schema::table('tasks', function (Blueprint $table) {
             $table->dropUnique('tasks_user_source_unique');
 
-            $table->dropConstrainedForeignId('calendar_feed_id');
+            $table->dropForeign(['calendar_feed_id']);
+            $table->dropColumn('calendar_feed_id');
 
             $table->dropColumn([
                 'source_type',

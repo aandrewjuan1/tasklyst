@@ -23,6 +23,15 @@ return new class extends Migration
 
             $table->index('user_id');
         });
+
+        if (Schema::hasColumn('tasks', 'calendar_feed_id')) {
+            Schema::table('tasks', function (Blueprint $table) {
+                $table->foreign('calendar_feed_id')
+                    ->references('id')
+                    ->on('calendar_feeds')
+                    ->nullOnDelete();
+            });
+        }
     }
 
     /**
@@ -30,6 +39,12 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (Schema::hasColumn('tasks', 'calendar_feed_id')) {
+            Schema::table('tasks', function (Blueprint $table) {
+                $table->dropForeign(['calendar_feed_id']);
+            });
+        }
+
         Schema::dropIfExists('calendar_feeds');
     }
 };
