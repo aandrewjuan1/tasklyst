@@ -11,6 +11,7 @@ import { initWorkspaceCalendarTodayButtonSync } from './lib/workspace-calendar-t
 // listItemCard registers itself in Alpine.store('listItemCards')[itemId] for focus-session escape handler etc.
 document.addEventListener('livewire:init', () => {
     window.__tasklystListRelevance = listRelevance;
+    window.__tasklystLoggingOut = false;
     window.Alpine.data('listItemCard', listItemCard);
     window.Alpine.data('workspaceCalendar', workspaceCalendar);
     window.Alpine.data('kanbanBoard', kanbanBoard);
@@ -21,6 +22,23 @@ document.addEventListener('livewire:init', () => {
     window.workspaceConsumeFocusQueryParams = consumeWorkspaceFocusQueryParams;
     initWorkspaceDeepLinkFocus();
     initWorkspaceCalendarTodayButtonSync();
+
+    if (typeof window.Livewire?.interceptRequest === 'function') {
+        window.Livewire.interceptRequest(({ onError }) => {
+            onError(({ response, preventDefault }) => {
+                if (!window.__tasklystLoggingOut) {
+                    return;
+                }
+
+                if (response?.status !== 419) {
+                    return;
+                }
+
+                preventDefault();
+                window.location.href = '/login';
+            });
+        });
+    }
 });
 
 /**

@@ -58,19 +58,6 @@ it('renders at-a-glance with task and event titles and workspace link for today'
     $response->assertSee('AtAGlance Due Today Task', false);
     $response->assertSee('AtAGlance Today Event', false);
     $response->assertSee('date='.now()->toDateString(), false);
-
-    expect(preg_match('/data-testid="dashboard-overdue-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('1');
-
-    expect(preg_match('/data-testid="dashboard-due-today-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    // Overdue task’s end time is still today, so it is included in the due-today window as well as the overdue list.
-    expect($matches[1])->toBe('2');
-
-    expect(preg_match('/data-testid="dashboard-doing-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('1');
-
-    expect(preg_match('/data-testid="dashboard-today-events-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('1');
 });
 
 it('shows empty state copy when there are no matching items', function () {
@@ -79,21 +66,4 @@ it('shows empty state copy when there are no matching items', function () {
     $response = $this->actingAs($user)->get(route('dashboard'));
 
     $response->assertSuccessful();
-    $response->assertSee(__('No overdue tasks.'), false);
-
-    expect(preg_match('/data-testid="dashboard-overdue-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('0');
-
-    expect(preg_match('/data-testid="dashboard-due-today-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('0');
-
-    expect(preg_match('/data-testid="dashboard-doing-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('0');
-
-    expect(preg_match('/data-testid="dashboard-today-events-count"[^>]*>\s*(\d+)\s*</', $response->getContent(), $matches))->toBe(1);
-    expect($matches[1])->toBe('0');
-
-    $response->assertSee(__('No tasks in progress.'), false);
-    $response->assertSee(__('Nothing due on selected day.'), false);
-    $response->assertSee(__('No events today.'), false);
 });

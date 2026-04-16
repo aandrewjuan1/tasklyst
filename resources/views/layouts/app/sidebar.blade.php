@@ -233,7 +233,7 @@
 
                     <flux:menu.separator />
 
-                    <form x-data method="POST" action="{{ route('logout') }}" class="w-full">
+                    <form x-data x-on:submit="window.__tasklystLoggingOut = true" method="POST" action="{{ route('logout') }}" class="w-full">
                         @csrf
                         <flux:menu.item
                             as="button"
@@ -241,7 +241,7 @@
                             icon="arrow-right-start-on-rectangle"
                             class="w-full cursor-pointer"
                             data-test="logout-button"
-                            x-on:click.prevent.stop="$root.requestSubmit()"
+                            x-on:click.prevent.stop="window.__tasklystLoggingOut = true; setTimeout(() => window.__tasklystLoggingOut = false, 10_000); $root.requestSubmit()"
                         >
                             {{ __('Log Out') }}
                         </flux:menu.item>

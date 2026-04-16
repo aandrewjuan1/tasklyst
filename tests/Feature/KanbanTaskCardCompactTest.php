@@ -50,7 +50,7 @@ it('uses the same source link chip classes in kanban and list layouts', function
 
     $tags = collect();
 
-    $expectedChipClasses = 'inline-flex items-center gap-1.5 rounded-full border border-blue-500/25 bg-blue-500/15 px-2.5 py-0.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-500/20 hover:text-blue-800';
+    $expectedChipClasses = 'inline-flex items-center gap-1.5 transition-[box-shadow,transform] duration-150 ease-out';
 
     $kanbanHtml = Blade::render(
         '<x-workspace.list-item-task

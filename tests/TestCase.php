@@ -18,6 +18,8 @@ abstract class TestCase extends BaseTestCase
         config([
             'app.env' => 'testing',
             'broadcasting.default' => 'null',
+            'database.default' => 'sqlite',
+            'database.connections.sqlite.database' => ':memory:',
         ]);
     }
 }
