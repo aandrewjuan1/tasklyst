@@ -3,10 +3,10 @@
     wire:poll.5s="checkStreamingTimeout"
     x-data="{
         loadingPhrases: [
-            @js(__('Thinking...')),
-            @js(__('Calculating...')),
-            @js(__('Reviewing context...')),
-            @js(__('Drafting response...')),
+            @js(__('Thinking through this for you...')),
+            @js(__('Looking at your context...')),
+            @js(__('Putting together a helpful reply...')),
+            @js(__('Making sure this is useful...')),
         ],
         loadingPhraseIndex: 0,
         loadingTimer: null,
@@ -91,8 +91,16 @@
         },
     }"
 >
-    <div class="relative z-10 flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
-        <flux:heading size="md">{{ __('Task assistant') }}</flux:heading>
+    <div class="relative z-10 flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+        <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
+            <x-icons.assistant-robot class="size-5 text-brand-navy-blue dark:text-brand-light-blue" title="" />
+        </div>
+        <div class="min-w-0">
+            <flux:text class="block text-xs font-semibold uppercase tracking-[0.12em] text-brand-blue dark:text-brand-light-blue">
+                {{ __('taskLyst assistant') }}
+            </flux:text>
+            <flux:heading size="md">{{ __('Plan, prioritize, and organize faster') }}</flux:heading>
+        </div>
     </div>
 
     <div
@@ -157,7 +165,11 @@
                         wire:key="message-{{ $message->id }}"
                         class="flex justify-start"
                     >
-                        <div class="max-w-[85%] min-w-0 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 shadow-sm dark:border-border/70 dark:bg-muted/15">
+                        <div class="flex max-w-[85%] items-start gap-3">
+                            <div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
+                                <x-icons.assistant-robot class="size-4 text-brand-navy-blue dark:text-brand-light-blue" title="" />
+                            </div>
+                            <div class="min-w-0 flex-1 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 shadow-sm dark:border-border/70 dark:bg-muted/15">
                             @php
                                 $isStopped = data_get($message->metadata, 'stream.status') === 'stopped';
                                 // Always display formatted content - ResponseProcessor ensures all messages are student-friendly
@@ -188,7 +200,14 @@
                                 $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
                             @endphp
                             @if ($isStopped)
-                                <flux:text class="mb-1 block text-xs text-zinc-600 dark:text-zinc-400">{{ __('Stopped') }}</flux:text>
+                                <div class="min-w-0">
+                                    <flux:text class="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                        {{ __('Response stopped') }}
+                                    </flux:text>
+                                    <flux:text class="mt-0.5 block text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+                                        {{ __('Generation was stopped before the reply finished. You can send a new message whenever you’re ready.') }}
+                                    </flux:text>
+                                </div>
                             @endif
                             @if ($display !== '')
                                 <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $display }}</flux:text>
@@ -306,6 +325,7 @@
                                     @endforeach
                                 </div>
                             @endif
+                            </div>
                         </div>
                     </div>
                 @endif
@@ -316,27 +336,52 @@
                     wire:key="streaming-assistant"
                     class="flex justify-start"
                 >
-                    <div class="max-w-[85%] min-w-0 overflow-visible rounded-xl border border-border/70 bg-muted/30 px-3 py-2 shadow-sm dark:border-border/70 dark:bg-muted/15">
+                    <div class="flex max-w-[85%] items-start gap-3">
+                        <div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
+                            <x-icons.assistant-robot class="size-4 text-brand-navy-blue dark:text-brand-light-blue" title="" />
+                        </div>
+                        <div class="min-w-0 flex-1 overflow-visible rounded-xl border border-border/70 bg-white/85 px-3 py-3 shadow-sm dark:border-border/70 dark:bg-zinc-900/70">
                         <div
                             x-show="$wire.isStreaming && ($wire.streamingContent?.length ?? 0) === 0"
                             x-transition.opacity.duration.200ms
-                            class="mb-1 flex items-center gap-2 text-zinc-700 dark:text-zinc-300"
+                            class="mb-2 space-y-2"
                         >
-                            <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
-                            <flux:text class="text-sm" x-text="currentLoadingPhrase()">{{ __('Thinking...') }}</flux:text>
-                            <flux:button
-                                size="xs"
-                                variant="ghost"
-                                wire:click="requestStopStreaming"
-                                wire:loading.attr="disabled"
-                                wire:target="requestStopStreaming"
-                                class="ml-1"
-                                aria-label="{{ __('Stop generation') }}"
-                            >
-                                <flux:icon name="stop" class="size-3.5" />
-                            </flux:button>
+                            <div class="flex items-start gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div class="min-w-0">
+                                            <flux:text class="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                                                {{ __('Task assistant') }}
+                                            </flux:text>
+                                            <flux:text class="mt-0.5 block text-sm text-zinc-700 dark:text-zinc-300" x-text="currentLoadingPhrase()">
+                                                {{ __('Thinking through this for you...') }}
+                                            </flux:text>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            wire:click="requestStopStreaming"
+                                            wire:loading.attr="disabled"
+                                            wire:target="requestStopStreaming"
+                                            class="inline-flex shrink-0 items-center rounded-lg border border-border/60 bg-muted/20 px-2.5 py-1 text-xs font-medium text-zinc-600 transition hover:bg-muted/40 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-muted/10 dark:text-zinc-300 dark:hover:bg-muted/20 dark:hover:text-zinc-100"
+                                            aria-label="{{ __('Cancel generation') }}"
+                                        >
+                                            <flux:icon name="stop" class="mr-1 size-3.5" />
+                                            <span>{{ __('Cancel') }}</span>
+                                        </button>
+                                    </div>
+                                    <div class="mt-2 flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400" aria-hidden="true">
+                                        <span class="size-2 rounded-full bg-brand-blue/70 animate-pulse"></span>
+                                        <span class="size-2 rounded-full bg-brand-blue/55 animate-pulse [animation-delay:180ms]"></span>
+                                        <span class="size-2 rounded-full bg-brand-blue/40 animate-pulse [animation-delay:360ms]"></span>
+                                    </div>
+                                    <flux:text class="mt-2 block text-xs text-zinc-600 dark:text-zinc-400">
+                                        {{ __('This usually takes just a moment.') }}
+                                    </flux:text>
+                                </div>
+                            </div>
                         </div>
-                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm">{{ $streamingContent }}</flux:text>
+                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $streamingContent }}</flux:text>
+                        </div>
                     </div>
                 </div>
             @endif
@@ -379,7 +424,7 @@
             wire:loading.attr="disabled"
             wire:target="submitMessage"
             aria-label="{{ __('Send') }}"
-            @disabled($isStreaming)
+            @disabled($isStreaming || trim($newMessage) === '')
         >
             <flux:icon name="paper-airplane" class="size-4" />
         </button>

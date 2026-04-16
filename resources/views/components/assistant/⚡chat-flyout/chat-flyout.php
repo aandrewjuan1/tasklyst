@@ -230,6 +230,11 @@ new class extends Component
 
     public function submitMessage(): void
     {
+        $content = trim((string) $this->newMessage);
+        if ($content === '') {
+            return;
+        }
+
         try {
             $this->validate();
         } catch (ValidationException $e) {
@@ -243,10 +248,7 @@ new class extends Component
             return;
         }
 
-        $content = trim($this->newMessage);
-        if ($content === '') {
-            return;
-        }
+        // $content already computed and validated as non-empty above.
 
         Log::info('task-assistant.submit', [
             'layer' => 'ui',

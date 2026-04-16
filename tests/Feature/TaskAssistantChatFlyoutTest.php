@@ -42,6 +42,23 @@ test('chat flyout component dispatches job on submit', function () {
     });
 });
 
+test('chat flyout does nothing when submitting empty input', function () {
+    Bus::fake();
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->set('newMessage', '')
+        ->call('submitMessage')
+        ->assertSet('isStreaming', false)
+        ->assertSet('streamingMessageId', null)
+        ->assertSet('newMessage', '');
+
+    Bus::assertNotDispatched(BroadcastTaskAssistantStreamJob::class);
+});
+
 test('chat flyout shows loading spinner text while streaming and no reconnect hint', function () {
     Bus::fake();
     $user = User::factory()->create();
@@ -52,7 +69,8 @@ test('chat flyout shows loading spinner text while streaming and no reconnect hi
         ->set('newMessage', 'Please help me plan my day')
         ->call('submitMessage')
         ->assertSet('isStreaming', true)
-        ->assertSee('Thinking...')
+        ->assertSee('Thinking through this for you...')
+        ->assertSee('This usually takes just a moment.')
         ->assertDontSee('Reconnecting to assistant...');
 });
 
@@ -349,7 +367,7 @@ test('chat flyout restores streaming state from persisted thread metadata after 
     Livewire::test('assistant.chat-flyout')
         ->assertSet('isStreaming', true)
         ->assertSet('streamingMessageId', $assistant->id)
-        ->assertSee('Thinking...');
+        ->assertSee('Thinking through this for you...');
 });
 
 test('chat flyout can request stop and marks assistant message as stopped', function () {
@@ -362,10 +380,10 @@ test('chat flyout can request stop and marks assistant message as stopped', func
         ->set('newMessage', 'Help me plan this afternoon')
         ->call('submitMessage')
         ->assertSet('isStreaming', true)
-        ->assertSee('Stop generation')
+        ->assertSee('Cancel')
         ->call('requestStopStreaming')
         ->assertSet('isStreaming', false)
-        ->assertDontSee('Stop generation');
+        ->assertDontSee('Cancel');
 
     $threadId = (int) data_get($component->get('thread'), 'id', 0);
     expect($threadId)->toBeGreaterThan(0);
@@ -407,7 +425,7 @@ test('chat flyout shows stopped label for stopped assistant message', function (
     ]);
 
     Livewire::test('assistant.chat-flyout')
-        ->assertSee('Stopped');
+        ->assertSee('Response stopped');
 });
 
 test('chat flyout does not append late deltas after stop request', function () {
