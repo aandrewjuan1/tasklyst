@@ -22,14 +22,15 @@
             <flux:menu.item :href="route('settings.profile')" icon="cog" wire:navigate>
                 {{ __('Settings') }}
             </flux:menu.item>
-            <form method="POST" action="{{ route('logout') }}" class="w-full">
+            <form x-data method="POST" action="{{ route('logout') }}" class="w-full">
                 @csrf
                 <flux:menu.item
                     as="button"
-                    type="submit"
+                    type="button"
                     icon="arrow-right-start-on-rectangle"
                     class="w-full cursor-pointer"
                     data-test="logout-button"
+                    x-on:click.prevent.stop="$root.requestSubmit()"
                 >
                     {{ __('Log Out') }}
                 </flux:menu.item>

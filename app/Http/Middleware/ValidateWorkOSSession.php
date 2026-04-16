@@ -68,6 +68,6 @@ class ValidateWorkOSSession
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect('/');
+        return redirect()->route('login');
     }
 }
