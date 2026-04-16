@@ -39,6 +39,9 @@ return [
         'client_id' => env('WORKOS_CLIENT_ID'),
         'secret' => env('WORKOS_API_KEY'),
         'redirect_url' => env('WORKOS_REDIRECT_URL'),
+        'provider' => env('WORKOS_PROVIDER', 'GoogleOAuth'),
+        'connection_id' => env('WORKOS_CONNECTION_ID'),
+        'organization_id' => env('WORKOS_ORGANIZATION_ID'),
 
         /*
         | Session validation result is cached per session to avoid calling WorkOS
