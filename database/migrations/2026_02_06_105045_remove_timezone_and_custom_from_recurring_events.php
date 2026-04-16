@@ -23,6 +23,9 @@ return new class extends Migration
         $driver = Schema::getConnection()->getDriverName();
         if ($driver === 'mysql') {
             DB::statement("ALTER TABLE recurring_events MODIFY recurrence_type ENUM('daily', 'weekly', 'monthly', 'yearly') NOT NULL");
+        } elseif ($driver === 'pgsql') {
+            DB::statement('ALTER TABLE recurring_events DROP CONSTRAINT IF EXISTS recurring_events_recurrence_type_check');
+            DB::statement("ALTER TABLE recurring_events ADD CONSTRAINT recurring_events_recurrence_type_check CHECK (recurrence_type IN ('daily', 'weekly', 'monthly', 'yearly'))");
         }
     }
 
@@ -34,6 +37,9 @@ return new class extends Migration
         $driver = Schema::getConnection()->getDriverName();
         if ($driver === 'mysql') {
             DB::statement("ALTER TABLE recurring_events MODIFY recurrence_type ENUM('daily', 'weekly', 'monthly', 'yearly', 'custom') NOT NULL");
+        } elseif ($driver === 'pgsql') {
+            DB::statement('ALTER TABLE recurring_events DROP CONSTRAINT IF EXISTS recurring_events_recurrence_type_check');
+            DB::statement("ALTER TABLE recurring_events ADD CONSTRAINT recurring_events_recurrence_type_check CHECK (recurrence_type IN ('daily', 'weekly', 'monthly', 'yearly', 'custom'))");
         }
 
         Schema::table('recurring_events', function (Blueprint $table): void {
