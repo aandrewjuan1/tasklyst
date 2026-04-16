@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('recurring_tasks', function (Blueprint $table) {
             $table->id();
             $table->foreignId('task_id')->unique()->constrained()->cascadeOnDelete();
-            $table->enum('recurrence_type', ['daily', 'weekly', 'monthly']);
+            $table->enum('recurrence_type', ['daily', 'weekly', 'monthly', 'yearly']);
             $table->integer('interval');
             $table->dateTime('start_datetime');
             $table->dateTime('end_datetime')->nullable();

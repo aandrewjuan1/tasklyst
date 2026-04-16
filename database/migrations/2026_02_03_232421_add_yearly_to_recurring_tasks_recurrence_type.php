@@ -12,7 +12,13 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+        $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'sqlite') {
+            return;
+        }
+
+        if ($driver === 'pgsql') {
             DB::statement('ALTER TABLE recurring_tasks DROP CONSTRAINT IF EXISTS recurring_tasks_recurrence_type_check');
             DB::statement("ALTER TABLE recurring_tasks ADD CONSTRAINT recurring_tasks_recurrence_type_check CHECK (recurrence_type IN ('daily', 'weekly', 'monthly', 'yearly'))");
 
@@ -29,7 +35,13 @@ return new class extends Migration
      */
     public function down(): void
     {
-        if (Schema::getConnection()->getDriverName() === 'pgsql') {
+        $driver = Schema::getConnection()->getDriverName();
+
+        if ($driver === 'sqlite') {
+            return;
+        }
+
+        if ($driver === 'pgsql') {
             DB::statement('ALTER TABLE recurring_tasks DROP CONSTRAINT IF EXISTS recurring_tasks_recurrence_type_check');
             DB::statement("ALTER TABLE recurring_tasks ADD CONSTRAINT recurring_tasks_recurrence_type_check CHECK (recurrence_type IN ('daily', 'weekly', 'monthly'))");
 

@@ -26,6 +26,8 @@ return new class extends Migration
         } elseif ($driver === 'pgsql') {
             DB::statement('ALTER TABLE recurring_events DROP CONSTRAINT IF EXISTS recurring_events_recurrence_type_check');
             DB::statement("ALTER TABLE recurring_events ADD CONSTRAINT recurring_events_recurrence_type_check CHECK (recurrence_type IN ('daily', 'weekly', 'monthly', 'yearly'))");
+        } elseif ($driver === 'sqlite') {
+            // SQLite enum check alterations are not portable in-place.
         }
     }
 
@@ -40,6 +42,8 @@ return new class extends Migration
         } elseif ($driver === 'pgsql') {
             DB::statement('ALTER TABLE recurring_events DROP CONSTRAINT IF EXISTS recurring_events_recurrence_type_check');
             DB::statement("ALTER TABLE recurring_events ADD CONSTRAINT recurring_events_recurrence_type_check CHECK (recurrence_type IN ('daily', 'weekly', 'monthly', 'yearly', 'custom'))");
+        } elseif ($driver === 'sqlite') {
+            // SQLite enum check alterations are not portable in-place.
         }
 
         Schema::table('recurring_events', function (Blueprint $table): void {
