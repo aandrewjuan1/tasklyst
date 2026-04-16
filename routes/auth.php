@@ -21,7 +21,6 @@ $loginHandler = function (Request $request) {
         $url = (new UserManagement)->getAuthorizationUrl(
             config('services.workos.redirect_url'),
             ['state' => $state = Str::random(20)],
-            UserManagement::AUTHORIZATION_PROVIDER_GOOGLE_OAUTH,
         );
 
         $request->session()->put('state', $state);
