@@ -21,7 +21,7 @@
     {{-- Main Content: 80/20 Split Layout --}}
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
-        <div class="min-w-0 space-y-6 overflow-visible">
+        <div class="order-2 min-w-0 space-y-6 overflow-visible lg:order-1">
             {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
             <div class="hero-brand-gradient-shell">
                 <div
@@ -96,11 +96,28 @@
                 </div>
             </div>
 
+            <div class="lg:hidden">
+                <x-workspace.calendar
+                    agenda-context="workspace"
+                    :selected-date="$this->selectedDate"
+                    :current-month="$this->calendarMonth"
+                    :current-year="$this->calendarYear"
+                    :month-meta="$this->calendarMonthMeta"
+                    :selected-day-agenda="$this->selectedDayAgenda"
+                />
+
+                @auth
+                    <div class="mt-4">
+                        <x-workspace.calendar-feeds-popover />
+                    </div>
+                @endauth
+            </div>
+
             {{-- Filters + active pills: one strip, aligned row (pills left / Add filters right on md+) --}}
             <div
                 class="workspace-filter-strip overflow-visible rounded-xl border border-border/60 bg-muted/30 px-3 py-2.5 shadow-sm ring-1 ring-brand-purple/10 dark:border-border/50 dark:bg-muted/15 dark:ring-zinc-600/35 sm:px-4 sm:py-3.5"
             >
-                <div class="flex flex-col gap-3 md:flex-row md:flex-row-reverse md:items-center md:justify-between md:gap-5">
+                <div class="flex flex-col gap-3 md:flex-row-reverse md:items-center md:justify-between md:gap-5">
                     <div class="flex shrink-0 items-center md:justify-end">
                         <x-workspace.filter-bar
                             :filters="$this->getFilters()"
@@ -243,7 +260,7 @@
         </div>
 
         {{-- Right Side: Calendar (20%) --}}
-        <div class="hidden lg:block lg:min-w-[260px]">
+        <div class="order-1 hidden lg:order-2 lg:block lg:min-w-[260px]">
             <div class="sticky top-6" data-focus-lock-viewport>
                 <x-workspace.calendar
                     agenda-context="workspace"

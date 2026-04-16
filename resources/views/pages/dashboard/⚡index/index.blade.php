@@ -100,7 +100,7 @@
 
 <section class="space-y-6">
     <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
-        <div class="min-w-0 space-y-4">
+        <div class="order-2 min-w-0 space-y-4 lg:order-1">
             <section class="flex h-full w-full flex-1 flex-col gap-4">
                 <div class="min-h-0 flex-1 space-y-4">
                     <div class="hero-brand-gradient-shell p-4 sm:p-5">
@@ -158,6 +158,23 @@
                             @endauth
                         </div>
                         </div>
+                    </div>
+
+                    <div class="lg:hidden">
+                        <x-workspace.calendar
+                            agenda-context="dashboard"
+                            :selected-date="$this->selectedDate"
+                            :current-month="$this->calendarMonth"
+                            :current-year="$this->calendarYear"
+                            :month-meta="$this->calendarMonthMeta"
+                            :selected-day-agenda="$this->selectedDayAgenda"
+                        />
+
+                        @auth
+                            <div class="mt-4">
+                                <x-workspace.calendar-feeds-popover />
+                            </div>
+                        @endauth
                     </div>
 
                     <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -829,7 +846,7 @@
             </section>
         </div>
 
-        <div class="hidden lg:block lg:min-w-[260px]">
+        <div class="order-1 hidden lg:order-2 lg:block lg:min-w-[260px]">
             <div class="sticky top-6" data-focus-lock-viewport>
                 <x-workspace.calendar
                     agenda-context="dashboard"
