@@ -4,7 +4,9 @@ use App\Enums\MessageRole;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Notifications\AssistantScheduleAcceptedNotification;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
+use App\Services\UserNotificationBroadcastService;
 use App\Tools\LLM\TaskAssistant\CreateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateProjectTool;
@@ -502,6 +504,9 @@ new class extends Component
         }
 
         [$fullPath, $count] = $resolved;
+        $pendingSchedulableCount = 0;
+        $acceptedCount = 0;
+        $failedCount = 0;
 
         for ($index = 0; $index < $count; $index++) {
             $message->refresh();
@@ -509,11 +514,13 @@ new class extends Component
             if ($proposal === null || ! $this->isSchedulablePendingProposal($proposal)) {
                 continue;
             }
+            $pendingSchedulableCount++;
 
             try {
                 $this->applyScheduleProposal($proposal);
                 $message->refresh();
                 $this->setProposalStatus($message, $fullPath, $index, 'accepted');
+                $acceptedCount++;
             } catch (\Throwable $e) {
                 Log::warning('task-assistant.proposal.accept_all_failed', [
                     'layer' => 'ui',
@@ -524,12 +531,37 @@ new class extends Component
                 ]);
                 $message->refresh();
                 $this->setProposalStatus($message, $fullPath, $index, 'failed');
+                $failedCount++;
 
                 break;
             }
         }
 
         $this->refreshMessages();
+
+        $isFullSuccess = $pendingSchedulableCount > 0
+            && $acceptedCount === $pendingSchedulableCount
+            && $failedCount === 0;
+        if (! $isFullSuccess) {
+            return;
+        }
+
+        $toastMessage = trans_choice(
+            'Accepted :count proposal.|Accepted :count proposals.',
+            $acceptedCount,
+            ['count' => $acceptedCount]
+        );
+        $this->dispatch('toast', type: 'success', message: $toastMessage);
+
+        $user = Auth::user();
+        if ($user) {
+            $user->notify(new AssistantScheduleAcceptedNotification(
+                threadId: (int) $this->thread->id,
+                assistantMessageId: $assistantMessageId,
+                acceptedCount: $acceptedCount,
+            ));
+            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+        }
     }
 
     private function applyScheduleProposal(array $proposal): void

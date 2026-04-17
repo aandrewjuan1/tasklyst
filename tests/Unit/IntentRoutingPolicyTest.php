@@ -301,6 +301,16 @@ test('schedule my top 1 tasks for later routes to prioritize_schedule with singl
     expect($decision->constraints['count_limit'])->toBe(1);
 });
 
+test('schedule my most important task for later routes to prioritize_schedule with single count', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my most important task for later');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('schedule my top tasks for later routes to prioritize_schedule with default multi count', function (string $prompt): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
@@ -313,6 +323,18 @@ test('schedule my top tasks for later routes to prioritize_schedule with default
     'schedule my top tasks for tomorrow',
     'schedule my top tasks for tomorrow afternoon',
 ]);
+
+test('prioritize my most important task resolves to prioritize with single count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'prioritize my most important task');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
 
 test('schedule my top tasks for tomorrow afternoon over prior listing targets all top tasks', function (): void {
     config()->set('task-assistant.intent.use_llm', false);

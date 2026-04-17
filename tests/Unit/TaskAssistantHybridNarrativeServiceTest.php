@@ -832,6 +832,79 @@ test('daily_schedule narrative falls back when due next weekday claim conflicts 
     expect((string) $result['reasoning'])->toContain('8:00 AM–9:00 PM');
 });
 
+test('daily_schedule narrative falls back when reasoning claims first in the day but top block starts in evening', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I moved your first block to the evening as requested.',
+                'reasoning' => 'Placing your most important tasks first in the day helps focus your energy and sets a good rhythm.',
+                'confirmation' => 'Does this plan work?',
+            ])
+            ->withUsage(new Usage(1, 1)),
+    ]);
+
+    $service = new TaskAssistantHybridNarrativeService;
+
+    $blocksJson = json_encode([
+        [
+            'start_time' => '18:00',
+            'end_time' => '22:00',
+            'label' => 'Impossible 5h study block before quiz',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '13:00',
+            'end_time' => '14:30',
+            'label' => 'Workspace visibility anchor: active doing task',
+            'note' => 'Planned by strict scheduler.',
+        ],
+        [
+            'start_time' => '14:53',
+            'end_time' => '16:08',
+            'label' => 'Dashboard anchor: due today task',
+            'note' => 'Planned by strict scheduler.',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    $promptData = [
+        'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
+        'toolManifest' => [],
+        'snapshot' => [
+            'today' => '2026-04-17',
+            'timezone' => 'Asia/Manila',
+            'tasks' => [
+                ['title' => 'Impossible 5h study block before quiz', 'ends_at' => '2026-04-18T09:00:00+08:00'],
+                ['title' => 'Workspace visibility anchor: active doing task', 'ends_at' => '2026-04-18T14:30:00+08:00'],
+                ['title' => 'Dashboard anchor: due today task', 'ends_at' => '2026-04-18T16:08:00+08:00'],
+            ],
+            'events' => [],
+            'projects' => [],
+        ],
+        'route_context' => '',
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-18',
+            'end_date' => '2026-04-18',
+            'label' => 'tomorrow',
+        ],
+    ];
+
+    $result = $service->refineDailySchedule(
+        historyMessages: new Collection,
+        promptData: $promptData,
+        userMessageContent: 'move the first one at evening instead',
+        blocksJson: (string) $blocksJson,
+        deterministicSummary: 'A focused schedule with clear blocks',
+        threadId: 1,
+        userId: 1,
+        isEmptyPlacement: false,
+        schedulableProposalCount: 3,
+    );
+
+    expect(mb_strtolower((string) $result['reasoning']))->not->toContain('first in the day');
+    expect((string) $result['reasoning'])->toContain('1:00 PM–10:00 PM');
+});
+
 test('daily_schedule narrative framing falls back when claiming top task starts in morning but top row is afternoon', function (): void {
     Prism::fake([
         StructuredResponseFake::make()

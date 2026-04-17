@@ -137,6 +137,7 @@ final class NotificationBellState
             'collaborator_activity',
             'collaboration_invite_accepted_for_owner',
             'collaboration_invite_declined_for_owner',
+            'assistant_schedule_accept_success',
         ], true);
     }
 

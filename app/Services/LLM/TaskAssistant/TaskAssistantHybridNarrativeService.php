@@ -869,7 +869,7 @@ final class TaskAssistantHybridNarrativeService
         }
 
         if ($earliestStart !== null
-            && preg_match('/\b(first thing in the morning|early morning|in the morning)\b/iu', $lower) === 1
+            && preg_match('/\b(first thing in the morning|early morning|in the morning|first in the day|early in the day|start of the day|start your day)\b/iu', $lower) === 1
             && (($topStartMinutes ?? $earliestStart) >= 12 * 60)) {
             return trim($fallback) !== '' ? trim($fallback) : $normalized;
         }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Jobs\BroadcastTaskAssistantStreamJob;
+use App\Models\DatabaseNotification;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
@@ -230,6 +231,17 @@ test('chat flyout can accept all schedule proposals and apply updates', function
     expect(data_get($assistantMessage->metadata, 'schedule.proposals.0.status'))->toBe('accepted');
     expect($task->duration)->toBe(90);
     expect($task->start_datetime?->toIso8601String())->toContain($startAt->format('Y-m-d\TH'));
+
+    $notification = DatabaseNotification::query()
+        ->where('notifiable_type', User::class)
+        ->where('notifiable_id', $user->id)
+        ->latest()
+        ->first();
+
+    expect($notification)->not->toBeNull();
+    expect(data_get($notification?->data, 'type'))->toBe('assistant_schedule_accept_success');
+    expect(data_get($notification?->data, 'route'))->toBe('workspace');
+    expect(data_get($notification?->data, 'meta.accepted_count'))->toBe(1);
 });
 
 test('chat flyout accept all applies multiple pending task proposals', function () {
@@ -342,6 +354,82 @@ test('chat flyout does not accept all on stale schedule card when a newer assist
 
     $olderAssistant->refresh();
     expect(data_get($olderAssistant->metadata, 'daily_schedule.proposals.0.status'))->toBe('pending');
+});
+
+test('chat flyout accept all dispatches success toast only on full success', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Task to schedule',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $startAt = now()->addHour()->startOfHour();
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'full-success',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => $task->id,
+                    'title' => $task->title,
+                    'start_datetime' => $startAt->toIso8601String(),
+                    'duration_minutes' => 60,
+                ]],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $assistantMessage->id)
+        ->assertDispatched('toast', type: 'success', message: 'Accepted 1 proposal.');
+});
+
+test('chat flyout accept all does not dispatch success toast or notification when nothing is schedulable', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'placeholder',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => null,
+                    'title' => 'No schedulable items found',
+                    'start_datetime' => now()->addHour()->toIso8601String(),
+                ]],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $assistantMessage->id)
+        ->assertNotDispatched('toast');
+
+    $count = DatabaseNotification::query()
+        ->where('notifiable_type', User::class)
+        ->where('notifiable_id', $user->id)
+        ->count();
+
+    expect($count)->toBe(0);
 });
 
 test('chat flyout restores streaming state from persisted thread metadata after reload', function () {

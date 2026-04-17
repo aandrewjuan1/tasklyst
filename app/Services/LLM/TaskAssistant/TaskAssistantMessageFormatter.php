@@ -639,11 +639,15 @@ final class TaskAssistantMessageFormatter
     private function formatScheduleFallbackConfirmationMessage(array $data): string
     {
         $ctx = is_array($data['confirmation_context'] ?? null) ? $data['confirmation_context'] : [];
+        $reasonCode = trim((string) ($ctx['reason_code'] ?? ''));
         $reason = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['reason_message'] ?? '')));
         $prompt = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['prompt'] ?? '')));
         $preview = is_array($data['fallback_preview'] ?? null) ? $data['fallback_preview'] : [];
 
         $paragraphs = [];
+        if ($reasonCode === 'top_n_shortfall') {
+            $paragraphs[] = 'Decision needed before finalizing: I could not fit all requested top tasks in the current window.';
+        }
         $framing = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($data['framing'] ?? '')));
         if ($framing !== '') {
             $paragraphs[] = $framing;

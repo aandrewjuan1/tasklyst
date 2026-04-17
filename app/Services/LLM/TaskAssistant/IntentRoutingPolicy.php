@@ -474,6 +474,10 @@ final class IntentRoutingPolicy
             }
         }
 
+        if ($this->isSingleFocusRequest($normalized)) {
+            return 1;
+        }
+
         $defaultMulti = (int) config('task-assistant.intent.prioritize_default_multi_count', 3);
         $defaultMulti = max(2, min($defaultMulti, 10));
 
@@ -486,6 +490,26 @@ final class IntentRoutingPolicy
         }
 
         return 3;
+    }
+
+    private function isSingleFocusRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (preg_match('/\b(tasks|items)\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        if (preg_match('/\b(\d+|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(my\s+)?(most\s+important|top|highest\s+priority|most\s+urgent|main|single)\s+(task|item)\b/u',
+            $normalized
+        ) === 1;
     }
 
     private function extractTimeWindowHint(string $normalized): ?string

@@ -634,6 +634,7 @@ final class TaskAssistantStructuredFlowGenerator
     {
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
+        $requestedCount = $this->resolveRequestedCount($countLimit, $scheduleOptions);
         $placementDates = $this->resolvePlacementDates($snapshot, $timezone);
         $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
         $isRange = ($horizon['mode'] ?? '') === 'range'
@@ -700,6 +701,8 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         $digest = [
+            'requested_count' => $requestedCount,
+            'time_window_hint' => is_string($scheduleOptions['time_window_hint'] ?? null) ? $scheduleOptions['time_window_hint'] : null,
             'placement_dates' => $placementDates,
             'days_used' => [],
             'skipped_targets' => is_array($snapshot['schedule_target_skips'] ?? null)
@@ -707,6 +710,10 @@ final class TaskAssistantStructuredFlowGenerator
                 : [],
             'unplaced_units' => [],
             'partial_units' => [],
+            'full_placed_count' => 0,
+            'partial_placed_count' => 0,
+            'count_shortfall' => 0,
+            'top_n_shortfall' => false,
             'summary' => '',
         ];
 
@@ -842,7 +849,10 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             if (! $placed) {
-                if (! $disablePartial && ($unit['entity_type'] ?? '') === 'task') {
+                if (! $disablePartial
+                    && ($unit['entity_type'] ?? '') === 'task'
+                    && $this->canUsePartialPlacementForUnit($unit, $scheduleOptions, $requestedCount)
+                ) {
                     $partial = $this->placePartialTaskUnit(
                         unit: $unit,
                         placementDates: $placementDates,
@@ -890,10 +900,21 @@ final class TaskAssistantStructuredFlowGenerator
             count($digest['days_used']),
             count($digest['unplaced_units'])
         );
+        $digest = $this->enrichTopNPlacementDigest(
+            $digest,
+            $proposals,
+            $requestedCount,
+            $scheduleOptions
+        );
 
         if ($proposals === []) {
             $skipAdaptive = (bool) ($context['_refinement_skip_adaptive_fallback'] ?? false);
-            if (! $skipAdaptive && ! $adaptiveAttempted && $this->shouldAttemptAdaptiveFallback($snapshot, $context, $digest, $timezone)) {
+            if (
+                ! $skipAdaptive
+                && ! $adaptiveAttempted
+                && $this->canUseAdaptiveFallbackForScheduleOptions($scheduleOptions)
+                && $this->shouldAttemptAdaptiveFallback($snapshot, $context, $digest, $timezone)
+            ) {
                 $adaptiveContext = $context;
                 $adaptiveContext['_adaptive_fallback_attempted'] = true;
                 $adaptiveSnapshot = $this->buildAdaptiveFallbackSnapshot($snapshot, $timezone);
@@ -1031,6 +1052,115 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $real === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function resolveRequestedCount(int $countLimit, array $scheduleOptions): int
+    {
+        $requested = (int) ($scheduleOptions['count_limit'] ?? $countLimit);
+
+        return max(1, min($requested, 10));
+    }
+
+    /**
+     * @param  array<string, mixed>  $unit
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function canUsePartialPlacementForUnit(array $unit, array $scheduleOptions, int $requestedCount): bool
+    {
+        if ($requestedCount <= 1) {
+            return true;
+        }
+
+        $policy = (string) config('task-assistant.schedule.partial_policy', 'top1_only');
+        if ($policy !== 'top1_only') {
+            return true;
+        }
+
+        $rank = (int) ($unit['priority_rank'] ?? PHP_INT_MAX);
+
+        return $rank === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $digest
+     * @param  list<array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array<string, mixed>
+     */
+    private function enrichTopNPlacementDigest(array $digest, array $proposals, int $requestedCount, array $scheduleOptions): array
+    {
+        $fullPlaced = 0;
+        $partialPlaced = 0;
+        $qualifiedPlaced = 0;
+
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $isPartial = (bool) ($proposal['partial'] ?? false);
+            if ($isPartial) {
+                $partialPlaced++;
+            } else {
+                $fullPlaced++;
+            }
+
+            if ($this->isProposalQualifiedForRequestedCount($proposal, $requestedCount)) {
+                $qualifiedPlaced++;
+            }
+        }
+
+        $digest['full_placed_count'] = $fullPlaced;
+        $digest['partial_placed_count'] = $partialPlaced;
+
+        $shortfallPolicy = (string) config('task-assistant.schedule.top_n_shortfall_policy', 'confirm_if_shortfall');
+        $isTopNContract = $shortfallPolicy === 'confirm_if_shortfall' && $requestedCount > 1;
+        $shortfallCount = $isTopNContract ? max(0, $requestedCount - $qualifiedPlaced) : 0;
+
+        $digest['count_shortfall'] = $shortfallCount;
+        $digest['top_n_shortfall'] = $shortfallCount > 0;
+
+        return $digest;
+    }
+
+    /**
+     * @param  array<string, mixed>  $proposal
+     */
+    private function isProposalQualifiedForRequestedCount(array $proposal, int $requestedCount): bool
+    {
+        $isPartial = (bool) ($proposal['partial'] ?? false);
+        if (! $isPartial) {
+            return true;
+        }
+
+        if ($requestedCount <= 1) {
+            return true;
+        }
+
+        $policy = (string) config('task-assistant.schedule.partial_policy', 'top1_only');
+        if ($policy !== 'top1_only') {
+            return true;
+        }
+
+        return (int) ($proposal['priority_rank'] ?? PHP_INT_MAX) === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function canUseAdaptiveFallbackForScheduleOptions(array $scheduleOptions): bool
+    {
+        $overflowStrategy = (string) config('task-assistant.schedule.overflow_strategy', 'require_confirm');
+        $requestedCount = $this->resolveRequestedCount((int) ($scheduleOptions['count_limit'] ?? 1), $scheduleOptions);
+
+        if ($overflowStrategy === 'require_confirm' && $requestedCount > 1) {
+            return false;
+        }
+
+        return true;
     }
 
     private function shouldAttemptAdaptiveFallback(
