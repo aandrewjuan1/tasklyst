@@ -45,6 +45,19 @@
     display: none !important;
 }
 
+/* Scheduled focus panel: prevent first-paint flicker based on persisted collapse state. */
+[data-workspace-scheduled-focus-collapsed="true"] [data-scheduled-focus-plan-content] {
+    display: none;
+}
+
+[data-workspace-scheduled-focus-collapsed="true"] [data-scheduled-focus-toggle-label="hide"] {
+    display: none;
+}
+
+[data-workspace-scheduled-focus-collapsed="false"] [data-scheduled-focus-toggle-label="show"] {
+    display: none;
+}
+
 @layer base {
 
     *,

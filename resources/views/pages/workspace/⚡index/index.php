@@ -618,6 +618,7 @@ class extends Component
             ->map(function (AssistantSchedulePlanItem $item) use ($timezone): array {
                 $startAt = $item->planned_start_at?->setTimezone($timezone);
                 $endAt = $item->planned_end_at?->setTimezone($timezone);
+                $entityType = (string) $item->entity_type;
 
                 $bucket = 'upcoming';
                 if ($startAt?->isToday()) {
@@ -626,16 +627,30 @@ class extends Component
                     $bucket = 'tomorrow';
                 }
 
+                $entityTypePillClass = match ($entityType) {
+                    'event' => 'lic-item-type-pill--event',
+                    'project' => 'lic-item-type-pill--project',
+                    default => 'lic-item-type-pill--task',
+                };
+
+                $surfaceClass = match ($entityType) {
+                    'event' => 'lic-surface-event',
+                    'project' => 'lic-surface-project',
+                    default => 'lic-surface-task-todo',
+                };
+
                 return [
                     'id' => $item->id,
-                    'entity_type' => (string) $item->entity_type,
+                    'entity_type' => $entityType,
                     'entity_id' => (int) $item->entity_id,
-                    'entity_label' => Str::headline((string) $item->entity_type),
+                    'entity_label' => Str::headline($entityType),
+                    'entity_type_pill_class' => $entityTypePillClass,
+                    'surface_class' => $surfaceClass,
                     'title' => (string) $item->title,
                     'planned_start_at' => $startAt?->toIso8601String(),
                     'planned_end_at' => $endAt?->toIso8601String(),
                     'planned_duration_minutes' => $item->planned_duration_minutes,
-                    'status' => $item->status?->value,
+                    'status' => $item->status?->value ?? AssistantSchedulePlanItemStatus::Planned->value,
                     'bucket' => $bucket,
                     'time_range_label' => $this->formatScheduledFocusTimeRange($startAt, $endAt),
                     'duration_label' => $this->formatDurationHumanReadable($item->planned_duration_minutes),
@@ -939,7 +954,7 @@ class extends Component
         }
     }
 
-    private function formatScheduledFocusTimeRange(?CarbonImmutable $startAt, ?CarbonImmutable $endAt): string
+    private function formatScheduledFocusTimeRange(?\Carbon\CarbonInterface $startAt, ?\Carbon\CarbonInterface $endAt): string
     {
         if (! $startAt) {
             return (string) __('No time set');

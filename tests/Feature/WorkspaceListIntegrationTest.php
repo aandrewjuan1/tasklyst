@@ -239,7 +239,11 @@ test('workspace list shows scheduled focus panel when assistant accepted plan it
     $this->get(route('workspace', ['view' => 'list']))
         ->assertSuccessful()
         ->assertSee('Scheduled focus')
-        ->assertSee('AI Planned Task');
+        ->assertSee('AI Planned Task')
+        ->assertSee('Task')
+        ->assertSee('Time:')
+        ->assertDontSee('Reschedule')
+        ->assertDontSee('Dismiss');
 });
 
 test('workspace list hides scheduled focus panel when no active assistant plan items exist', function (): void {
