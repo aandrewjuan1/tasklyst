@@ -38,4 +38,9 @@ class TaskAssistantMessage extends Model
     {
         return $this->hasMany(LlmToolCall::class, 'message_id');
     }
+
+    public function schedulePlans(): HasMany
+    {
+        return $this->hasMany(AssistantSchedulePlan::class, 'assistant_message_id');
+    }
 }

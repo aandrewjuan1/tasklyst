@@ -7,19 +7,23 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class TaskAssistantThread extends Model
+class AssistantSchedulePlan extends Model
 {
     use HasFactory;
 
     protected $fillable = [
         'user_id',
-        'title',
+        'thread_id',
+        'assistant_message_id',
+        'source',
+        'accepted_at',
         'metadata',
     ];
 
     protected function casts(): array
     {
         return [
+            'accepted_at' => 'datetime',
             'metadata' => 'array',
         ];
     }
@@ -29,13 +33,18 @@ class TaskAssistantThread extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function messages(): HasMany
+    public function thread(): BelongsTo
     {
-        return $this->hasMany(TaskAssistantMessage::class, 'thread_id')->orderBy('created_at');
+        return $this->belongsTo(TaskAssistantThread::class, 'thread_id');
     }
 
-    public function schedulePlans(): HasMany
+    public function assistantMessage(): BelongsTo
     {
-        return $this->hasMany(AssistantSchedulePlan::class, 'thread_id');
+        return $this->belongsTo(TaskAssistantMessage::class, 'assistant_message_id');
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(AssistantSchedulePlanItem::class);
     }
 }

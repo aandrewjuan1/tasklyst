@@ -1,6 +1,8 @@
 <?php
 
 use App\Jobs\BroadcastTaskAssistantStreamJob;
+use App\Models\AssistantSchedulePlan;
+use App\Models\AssistantSchedulePlanItem;
 use App\Models\DatabaseNotification;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
@@ -242,6 +244,23 @@ test('chat flyout can accept all schedule proposals and apply updates', function
     expect(data_get($notification?->data, 'type'))->toBe('assistant_schedule_accept_success');
     expect(data_get($notification?->data, 'route'))->toBe('workspace');
     expect(data_get($notification?->data, 'meta.accepted_count'))->toBe(1);
+
+    $plan = AssistantSchedulePlan::query()
+        ->where('user_id', $user->id)
+        ->where('thread_id', $thread->id)
+        ->where('assistant_message_id', $assistantMessage->id)
+        ->first();
+
+    expect($plan)->not->toBeNull();
+
+    $planItem = AssistantSchedulePlanItem::query()
+        ->where('assistant_schedule_plan_id', $plan?->id)
+        ->where('proposal_uuid', 'proposal-task-1')
+        ->first();
+
+    expect($planItem)->not->toBeNull();
+    expect($planItem?->entity_type)->toBe('task');
+    expect((int) $planItem?->entity_id)->toBe($task->id);
 });
 
 test('chat flyout accept all applies multiple pending task proposals', function () {
