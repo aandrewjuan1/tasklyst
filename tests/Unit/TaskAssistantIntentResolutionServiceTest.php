@@ -43,7 +43,7 @@ test('when intent inference is unavailable, strong prioritize signal routes to p
     expect($decision->reasonCodes)->toContain('intent_llm_unavailable_signal_fallback');
 });
 
-test('when intent llm returns an invalid label, signal fallback is not used', function (): void {
+test('when intent llm returns an invalid label, strong signal fallback is used', function (): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
 
@@ -57,13 +57,13 @@ test('when intent llm returns an invalid label, signal fallback is not used', fu
 
     $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
         $thread,
-        'hello there friend',
+        'what are my top tasks today?',
         $inference,
         ['prioritization' => 0.87, 'scheduling' => 0.0],
     );
 
-    expect($decision->flow)->toBe('general_guidance');
-    expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_general_guidance');
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('intent_llm_failed_signal_fallback');
 });
 
 test('when intent llm connection fails, strong prioritize signal routes to prioritize', function (): void {

@@ -115,6 +115,9 @@ final class TaskAssistantFlowExecutionEngine
 
         $processedValid = (bool) ($processedResponse['valid'] ?? false);
         $finalValid = $generationValid && $processedValid;
+        $structuredData = $finalValid
+            ? (is_array($processedResponse['structured_data'] ?? null) ? $processedResponse['structured_data'] : [])
+            : $this->minimalStructuredDataForInvalidFlow($flow, $payload);
 
         $assistantContent = $finalValid
             ? (string) ($processedResponse['formatted_content'] ?? '')
@@ -163,6 +166,7 @@ final class TaskAssistantFlowExecutionEngine
             'generation_valid' => $generationValid,
             'processed_valid' => $processedValid,
             'final_valid' => $finalValid,
+            'structured_data_mode' => $finalValid ? 'full' : 'safe_minimal_invalid',
             'merged_errors' => $mergedErrors,
             'generation_payload_summary' => self::summarizeGenerationPayload($flow, $payload),
             'assistant_content_length' => mb_strlen($assistantContent),
@@ -172,11 +176,96 @@ final class TaskAssistantFlowExecutionEngine
         return [
             'final_valid' => $finalValid,
             'assistant_content' => $assistantContent,
-            'structured_data' => $processedResponse['structured_data'] ?? [],
+            'structured_data' => $structuredData,
             'merged_errors' => $mergedErrors,
             'processed_valid' => $processedValid,
             'processed_errors' => $processedResponse['errors'] ?? [],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function minimalStructuredDataForInvalidFlow(string $flow, array $payload): array
+    {
+        return match ($flow) {
+            'prioritize' => [
+                'items' => [],
+                'limit_used' => 0,
+                'focus' => [
+                    'main_task' => 'Unable to generate ranked items',
+                    'secondary_tasks' => [],
+                ],
+                'framing' => null,
+                'reasoning' => 'I could not validate a ranked list this time.',
+                'next_options' => 'If you want, ask me to prioritize again or schedule one task.',
+                'next_options_chip_texts' => [],
+                'filter_interpretation' => null,
+                'count_mismatch_explanation' => null,
+            ],
+            'daily_schedule' => [
+                'proposals' => [],
+                'items' => [],
+                'blocks' => [],
+                'schedule_variant' => (string) ($payload['schedule_variant'] ?? 'daily'),
+                'confirmation_required' => false,
+                'awaiting_user_decision' => false,
+                'confirmation_context' => null,
+                'fallback_preview' => null,
+            ],
+            'listing_followup' => [
+                'verdict' => 'partial',
+                'compared_items' => [],
+                'more_urgent_alternatives' => [],
+                'framing' => 'I could not validate that follow-up comparison this time.',
+                'rationale' => 'Please ask for your top tasks again, then I can compare clearly.',
+                'caveats' => null,
+                'next_options' => 'If you want, I can show a prioritized list or help you schedule.',
+                'next_options_chip_texts' => [
+                    'What should I do first',
+                    'Plan my day tomorrow',
+                ],
+            ],
+            'general_guidance' => [
+                'intent' => 'task',
+                'acknowledgement' => 'I hear you.',
+                'message' => 'I had trouble validating that response, but I can still help with your tasks.',
+                'suggested_next_actions' => [
+                    'Tell me what to prioritize first',
+                    'Share when you want to schedule work',
+                ],
+                'next_options' => (string) config('task-assistant.general_guidance.default_next_options', 'If you want, I can help you decide what to do first or schedule time for your work.'),
+                'next_options_chip_texts' => $this->generalGuidanceDefaultChips(),
+            ],
+            default => [],
+        };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function generalGuidanceDefaultChips(): array
+    {
+        $raw = config('task-assistant.general_guidance.next_options_chip_texts', []);
+        if (! is_array($raw) || $raw === []) {
+            return ['What should I do first', 'Schedule my most important task'];
+        }
+
+        $chips = array_values(array_filter(array_map(
+            static fn (mixed $value): string => trim((string) $value),
+            $raw
+        ), static fn (string $value): bool => $value !== ''));
+
+        if ($chips === []) {
+            return ['What should I do first', 'Schedule my most important task'];
+        }
+
+        if (count($chips) === 1) {
+            return [$chips[0], 'Schedule my most important task'];
+        }
+
+        return array_slice($chips, 0, 2);
     }
 
     /**
