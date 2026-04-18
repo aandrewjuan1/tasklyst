@@ -1122,12 +1122,19 @@ export function listItemCard(config) {
             this._focus.onFocusSessionUpdated(this, incoming);
         },
         onRecurringSelectionUpdated(detail) {
-            if (detail && detail.path === 'recurrence') {
-                this.updateRecurrence(detail.value);
+            if (!detail || detail.path !== 'recurrence') {
+                return;
             }
+            if (detail.itemId == null || Number(detail.itemId) !== Number(this.itemId)) {
+                return;
+            }
+            this.updateRecurrence(detail.value);
         },
         onRecurringRevert(detail) {
             if (!detail || detail.path !== 'recurrence') return;
+            if (detail.itemId != null && Number(detail.itemId) !== Number(this.itemId)) {
+                return;
+            }
             const v = detail.value;
             this.showSkipOccurrence = !!(v?.enabled);
             if (!(v?.enabled)) {
@@ -1145,6 +1152,12 @@ export function listItemCard(config) {
                 : 0;
         },
         onItemPropertyUpdated(detail) {
+            if (!detail) {
+                return;
+            }
+            if (detail.itemId != null && Number(detail.itemId) !== Number(this.itemId)) {
+                return;
+            }
             if (this.shouldHideAfterPropertyUpdate(detail)) {
                 this.dateChangeHidingCard = true;
                 this.hideFromList();
