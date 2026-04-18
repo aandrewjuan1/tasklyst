@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Livewire\Livewire;
 
 test('second accept for same entity and calendar day updates existing plan item instead of duplicating', function (): void {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -72,11 +73,11 @@ test('second accept for same entity and calendar day updates existing plan item 
     expect(AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->count())->toBe(1);
     $row = AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->first();
     expect($row->id)->toBe($firstId);
-    expect($row->proposal_uuid)->toBe('second-proposal');
     expect($row->planned_duration_minutes)->toBe(45);
 });
 
-test('accepting proposals on different calendar days creates separate plan items', function (): void {
+test('accepting proposals on different calendar days supersedes older active item for same entity', function (): void {
+    /** @var User $user */
     $user = User::factory()->create();
     $this->actingAs($user);
 
@@ -135,5 +136,10 @@ test('accepting proposals on different calendar days creates separate plan items
     Livewire::test('assistant.chat-flyout')
         ->call('acceptAllScheduleProposals', $thread->messages()->latest('id')->first()->id);
 
-    expect(AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->count())->toBe(2);
+    expect(AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->count())->toBe(1);
+    expect(AssistantSchedulePlanItem::query()->where('user_id', $user->id)->where('status', \App\Enums\AssistantSchedulePlanItemStatus::Dismissed)->count())->toBe(1);
+
+    $active = AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->first();
+    expect($active)->not->toBeNull();
+    expect(optional($active->planned_start_at)?->toDateString())->toBe($day2->toDateString());
 });

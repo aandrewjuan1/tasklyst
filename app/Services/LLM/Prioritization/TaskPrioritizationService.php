@@ -656,6 +656,8 @@ final class TaskPrioritizationService
             if (! $recurringOnly->isEmpty()) {
                 $filtered = $recurringOnly;
             }
+        } else {
+            $filtered = $this->preferNonRecurringTasksByDefault($filtered);
         }
 
         $domainFocus = $context['domain_focus'] ?? null;
@@ -774,6 +776,23 @@ final class TaskPrioritizationService
         }
 
         return $filtered;
+    }
+
+    /**
+     * Default policy: prefer non-recurring tasks when available.
+     * Recurring tasks are used as fallback only when non-recurring is empty.
+     */
+    private function preferNonRecurringTasksByDefault(Collection $tasks): Collection
+    {
+        $nonRecurring = $tasks->filter(static function (array $task): bool {
+            return empty($task['is_recurring']);
+        });
+
+        if (! $nonRecurring->isEmpty()) {
+            return $nonRecurring;
+        }
+
+        return $tasks;
     }
 
     /**

@@ -2333,12 +2333,13 @@ final class TaskAssistantService
                 'Cancel scheduling for now',
             ];
         } elseif ($topNShortfall) {
+            $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
             if ($requestedCountSource === 'explicit_user') {
                 $reasonMessage = "You asked for top {$requestedCount}, but only {$proposalsCount} fit in {$requestedWindowLabel}.";
             } else {
                 $reasonMessage = "Only {$proposalsCount} fit in {$requestedWindowLabel} for this draft.";
             }
-            $prompt = "I can keep this {$proposalsCount}-task draft, or we can adjust your window to try fitting all {$requestedCount}. Which do you want?";
+            $prompt = "I can keep this draft with {$proposalsCount} {$taskNoun}, or we can adjust your time window to try fitting all {$requestedCount}. Which would you like?";
             $reasonCode = 'top_n_shortfall';
             $options = [
                 'Keep this current draft',

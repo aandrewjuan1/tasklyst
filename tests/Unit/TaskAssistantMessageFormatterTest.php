@@ -819,6 +819,10 @@ class TaskAssistantMessageFormatterTest extends TestCase
                 'reason_code' => 'top_n_shortfall',
                 'reason_message' => 'Only one task fit in your current window.',
                 'prompt' => 'Should I keep this draft or try a wider window?',
+                'options' => [
+                    'Keep this current draft',
+                    'Pick another time window',
+                ],
             ],
             'fallback_preview' => [
                 'proposals_count' => 1,
@@ -837,6 +841,9 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('I drafted a plan for today and paused so you can choose next.', $out);
+        $this->assertStringContainsString('Options:', $out);
+        $this->assertStringContainsString('1) Keep this current draft', $out);
+        $this->assertStringContainsString('2) Pick another time window', $out);
         $this->assertStringNotContainsString('Decision needed before finalizing:', $out);
     }
 

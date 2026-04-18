@@ -620,6 +620,10 @@ class extends Component
                 $startAt = $item->planned_start_at?->setTimezone($timezone);
                 $endAt = $item->planned_end_at?->setTimezone($timezone);
                 $entityType = (string) $item->entity_type;
+                $metadata = is_array($item->metadata ?? null) ? $item->metadata : [];
+                $lastAction = strtolower(trim((string) data_get($metadata, 'actions.last_action', '')));
+                $supersededCount = (int) data_get($metadata, 'rescheduled_from_previous_plan_item_count', 0);
+                $isRescheduled = $lastAction === 'rescheduled' || $supersededCount > 0;
 
                 $bucket = 'upcoming';
                 if ($startAt?->isToday()) {
@@ -655,6 +659,7 @@ class extends Component
                     'bucket' => $bucket,
                     'time_range_label' => $this->formatScheduledFocusTimeRange($startAt, $endAt),
                     'duration_label' => $this->formatDurationHumanReadable($item->planned_duration_minutes),
+                    'is_rescheduled' => $isRescheduled,
                 ];
             })
             ->values();

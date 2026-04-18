@@ -689,11 +689,42 @@ final class TaskAssistantMessageFormatter
             }
         }
 
+        $options = is_array($ctx['options'] ?? null) ? $ctx['options'] : [];
+        $optionsBlock = $this->formatScheduleConfirmationOptions($options);
+        if ($optionsBlock !== '') {
+            $paragraphs[] = $optionsBlock;
+        }
+
         if ($prompt !== '') {
             $paragraphs[] = $prompt;
         }
 
         return trim(implode("\n\n", $paragraphs));
+    }
+
+    /**
+     * @param  array<int, mixed>  $options
+     */
+    private function formatScheduleConfirmationOptions(array $options): string
+    {
+        $lines = [];
+        foreach ($options as $option) {
+            $text = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) $option));
+            if ($text !== '') {
+                $lines[] = $text;
+            }
+        }
+
+        if ($lines === []) {
+            return '';
+        }
+
+        $numbered = [];
+        foreach ($lines as $index => $line) {
+            $numbered[] = ($index + 1).') '.$line;
+        }
+
+        return "Options:\n".implode("\n", $numbered);
     }
 
     private function formatScheduleDurationLabel(int $minutes): string

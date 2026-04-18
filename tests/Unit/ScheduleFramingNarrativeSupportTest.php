@@ -103,3 +103,37 @@ test('multi-block fallback varies with seed and mentions blocks or rows', functi
         || str_contains($lower, 'line')
     )->toBeTrue();
 });
+
+test('fallback respects tomorrow horizon language', function (): void {
+    $blocks = [
+        ['start_time' => '08:00', 'end_time' => '09:00', 'label' => 'Read notes'],
+        ['start_time' => '09:15', 'end_time' => '10:00', 'label' => 'Quiz practice'],
+    ];
+
+    $promptData = [
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-19',
+            'end_date' => '2026-04-19',
+            'label' => 'tomorrow',
+        ],
+        'snapshot' => [
+            'today' => '2026-04-18',
+        ],
+        'user_context' => [
+            'schedule_intent_flags' => [],
+        ],
+    ];
+
+    $framing = ScheduleFramingNarrativeSupport::buildFallback(
+        $blocks,
+        $promptData,
+        2,
+        'Plan my day for tomorrow',
+        'unit|tomorrow-horizon'
+    );
+
+    $lower = mb_strtolower($framing);
+    expect($lower)->toContain('tomorrow');
+    expect($lower)->not->toContain('today');
+});

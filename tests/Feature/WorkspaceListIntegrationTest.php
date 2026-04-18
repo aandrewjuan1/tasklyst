@@ -246,6 +246,46 @@ test('workspace list shows scheduled focus panel when assistant accepted plan it
         ->assertDontSee('Dismiss');
 });
 
+test('workspace list shows rescheduled badge for superseded latest plan item', function (): void {
+    $this->actingAs($this->user);
+
+    $plan = AssistantSchedulePlan::query()->create([
+        'user_id' => $this->user->id,
+        'thread_id' => null,
+        'assistant_message_id' => null,
+        'source' => 'assistant_accept_all',
+        'accepted_at' => now(),
+        'metadata' => [],
+    ]);
+
+    AssistantSchedulePlanItem::query()->create([
+        'assistant_schedule_plan_id' => $plan->id,
+        'user_id' => $this->user->id,
+        'proposal_uuid' => 'scheduled-focus-rescheduled-1',
+        'proposal_id' => 'scheduled-focus-rescheduled-1',
+        'entity_type' => 'task',
+        'entity_id' => 321,
+        'title' => 'Rescheduled Focus Task',
+        'planned_start_at' => now()->addHour(),
+        'planned_end_at' => now()->addHours(2),
+        'planned_duration_minutes' => 60,
+        'status' => AssistantSchedulePlanItemStatus::Planned,
+        'accepted_at' => now(),
+        'metadata' => [
+            'actions' => [
+                'last_action' => 'rescheduled',
+                'last_action_at' => now()->toIso8601String(),
+            ],
+            'rescheduled_from_previous_plan_item_count' => 1,
+        ],
+    ]);
+
+    $this->get(route('workspace', ['view' => 'list']))
+        ->assertSuccessful()
+        ->assertSee('Rescheduled Focus Task')
+        ->assertSee('Rescheduled');
+});
+
 test('workspace list hides scheduled focus panel when no active assistant plan items exist', function (): void {
     $this->actingAs($this->user);
 

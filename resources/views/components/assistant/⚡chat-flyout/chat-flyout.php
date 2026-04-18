@@ -665,6 +665,7 @@ new class extends Component
                 ->active()
                 ->first();
 
+            $savedItem = null;
             if ($existing) {
                 $mergedMetadata = is_array($existing->metadata) ? $existing->metadata : [];
                 $mergedMetadata = array_merge($mergedMetadata, $proposalMetadata);
@@ -686,8 +687,9 @@ new class extends Component
                     'metadata' => $mergedMetadata,
                 ]);
                 $existing->save();
+                $savedItem = $existing;
             } else {
-                AssistantSchedulePlanItem::query()->create([
+                $savedItem = AssistantSchedulePlanItem::query()->create([
                     'assistant_schedule_plan_id' => $plan->id,
                     'user_id' => $user->id,
                     'proposal_uuid' => $proposalUuid,
@@ -703,7 +705,59 @@ new class extends Component
                     'metadata' => $proposalMetadata,
                 ]);
             }
+
+            if ($savedItem instanceof AssistantSchedulePlanItem) {
+                $supersededCount = $this->dismissOlderActivePlanItemsForEntity(
+                    userId: (int) $user->id,
+                    entityType: $entityType,
+                    entityId: $entityId,
+                    keepItemId: (int) $savedItem->id,
+                );
+                if ($supersededCount > 0) {
+                    $savedMetadata = is_array($savedItem->metadata) ? $savedItem->metadata : [];
+                    data_set($savedMetadata, 'actions.last_action', 'rescheduled');
+                    data_set($savedMetadata, 'actions.last_action_at', now()->toIso8601String());
+                    data_set($savedMetadata, 'rescheduled_from_previous_plan_item_count', $supersededCount);
+                    $savedItem->fill([
+                        'metadata' => $savedMetadata,
+                    ]);
+                    $savedItem->save();
+                }
+            }
         }
+    }
+
+    private function dismissOlderActivePlanItemsForEntity(
+        int $userId,
+        string $entityType,
+        int $entityId,
+        int $keepItemId
+    ): int {
+        $activeItems = AssistantSchedulePlanItem::query()
+            ->forUser($userId)
+            ->where('entity_type', $entityType)
+            ->where('entity_id', $entityId)
+            ->active()
+            ->where('id', '!=', $keepItemId)
+            ->get();
+
+        $dismissedCount = 0;
+        foreach ($activeItems as $activeItem) {
+            /** @var AssistantSchedulePlanItem $activeItem */
+            $metadata = is_array($activeItem->metadata) ? $activeItem->metadata : [];
+            data_set($metadata, 'superseded_at', now()->toIso8601String());
+            data_set($metadata, 'superseded_by_plan_item_id', $keepItemId);
+
+            $activeItem->fill([
+                'status' => AssistantSchedulePlanItemStatus::Dismissed,
+                'dismissed_at' => now(),
+                'metadata' => $metadata,
+            ]);
+            $activeItem->save();
+            $dismissedCount++;
+        }
+
+        return $dismissedCount;
     }
 
     private function applyScheduleProposal(array $proposal): void

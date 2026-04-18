@@ -132,6 +132,11 @@
                                         ])>
                                             {{ (string) ($item['title'] ?? __('Scheduled item')) }}
                                         </flux:text>
+                                        @if (($item['is_rescheduled'] ?? false) === true)
+                                            <span class="mt-1 inline-flex items-center rounded-full border border-amber-300/70 bg-amber-100/80 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.05em] text-amber-900 dark:border-amber-300/40 dark:bg-amber-500/15 dark:text-amber-200">
+                                                {{ __('Rescheduled') }}
+                                            </span>
+                                        @endif
                                     </div>
                                 </div>
 
