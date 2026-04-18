@@ -208,3 +208,38 @@ test('selected day agenda workspace urls use id deep links not search query', fu
         ->and($eventRow['focus_kind'])->toBe('event')
         ->and($eventRow['focus_id'])->toBe($event->id);
 });
+
+test('workspace index includes calendar dot legend and mobile date bar', function (): void {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    Livewire::test('pages::workspace.index')
+        ->assertSee('data-testid="calendar-dot-legend"', false)
+        ->assertSee('data-testid="workspace-mobile-selected-date-bar"', false)
+        ->assertSee('id="workspace-mobile-calendar-anchor"', false);
+});
+
+test('selected day agenda times use 12-hour clock in the sidebar', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 10:00:00'));
+
+    $user = User::factory()->create();
+    Task::factory()->for($user)->create([
+        'title' => 'Evening due task',
+        'priority' => TaskPriority::Medium,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => Carbon::parse('2026-04-09 20:53:00'),
+        'completed_at' => null,
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $dueRows = collect($agenda['dueDayTasks'] ?? []);
+    expect($dueRows)->not->toBeEmpty();
+    expect($dueRows->first()['time'])->toContain('8:53')->and($dueRows->first()['time'])->toContain('PM');
+    expect($dueRows->first()['time_label'])->toBe(__('Due'));
+});

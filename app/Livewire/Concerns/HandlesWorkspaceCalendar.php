@@ -315,14 +315,41 @@ trait HandlesWorkspaceCalendar
     }
 
     /**
+     * 12-hour clock for calendar sidebar agenda rows (avoids 24-hour “military” times).
+     */
+    private function formatCalendarAgendaClock(CarbonInterface $dateTime): string
+    {
+        return $dateTime->translatedFormat('g:i A');
+    }
+
+    /**
+     * Overdue row: show clock only when due on the selected day; otherwise weekday, date, and 12-hour time.
+     */
+    private function formatCalendarAgendaOverdueEnd(CarbonInterface $endDateTime, CarbonInterface $selectedStartOfDay): string
+    {
+        return $endDateTime->isSameDay($selectedStartOfDay)
+            ? $this->formatCalendarAgendaClock($endDateTime)
+            : $endDateTime->translatedFormat('D j M, g:i A');
+    }
+
+    private function formatCalendarAgendaTimeRange(CarbonInterface $start, ?CarbonInterface $end): string
+    {
+        if ($end === null) {
+            return $this->formatCalendarAgendaClock($start).' - '.__('No end');
+        }
+
+        return $this->formatCalendarAgendaClock($start).' - '.$this->formatCalendarAgendaClock($end);
+    }
+
+    /**
      * @return array{
      *   date:string,
      *   summary:array{tasks:int,events:int,overdue:int},
-     *   overdueTasks:array<int, array{id:int,title:string,time:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
-     *   dueDayTasks:array<int, array{id:int,title:string,time:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
-     *   scheduledStarts:array<int, array{title:string,time:string,focus_kind:'task'|'event',focus_id:int,workspace_url:string}>,
-     *   timedEvents:array<int, array{id:int,title:string,time:string,focus_kind:'event',focus_id:int,workspace_url:string}>,
-     *   allDayEvents:array<int, array{id:int,title:string,focus_kind:'event',focus_id:int,workspace_url:string}>
+     *   overdueTasks:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
+     *   dueDayTasks:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
+     *   scheduledStarts:array<int, array{title:string,time:string,time_label:string,focus_kind:'task'|'event',focus_id:int,workspace_url:string}>,
+     *   timedEvents:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'event',focus_id:int,workspace_url:string}>,
+     *   allDayEvents:array<int, array{id:int,title:string,time_label:string,time:?string,focus_kind:'event',focus_id:int,workspace_url:string}>
      * }
      */
     #[Computed]
@@ -376,10 +403,9 @@ trait HandlesWorkspaceCalendar
                 return [
                     'id' => $task->id,
                     'title' => (string) $task->title,
+                    'time_label' => __('Due'),
                     'time' => $task->end_datetime !== null
-                        ? ($task->end_datetime->isSameDay($selectedDate)
-                            ? $task->end_datetime->translatedFormat('H:i')
-                            : $task->end_datetime->translatedFormat('D j M, H:i'))
+                        ? $this->formatCalendarAgendaOverdueEnd($task->end_datetime, $selectedDate)
                         : __('No time'),
                     'focus_kind' => $link['focus_kind'],
                     'focus_id' => $link['focus_id'],
@@ -404,7 +430,10 @@ trait HandlesWorkspaceCalendar
                 return [
                     'id' => $task->id,
                     'title' => (string) $task->title,
-                    'time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time'),
+                    'time_label' => __('Due'),
+                    'time' => $task->end_datetime !== null
+                        ? $this->formatCalendarAgendaClock($task->end_datetime)
+                        : __('No time'),
                     'focus_kind' => $link['focus_kind'],
                     'focus_id' => $link['focus_id'],
                     'workspace_url' => $link['workspace_url'],
@@ -446,7 +475,8 @@ trait HandlesWorkspaceCalendar
             $scheduledStartsRows[] = [
                 'sort' => $task->start_datetime->getTimestamp(),
                 'title' => (string) $task->title,
-                'time' => $task->start_datetime->translatedFormat('H:i'),
+                'time_label' => __('Starts'),
+                'time' => $this->formatCalendarAgendaClock($task->start_datetime),
                 'focus_kind' => $link['focus_kind'],
                 'focus_id' => $link['focus_id'],
                 'workspace_url' => $link['workspace_url'],
@@ -465,7 +495,7 @@ trait HandlesWorkspaceCalendar
             $time = $event->all_day
                 ? __('All day')
                 : ($event->start_datetime !== null
-                    ? $event->start_datetime->translatedFormat('H:i').' - '.($event->end_datetime?->translatedFormat('H:i') ?? __('No end'))
+                    ? $this->formatCalendarAgendaTimeRange($event->start_datetime, $event->end_datetime)
                     : __('No time'));
 
             $link = $this->agendaWorkspaceDeepLink($selectedDate, 'event', $event->id);
@@ -473,6 +503,7 @@ trait HandlesWorkspaceCalendar
             $scheduledStartsRows[] = [
                 'sort' => $event->start_datetime?->getTimestamp() ?? 0,
                 'title' => (string) $event->title,
+                'time_label' => __('Event'),
                 'time' => $time,
                 'focus_kind' => $link['focus_kind'],
                 'focus_id' => $link['focus_id'],
@@ -484,6 +515,7 @@ trait HandlesWorkspaceCalendar
 
         $scheduledStarts = array_values(array_map(static fn (array $row): array => [
             'title' => $row['title'],
+            'time_label' => $row['time_label'],
             'time' => $row['time'],
             'focus_kind' => $row['focus_kind'],
             'focus_id' => $row['focus_id'],
@@ -499,8 +531,9 @@ trait HandlesWorkspaceCalendar
                 return [
                     'id' => $event->id,
                     'title' => (string) $event->title,
-                    'time' => $event->start_datetime
-                        ? $event->start_datetime->translatedFormat('H:i').' - '.($event->end_datetime?->translatedFormat('H:i') ?? __('No end'))
+                    'time_label' => __('Ongoing'),
+                    'time' => $event->start_datetime !== null
+                        ? $this->formatCalendarAgendaTimeRange($event->start_datetime, $event->end_datetime)
                         : __('No time'),
                     'focus_kind' => $link['focus_kind'],
                     'focus_id' => $link['focus_id'],
@@ -519,6 +552,8 @@ trait HandlesWorkspaceCalendar
                 return [
                     'id' => $event->id,
                     'title' => (string) $event->title,
+                    'time_label' => __('All day'),
+                    'time' => null,
                     'focus_kind' => $link['focus_kind'],
                     'focus_id' => $link['focus_id'],
                     'workspace_url' => $link['workspace_url'],
