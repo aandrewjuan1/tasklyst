@@ -120,33 +120,17 @@
                 </div>
 
                 <div class="flex max-w-md flex-wrap items-center justify-center gap-2.5">
-                    <flux:button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                        x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
-                    >
-                        {{ __('What should I do first') }}
-                    </flux:button>
-                    <flux:button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                        x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
-                    >
-                        {{ __('Schedule my most important task') }}
-                    </flux:button>
-                    <flux:button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
-                        x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
-                    >
-                        {{ __('Create a plan for today') }}
-                    </flux:button>
+                    @foreach ($emptyStateQuickChips as $chipText)
+                        <flux:button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                            x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
+                        >
+                            {{ $chipText }}
+                        </flux:button>
+                    @endforeach
                 </div>
             </div>
         @else
@@ -253,6 +237,13 @@
                                                 $startAt = (string) ($proposal['start_datetime'] ?? '');
                                                 $endAt = (string) ($proposal['end_datetime'] ?? '');
                                                 $title = (string) ($proposal['title'] ?? 'Scheduled item');
+                                                $statusLabel = \Illuminate\Support\Str::headline($status);
+                                                $statusClass = match ($status) {
+                                                    'accepted' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+                                                    'failed' => 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+                                                    'declined' => 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-300',
+                                                    default => 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+                                                };
 
                                                 $start = null;
                                                 $end = null;
@@ -285,26 +276,38 @@
                                                     $timeLabel = $startAt;
                                                 }
                                             @endphp
-                                            <div class="rounded-md border border-border/55 bg-muted/20 p-2 shadow-sm ring-1 ring-black/5 dark:border-border/55 dark:bg-muted/15 dark:ring-white/5">
-                                                <flux:text class="text-sm font-medium text-zinc-900 dark:text-zinc-100">{{ $title }}</flux:text>
-                                                <flux:text class="text-xs text-zinc-700 dark:text-zinc-300">
-                                                    {{ $timeLabel }}
-                                                </flux:text>
-                                                <flux:text class="text-xs text-zinc-700 dark:text-zinc-300">{{ __('Status: :status', ['status' => $status]) }}</flux:text>
+                                            <div class="rounded-lg border border-border/65 bg-white/90 px-2.5 py-2.5 shadow-sm ring-1 ring-black/5 dark:border-zinc-700/70 dark:bg-zinc-900/55 dark:ring-white/5">
+                                                <div class="flex min-w-0 items-start justify-between gap-2">
+                                                    <flux:text class="min-w-0 flex-1 text-sm font-semibold leading-tight text-zinc-900 dark:text-zinc-100">
+                                                        {{ $title }}
+                                                    </flux:text>
+                                                    <span class="inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] {{ $statusClass }}">
+                                                        {{ $statusLabel }}
+                                                    </span>
+                                                </div>
+                                                <div class="mt-2 rounded-md border border-brand-blue/20 bg-brand-light-blue/45 px-2 py-1.5 dark:border-brand-blue/35 dark:bg-brand-blue/15">
+                                                    <div class="flex items-center gap-1.5">
+                                                        <flux:icon name="calendar-days" class="size-3.5 shrink-0 text-brand-blue dark:text-brand-light-blue" />
+                                                        <flux:text class="text-xs font-semibold text-brand-navy-blue dark:text-brand-light-blue">
+                                                            {{ $timeLabel }}
+                                                        </flux:text>
+                                                    </div>
+                                                </div>
                                             </div>
                                         @endif
                                     @endforeach
                                 </div>
                                 @if ($showAcceptAll)
                                     <div class="mt-3">
-                                        <flux:button
-                                            variant="primary"
-                                            size="sm"
+                                        <button
+                                            type="button"
                                             wire:click="acceptAllScheduleProposals({{ $message->id }})"
                                             wire:loading.attr="disabled"
+                                            class="inline-flex items-center gap-2 rounded-xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-blue/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/50 disabled:pointer-events-none disabled:opacity-70"
                                         >
+                                            <flux:icon name="check" class="size-4" />
                                             {{ __('Accept all') }}
-                                        </flux:button>
+                                        </button>
                                     </div>
                                 @endif
                             @endif

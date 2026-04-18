@@ -99,7 +99,7 @@ test('invalid LLM intent label falls back to general guidance', function (): voi
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Hello there friend');
 
     expect($decision->flow)->toBe('general_guidance');
-    expect($decision->reasonCodes)->toContain('intent_llm_failed_fallback_general_guidance');
+    expect($decision->reasonCodes)->toContain('intent_llm_failed_signal_fallback');
 });
 
 test('signal-only mode with strong prioritize cues routes to prioritize', function (): void {
@@ -187,6 +187,28 @@ test('time query routes to general guidance (not schedule)', function (): void {
 
     expect($decision->flow)->toBe('general_guidance');
     expect($decision->reasonCodes)->toContain('time_query_heuristic');
+});
+
+test('aggressive gibberish noise short-circuits to general guidance', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'asdj12 !!@@ ## qx9 z1 z2 z3 ??????');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain('gibberish_shortcircuit_general_guidance');
+});
+
+test('valid short prioritize prompt is not treated as gibberish', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'top tasks now');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->reasonCodes)->toContain('signal_only');
 });
 
 test('confidence gap between prioritize and schedule prefers general guidance', function (): void {
@@ -279,6 +301,16 @@ test('schedule my top 1 tasks for later routes to prioritize_schedule with singl
     expect($decision->constraints['count_limit'])->toBe(1);
 });
 
+test('schedule my most important task for later routes to prioritize_schedule with single count', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule my most important task for later');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('schedule my top tasks for later routes to prioritize_schedule with default multi count', function (string $prompt): void {
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
@@ -291,6 +323,18 @@ test('schedule my top tasks for later routes to prioritize_schedule with default
     'schedule my top tasks for tomorrow',
     'schedule my top tasks for tomorrow afternoon',
 ]);
+
+test('prioritize my most important task resolves to prioritize with single count', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'prioritize my most important task');
+
+    expect($decision->flow)->toBe('prioritize');
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
 
 test('schedule my top tasks for tomorrow afternoon over prior listing targets all top tasks', function (): void {
     config()->set('task-assistant.intent.use_llm', false);

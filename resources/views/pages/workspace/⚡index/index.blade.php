@@ -5,17 +5,20 @@
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{--
-        wire:loading targets for the main list/kanban skeleton. Match any Livewire property or method
-        that should show the full-area placeholder while the workspace Index re-renders.
+        Split targets: changing only selectedDate dims the list/kanban; heavier actions keep the full skeleton.
 
-        Covered: date (selectedDate), search (searchQuery, searchScope), view (viewMode), filters (filter* and set/clear helpers).
+        Full skeleton ($listHeavyLoadingTargets): search, view, filters, etc.
+
+        selectedDate alone: soft overlay (wire:loading on the list region).
 
         Intentionally omitted: loadMoreItems / getMoreItemsHtml (append-only),
         collaboration invite accept/decline (list remounts via workspaceItemsVersion without skeleton),
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listLoadingTargets = 'selectedDate,searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $selectedDateLoadingTarget = 'selectedDate';
+        $workspaceMobileSelectedLabel = \Illuminate\Support\Carbon::parse($this->selectedDate)->translatedFormat('D, M j, Y');
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
@@ -96,7 +99,7 @@
                 </div>
             </div>
 
-            <div class="lg:hidden">
+            <div id="workspace-mobile-calendar-anchor" class="scroll-mt-4 lg:hidden">
                 <x-workspace.calendar
                     agenda-context="workspace"
                     :selected-date="$this->selectedDate"
@@ -135,12 +138,37 @@
                 </div>
             </div>
 
+            <div
+                class="lg:hidden sticky top-0 z-20 -mx-0.5 mb-2 flex items-center justify-between gap-2 rounded-xl border border-border/55 bg-background/90 px-3 py-2 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-background/75 dark:border-zinc-600/45 dark:bg-zinc-950/90"
+                role="status"
+                aria-live="polite"
+                data-testid="workspace-mobile-selected-date-bar"
+                wire:key="workspace-mobile-selected-{{ $this->selectedDate }}"
+            >
+                <div class="flex min-w-0 items-center gap-2">
+                    <flux:icon name="calendar-days" class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span class="truncate text-xs font-semibold tabular-nums text-foreground">{{ $workspaceMobileSelectedLabel }}</span>
+                </div>
+                <button
+                    type="button"
+                    class="shrink-0 rounded-lg border border-border/60 bg-muted/50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-foreground transition hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 dark:border-zinc-600 dark:bg-zinc-800/80"
+                    onclick="document.getElementById('workspace-mobile-calendar-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' })"
+                >
+                    {{ __('Calendar') }}
+                </button>
+            </div>
+
             {{-- List/kanban region only: loading skeletons must not cover the nav strip above --}}
             <div class="relative min-w-0 w-full">
-            {{-- Real content - hidden during list/kanban loading targets (see $listLoadingTargets) --}}
+            {{-- Real content: full skeleton only for heavy targets; selectedDate uses dim-only (see wrapper below) --}}
+            <div
+                class="w-full transition-[opacity] duration-200 ease-out"
+                wire:loading.class.delay.shorter="pointer-events-none opacity-40"
+                wire:target="{{ $selectedDateLoadingTarget }}"
+            >
             <div
                 wire:loading.delay.shorter.remove
-                wire:target="{{ $listLoadingTargets }}"
+                wire:target="{{ $listHeavyLoadingTargets }}"
                 class="w-full"
             >
                 <div
@@ -167,6 +195,8 @@
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
+                            :scheduled-focus-plan-groups="$this->scheduledFocusPlanGroups"
+                            :scheduled-focus-plan-total-count="$this->scheduledFocusPlanTotalCount"
                             :has-more-items="($this->hasMoreTasks ?? false) || ($this->hasMoreEvents ?? false) || ($this->hasMoreProjects ?? false)"
                         />
                     @endif
@@ -195,15 +225,18 @@
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
+                            :scheduled-focus-plan-groups="$this->scheduledFocusPlanGroups"
+                            :scheduled-focus-plan-total-count="$this->scheduledFocusPlanTotalCount"
                         />
                     @endif
                 </div>
             </div>
+            </div>
 
-            {{-- Skeleton: same wire:target as wire:loading.remove on real content above --}}
+            {{-- Skeleton: heavy loading targets only (not selectedDate — that uses dim layer above) --}}
             <div
                 wire:loading.delay.shorter.block
-                wire:target="{{ $listLoadingTargets }}"
+                wire:target="{{ $listHeavyLoadingTargets }}"
                 class="hidden w-full"
                 role="status"
                 aria-busy="true"

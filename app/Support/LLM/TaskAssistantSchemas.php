@@ -467,4 +467,42 @@ final class TaskAssistantSchemas
             ]
         );
     }
+
+    /**
+     * LLM-authored narrative for fallback confirmation steps in schedule flow.
+     */
+    public static function scheduleFallbackConfirmationNarrativeSchema(): ObjectSchema
+    {
+        return new ObjectSchema(
+            name: 'schedule_fallback_confirmation_narrative',
+            description: 'Natural confirmation copy for schedule fallback decisions. Keep factual alignment with provided counts and constraints. Never claim the user explicitly asked for top N unless that was explicitly requested.',
+            properties: [
+                new StringSchema(
+                    name: 'framing',
+                    description: 'Warm, concise opener acknowledging the user request and that a draft was prepared pending confirmation.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'reasoning',
+                    description: 'Short factual explanation of what fit and what did not, based on provided constraint facts.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'confirmation',
+                    description: 'Decision prompt asking the user to choose among available options. Must align with provided options and avoid UI-internal terms.',
+                    nullable: false
+                ),
+                new StringSchema(
+                    name: 'reason_message',
+                    description: 'Optional compact factual reason shown before the decision prompt.',
+                    nullable: true
+                ),
+            ],
+            requiredFields: [
+                'framing',
+                'reasoning',
+                'confirmation',
+            ]
+        );
+    }
 }

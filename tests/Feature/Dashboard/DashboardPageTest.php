@@ -487,6 +487,7 @@ test('dashboard calendar renders selected-day agenda and summary counts', functi
     $response = $this->actingAs($user)->get(route('dashboard', ['date' => $selectedDate]));
 
     $response->assertSuccessful();
+    $response->assertSee('data-testid="calendar-dot-legend"', false);
     $response->assertSee('data-testid="calendar-selected-day-agenda"', false);
     $response->assertSee('data-testid="calendar-agenda-scheduled-starts"', false);
     $response->assertSee('Agenda Urgent Task', false);

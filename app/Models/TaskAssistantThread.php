@@ -33,4 +33,9 @@ class TaskAssistantThread extends Model
     {
         return $this->hasMany(TaskAssistantMessage::class, 'thread_id')->orderBy('created_at');
     }
+
+    public function schedulePlans(): HasMany
+    {
+        return $this->hasMany(AssistantSchedulePlan::class, 'thread_id');
+    }
 }

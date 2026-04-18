@@ -567,6 +567,9 @@ final class TaskAssistantMessageFormatter
 
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+        $framing = $this->harmonizeScheduleNarrativeDateMentions($items, $framing);
+        $reasoning = $this->harmonizeScheduleNarrativeDateMentions($items, $reasoning);
+        $confirmation = $this->harmonizeScheduleNarrativeDateMentions($items, $confirmation);
 
         $paragraphs = [];
         if ($framing !== '') {
@@ -589,14 +592,9 @@ final class TaskAssistantMessageFormatter
                     : '';
 
                 $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
-                $start = (string) ($block['start_time'] ?? '');
-                $end = (string) ($block['end_time'] ?? '');
-                $timeStart = $this->formatHhmmLabel($start);
-                $timeEnd = $this->formatHhmmLabel($end);
-                $time = ($timeStart !== '' && $timeEnd !== '') ? $timeStart.'–'.$timeEnd : '';
-
                 $startDatetime = (string) ($item['start_datetime'] ?? '');
                 $endDatetime = (string) ($item['end_datetime'] ?? '');
+                $time = $this->resolveScheduleTimeLabelForRow($block, $startDatetime, $endDatetime);
                 $dateLabel = $this->formatDateLabel($startDatetime);
                 if ($dateLabel === '' && $endDatetime !== '') {
                     $dateLabel = $this->formatDateLabel($endDatetime);
@@ -639,6 +637,7 @@ final class TaskAssistantMessageFormatter
     private function formatScheduleFallbackConfirmationMessage(array $data): string
     {
         $ctx = is_array($data['confirmation_context'] ?? null) ? $data['confirmation_context'] : [];
+        $reasonCode = trim((string) ($ctx['reason_code'] ?? ''));
         $reason = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['reason_message'] ?? '')));
         $prompt = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) ($ctx['prompt'] ?? '')));
         $preview = is_array($data['fallback_preview'] ?? null) ? $data['fallback_preview'] : [];
@@ -671,9 +670,11 @@ final class TaskAssistantMessageFormatter
                 }
                 $block = is_array($blocks[$idx] ?? null) ? $blocks[$idx] : [];
                 $dateLabel = $this->formatDateLabel((string) ($item['start_datetime'] ?? ''));
-                $timeStart = $this->formatHhmmLabel((string) ($block['start_time'] ?? ''));
-                $timeEnd = $this->formatHhmmLabel((string) ($block['end_time'] ?? ''));
-                $timeLabel = $timeStart !== '' && $timeEnd !== '' ? $timeStart.'–'.$timeEnd : '';
+                $timeLabel = $this->resolveScheduleTimeLabelForRow(
+                    $block,
+                    (string) ($item['start_datetime'] ?? ''),
+                    (string) ($item['end_datetime'] ?? '')
+                );
                 $line = '• '.$title;
                 if ($dateLabel !== '') {
                     $line .= ' — '.$dateLabel;
@@ -688,11 +689,42 @@ final class TaskAssistantMessageFormatter
             }
         }
 
+        $options = is_array($ctx['options'] ?? null) ? $ctx['options'] : [];
+        $optionsBlock = $this->formatScheduleConfirmationOptions($options);
+        if ($optionsBlock !== '') {
+            $paragraphs[] = $optionsBlock;
+        }
+
         if ($prompt !== '') {
             $paragraphs[] = $prompt;
         }
 
         return trim(implode("\n\n", $paragraphs));
+    }
+
+    /**
+     * @param  array<int, mixed>  $options
+     */
+    private function formatScheduleConfirmationOptions(array $options): string
+    {
+        $lines = [];
+        foreach ($options as $option) {
+            $text = TaskAssistantScheduleNarrativeSanitizer::sanitizeStudentFacingCopy(trim((string) $option));
+            if ($text !== '') {
+                $lines[] = $text;
+            }
+        }
+
+        if ($lines === []) {
+            return '';
+        }
+
+        $numbered = [];
+        foreach ($lines as $index => $line) {
+            $numbered[] = ($index + 1).') '.$line;
+        }
+
+        return "Options:\n".implode("\n", $numbered);
     }
 
     private function formatScheduleDurationLabel(int $minutes): string
@@ -802,6 +834,103 @@ final class TaskAssistantMessageFormatter
         } catch (\Throwable) {
             return '';
         }
+    }
+
+    /**
+     * Render row time from block HH:MM first, then safely fall back to item datetimes.
+     *
+     * @param  array<string, mixed>  $block
+     */
+    private function resolveScheduleTimeLabelForRow(array $block, string $startDatetime, string $endDatetime): string
+    {
+        $timeStart = $this->formatHhmmLabel((string) ($block['start_time'] ?? ''));
+        $timeEnd = $this->formatHhmmLabel((string) ($block['end_time'] ?? ''));
+        if ($timeStart !== '' && $timeEnd !== '') {
+            return $timeStart.'–'.$timeEnd;
+        }
+
+        $startFromItem = $this->formatTimeLabelFromIsoDatetime($startDatetime);
+        $endFromItem = $this->formatTimeLabelFromIsoDatetime($endDatetime);
+
+        if ($startFromItem !== '' && $endFromItem !== '') {
+            return $startFromItem.'–'.$endFromItem;
+        }
+
+        return '';
+    }
+
+    private function formatTimeLabelFromIsoDatetime(string $datetime): string
+    {
+        $value = trim($datetime);
+        if ($value === '') {
+            return '';
+        }
+
+        try {
+            $date = new \DateTimeImmutable($value);
+        } catch (\Throwable) {
+            return '';
+        }
+
+        return $this->formatHhmmLabel($date->format('H:i'));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function harmonizeScheduleNarrativeDateMentions(array $items, string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        $dateMap = [];
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $start = trim((string) ($item['start_datetime'] ?? ''));
+            if ($start === '') {
+                continue;
+            }
+            try {
+                $d = (new \DateTimeImmutable($start))->format('Y-m-d');
+            } catch (\Throwable) {
+                continue;
+            }
+            $dateMap[$d] = true;
+        }
+
+        if (count($dateMap) !== 1) {
+            return $text;
+        }
+
+        $targetDate = (string) array_key_first($dateMap);
+        try {
+            $target = new \DateTimeImmutable($targetDate);
+        } catch (\Throwable) {
+            return $text;
+        }
+
+        $targetShort = $target->format('M j, Y');
+        $targetIso = $target->format('Y-m-d');
+        $targetSlash = $target->format('m/d/Y');
+        $targetPlain = $target->format('F j');
+
+        $normalized = preg_replace_callback(
+            '/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,\s*\d{4})?\b/iu',
+            static fn (): string => $targetShort,
+            $text
+        );
+        $normalized = preg_replace('/\b\d{4}-\d{2}-\d{2}\b/u', $targetIso, (string) $normalized);
+        $normalized = preg_replace('/\b(0?[1-9]|1[0-2])\/([0-2]?\d|3[01])(?:\/\d{2,4})?\b/u', $targetSlash, (string) $normalized);
+
+        if (is_string($normalized) && stripos($normalized, $targetPlain) === false && stripos($normalized, $targetShort) === false) {
+            return $text;
+        }
+
+        return is_string($normalized) ? $normalized : $text;
     }
 
     private function formatHhmmLabel(string $hhmm): string

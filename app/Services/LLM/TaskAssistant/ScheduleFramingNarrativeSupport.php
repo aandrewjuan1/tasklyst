@@ -2,6 +2,8 @@
 
 namespace App\Services\LLM\TaskAssistant;
 
+use Carbon\CarbonImmutable;
+
 /**
  * Schedule-only framing sanitization and fallbacks (do not reuse prioritize "list below" voice).
  */
@@ -141,25 +143,85 @@ final class ScheduleFramingNarrativeSupport
      */
     private static function deriveWindowPhrase(array $promptData): string
     {
+        $dayReference = self::resolveScheduleDayReference($promptData);
         $flags = data_get($promptData, 'user_context.schedule_intent_flags', []);
         if (! is_array($flags)) {
             $flags = [];
         }
 
         if (($flags['has_evening'] ?? false) === true) {
-            return 'this evening';
+            return match ($dayReference) {
+                'tomorrow' => 'tomorrow evening',
+                'today' => 'this evening',
+                default => 'in the evening',
+            };
         }
         if (($flags['has_afternoon'] ?? false) === true) {
-            return 'this afternoon';
+            return match ($dayReference) {
+                'tomorrow' => 'tomorrow afternoon',
+                'today' => 'this afternoon',
+                default => 'in the afternoon',
+            };
         }
         if (($flags['has_morning'] ?? false) === true) {
-            return 'this morning';
+            return match ($dayReference) {
+                'tomorrow' => 'tomorrow morning',
+                'today' => 'this morning',
+                default => 'in the morning',
+            };
         }
         if (($flags['has_later'] ?? false) === true || ($flags['has_onwards'] ?? false) === true) {
-            return 'later today';
+            return match ($dayReference) {
+                'tomorrow' => 'later tomorrow',
+                'today' => 'later today',
+                default => 'later in the day',
+            };
         }
 
-        return 'in your open window today';
+        return match ($dayReference) {
+            'tomorrow' => 'in your open window tomorrow',
+            'today' => 'in your open window today',
+            default => 'in your open window',
+        };
+    }
+
+    /**
+     * Resolve coarse day reference from schedule horizon.
+     * Returns "today", "tomorrow", or null when it cannot be inferred safely.
+     */
+    private static function resolveScheduleDayReference(array $promptData): ?string
+    {
+        $horizon = data_get($promptData, 'schedule_horizon');
+        if (! is_array($horizon)) {
+            return null;
+        }
+
+        $start = trim((string) ($horizon['start_date'] ?? ''));
+        if ($start === '') {
+            return null;
+        }
+
+        $todayRaw = trim((string) data_get($promptData, 'snapshot.today', data_get($promptData, 'today', '')));
+        if ($todayRaw === '') {
+            return null;
+        }
+
+        try {
+            $today = CarbonImmutable::parse($todayRaw)->startOfDay();
+            $target = CarbonImmutable::parse($start)->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($target->equalTo($today)) {
+            return 'today';
+        }
+
+        if ($target->equalTo($today->addDay())) {
+            return 'tomorrow';
+        }
+
+        return null;
     }
 
     private static function windowPhraseForSentenceStart(string $windowPhrase): string

@@ -76,3 +76,54 @@ test('friday resolves to next friday from snapshot day', function (): void {
     expect($r['mode'])->toBe('single_day');
     expect($r['start_date'])->toBe('2025-06-13');
 });
+
+test('explicit month day resolves to strict single day', function (): void {
+    $tz = 'UTC';
+    $now = CarbonImmutable::parse('2026-04-18 12:00:00', $tz);
+    $resolver = new TaskAssistantScheduleHorizonResolver;
+
+    $r = $resolver->resolve('actually schedule them for april 20', $tz, $now);
+
+    expect($r['mode'])->toBe('single_day');
+    expect($r['start_date'])->toBe('2026-04-20');
+    expect($r['end_date'])->toBe('2026-04-20');
+    expect($r['label'])->toBe('explicit_date_month_day');
+});
+
+test('iso date resolves to strict single day', function (): void {
+    $tz = 'UTC';
+    $now = CarbonImmutable::parse('2026-04-18 12:00:00', $tz);
+    $resolver = new TaskAssistantScheduleHorizonResolver;
+
+    $r = $resolver->resolve('schedule these on 2026-04-20', $tz, $now);
+
+    expect($r['mode'])->toBe('single_day');
+    expect($r['start_date'])->toBe('2026-04-20');
+    expect($r['end_date'])->toBe('2026-04-20');
+    expect($r['label'])->toBe('explicit_date_iso');
+});
+
+test('relative day offset resolves to single day', function (): void {
+    $tz = 'UTC';
+    $now = CarbonImmutable::parse('2026-04-18 12:00:00', $tz);
+    $resolver = new TaskAssistantScheduleHorizonResolver;
+
+    $r = $resolver->resolve('schedule them in 2 days', $tz, $now);
+
+    expect($r['mode'])->toBe('single_day');
+    expect($r['start_date'])->toBe('2026-04-20');
+    expect($r['end_date'])->toBe('2026-04-20');
+    expect($r['label'])->toBe('relative_days_offset');
+});
+
+test('qualified weekday resolves to single day label', function (): void {
+    $tz = 'UTC';
+    $now = CarbonImmutable::parse('2026-04-18 12:00:00', $tz);
+    $resolver = new TaskAssistantScheduleHorizonResolver;
+
+    $r = $resolver->resolve('schedule these next monday', $tz, $now);
+
+    expect($r['mode'])->toBe('single_day');
+    expect($r['start_date'])->toBe('2026-04-20');
+    expect($r['label'])->toBe('qualified_weekday_next');
+});

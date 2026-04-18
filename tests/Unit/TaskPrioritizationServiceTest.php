@@ -514,3 +514,74 @@ it('school domain keeps academic tasks and drops errands like school bag titles'
     expect($ranked)->toHaveCount(1);
     expect($ranked[0]['id'])->toBe(2);
 });
+
+it('defaults to non-recurring tasks when both recurring and normal tasks exist', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Walk 10k steps',
+                'priority' => 'urgent',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(2)->toIso8601String(),
+                'duration_minutes' => 45,
+                'is_recurring' => true,
+            ],
+            [
+                'id' => 2,
+                'title' => 'Submit assignment draft',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(3)->toIso8601String(),
+                'duration_minutes' => 60,
+                'is_recurring' => false,
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->not->toBeEmpty();
+    expect(collect($ranked)->pluck('id')->all())->toContain(2);
+    expect(collect($ranked)->pluck('id')->all())->not->toContain(1);
+});
+
+it('keeps recurring tasks when they are the only available tasks', function (): void {
+    $service = app(TaskPrioritizationService::class);
+
+    $timezone = 'UTC';
+    $now = CarbonImmutable::now($timezone);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => $timezone,
+        'tasks' => [
+            [
+                'id' => 9,
+                'title' => 'Daily stretching',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(8)->toIso8601String(),
+                'duration_minutes' => 20,
+                'is_recurring' => true,
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->not->toBeEmpty();
+    expect($ranked[0]['type'])->toBe('task');
+    expect($ranked[0]['id'])->toBe(9);
+});

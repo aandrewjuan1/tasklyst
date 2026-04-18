@@ -86,6 +86,35 @@
 
     $filterPillTaskSourceBrightspace =
         'border-blue-500/25 bg-blue-500/10 text-blue-800 shadow-sm dark:border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-200';
+
+    $initialItemType = $filters['itemType'] ?? null;
+    $initialTaskStatus = $filters['taskStatus'] ?? null;
+    $initialTaskPriority = $filters['taskPriority'] ?? null;
+    $initialTaskComplexity = $filters['taskComplexity'] ?? null;
+    $initialEventStatus = $filters['eventStatus'] ?? null;
+    $initialTaskSource = $filters['taskSource'] ?? null;
+    $initialRecurring = $filters['recurring'] ?? null;
+    $initialShowCompleted = (bool) ($filters['showCompleted'] ?? false);
+
+    $initialItemTypeClass = match ($initialItemType) {
+        'tasks' => 'lic-item-type-pill--task',
+        'events' => 'lic-item-type-pill--event',
+        'projects' => 'lic-item-type-pill--project',
+        default => 'border-zinc-300/90 bg-zinc-100/90 text-zinc-800 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-100',
+    };
+
+    $filterPillDefaultClass = 'bg-muted text-muted-foreground border border-black/10 dark:border-white/10';
+
+    $initialTaskStatusClass = trim(($filterPillTaskStatusColors[$initialTaskStatus] ?? 'bg-muted text-muted-foreground') . ' border border-black/10 dark:border-white/10');
+    $initialTaskPriorityClass = trim(($filterPillTaskPriorityColors[$initialTaskPriority] ?? 'bg-muted text-muted-foreground') . ' border border-black/10 dark:border-white/10');
+    $initialTaskComplexityClass = trim(($filterPillTaskComplexityColors[$initialTaskComplexity] ?? 'bg-muted text-muted-foreground') . ' border border-black/10 dark:border-white/10');
+    $initialEventStatusClass = trim(($filterPillEventStatusColors[$initialEventStatus] ?? 'bg-muted text-muted-foreground') . ' border border-black/10 dark:border-white/10');
+    $initialRecurringClass = $initialRecurring === 'recurring'
+        ? $filterPillRecurringRecurring
+        : $filterPillDefaultClass;
+    $initialTaskSourceClass = $initialTaskSource === 'brightspace'
+        ? $filterPillTaskSourceBrightspace
+        : $filterPillDefaultClass;
 @endphp
 
 <div
@@ -304,7 +333,9 @@
                 <button
                     type="button"
                     @click="toggleShowCompleted()"
-                    class="inline-flex size-8 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45"
+                    class="inline-flex size-8 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 {{ $initialShowCompleted
+                        ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 shadow-sm dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
+                        : 'border-zinc-300/80 bg-white/90 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-300 dark:hover:bg-zinc-700/90' }}"
                     :class="displayFilters.showCompleted
                         ? 'border-emerald-400/60 bg-emerald-500/12 text-emerald-700 shadow-sm dark:border-emerald-500/45 dark:bg-emerald-500/18 dark:text-emerald-300'
                         : 'border-zinc-300/80 bg-white/90 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600/80 dark:bg-zinc-800/90 dark:text-zinc-300 dark:hover:bg-zinc-700/90'"
@@ -316,7 +347,7 @@
             </flux:tooltip>
             {{-- Show pill: same palette as list-item-card _item-type-pill (lic-item-type-pill--*) --}}
             <span
-                class="lic-item-type-pill max-w-full"
+                class="lic-item-type-pill max-w-full {{ $initialItemTypeClass }}"
                 :class="{
                     'lic-item-type-pill--task': displayFilters.itemType === 'tasks',
                     'lic-item-type-pill--event': displayFilters.itemType === 'events',
@@ -403,7 +434,7 @@
     <span
         x-show="showValue('taskStatus')"
         style="{{ ($filters['taskStatus'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full"
+        class="workspace-filter-property-pill max-w-full {{ $initialTaskStatusClass }}"
         :class="pillClassesTaskStatus()"
     >
         <div class="relative min-w-0" @click.outside="closePillMenu('taskStatus')">
@@ -456,7 +487,7 @@
     <span
         x-show="showValue('taskPriority')"
         style="{{ ($filters['taskPriority'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full"
+        class="workspace-filter-property-pill max-w-full {{ $initialTaskPriorityClass }}"
         :class="pillClassesTaskPriority()"
     >
         <div class="relative min-w-0" @click.outside="closePillMenu('taskPriority')">
@@ -509,7 +540,7 @@
     <span
         x-show="showValue('taskComplexity')"
         style="{{ ($filters['taskComplexity'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full"
+        class="workspace-filter-property-pill max-w-full {{ $initialTaskComplexityClass }}"
         :class="pillClassesTaskComplexity()"
     >
         <div class="relative min-w-0" @click.outside="closePillMenu('taskComplexity')">
@@ -562,7 +593,7 @@
     <span
         x-show="showValue('taskSource')"
         style="{{ ($filters['taskSource'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full"
+        class="workspace-filter-property-pill max-w-full {{ $initialTaskSourceClass }}"
         :class="pillClassesTaskSource()"
     >
         <div class="relative min-w-0" @click.outside="closePillMenu('taskSource')">
@@ -625,7 +656,7 @@
         <span
             x-show="showValue('eventStatus')"
             style="{{ ($filters['eventStatus'] ?? null) ? '' : 'display:none' }}"
-            class="workspace-filter-property-pill max-w-full"
+            class="workspace-filter-property-pill max-w-full {{ $initialEventStatusClass }}"
             :class="pillClassesEventStatus()"
         >
             <div class="relative min-w-0" @click.outside="closePillMenu('eventStatus')">
@@ -733,7 +764,7 @@
     <span
         x-show="showValue('recurring')"
         style="{{ ($filters['recurring'] ?? null) ? '' : 'display:none' }}"
-        class="workspace-filter-property-pill max-w-full"
+        class="workspace-filter-property-pill max-w-full {{ $initialRecurringClass }}"
         :class="pillClassesRecurring()"
     >
         <div class="relative min-w-0" @click.outside="closePillMenu('recurring')">

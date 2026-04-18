@@ -179,7 +179,11 @@
             if (!this.enabled) {
                 this.enabled = true;
                 this.type = 'daily';
-                this.$dispatch('recurring-selection-updated', { path: this.modelPath, value: this.getCurrentRecurrenceValue() });
+                this.$dispatch('recurring-selection-updated', {
+                    path: this.modelPath,
+                    value: this.getCurrentRecurrenceValue(),
+                    itemId: this.syncItemId,
+                });
             }
 
             const rect = this.$refs.button.getBoundingClientRect();
@@ -306,7 +310,7 @@
             if (valueChanged) {
                 const value = this.getCurrentRecurrenceValue();
                 this.currentValue = value;
-                this.$dispatch('recurring-selection-updated', { path: this.modelPath, value });
+                this.$dispatch('recurring-selection-updated', { path: this.modelPath, value, itemId: this.syncItemId });
             }
             const leaveMs = 50;
             setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);

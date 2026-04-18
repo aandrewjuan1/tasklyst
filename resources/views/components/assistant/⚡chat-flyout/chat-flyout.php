@@ -1,10 +1,16 @@
 <?php
 
+use App\Enums\AssistantSchedulePlanItemStatus;
 use App\Enums\MessageRole;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
+use App\Models\AssistantSchedulePlan;
+use App\Models\AssistantSchedulePlanItem;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Notifications\AssistantScheduleAcceptedNotification;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
+use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
+use App\Services\UserNotificationBroadcastService;
 use App\Tools\LLM\TaskAssistant\CreateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateProjectTool;
@@ -50,6 +56,9 @@ new class extends Component
 
     public ?string $streamingTimedOutAt = null;
 
+    /** @var array<int, string> */
+    public array $emptyStateQuickChips = [];
+
     public function mount(): void
     {
         $this->userId = Auth::id();
@@ -57,6 +66,7 @@ new class extends Component
         $this->ensureThread();
         $this->loadMessages();
         $this->syncStreamingStateFromPersistence();
+        $this->refreshEmptyStateQuickChips();
     }
 
     public function startNewChat(): void
@@ -94,6 +104,7 @@ new class extends Component
         $this->showWorking = false;
         $this->streamingCorrelationId = null;
         $this->streamingTimedOutAt = null;
+        $this->refreshEmptyStateQuickChips();
     }
 
     public function applyQuickPromptChip(string $value): void
@@ -502,6 +513,10 @@ new class extends Component
         }
 
         [$fullPath, $count] = $resolved;
+        $pendingSchedulableCount = 0;
+        $acceptedCount = 0;
+        $failedCount = 0;
+        $acceptedProposals = [];
 
         for ($index = 0; $index < $count; $index++) {
             $message->refresh();
@@ -509,11 +524,14 @@ new class extends Component
             if ($proposal === null || ! $this->isSchedulablePendingProposal($proposal)) {
                 continue;
             }
+            $pendingSchedulableCount++;
 
             try {
                 $this->applyScheduleProposal($proposal);
                 $message->refresh();
                 $this->setProposalStatus($message, $fullPath, $index, 'accepted');
+                $acceptedCount++;
+                $acceptedProposals[] = $proposal;
             } catch (\Throwable $e) {
                 Log::warning('task-assistant.proposal.accept_all_failed', [
                     'layer' => 'ui',
@@ -524,12 +542,222 @@ new class extends Component
                 ]);
                 $message->refresh();
                 $this->setProposalStatus($message, $fullPath, $index, 'failed');
+                $failedCount++;
 
                 break;
             }
         }
 
         $this->refreshMessages();
+
+        $isFullSuccess = $pendingSchedulableCount > 0
+            && $acceptedCount === $pendingSchedulableCount
+            && $failedCount === 0;
+        if (! $isFullSuccess) {
+            return;
+        }
+
+        $toastMessage = trans_choice(
+            'Accepted :count proposal.|Accepted :count proposals.',
+            $acceptedCount,
+            ['count' => $acceptedCount]
+        );
+        $this->dispatch('toast', type: 'success', message: $toastMessage);
+
+        $user = Auth::user();
+        if ($user) {
+            $this->persistAcceptedSchedulePlan(
+                user: $user,
+                assistantMessage: $message,
+                acceptedProposals: $acceptedProposals,
+            );
+            $user->notify(new AssistantScheduleAcceptedNotification(
+                threadId: (int) $this->thread->id,
+                assistantMessageId: $assistantMessageId,
+                acceptedCount: $acceptedCount,
+            ));
+            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
+        }
+
+        $this->dispatch('assistant-schedule-plan-updated');
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $acceptedProposals
+     */
+    private function persistAcceptedSchedulePlan(
+        \App\Models\User $user,
+        TaskAssistantMessage $assistantMessage,
+        array $acceptedProposals
+    ): void {
+        if ($this->thread === null || $acceptedProposals === []) {
+            return;
+        }
+
+        $plan = AssistantSchedulePlan::query()->firstOrCreate(
+            [
+                'user_id' => $user->id,
+                'thread_id' => $this->thread->id,
+                'assistant_message_id' => $assistantMessage->id,
+                'source' => 'assistant_accept_all',
+            ],
+            [
+                'accepted_at' => now(),
+                'metadata' => [
+                    'proposal_count' => count($acceptedProposals),
+                ],
+            ]
+        );
+
+        foreach ($acceptedProposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $proposalUuid = trim((string) ($proposal['proposal_uuid'] ?? $proposal['proposal_id'] ?? ''));
+            if ($proposalUuid === '') {
+                continue;
+            }
+
+            $entityType = trim((string) ($proposal['entity_type'] ?? ''));
+            $entityId = (int) ($proposal['entity_id'] ?? 0);
+            $title = trim((string) ($proposal['title'] ?? ''));
+            $plannedStartAtRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+
+            if ($entityType === '' || $entityId <= 0 || $title === '' || $plannedStartAtRaw === '') {
+                continue;
+            }
+
+            try {
+                $plannedStartAt = \Carbon\CarbonImmutable::parse($plannedStartAtRaw);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $plannedEndAt = null;
+            $plannedEndAtRaw = trim((string) ($proposal['end_datetime'] ?? ''));
+            if ($plannedEndAtRaw !== '') {
+                try {
+                    $plannedEndAt = \Carbon\CarbonImmutable::parse($plannedEndAtRaw);
+                } catch (\Throwable) {
+                    $plannedEndAt = null;
+                }
+            }
+
+            $plannedDurationMinutes = (int) ($proposal['duration_minutes'] ?? 0);
+            if ($plannedDurationMinutes <= 0) {
+                $plannedDurationMinutes = null;
+            }
+
+            $timezone = (string) config('app.timezone', 'UTC');
+            $plannedDayYmd = $plannedStartAt->setTimezone($timezone)->format('Y-m-d');
+            $dedupeKey = AssistantSchedulePlanItem::buildDedupeKey($user->id, $entityType, $entityId, $plannedDayYmd);
+
+            $proposalMetadata = [
+                'reason_score' => $proposal['reason_score'] ?? null,
+                'apply_payload' => $proposal['apply_payload'] ?? null,
+                'priority_rank' => $proposal['priority_rank'] ?? null,
+            ];
+
+            $existing = AssistantSchedulePlanItem::query()
+                ->forUser($user->id)
+                ->where('dedupe_key', $dedupeKey)
+                ->active()
+                ->first();
+
+            $savedItem = null;
+            if ($existing) {
+                $mergedMetadata = is_array($existing->metadata) ? $existing->metadata : [];
+                $mergedMetadata = array_merge($mergedMetadata, $proposalMetadata);
+                data_set($mergedMetadata, 'proposal_last_accepted_at', now()->toIso8601String());
+                data_set($mergedMetadata, 'proposal_last_uuid', $proposalUuid);
+
+                $existing->fill([
+                    'assistant_schedule_plan_id' => $plan->id,
+                    'proposal_uuid' => $proposalUuid,
+                    'proposal_id' => trim((string) ($proposal['proposal_id'] ?? '')) ?: null,
+                    'entity_type' => $entityType,
+                    'entity_id' => $entityId,
+                    'title' => $title,
+                    'planned_start_at' => $plannedStartAt,
+                    'planned_end_at' => $plannedEndAt,
+                    'planned_duration_minutes' => $plannedDurationMinutes,
+                    'status' => AssistantSchedulePlanItemStatus::Planned,
+                    'accepted_at' => now(),
+                    'metadata' => $mergedMetadata,
+                ]);
+                $existing->save();
+                $savedItem = $existing;
+            } else {
+                $savedItem = AssistantSchedulePlanItem::query()->create([
+                    'assistant_schedule_plan_id' => $plan->id,
+                    'user_id' => $user->id,
+                    'proposal_uuid' => $proposalUuid,
+                    'proposal_id' => trim((string) ($proposal['proposal_id'] ?? '')) ?: null,
+                    'entity_type' => $entityType,
+                    'entity_id' => $entityId,
+                    'title' => $title,
+                    'planned_start_at' => $plannedStartAt,
+                    'planned_end_at' => $plannedEndAt,
+                    'planned_duration_minutes' => $plannedDurationMinutes,
+                    'status' => AssistantSchedulePlanItemStatus::Planned,
+                    'accepted_at' => now(),
+                    'metadata' => $proposalMetadata,
+                ]);
+            }
+
+            if ($savedItem instanceof AssistantSchedulePlanItem) {
+                $supersededCount = $this->dismissOlderActivePlanItemsForEntity(
+                    userId: (int) $user->id,
+                    entityType: $entityType,
+                    entityId: $entityId,
+                    keepItemId: (int) $savedItem->id,
+                );
+                if ($supersededCount > 0) {
+                    $savedMetadata = is_array($savedItem->metadata) ? $savedItem->metadata : [];
+                    data_set($savedMetadata, 'actions.last_action', 'rescheduled');
+                    data_set($savedMetadata, 'actions.last_action_at', now()->toIso8601String());
+                    data_set($savedMetadata, 'rescheduled_from_previous_plan_item_count', $supersededCount);
+                    $savedItem->fill([
+                        'metadata' => $savedMetadata,
+                    ]);
+                    $savedItem->save();
+                }
+            }
+        }
+    }
+
+    private function dismissOlderActivePlanItemsForEntity(
+        int $userId,
+        string $entityType,
+        int $entityId,
+        int $keepItemId
+    ): int {
+        $activeItems = AssistantSchedulePlanItem::query()
+            ->forUser($userId)
+            ->where('entity_type', $entityType)
+            ->where('entity_id', $entityId)
+            ->active()
+            ->where('id', '!=', $keepItemId)
+            ->get();
+
+        $dismissedCount = 0;
+        foreach ($activeItems as $activeItem) {
+            /** @var AssistantSchedulePlanItem $activeItem */
+            $metadata = is_array($activeItem->metadata) ? $activeItem->metadata : [];
+            data_set($metadata, 'superseded_at', now()->toIso8601String());
+            data_set($metadata, 'superseded_by_plan_item_id', $keepItemId);
+
+            $activeItem->fill([
+                'status' => AssistantSchedulePlanItemStatus::Dismissed,
+                'dismissed_at' => now(),
+                'metadata' => $metadata,
+            ]);
+            $activeItem->save();
+            $dismissedCount++;
+        }
+
+        return $dismissedCount;
     }
 
     private function applyScheduleProposal(array $proposal): void
@@ -842,6 +1070,23 @@ new class extends Component
                 'content' => '',
                 'metadata' => $metadata,
             ]);
+    }
+
+    private function refreshEmptyStateQuickChips(): void
+    {
+        $user = Auth::user();
+        if (! $user) {
+            $this->emptyStateQuickChips = [];
+
+            return;
+        }
+
+        $this->emptyStateQuickChips = app(TaskAssistantQuickChipResolver::class)
+            ->resolveForEmptyState(
+                user: $user,
+                thread: $this->thread,
+                limit: 4,
+            );
     }
 
     private function cancelPreviousActiveAssistantRuns(): void

@@ -63,6 +63,7 @@
 
 <div
     wire:ignore
+    @workspace-item-property-updated.window="if ($event.detail?.kind === 'event' && Number($event.detail.itemId) === Number(itemId)) applyWorkspaceItemPropertyUpdate($event.detail)"
     x-data="{
         itemId: @js($item->id),
         updatePropertyMethod: @js($updatePropertyMethod),
@@ -408,6 +409,39 @@
                     detail: { path: 'recurrence', value: realValue ?? null, itemId: this.itemId },
                     bubbles: true,
                 }));
+            }
+        },
+        applyWorkspaceItemPropertyUpdate(detail) {
+            if (!detail || !detail.property) {
+                return;
+            }
+            const property = detail.property;
+            const value = detail.value;
+            if (property === 'status') {
+                this.status = value ?? null;
+                return;
+            }
+            if (property === 'allDay') {
+                this.allDay = !!value;
+                return;
+            }
+            if (property === 'startDatetime') {
+                this.startDatetime = detail.startDatetime ?? value;
+                return;
+            }
+            if (property === 'endDatetime') {
+                this.endDatetime = detail.endDatetime ?? value;
+                return;
+            }
+            if (property === 'recurrence') {
+                this.recurrence = value;
+                return;
+            }
+            if (property === 'tagIds') {
+                if (!this.formData || !this.formData.item) {
+                    this.formData = { item: { tagIds: [] } };
+                }
+                this.formData.item.tagIds = Array.isArray(value) ? [...value] : [];
             }
         },
     }"

@@ -474,6 +474,10 @@ final class IntentRoutingPolicy
             }
         }
 
+        if ($this->isSingleFocusRequest($normalized)) {
+            return 1;
+        }
+
         $defaultMulti = (int) config('task-assistant.intent.prioritize_default_multi_count', 3);
         $defaultMulti = max(2, min($defaultMulti, 10));
 
@@ -486,6 +490,26 @@ final class IntentRoutingPolicy
         }
 
         return 3;
+    }
+
+    private function isSingleFocusRequest(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (preg_match('/\b(tasks|items)\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        if (preg_match('/\b(\d+|two|three|four|five|six|seven|eight|nine|ten|couple)\b/u', $normalized) === 1) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(my\s+)?(most\s+important|top|highest\s+priority|most\s+urgent|main|single)\s+(task|item)\b/u',
+            $normalized
+        ) === 1;
     }
 
     private function extractTimeWindowHint(string $normalized): ?string
@@ -658,14 +682,56 @@ final class IntentRoutingPolicy
             return false;
         }
 
-        $hasTaskKeyword = preg_match('/\b(task|tasks|prioritize|schedule|time block|todo|to do|plan)\b/u', $normalized) === 1;
+        $hasTaskKeyword = preg_match('/\b(task|tasks|prioritize|priority|schedule|reschedule|time block|calendar|todo|to do|plan|deadline|study|project)\b/u', $normalized) === 1;
         if ($hasTaskKeyword) {
             return false;
         }
 
-        $hasStrongOffTopicEntity = preg_match('/\b(president|ufc|fighter|politics|election|nba|movie|celebrity)\b/u', $normalized) === 1;
-        if ($hasStrongOffTopicEntity) {
+        // Keep clear off-topic prompts on the off-topic branch, not gibberish.
+        $hasReadableOffTopicPrompt = preg_match('/\b(best|who is|why|relationship|politics|president|movie|laptop|phone)\b/u', $normalized) === 1;
+        if ($hasReadableOffTopicPrompt) {
             return false;
+        }
+
+        $letters = preg_match_all('/\pL/u', $normalized);
+        $numbers = preg_match_all('/\pN/u', $normalized);
+        $symbols = preg_match_all('/[^\pL\pN\s]/u', $normalized);
+        $length = max(1, mb_strlen($normalized));
+
+        $alphaNumericRatio = ($letters + $numbers) / $length;
+        $symbolRatio = $symbols / $length;
+
+        // Lots of symbols and too little language content.
+        if ($symbolRatio >= 0.35 && $alphaNumericRatio < 0.65) {
+            return true;
+        }
+
+        // Repeated character bursts like "aaaaaa", "??????", "zzzzzzzz".
+        if (preg_match('/(.)\1{5,}/u', $normalized) === 1) {
+            return true;
+        }
+
+        // Token-level nonsense: many tiny fragments with little lexical structure.
+        $tokens = preg_split('/\s+/u', trim($normalized), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        if ($tokens === []) {
+            return true;
+        }
+
+        $shortTokenCount = 0;
+        foreach ($tokens as $token) {
+            $clean = preg_replace('/[^\pL\pN]/u', '', $token) ?? '';
+            if ($clean !== '' && mb_strlen($clean) <= 2) {
+                $shortTokenCount++;
+            }
+        }
+
+        if (count($tokens) >= 4 && $shortTokenCount / count($tokens) >= 0.75) {
+            return true;
+        }
+
+        // Dense random-ish mixtures like "asdj12 qwe!! zx9".
+        if ($alphaNumericRatio < 0.55 && preg_match('/[a-z]{2,}\d+|\d+[a-z]{2,}/iu', $normalized) === 1) {
+            return true;
         }
 
         return false;

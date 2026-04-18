@@ -50,6 +50,11 @@ return [
             'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_MAX_TOKENS', 900),
             'top_p' => env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_TOP_P'),
         ],
+        'schedule_confirmation' => [
+            'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_TEMPERATURE', 0.28),
+            'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_MAX_TOKENS', 420),
+            'top_p' => env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_TOP_P', 0.9),
+        ],
         'schedule_refinement_ops' => [
             'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_TEMPERATURE', 0.12),
             'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_MAX_TOKENS', 400),
@@ -126,6 +131,15 @@ return [
     */
     'schedule' => [
         'max_horizon_days' => (int) env('TASK_ASSISTANT_SCHEDULE_MAX_HORIZON_DAYS', 14),
+        // For explicit top-N requests, require confirmation before finalizing
+        // an underfilled schedule (e.g. asked top 3, only 1 fit).
+        'top_n_shortfall_policy' => env('TASK_ASSISTANT_TOP_N_SHORTFALL_POLICY', 'confirm_if_shortfall'),
+        // Overflow handling policy when requested window cannot fit requested count.
+        // require_confirm means no automatic spill/expansion before user approval.
+        'overflow_strategy' => env('TASK_ASSISTANT_SCHEDULE_OVERFLOW_STRATEGY', 'require_confirm'),
+        // Partial placement policy for top-N flows.
+        // top1_only allows partial fit only for highest-priority item.
+        'partial_policy' => env('TASK_ASSISTANT_SCHEDULE_PARTIAL_POLICY', 'top1_only'),
         /**
          * When the user gives a vague schedule request (horizon label default_today), search this many
          * consecutive local days starting from today, capped by max_horizon_days.

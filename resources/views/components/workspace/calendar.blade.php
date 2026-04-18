@@ -24,6 +24,9 @@
     
     // Today's date for highlighting
     $today = $now->toDateString();
+
+    /** Always match the agenda subheader to the Livewire-selected day (not stale agenda payload). */
+    $selectedDayHeaderDate = $selectedDateString ?? $today;
     
     // Day names (localized) - static, doesn't change
     $dayNames = [];
@@ -31,13 +34,16 @@
         $dayNames[] = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->startOfWeek()->addDays($i)->translatedFormat('D');
     }
     
-    // Build server-rendered days array for first paint
+    // Build server-rendered days array for first paint.
+    // Day headers use {@see \Illuminate\Support\Carbon::startOfWeek()} (locale week start).
+    // Padding must use the same origin: PHP's `dayOfWeek` is 0=Sunday..6=Saturday, so using it
+    // alone misaligns Monday-first grids by one column (headers vs cells).
     $calendarDate = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1);
-    $firstDayOfMonth = $calendarDate->dayOfWeek;
+    $gridWeekStartDow = (int) $calendarDate->copy()->startOfWeek()->dayOfWeek;
+    $daysToShowFromPreviousMonth = ($calendarDate->dayOfWeek - $gridWeekStartDow + 7) % 7;
     $daysInMonth = $calendarDate->daysInMonth;
     $previousMonth = $calendarDate->copy()->subMonth();
     $daysInPreviousMonth = $previousMonth->daysInMonth;
-    $daysToShowFromPreviousMonth = $firstDayOfMonth;
     
     $serverDays = [];
     
@@ -100,6 +106,8 @@
         'locale' => str_replace('_', '-', app()->getLocale()),
         'monthLabel' => $initialMonthLabel,
         'monthLabelCache' => $initialYear.'-'.$initialMonth,
+        /** Matches {@see Carbon::startOfWeek()} for the live locale (0=Sun .. 6=Sat). */
+        'gridWeekStartDow' => $gridWeekStartDow,
     ];
 @endphp
 
@@ -182,18 +190,41 @@
                 @endforeach
             </div>
 
+            {{-- Dot legend (touch + screen readers; matches cell tooltips) --}}
+            <div
+                class="mb-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-0.5 text-[9px] leading-tight text-muted-foreground sm:text-[10px]"
+                data-testid="calendar-dot-legend"
+                role="group"
+                aria-label="{{ __('Calendar day indicators') }}"
+            >
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
+                    <span>{{ __('Overdue') }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+                    <span>{{ __('Due (not overdue)') }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500" aria-hidden="true"></span>
+                    <span>{{ __('Starts / scheduled') }}</span>
+                </span>
+            </div>
+
             {{-- Calendar Days Grid --}}
             <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
                 {{-- Server-rendered first paint (visible by default) --}}
                 @foreach ($serverDays as $dayData)
                     @if ($dayData['month'] !== 'current')
-                        {{-- Grid padding only (no adjacent-month day labels) --}}
+                        {{-- Adjacent month: muted day number (aligns grid visually) --}}
                         <div
                             x-show="!alpineReady"
                             class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35 sm:min-h-11"
                             style="display: flex;"
                             aria-hidden="true"
-                        ></div>
+                        >
+                            <span class="text-[10px] font-medium tabular-nums text-muted-foreground/50 sm:text-[11px] dark:text-zinc-500/80">{{ $dayData['day'] }}</span>
+                        </div>
                     @else
                         {{-- Current Month Days (Clickable) --}}
                         @php
@@ -257,9 +288,14 @@
                         {{-- Grid padding only (no adjacent-month day labels) --}}
                         <div
                             x-show="dayData.month !== 'current'"
-                            class="flex h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35"
+                            class="flex aspect-square h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35"
                             aria-hidden="true"
-                        ></div>
+                        >
+                            <span
+                                class="text-[10px] font-medium tabular-nums text-muted-foreground/50 sm:text-[11px] dark:text-zinc-500/80"
+                                x-text="dayData.day"
+                            ></span>
+                        </div>
                         
                         {{-- Current Month Days (Clickable) --}}
                         <button
@@ -322,8 +358,8 @@
                 <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {{ __('Selected day') }}
                 </h3>
-                <span class="text-[11px] text-muted-foreground">
-                    {{ \Illuminate\Support\Carbon::parse($selectedDayAgenda['date'] ?? $today)->translatedFormat('D, M j') }}
+                <span class="text-[11px] text-muted-foreground tabular-nums">
+                    {{ \Illuminate\Support\Carbon::parse($selectedDayHeaderDate)->translatedFormat('D, M j') }}
                 </span>
             </div>
 
@@ -342,7 +378,7 @@
                 </div>
             </div>
 
-            <div class="max-h-48 space-y-2 overflow-y-auto pr-1">
+            <div class="max-h-48 space-y-2 overflow-y-auto pr-1 sm:max-h-56 md:max-h-[22rem] lg:max-h-80">
                 @if (!empty($selectedDayAgenda['overdueTasks'] ?? []))
                     <div data-testid="calendar-agenda-overdue-tasks">
                         <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-red-600 dark:text-red-400">{{ __('Overdue tasks') }}</p>
@@ -350,9 +386,9 @@
                             @foreach (($selectedDayAgenda['overdueTasks'] ?? []) as $item)
                                 <li class="rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs dark:border-red-500/25 dark:bg-red-950/40">
                                     @if ($agendaContext === 'dashboard')
-                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                            <span class="truncate font-medium text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-red-700/90 dark:text-red-300/90">{{ $item['time'] }}</span>
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-start justify-between gap-2">
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="red" />
                                         </a>
                                     @else
                                         <button
@@ -363,10 +399,10 @@
                                                 const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
                                                 $wire.focusCalendarAgendaItem(k, i, !instant);
                                             "
-                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                            class="flex w-full items-start justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
                                         >
-                                            <span class="truncate font-medium text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-red-700/90 dark:text-red-300/90">{{ $item['time'] }}</span>
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-red-900 dark:text-red-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="red" />
                                         </button>
                                     @endif
                                 </li>
@@ -382,9 +418,9 @@
                             @foreach (($selectedDayAgenda['dueDayTasks'] ?? []) as $item)
                                 <li class="rounded-md border border-amber-500/35 bg-amber-500/10 px-2 py-1 text-xs dark:border-amber-500/30 dark:bg-amber-950/35">
                                     @if ($agendaContext === 'dashboard')
-                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                            <span class="truncate font-medium text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-amber-800/90 dark:text-amber-200/90">{{ $item['time'] }}</span>
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-start justify-between gap-2">
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="amber" />
                                         </a>
                                     @else
                                         <button
@@ -395,10 +431,10 @@
                                                 const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
                                                 $wire.focusCalendarAgendaItem(k, i, !instant);
                                             "
-                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                            class="flex w-full items-start justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
                                         >
-                                            <span class="truncate font-medium text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-amber-800/90 dark:text-amber-200/90">{{ $item['time'] }}</span>
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-amber-950 dark:text-amber-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="amber" />
                                         </button>
                                     @endif
                                 </li>
@@ -414,9 +450,9 @@
                             @foreach (($selectedDayAgenda['scheduledStarts'] ?? []) as $item)
                                 <li class="rounded-md border border-green-600/30 bg-green-600/10 px-2 py-1 text-xs dark:border-green-500/35 dark:bg-green-950/40">
                                     @if ($agendaContext === 'dashboard')
-                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                            <span class="truncate font-medium text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-green-900/90 dark:text-green-200/90">{{ $item['time'] }}</span>
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-start justify-between gap-2">
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="green" />
                                         </a>
                                     @else
                                         <button
@@ -427,10 +463,10 @@
                                                 const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
                                                 $wire.focusCalendarAgendaItem(k, i, !instant);
                                             "
-                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                            class="flex w-full items-start justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
                                         >
-                                            <span class="truncate font-medium text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-green-900/90 dark:text-green-200/90">{{ $item['time'] }}</span>
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-green-950 dark:text-green-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="green" />
                                         </button>
                                     @endif
                                 </li>
@@ -446,9 +482,9 @@
                             @foreach (($selectedDayAgenda['timedEvents'] ?? []) as $item)
                                 <li class="rounded-md border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-xs dark:border-indigo-500/20 dark:bg-indigo-950/35">
                                     @if ($agendaContext === 'dashboard')
-                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-center justify-between gap-2">
-                                            <span class="truncate font-medium text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-indigo-800/85 dark:text-indigo-200/85">{{ $item['time'] }}</span>
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-start justify-between gap-2">
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="indigo" />
                                         </a>
                                     @else
                                         <button
@@ -459,10 +495,10 @@
                                                 const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
                                                 $wire.focusCalendarAgendaItem(k, i, !instant);
                                             "
-                                            class="flex w-full items-center justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                            class="flex w-full items-start justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
                                         >
-                                            <span class="truncate font-medium text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
-                                            <span class="shrink-0 text-[10px] text-indigo-800/85 dark:text-indigo-200/85">{{ $item['time'] }}</span>
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-indigo-950 dark:text-indigo-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="indigo" />
                                         </button>
                                     @endif
                                 </li>
@@ -478,8 +514,14 @@
                             @foreach (($selectedDayAgenda['allDayEvents'] ?? []) as $item)
                                 <li class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-xs dark:border-emerald-500/20 dark:bg-emerald-950/35">
                                     @if ($agendaContext === 'dashboard')
-                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="block truncate font-medium text-emerald-950 dark:text-emerald-100">
-                                            {{ $item['title'] }}
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-start justify-between gap-2">
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-emerald-950 dark:text-emerald-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column
+                                                :time-label="$item['time_label'] ?? null"
+                                                :time="$item['time'] ?? null"
+                                                tone="emerald"
+                                                :uppercase-labels="false"
+                                            />
                                         </a>
                                     @else
                                         <button
@@ -490,9 +532,15 @@
                                                 const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
                                                 $wire.focusCalendarAgendaItem(k, i, !instant);
                                             "
-                                            class="block w-full truncate text-left font-medium text-emerald-950 dark:text-emerald-100 {{ $workspaceAgendaBtnBase }}"
+                                            class="flex w-full items-start justify-between gap-2 text-left font-medium text-emerald-950 dark:text-emerald-100 {{ $workspaceAgendaBtnBase }}"
                                         >
-                                            {{ $item['title'] }}
+                                            <span class="min-w-0 flex-1 truncate leading-snug">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column
+                                                :time-label="$item['time_label'] ?? null"
+                                                :time="$item['time'] ?? null"
+                                                tone="emerald"
+                                                :uppercase-labels="false"
+                                            />
                                         </button>
                                     @endif
                                 </li>
@@ -508,7 +556,14 @@
                     && empty($selectedDayAgenda['timedEvents'] ?? [])
                     && empty($selectedDayAgenda['allDayEvents'] ?? [])
                 )
-                    <p class="text-xs text-muted-foreground">{{ __('No tasks or events on this day.') }}</p>
+                    <div class="space-y-1.5 text-xs text-muted-foreground">
+                        <p>{{ __('No tasks or events on this day.') }}</p>
+                        @if ($agendaContext === 'workspace')
+                            <p class="text-[11px] leading-relaxed text-muted-foreground/95">{{ __('Add a task or event from the quick-add section above your list or board.') }}</p>
+                        @else
+                            <p class="text-[11px] leading-relaxed text-muted-foreground/95">{{ __('Open Workspace to add items, or enjoy a clear schedule.') }}</p>
+                        @endif
+                    </div>
                 @endif
             </div>
         </div>
