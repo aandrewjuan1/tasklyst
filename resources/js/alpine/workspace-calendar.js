@@ -14,6 +14,7 @@ import { syncWorkspaceCalendarTodayButton } from '../lib/workspace-calendar-toda
  * @param {string} config.locale - BCP 47 locale for month label
  * @param {string} config.monthLabel - initial visible month/year label
  * @param {string} config.monthLabelCache - `${year}-${month}` key matching updateMonthLabel()
+ * @param {number} config.gridWeekStartDow - First column weekday (JS Date.getDay(): 0=Sun..6=Sat), from Carbon startOfWeek
  */
 export function workspaceCalendar(config) {
     return {
@@ -117,7 +118,8 @@ export function workspaceCalendar(config) {
             const previousMonth = new Date(this.year, this.month, 0);
             const daysInPreviousMonth = previousMonth.getDate();
 
-            const daysToShowFromPreviousMonth = firstDayOfMonth;
+            const gridStart = this.gridWeekStartDow ?? 0;
+            const daysToShowFromPreviousMonth = (firstDayOfMonth - gridStart + 7) % 7;
             const remainder = (daysToShowFromPreviousMonth + daysInMonth) % 7;
             const blanksNeeded = remainder === 0 ? 0 : 7 - remainder;
             const expectedLength = daysToShowFromPreviousMonth + daysInMonth + blanksNeeded;

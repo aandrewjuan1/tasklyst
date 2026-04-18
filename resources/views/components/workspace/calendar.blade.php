@@ -31,13 +31,16 @@
         $dayNames[] = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->startOfWeek()->addDays($i)->translatedFormat('D');
     }
     
-    // Build server-rendered days array for first paint
+    // Build server-rendered days array for first paint.
+    // Day headers use {@see \Illuminate\Support\Carbon::startOfWeek()} (locale week start).
+    // Padding must use the same origin: PHP's `dayOfWeek` is 0=Sunday..6=Saturday, so using it
+    // alone misaligns Monday-first grids by one column (headers vs cells).
     $calendarDate = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1);
-    $firstDayOfMonth = $calendarDate->dayOfWeek;
+    $gridWeekStartDow = (int) $calendarDate->copy()->startOfWeek()->dayOfWeek;
+    $daysToShowFromPreviousMonth = ($calendarDate->dayOfWeek - $gridWeekStartDow + 7) % 7;
     $daysInMonth = $calendarDate->daysInMonth;
     $previousMonth = $calendarDate->copy()->subMonth();
     $daysInPreviousMonth = $previousMonth->daysInMonth;
-    $daysToShowFromPreviousMonth = $firstDayOfMonth;
     
     $serverDays = [];
     
@@ -100,6 +103,8 @@
         'locale' => str_replace('_', '-', app()->getLocale()),
         'monthLabel' => $initialMonthLabel,
         'monthLabelCache' => $initialYear.'-'.$initialMonth,
+        /** Matches {@see Carbon::startOfWeek()} for the live locale (0=Sun .. 6=Sat). */
+        'gridWeekStartDow' => $gridWeekStartDow,
     ];
 @endphp
 
