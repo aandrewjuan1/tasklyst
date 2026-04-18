@@ -197,6 +197,8 @@
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
+                            :scheduled-focus-plan-groups="$this->scheduledFocusPlanGroups"
+                            :scheduled-focus-plan-total-count="$this->scheduledFocusPlanTotalCount"
                         />
                     @endif
                 </div>

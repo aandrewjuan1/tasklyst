@@ -560,6 +560,249 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertNotEmpty($result['errors']);
     }
 
+    public function test_daily_schedule_validation_fails_when_proposal_ids_are_duplicated(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [
+                [
+                    'proposal_id' => 'dup-1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Task A',
+                    'start_datetime' => '2026-03-29T09:00:00+00:00',
+                    'end_datetime' => '2026-03-29T09:30:00+00:00',
+                    'duration_minutes' => 30,
+                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                ],
+                [
+                    'proposal_id' => 'dup-1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Task B',
+                    'start_datetime' => '2026-03-29T10:00:00+00:00',
+                    'end_datetime' => '2026-03-29T10:30:00+00:00',
+                    'duration_minutes' => 30,
+                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
+                ],
+            ],
+            'items' => [
+                [
+                    'title' => 'Task A',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-03-29T09:00:00+00:00',
+                    'end_datetime' => '2026-03-29T09:30:00+00:00',
+                    'duration_minutes' => 30,
+                ],
+                [
+                    'title' => 'Task B',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-03-29T10:00:00+00:00',
+                    'end_datetime' => '2026-03-29T10:30:00+00:00',
+                    'duration_minutes' => 30,
+                ],
+            ],
+            'blocks' => [
+                ['start_time' => '09:00', 'end_time' => '09:30', 'label' => 'Task A', 'task_id' => 1, 'event_id' => null, 'note' => null],
+                ['start_time' => '10:00', 'end_time' => '10:30', 'label' => 'Task B', 'task_id' => 2, 'event_id' => null, 'note' => null],
+            ],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => false,
+            'framing' => 'Here is a focused plan.',
+            'reasoning' => 'This keeps your schedule realistic.',
+            'confirmation' => 'Do these times work?',
+        ], [
+            'tasks' => [['id' => 1], ['id' => 2]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
+
+    public function test_daily_schedule_validation_fails_when_empty_flag_conflicts_with_schedulable_proposals(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => [
+                    'tool' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => true,
+            'framing' => 'Here is a focused plan.',
+            'reasoning' => 'Task A is ready to place.',
+            'confirmation' => 'Do these times work?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
+
+    public function test_daily_schedule_confirmation_validation_fails_when_system_default_claims_explicit_top_n(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => [
+                    'tool' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'confirmation_required' => true,
+            'awaiting_user_decision' => true,
+            'confirmation_context' => [
+                'reason_code' => 'top_n_shortfall',
+                'requested_count' => 3,
+                'placed_count' => 1,
+                'requested_count_source' => 'system_default',
+                'reason_message' => 'You asked for top 3, but only 1 fit.',
+                'prompt' => 'Keep this draft or adjust your window?',
+                'options' => [
+                    'Keep this current draft',
+                    'Pick another time window',
+                    'Cancel scheduling for now',
+                ],
+            ],
+            'framing' => 'I preserved your top 3 request and prepared a draft.',
+            'reasoning' => 'You asked for top 3 and only one fit.',
+            'confirmation' => 'Keep this draft or adjust your window?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
+
+    public function test_daily_schedule_confirmation_validation_fails_when_reason_code_options_missing_required_choice(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Task A',
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+                'apply_payload' => [
+                    'tool' => 'update_task',
+                    'arguments' => ['taskId' => 1, 'updates' => []],
+                ],
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-03-29T09:00:00+00:00',
+                'end_datetime' => '2026-03-29T09:30:00+00:00',
+                'duration_minutes' => 30,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:30',
+                'label' => 'Task A',
+                'task_id' => 1,
+                'event_id' => null,
+                'note' => null,
+            ]],
+            'schedule_variant' => 'daily',
+            'confirmation_required' => true,
+            'awaiting_user_decision' => true,
+            'confirmation_context' => [
+                'reason_code' => 'explicit_day_not_feasible',
+                'requested_count' => 3,
+                'placed_count' => 1,
+                'requested_count_source' => 'explicit_user',
+                'reason_message' => 'I could not keep everything on Apr 20, 2026.',
+                'prompt' => 'Keep Apr 20 only, or widen to nearby days?',
+                'options' => [
+                    'Keep Apr 20 only',
+                    'Cancel scheduling for now',
+                ],
+            ],
+            'framing' => 'I paused to confirm before widening beyond Apr 20.',
+            'reasoning' => 'Nothing is final until you choose.',
+            'confirmation' => 'Keep Apr 20 only, or widen to nearby days?',
+        ], [
+            'tasks' => [['id' => 1]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
+    }
+
     public function test_listing_followup_validation_passes_for_well_formed_payload(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);

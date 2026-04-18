@@ -74,6 +74,7 @@ use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
+use App\Actions\Workspace\AlignWorkspaceForScheduledPlanItemAction;
 use App\Support\WorkspaceListAggregator;
 
 new
@@ -680,7 +681,10 @@ class extends Component
         return $this->scheduledFocusPlanEntries->count();
     }
 
-    public function openScheduledFocusItem(int $planItemId): void
+    /**
+     * Focus the linked workspace row from a scheduled plan item: align calendar date and filters, then scroll/highlight.
+     */
+    public function focusFromScheduledPlanItem(int $planItemId): void
     {
         $planItem = $this->resolveScheduledFocusPlanItem($planItemId);
         if (! $planItem) {
@@ -690,6 +694,20 @@ class extends Component
         $kind = (string) $planItem->entity_type;
         if (! in_array($kind, ['task', 'event', 'project'], true)) {
             return;
+        }
+
+        $alignment = app(AlignWorkspaceForScheduledPlanItemAction::class)->execute($planItem, $this->selectedDate);
+
+        if ($alignment['new_date'] !== null) {
+            $this->selectedDate = $alignment['new_date'];
+        }
+
+        $this->clearAllFilters();
+
+        if ($alignment['date_changed'] && $alignment['new_date'] !== null) {
+            $this->dispatch('toast', type: 'info', message: __('Switched to :date for this plan item.', [
+                'date' => \Carbon\Carbon::parse($alignment['new_date'])->translatedFormat('l, F j, Y'),
+            ]));
         }
 
         $this->focusCalendarAgendaItem($kind, (int) $planItem->entity_id);

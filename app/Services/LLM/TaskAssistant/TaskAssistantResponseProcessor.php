@@ -421,6 +421,9 @@ final class TaskAssistantResponseProcessor
             'awaiting_user_decision' => ['nullable', 'boolean'],
             'confirmation_context' => ['nullable', 'array'],
             'confirmation_context.reason_code' => ['nullable', 'string', 'max:120'],
+            'confirmation_context.requested_count' => ['nullable', 'integer', 'min:1', 'max:10'],
+            'confirmation_context.placed_count' => ['nullable', 'integer', 'min:0', 'max:200'],
+            'confirmation_context.requested_count_source' => ['nullable', 'string', 'in:explicit_user,system_default'],
             'confirmation_context.reason_message' => ['nullable', 'string', 'max:500'],
             'confirmation_context.requested_window' => ['nullable', 'array'],
             'confirmation_context.attempted_horizon' => ['nullable', 'array'],
@@ -526,6 +529,54 @@ final class TaskAssistantResponseProcessor
                 }
             }
 
+            $seenProposalIds = [];
+            $seenProposalUuids = [];
+            $hasSchedulableProposal = false;
+            $hasPlaceholderProposal = false;
+
+            foreach ($proposals as $i => $proposal) {
+                if (! is_array($proposal)) {
+                    continue;
+                }
+
+                $proposalId = trim((string) ($proposal['proposal_id'] ?? ''));
+                if ($proposalId !== '') {
+                    if (isset($seenProposalIds[$proposalId])) {
+                        $validator->errors()->add("proposals.$i.proposal_id", 'proposal_id must be unique.');
+
+                        return;
+                    }
+                    $seenProposalIds[$proposalId] = true;
+                }
+
+                $proposalUuid = trim((string) ($proposal['proposal_uuid'] ?? ''));
+                if ($proposalUuid !== '') {
+                    if (isset($seenProposalUuids[$proposalUuid])) {
+                        $validator->errors()->add("proposals.$i.proposal_uuid", 'proposal_uuid must be unique when present.');
+
+                        return;
+                    }
+                    $seenProposalUuids[$proposalUuid] = true;
+                }
+
+                $title = trim((string) ($proposal['title'] ?? ''));
+                if ($title === 'No schedulable items found') {
+                    $hasPlaceholderProposal = true;
+                }
+
+                if (($proposal['apply_payload'] ?? null) !== null) {
+                    $hasSchedulableProposal = true;
+                }
+            }
+
+            $scheduleEmptyPlacement = (bool) ($data['schedule_empty_placement'] ?? false);
+            if ($scheduleEmptyPlacement && $hasSchedulableProposal) {
+                $validator->errors()->add('schedule_empty_placement', 'schedule_empty_placement cannot be true when schedulable proposals exist.');
+            }
+            if (! $scheduleEmptyPlacement && $hasPlaceholderProposal && ! $hasSchedulableProposal) {
+                $validator->errors()->add('schedule_empty_placement', 'schedule_empty_placement must be true when proposals only contain placeholders.');
+            }
+
             foreach ($proposals as $i => $proposal) {
                 if (! is_array($proposal)) {
                     continue;
@@ -556,6 +607,47 @@ final class TaskAssistantResponseProcessor
                 $options = is_array($confirmationContext['options'] ?? null) ? $confirmationContext['options'] : [];
                 if ($options === []) {
                     $validator->errors()->add('confirmation_context.options', 'confirmation_context.options is required when confirmation_required is true.');
+                }
+
+                $reasonCode = trim((string) ($confirmationContext['reason_code'] ?? ''));
+                $expectedOptions = match ($reasonCode) {
+                    'top_n_shortfall' => [
+                        'Keep this current draft',
+                        'Pick another time window',
+                        'Cancel scheduling for now',
+                    ],
+                    'explicit_day_not_feasible' => [
+                        'Widen to nearby days',
+                        'Cancel scheduling for now',
+                    ],
+                    'later_window_not_feasible' => [
+                        'Yes, continue with tomorrow',
+                        'Pick another time window',
+                        'Cancel scheduling for now',
+                    ],
+                    default => [],
+                };
+
+                if ($expectedOptions !== []) {
+                    foreach ($expectedOptions as $expected) {
+                        if (! in_array($expected, $options, true)) {
+                            $validator->errors()->add('confirmation_context.options', 'confirmation_context.options must include deterministic options for the reason_code.');
+                            break;
+                        }
+                    }
+                }
+
+                $requestedCountSource = (string) ($confirmationContext['requested_count_source'] ?? '');
+                if ($requestedCountSource === 'system_default') {
+                    $narrativeBlob = implode(' ', [
+                        (string) ($data['framing'] ?? ''),
+                        (string) ($data['reasoning'] ?? ''),
+                        (string) ($data['confirmation'] ?? ''),
+                        (string) ($confirmationContext['reason_message'] ?? ''),
+                    ]);
+                    if (preg_match('/\byou\s+asked\s+for\s+top\s+\d+\b/i', $narrativeBlob) === 1) {
+                        $validator->errors()->add('confirmation_context.requested_count_source', 'confirmation narrative must not claim explicit top-N ask when requested_count_source is system_default.');
+                    }
                 }
             }
         });

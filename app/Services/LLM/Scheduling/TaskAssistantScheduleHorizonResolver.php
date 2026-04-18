@@ -29,6 +29,11 @@ final class TaskAssistantScheduleHorizonResolver
         $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
         $local = $now->setTimezone($tz);
 
+        $explicitDate = $this->resolveExplicitCalendarDate($userMessage, $tz, $local);
+        if ($explicitDate !== null) {
+            return $this->singleDay($explicitDate['date'], $explicitDate['label']);
+        }
+
         if (preg_match('/\btomorrow\b/u', $lower) === 1) {
             return $this->singleDay($local->addDay()->startOfDay(), 'tomorrow');
         }
@@ -57,6 +62,11 @@ final class TaskAssistantScheduleHorizonResolver
             return $this->thisWeekRange($local, $maxDays);
         }
 
+        $qualifiedWeekday = $this->resolveQualifiedWeekday($lower, $local);
+        if ($qualifiedWeekday !== null) {
+            return $this->singleDay($qualifiedWeekday['date'], $qualifiedWeekday['label']);
+        }
+
         $weekday = $this->matchNamedWeekday($lower);
         if ($weekday !== null) {
             $target = $this->nextOccurrenceOfWeekdayIso($local, $weekday['iso']);
@@ -65,6 +75,111 @@ final class TaskAssistantScheduleHorizonResolver
         }
 
         return $this->singleDay($local->copy()->startOfDay(), 'default_today');
+    }
+
+    /**
+     * @return array{date: CarbonImmutable, label: string}|null
+     */
+    private function resolveExplicitCalendarDate(string $userMessage, string $timezone, CarbonImmutable $localNow): ?array
+    {
+        if (preg_match('/\b(?:in\s+)?(\d{1,2})\s+days?(?:\s+from\s+now)?\b/iu', $userMessage, $matches) === 1) {
+            $days = (int) ($matches[1] ?? 0);
+            if ($days > 0) {
+                return [
+                    'date' => $localNow->addDays($days)->startOfDay(),
+                    'label' => 'relative_days_offset',
+                ];
+            }
+        }
+
+        if (preg_match('/\b(\d{4})-(\d{2})-(\d{2})\b/u', $userMessage, $matches) === 1) {
+            $iso = sprintf('%04d-%02d-%02d', (int) ($matches[1] ?? 0), (int) ($matches[2] ?? 0), (int) ($matches[3] ?? 0));
+            try {
+                return [
+                    'date' => CarbonImmutable::parse($iso, $timezone)->startOfDay(),
+                    'label' => 'explicit_date_iso',
+                ];
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        if (preg_match('/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])(?:\/(\d{4}))?\b/u', $userMessage, $matches) === 1) {
+            $month = (int) ($matches[1] ?? 0);
+            $day = (int) ($matches[2] ?? 0);
+            $year = isset($matches[3]) && $matches[3] !== ''
+                ? (int) $matches[3]
+                : (int) $localNow->format('Y');
+            try {
+                $candidate = CarbonImmutable::create($year, $month, $day, 0, 0, 0, $timezone)->startOfDay();
+            } catch (\Throwable) {
+                return null;
+            }
+            if (! isset($matches[3]) && $candidate->lt($localNow->startOfDay())) {
+                $candidate = $candidate->addYear();
+            }
+
+            return [
+                'date' => $candidate,
+                'label' => 'explicit_date_numeric',
+            ];
+        }
+
+        if (preg_match('/\b(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sep|sept|october|oct|november|nov|december|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/iu', $userMessage, $matches) === 1) {
+            $monthName = (string) ($matches[1] ?? '');
+            $day = (int) ($matches[2] ?? 0);
+            $year = isset($matches[3]) && $matches[3] !== ''
+                ? (int) $matches[3]
+                : (int) $localNow->format('Y');
+
+            try {
+                $candidate = CarbonImmutable::parse($monthName.' '.$day.' '.$year, $timezone)->startOfDay();
+            } catch (\Throwable) {
+                return null;
+            }
+            if (! isset($matches[3]) && $candidate->lt($localNow->startOfDay())) {
+                $candidate = $candidate->addYear();
+            }
+
+            return [
+                'date' => $candidate,
+                'label' => 'explicit_date_month_day',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{date: CarbonImmutable, label: string}|null
+     */
+    private function resolveQualifiedWeekday(string $lower, CarbonImmutable $from): ?array
+    {
+        if (preg_match('/\b(next|this)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/u', $lower, $matches) !== 1) {
+            return null;
+        }
+
+        $qualifier = (string) ($matches[1] ?? '');
+        $weekday = (string) ($matches[2] ?? '');
+        $meta = $this->matchNamedWeekday($weekday);
+        if ($meta === null) {
+            return null;
+        }
+
+        $currentIso = (int) $from->isoWeekday();
+        $targetIso = (int) ($meta['iso'] ?? $currentIso);
+        $daysAhead = ($targetIso - $currentIso + 7) % 7;
+
+        if ($qualifier === 'next') {
+            $daysAhead = $daysAhead === 0 ? 7 : $daysAhead;
+        } elseif ($qualifier === 'this' && $daysAhead === 0) {
+            $daysAhead = 0;
+        }
+
+        return [
+            'date' => $from->addDays($daysAhead)->startOfDay(),
+            'label' => 'qualified_weekday_'.$qualifier,
+        ];
     }
 
     /**

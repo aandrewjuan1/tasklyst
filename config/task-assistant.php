@@ -50,6 +50,11 @@ return [
             'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_MAX_TOKENS', 900),
             'top_p' => env('TASK_ASSISTANT_SCHEDULE_NARRATIVE_FOLLOWUP_TOP_P'),
         ],
+        'schedule_confirmation' => [
+            'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_TEMPERATURE', 0.28),
+            'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_MAX_TOKENS', 420),
+            'top_p' => env('TASK_ASSISTANT_SCHEDULE_CONFIRMATION_TOP_P', 0.9),
+        ],
         'schedule_refinement_ops' => [
             'temperature' => (float) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_TEMPERATURE', 0.12),
             'max_tokens' => (int) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_OPS_MAX_TOKENS', 400),

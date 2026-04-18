@@ -523,6 +523,31 @@ class TaskAssistantMessageFormatterTest extends TestCase
         $this->assertStringNotContainsString('(~300 min)', $out);
     }
 
+    public function test_daily_schedule_time_label_falls_back_to_item_datetimes_when_block_times_missing(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is your schedule.',
+            'reasoning' => 'This keeps your plan coherent.',
+            'confirmation' => 'Does this feel workable?',
+            'blocks' => [[
+                'start_time' => '',
+                'end_time' => '',
+                'label' => 'Focus block',
+                'task_id' => 31,
+            ]],
+            'items' => [[
+                'title' => 'Focus block',
+                'entity_type' => 'task',
+                'entity_id' => 31,
+                'start_datetime' => '2026-04-19T18:00:00+08:00',
+                'end_datetime' => '2026-04-19T19:30:00+08:00',
+                'duration_minutes' => 90,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('6:00 PM–7:30 PM', $out);
+    }
+
     public function test_daily_schedule_message_preserves_ranked_row_order_from_payload(): void
     {
         $out = $this->formatter->format('daily_schedule', [
@@ -781,5 +806,65 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringNotContainsString('Some targeted tasks could not be scheduled', $out);
+    }
+
+    public function test_daily_schedule_confirmation_message_uses_payload_narrative_without_static_robotic_prefix(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'confirmation_required' => true,
+            'framing' => 'I drafted a plan for today and paused so you can choose next.',
+            'reasoning' => 'Only one task fit in this window, so I need your decision before finalizing.',
+            'confirmation' => 'Should I keep this draft or try a wider window?',
+            'confirmation_context' => [
+                'reason_code' => 'top_n_shortfall',
+                'reason_message' => 'Only one task fit in your current window.',
+                'prompt' => 'Should I keep this draft or try a wider window?',
+            ],
+            'fallback_preview' => [
+                'proposals_count' => 1,
+            ],
+            'items' => [[
+                'title' => 'Wash dishes after dinner',
+                'entity_type' => 'task',
+                'entity_id' => 21,
+                'start_datetime' => '2026-04-18T20:50:56+08:00',
+                'end_datetime' => '2026-04-18T21:10:56+08:00',
+            ]],
+            'blocks' => [[
+                'start_time' => '20:50',
+                'end_time' => '21:10',
+            ]],
+        ]);
+
+        $this->assertStringContainsString('I drafted a plan for today and paused so you can choose next.', $out);
+        $this->assertStringNotContainsString('Decision needed before finalizing:', $out);
+    }
+
+    public function test_daily_schedule_narrative_date_mentions_align_to_actual_item_date(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I scheduled these for April 20th.',
+            'reasoning' => 'This plan for April 20 should help you stay consistent.',
+            'confirmation' => 'Do these April 20 times work for you?',
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+                'task_id' => 1,
+                'event_id' => null,
+                'label' => 'Focus block',
+                'note' => 'Planned by strict scheduler.',
+            ]],
+            'items' => [[
+                'title' => 'Focus block',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-19T08:00:00+08:00',
+                'end_datetime' => '2026-04-19T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+        ]);
+
+        $this->assertStringContainsString('Apr 19, 2026', $out);
+        $this->assertStringNotContainsString('April 20', $out);
     }
 }

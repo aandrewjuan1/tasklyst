@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\AssistantSchedulePlanItemStatus;
 use App\Enums\MessageRole;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\AssistantSchedulePlan;
@@ -8,6 +9,7 @@ use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Notifications\AssistantScheduleAcceptedNotification;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
+use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
 use App\Services\UserNotificationBroadcastService;
 use App\Tools\LLM\TaskAssistant\CreateEventTool;
 use App\Tools\LLM\TaskAssistant\UpdateEventTool;
@@ -54,6 +56,9 @@ new class extends Component
 
     public ?string $streamingTimedOutAt = null;
 
+    /** @var array<int, string> */
+    public array $emptyStateQuickChips = [];
+
     public function mount(): void
     {
         $this->userId = Auth::id();
@@ -61,6 +66,7 @@ new class extends Component
         $this->ensureThread();
         $this->loadMessages();
         $this->syncStreamingStateFromPersistence();
+        $this->refreshEmptyStateQuickChips();
     }
 
     public function startNewChat(): void
@@ -98,6 +104,7 @@ new class extends Component
         $this->showWorking = false;
         $this->streamingCorrelationId = null;
         $this->streamingTimedOutAt = null;
+        $this->refreshEmptyStateQuickChips();
     }
 
     public function applyQuickPromptChip(string $value): void
@@ -642,13 +649,31 @@ new class extends Component
                 $plannedDurationMinutes = null;
             }
 
-            AssistantSchedulePlanItem::query()->updateOrCreate(
-                [
+            $timezone = (string) config('app.timezone', 'UTC');
+            $plannedDayYmd = $plannedStartAt->setTimezone($timezone)->format('Y-m-d');
+            $dedupeKey = AssistantSchedulePlanItem::buildDedupeKey($user->id, $entityType, $entityId, $plannedDayYmd);
+
+            $proposalMetadata = [
+                'reason_score' => $proposal['reason_score'] ?? null,
+                'apply_payload' => $proposal['apply_payload'] ?? null,
+                'priority_rank' => $proposal['priority_rank'] ?? null,
+            ];
+
+            $existing = AssistantSchedulePlanItem::query()
+                ->forUser($user->id)
+                ->where('dedupe_key', $dedupeKey)
+                ->active()
+                ->first();
+
+            if ($existing) {
+                $mergedMetadata = is_array($existing->metadata) ? $existing->metadata : [];
+                $mergedMetadata = array_merge($mergedMetadata, $proposalMetadata);
+                data_set($mergedMetadata, 'proposal_last_accepted_at', now()->toIso8601String());
+                data_set($mergedMetadata, 'proposal_last_uuid', $proposalUuid);
+
+                $existing->fill([
                     'assistant_schedule_plan_id' => $plan->id,
                     'proposal_uuid' => $proposalUuid,
-                ],
-                [
-                    'user_id' => $user->id,
                     'proposal_id' => trim((string) ($proposal['proposal_id'] ?? '')) ?: null,
                     'entity_type' => $entityType,
                     'entity_id' => $entityId,
@@ -656,15 +681,28 @@ new class extends Component
                     'planned_start_at' => $plannedStartAt,
                     'planned_end_at' => $plannedEndAt,
                     'planned_duration_minutes' => $plannedDurationMinutes,
-                    'status' => \App\Enums\AssistantSchedulePlanItemStatus::Planned,
+                    'status' => AssistantSchedulePlanItemStatus::Planned,
                     'accepted_at' => now(),
-                    'metadata' => [
-                        'reason_score' => $proposal['reason_score'] ?? null,
-                        'apply_payload' => $proposal['apply_payload'] ?? null,
-                        'priority_rank' => $proposal['priority_rank'] ?? null,
-                    ],
-                ]
-            );
+                    'metadata' => $mergedMetadata,
+                ]);
+                $existing->save();
+            } else {
+                AssistantSchedulePlanItem::query()->create([
+                    'assistant_schedule_plan_id' => $plan->id,
+                    'user_id' => $user->id,
+                    'proposal_uuid' => $proposalUuid,
+                    'proposal_id' => trim((string) ($proposal['proposal_id'] ?? '')) ?: null,
+                    'entity_type' => $entityType,
+                    'entity_id' => $entityId,
+                    'title' => $title,
+                    'planned_start_at' => $plannedStartAt,
+                    'planned_end_at' => $plannedEndAt,
+                    'planned_duration_minutes' => $plannedDurationMinutes,
+                    'status' => AssistantSchedulePlanItemStatus::Planned,
+                    'accepted_at' => now(),
+                    'metadata' => $proposalMetadata,
+                ]);
+            }
         }
     }
 
@@ -978,6 +1016,23 @@ new class extends Component
                 'content' => '',
                 'metadata' => $metadata,
             ]);
+    }
+
+    private function refreshEmptyStateQuickChips(): void
+    {
+        $user = Auth::user();
+        if (! $user) {
+            $this->emptyStateQuickChips = [];
+
+            return;
+        }
+
+        $this->emptyStateQuickChips = app(TaskAssistantQuickChipResolver::class)
+            ->resolveForEmptyState(
+                user: $user,
+                thread: $this->thread,
+                limit: 4,
+            );
     }
 
     private function cancelPreviousActiveAssistantRuns(): void

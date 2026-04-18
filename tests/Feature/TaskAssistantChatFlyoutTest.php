@@ -7,6 +7,7 @@ use App\Models\DatabaseNotification;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Bus;
 use Livewire\Livewire;
 use Prism\Prism\Facades\Prism;
@@ -129,6 +130,40 @@ test('chat flyout quick prompt chip does nothing while streaming', function (): 
         ->set('isStreaming', true)
         ->call('applyQuickPromptChip', 'Schedule my most important task')
         ->assertSet('newMessage', 'Existing text');
+});
+
+test('chat flyout renders four dynamic empty-state quick chips in morning', function (): void {
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-20 08:30:00', $timezone));
+
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSet('isStreaming', false)
+        ->assertCount('emptyStateQuickChips', 4)
+        ->assertSee('Create a plan for today');
+
+    CarbonImmutable::setTestNow();
+});
+
+test('chat flyout evening new chat includes tomorrow and later scheduling chips', function (): void {
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-20 20:45:00', $timezone));
+
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('startNewChat')
+        ->assertSet('isStreaming', false)
+        ->assertCount('emptyStateQuickChips', 4)
+        ->assertSee('Create a plan for tomorrow')
+        ->assertSee('Schedule top 1 for later');
+
+    CarbonImmutable::setTestNow();
 });
 
 test('chat flyout submits prioritize-oriented message and dispatches job', function () {

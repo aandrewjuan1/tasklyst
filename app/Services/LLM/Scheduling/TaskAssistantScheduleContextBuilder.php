@@ -198,6 +198,11 @@ final class TaskAssistantScheduleContextBuilder
         array $intentReasonCodes,
         string $timezone,
     ): array {
+        $label = (string) ($horizon['label'] ?? '');
+        if ($this->isExplicitDateLikeHorizonLabel($label)) {
+            return $this->normalizeHorizonShape($horizon);
+        }
+
         if (($horizon['label'] ?? '') !== 'default_today') {
             return $this->normalizeHorizonShape($horizon);
         }
@@ -280,5 +285,16 @@ final class TaskAssistantScheduleContextBuilder
             'end_date' => (string) ($horizon['end_date'] ?? ''),
             'label' => (string) ($horizon['label'] ?? ''),
         ];
+    }
+
+    private function isExplicitDateLikeHorizonLabel(string $label): bool
+    {
+        if ($label === '') {
+            return false;
+        }
+
+        return str_starts_with($label, 'explicit_date_')
+            || str_starts_with($label, 'relative_days_')
+            || str_starts_with($label, 'qualified_weekday_');
     }
 }

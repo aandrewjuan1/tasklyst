@@ -353,4 +353,25 @@ class TaskAssistantScheduleContextBuilderTest extends TestCase
         $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
         $this->assertSame('today', $analysis['schedule_horizon']['label'] ?? null);
     }
+
+    public function test_it_does_not_widen_when_user_names_explicit_calendar_date(): void
+    {
+        config([
+            'task-assistant.schedule.smart_default_spread_days' => 3,
+        ]);
+
+        $builder = app(TaskAssistantScheduleContextBuilder::class);
+
+        $analysis = $builder->build('actually schedule them for april 20', [
+            'tasks' => [],
+            'timezone' => 'UTC',
+            'today' => '2026-04-18',
+            'now' => '2026-04-18T12:00:00+00:00',
+        ]);
+
+        $this->assertSame('single_day', $analysis['schedule_horizon']['mode'] ?? null);
+        $this->assertSame('2026-04-20', $analysis['schedule_horizon']['start_date'] ?? null);
+        $this->assertSame('2026-04-20', $analysis['schedule_horizon']['end_date'] ?? null);
+        $this->assertSame('explicit_date_month_day', $analysis['schedule_horizon']['label'] ?? null);
+    }
 }

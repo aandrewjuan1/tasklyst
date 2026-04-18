@@ -716,6 +716,11 @@ final class TaskAssistantStructuredFlowGenerator
             'top_n_shortfall' => false,
             'summary' => '',
         ];
+        $strictRequestedDay = $this->resolveStrictRequestedDayFromSnapshot($snapshot);
+        if ($strictRequestedDay !== null) {
+            $digest['strict_day_requested'] = true;
+            $digest['strict_day_date'] = $strictRequestedDay;
+        }
 
         if ($skippedTargets !== []) {
             $digest['skipped_targets'] = array_values(array_merge(
@@ -1062,6 +1067,30 @@ final class TaskAssistantStructuredFlowGenerator
         $requested = (int) ($scheduleOptions['count_limit'] ?? $countLimit);
 
         return max(1, min($requested, 10));
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function resolveStrictRequestedDayFromSnapshot(array $snapshot): ?string
+    {
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $label = (string) ($horizon['label'] ?? '');
+        $mode = (string) ($horizon['mode'] ?? '');
+        $startDate = trim((string) ($horizon['start_date'] ?? ''));
+        $endDate = trim((string) ($horizon['end_date'] ?? ''));
+
+        if ($mode !== 'single_day' || $startDate === '' || $startDate !== $endDate) {
+            return null;
+        }
+
+        if (! str_starts_with($label, 'explicit_date_')
+            && ! str_starts_with($label, 'relative_days_')
+            && ! str_starts_with($label, 'qualified_weekday_')) {
+            return null;
+        }
+
+        return $startDate;
     }
 
     /**
