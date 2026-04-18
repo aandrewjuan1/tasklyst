@@ -1051,6 +1051,69 @@ test('top N scheduling shortfall requires confirmation instead of silent underfi
     CarbonImmutable::setTestNow();
 });
 
+test('system default schedule count does not require confirmation when all available tasks are placed', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
+        'task-assistant.schedule.overflow_strategy' => 'require_confirm',
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prepared your schedule for later this week.',
+                'reasoning' => 'I placed each available task into open time blocks.',
+                'confirmation' => 'Do these times work for you?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-19 00:45:00', $timezone));
+
+    Task::factory()->for($user)->create([
+        'title' => 'Assignment A',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-22 09:00:00', $timezone),
+    ]);
+    Task::factory()->for($user)->create([
+        'title' => 'Exam review',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-24 12:00:00', $timezone),
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule it later this week',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['placement_digest']['top_n_shortfall'] ?? null)->toBeFalse();
+    expect($assistantMessage->metadata['schedule']['placement_digest']['requested_count_source'] ?? null)->toBe('system_default');
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+
+    CarbonImmutable::setTestNow();
+});
+
 test('explicit requested date no-fit requires confirmation instead of silent day widening', function (): void {
     config([
         'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',

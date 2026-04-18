@@ -635,6 +635,7 @@ final class TaskAssistantStructuredFlowGenerator
         $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
         $requestedCount = $this->resolveRequestedCount($countLimit, $scheduleOptions);
+        $requestedCountSource = $this->resolveRequestedCountSource($scheduleOptions);
         $placementDates = $this->resolvePlacementDates($snapshot, $timezone);
         $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
         $isRange = ($horizon['mode'] ?? '') === 'range'
@@ -700,8 +701,15 @@ final class TaskAssistantStructuredFlowGenerator
             usort($units, fn (array $a, array $b): int => $this->compareSchedulingUnits($a, $b));
         }
 
+        $candidateUnitCount = count($units);
+        if ($requestedCountSource !== 'explicit_user' && $candidateUnitCount > 0) {
+            $requestedCount = min($requestedCount, $candidateUnitCount);
+        }
+
         $digest = [
             'requested_count' => $requestedCount,
+            'requested_count_source' => $requestedCountSource,
+            'candidate_units_count' => $candidateUnitCount,
             'time_window_hint' => is_string($scheduleOptions['time_window_hint'] ?? null) ? $scheduleOptions['time_window_hint'] : null,
             'placement_dates' => $placementDates,
             'days_used' => [],
@@ -715,6 +723,12 @@ final class TaskAssistantStructuredFlowGenerator
             'count_shortfall' => 0,
             'top_n_shortfall' => false,
             'summary' => '',
+            'attempted_horizon' => [
+                'mode' => (string) ($horizon['mode'] ?? 'single_day'),
+                'start_date' => is_string($horizon['start_date'] ?? null) ? $horizon['start_date'] : null,
+                'end_date' => is_string($horizon['end_date'] ?? null) ? $horizon['end_date'] : null,
+                'label' => is_string($horizon['label'] ?? null) ? $horizon['label'] : null,
+            ],
         ];
         $strictRequestedDay = $this->resolveStrictRequestedDayFromSnapshot($snapshot);
         if ($strictRequestedDay !== null) {
@@ -1065,8 +1079,22 @@ final class TaskAssistantStructuredFlowGenerator
     private function resolveRequestedCount(int $countLimit, array $scheduleOptions): int
     {
         $requested = (int) ($scheduleOptions['count_limit'] ?? $countLimit);
+        $explicitRequestedCount = (int) ($scheduleOptions['explicit_requested_count'] ?? 0);
+        if ($explicitRequestedCount > 0) {
+            $requested = $explicitRequestedCount;
+        }
 
         return max(1, min($requested, 10));
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function resolveRequestedCountSource(array $scheduleOptions): string
+    {
+        $explicitRequestedCount = (int) ($scheduleOptions['explicit_requested_count'] ?? 0);
+
+        return $explicitRequestedCount > 0 ? 'explicit_user' : 'system_default';
     }
 
     /**
@@ -1146,7 +1174,10 @@ final class TaskAssistantStructuredFlowGenerator
         $digest['partial_placed_count'] = $partialPlaced;
 
         $shortfallPolicy = (string) config('task-assistant.schedule.top_n_shortfall_policy', 'confirm_if_shortfall');
-        $isTopNContract = $shortfallPolicy === 'confirm_if_shortfall' && $requestedCount > 1;
+        $requestedCountSource = (string) ($digest['requested_count_source'] ?? $this->resolveRequestedCountSource($scheduleOptions));
+        $isTopNContract = $shortfallPolicy === 'confirm_if_shortfall'
+            && $requestedCount > 1
+            && $requestedCountSource === 'explicit_user';
         $shortfallCount = $isTopNContract ? max(0, $requestedCount - $qualifiedPlaced) : 0;
 
         $digest['count_shortfall'] = $shortfallCount;

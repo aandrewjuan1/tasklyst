@@ -1621,6 +1621,7 @@ final class TaskAssistantService
         $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
         $scheduleTargets = $plan->targetEntities;
         $timeWindowHint = $plan->timeWindowHint;
+        $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
 
         $result = $this->structuredFlowGenerator->generateDailySchedule(
             thread: $thread,
@@ -1630,6 +1631,7 @@ final class TaskAssistantService
                 'target_entities' => $scheduleTargets,
                 'time_window_hint' => $timeWindowHint,
                 'count_limit' => $plan->countLimit,
+                'explicit_requested_count' => $explicitRequestedCount,
                 'schedule_user_id' => $thread->user_id,
             ]
         );
@@ -2320,7 +2322,9 @@ final class TaskAssistantService
         $requestedWindowLabel = (string) ($requestedWindow['label'] ?? 'your requested window');
         $proposalsCount = is_array($scheduleData['proposals'] ?? null) ? count($scheduleData['proposals']) : 0;
         $strictDate = $this->strictRequestedDateFromScheduleData($scheduleData);
-        $requestedCountSource = $this->detectRequestedCountSourceForConfirmation($userMessageContent);
+        $requestedCountSource = $this->detectRequestedCountSourceForConfirmation($userMessageContent, $scheduleData);
+        $attemptedHorizon = $this->attemptedHorizonDescriptorFromScheduleData($scheduleData);
+        $fallbackHorizon = $this->fallbackHorizonDescriptorFromScheduleData($scheduleData);
 
         if ($strictDate !== null) {
             $datePhrase = CarbonImmutable::parse($strictDate)->format('M j, Y');
@@ -2366,14 +2370,8 @@ final class TaskAssistantService
             'requested_count_source' => $requestedCountSource,
             'reason_message' => $reasonMessage,
             'requested_window' => $requestedWindow,
-            'attempted_horizon' => [
-                'mode' => 'single_day',
-                'date' => CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString(),
-            ],
-            'fallback_horizon' => [
-                'mode' => 'single_day',
-                'dates' => $placementDates,
-            ],
+            'attempted_horizon' => $attemptedHorizon,
+            'fallback_horizon' => $fallbackHorizon,
             'prompt' => $prompt,
             'options' => $options,
             'approved_narrative' => [
@@ -2573,8 +2571,19 @@ PROMPT)
         ];
     }
 
-    private function detectRequestedCountSourceForConfirmation(string $userMessageContent): string
+    /**
+     * @param  array<string, mixed>|null  $scheduleData
+     */
+    private function detectRequestedCountSourceForConfirmation(string $userMessageContent, ?array $scheduleData = null): string
     {
+        if (is_array($scheduleData)) {
+            $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+            $digestSource = (string) ($digest['requested_count_source'] ?? '');
+            if (in_array($digestSource, ['explicit_user', 'system_default'], true)) {
+                return $digestSource;
+            }
+        }
+
         $normalized = mb_strtolower(trim($userMessageContent));
         if ($normalized === '') {
             return 'system_default';
@@ -2698,6 +2707,78 @@ PROMPT)
         return [
             'hint' => $hint,
             'label' => $normalized !== '' ? $normalized : 'your requested window',
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleData
+     * @return array<string, mixed>
+     */
+    private function attemptedHorizonDescriptorFromScheduleData(array $scheduleData): array
+    {
+        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+        $attempted = is_array($digest['attempted_horizon'] ?? null) ? $digest['attempted_horizon'] : [];
+        if ($attempted !== []) {
+            return $attempted;
+        }
+
+        $placementDates = array_values(array_filter(
+            is_array($digest['placement_dates'] ?? null) ? $digest['placement_dates'] : [],
+            static fn (mixed $value): bool => is_string($value) && trim($value) !== ''
+        ));
+        if (count($placementDates) > 1) {
+            return [
+                'mode' => 'range',
+                'start_date' => $placementDates[0],
+                'end_date' => $placementDates[array_key_last($placementDates)],
+            ];
+        }
+
+        if ($placementDates !== []) {
+            return [
+                'mode' => 'single_day',
+                'date' => $placementDates[0],
+            ];
+        }
+
+        return [
+            'mode' => 'single_day',
+            'date' => CarbonImmutable::now((string) config('app.timezone', 'UTC'))->toDateString(),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $scheduleData
+     * @return array<string, mixed>
+     */
+    private function fallbackHorizonDescriptorFromScheduleData(array $scheduleData): array
+    {
+        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
+        $placementDates = array_values(array_filter(
+            is_array($digest['placement_dates'] ?? null) ? $digest['placement_dates'] : [],
+            static fn (mixed $value): bool => is_string($value) && trim($value) !== ''
+        ));
+
+        if (count($placementDates) > 1) {
+            return [
+                'mode' => 'range',
+                'start_date' => $placementDates[0],
+                'end_date' => $placementDates[array_key_last($placementDates)],
+                'dates' => $placementDates,
+            ];
+        }
+
+        if ($placementDates !== []) {
+            return [
+                'mode' => 'single_day',
+                'date' => $placementDates[0],
+                'dates' => $placementDates,
+            ];
+        }
+
+        return [
+            'mode' => 'single_day',
+            'dates' => [],
         ];
     }
 
@@ -3216,6 +3297,7 @@ PROMPT)
                 'title' => 'Sentinel',
                 'position' => 0,
             ]];
+        $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
 
         $result = $this->structuredFlowGenerator->generateDailySchedule(
             thread: $thread,
@@ -3225,6 +3307,7 @@ PROMPT)
                 'target_entities' => $generatorTargetEntities,
                 'time_window_hint' => $plan->timeWindowHint,
                 'count_limit' => $plan->countLimit,
+                'explicit_requested_count' => $explicitRequestedCount,
                 'schedule_user_id' => $thread->user_id,
             ]
         );

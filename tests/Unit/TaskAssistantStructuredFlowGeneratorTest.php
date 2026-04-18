@@ -595,6 +595,7 @@ it('allows partial placement only for top-ranked item in top-N requests and mark
     $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
     $scheduleOptions = [
         'count_limit' => 3,
+        'explicit_requested_count' => 3,
         'time_window_hint' => 'later_afternoon',
     ];
 
@@ -606,6 +607,50 @@ it('allows partial placement only for top-ranked item in top-N requests and mark
     expect((bool) ($digest['top_n_shortfall'] ?? false))->toBeTrue();
     expect((int) ($digest['requested_count'] ?? 0))->toBe(3);
     expect((int) ($digest['count_shortfall'] ?? 0))->toBeGreaterThan(0);
+});
+
+it('does not flag top-N shortfall when request count is system default and all candidates are placed', function (): void {
+    config([
+        'task-assistant.schedule.max_horizon_days' => 7,
+        'task-assistant.schedule.top_n_shortfall_policy' => 'confirm_if_shortfall',
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-03-30',
+        'time_window' => ['start' => '13:00', 'end' => '22:00:00'],
+        'schedule_horizon' => [
+            'mode' => 'range',
+            'start_date' => '2026-03-30',
+            'end_date' => '2026-04-05',
+            'label' => 'this_week',
+        ],
+        'tasks' => [
+            ['id' => 100, 'title' => 'Task A', 'priority' => 'high', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+            ['id' => 101, 'title' => 'Task B', 'priority' => 'medium', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+    $scheduleOptions = [
+        'count_limit' => 3,
+        'time_window_hint' => 'later',
+    ];
+
+    [$proposals, $digest] = $method->invoke($generator, $snapshot, $context, 3, $scheduleOptions);
+
+    expect($proposals)->toHaveCount(2);
+    expect((string) ($digest['requested_count_source'] ?? ''))->toBe('system_default');
+    expect((int) ($digest['requested_count'] ?? 0))->toBe(2);
+    expect((bool) ($digest['top_n_shortfall'] ?? false))->toBeFalse();
+    expect((int) ($digest['count_shortfall'] ?? -1))->toBe(0);
 });
 
 it('still subtracts calendar busy from events_for_busy for task-only targets', function (): void {
