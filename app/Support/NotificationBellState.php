@@ -19,6 +19,9 @@ final class NotificationBellState
 
     /**
      * Workspace URLs omit the legacy search query parameter so they match dashboard/calendar deep links and stay stable after Livewire URL sync.
+     *
+     * When the notification resolves to a task/event/project row, the URL matches {@see WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus}
+     * (agenda focus param, no "Show" type filter), same as the dashboard calendar agenda.
      */
     public static function resolveTargetUrl(DatabaseNotification $notification): string
     {
@@ -29,6 +32,20 @@ final class NotificationBellState
         if ($route === 'workspace') {
             $params = self::mergeWorkspaceDeepLinkQueryParams($data, $params);
             unset($params['q']);
+
+            $target = self::workspaceFocusTargetFromNotificationData($data);
+            if ($target !== null) {
+                $date = $params['date'] ?? null;
+                $dateString = is_string($date) && $date !== ''
+                    ? $date
+                    : now()->toDateString();
+
+                return WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus(
+                    $dateString,
+                    $target['kind'],
+                    $target['id'],
+                );
+            }
         }
 
         if ($route !== '' && Route::has($route)) {

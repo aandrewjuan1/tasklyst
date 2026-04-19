@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\Models\Event;
 use App\Models\Task;
+use App\Support\WorkspaceAgendaFocusUrl;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
@@ -305,28 +306,7 @@ trait HandlesWorkspaceCalendar
      */
     public function workspaceRouteForAgendaStyleFocus(string $date, string $entityType, int $entityId): string
     {
-        $focusParam = $this->agendaWorkspaceFocusQueryParam();
-        $base = [
-            'date' => $date,
-            'view' => 'list',
-            $focusParam => '1',
-        ];
-
-        if ($entityId < 1) {
-            return route('workspace', $base);
-        }
-
-        $normalized = match ($entityType) {
-            'event' => 'event',
-            'project' => 'project',
-            default => 'task',
-        };
-
-        return match ($normalized) {
-            'event' => route('workspace', array_merge($base, ['event' => $entityId])),
-            'project' => route('workspace', array_merge($base, ['project' => $entityId])),
-            default => route('workspace', array_merge($base, ['task' => $entityId])),
-        };
+        return WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus($date, $entityType, $entityId);
     }
 
     /**

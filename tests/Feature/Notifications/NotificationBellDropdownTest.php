@@ -8,6 +8,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Support\NotificationBellState;
+use App\Support\WorkspaceAgendaFocusUrl;
 use Carbon\Carbon;
 use Livewire\Livewire;
 
@@ -287,8 +288,7 @@ test('resolveTargetUrl merges task id from entity when params omit task', functi
 
     $url = NotificationBellState::resolveTargetUrl($notification);
 
-    expect($url)->toContain('task='.$taskId)
-        ->and($url)->toContain('view=list');
+    expect($url)->toBe(WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus($today, 'task', $taskId));
 });
 
 test('workspaceFocusTargetFromNotificationData returns kind and id for merged workspace params', function (): void {

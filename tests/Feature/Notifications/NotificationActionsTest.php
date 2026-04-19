@@ -8,6 +8,7 @@ use App\Events\UserNotificationCreated;
 use App\Http\Middleware\ValidateWorkOSSession;
 use App\Models\DatabaseNotification;
 use App\Models\User;
+use App\Support\WorkspaceAgendaFocusUrl;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -352,6 +353,6 @@ test('prepare open redirect opens workspace for newly actionable task-stalled no
 
     $url = app(PrepareNotificationOpenRedirectForUserAction::class)->execute($user, $notification->id);
 
-    expect($url)->toBe(route('workspace', ['date' => $today, 'type' => 'tasks', 'task' => 77, 'view' => 'list']))
+    expect($url)->toBe(WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus($today, 'task', 77))
         ->and($notification->fresh()->read_at)->not->toBeNull();
 });
