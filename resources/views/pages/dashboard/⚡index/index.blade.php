@@ -275,7 +275,7 @@
                                             @endphp
                                             <li class="px-4 py-3" data-testid="dashboard-row-doing-task">
                                                 <a
-                                                    href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}"
+                                                    href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}"
                                                     wire:navigate
                                                     class="block rounded-md transition hover:bg-muted/40"
                                                 >
@@ -375,7 +375,7 @@
                                     <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
                                         @foreach ($this->dashboardRecurringDueTasks as $task)
                                             <li class="px-4 py-2.5" data-testid="dashboard-row-recurring-task">
-                                                <a href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                <a href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
                                                     <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
                                                     <p class="text-xs text-muted-foreground">
                                                         {{ __('Due: :time', ['time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time')]) }}
@@ -405,7 +405,7 @@
                                             @endphp
                                             <li class="px-4 py-3" data-testid="dashboard-row-no-date-backlog-task">
                                                 <a
-                                                    href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'task' => $task->id]) }}"
+                                                    href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}"
                                                     wire:navigate
                                                     class="block rounded-md transition hover:bg-muted/40"
                                                 >

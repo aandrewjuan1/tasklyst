@@ -100,6 +100,14 @@ class extends Component
         $this->taskPrioritizationService = $taskPrioritizationService;
     }
 
+    /**
+     * Calendar agenda links open the workspace with date + focus only (no "Show" type filter), consistent with in-app calendar focus.
+     */
+    protected function omitTypeFilterOnCalendarAgendaWorkspaceLinks(): bool
+    {
+        return true;
+    }
+
     public function mount(): void
     {
         if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
@@ -698,16 +706,6 @@ class extends Component
                 $urgencyLevel = $this->resolveUrgencyLevel($priority, $endsAt, $status);
                 $itemType = (string) ($item['type'] ?? 'task');
                 $itemId = (int) ($item['id'] ?? 0);
-                $workspaceParams = [
-                    'date' => $this->getParsedSelectedDate()->toDateString(),
-                    'view' => 'list',
-                    'type' => 'tasks',
-                ];
-                if ($itemType === 'task' && $itemId > 0) {
-                    $workspaceParams['task'] = $itemId;
-                } elseif ($priority !== null && $priority !== '') {
-                    $workspaceParams['priority'] = $priority;
-                }
 
                 return [
                     'type' => $itemType,
@@ -719,7 +717,11 @@ class extends Component
                     'complexity' => $complexity,
                     'ends_at' => $endsAt,
                     'urgency_level' => $urgencyLevel,
-                    'workspace_url' => route('workspace', $workspaceParams),
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
+                        $this->getParsedSelectedDate()->toDateString(),
+                        $itemType,
+                        $itemId
+                    ),
                 ];
             })
             ->values();
@@ -833,12 +835,11 @@ class extends Component
                             'nearest_deadline' => $nearestDeadlineDate?->toIso8601String(),
                             'risk' => $risk,
                             'risk_reason' => $riskReason,
-                            'workspace_url' => route('workspace', [
-                                'date' => $this->getParsedSelectedDate()->toDateString(),
-                                'view' => 'list',
-                                'type' => 'projects',
-                                'project' => $project->id,
-                            ]),
+                            'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
+                                $this->getParsedSelectedDate()->toDateString(),
+                                'project',
+                                $project->id
+                            ),
                         ];
                     })
                     ->values()

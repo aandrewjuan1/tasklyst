@@ -281,6 +281,55 @@ trait HandlesWorkspaceCalendar
     }
 
     /**
+     * When true (e.g. Dashboard), agenda workspace URLs omit the "Show" type filter and pass {@see agendaWorkspaceFocusQueryParam}
+     * so the workspace opens with date/view/focus scroll only, matching in-app calendar focus behavior.
+     */
+    protected function omitTypeFilterOnCalendarAgendaWorkspaceLinks(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Query param marking agenda navigation: focus and paginate without forcing filter shell or clearing search.
+     */
+    protected function agendaWorkspaceFocusQueryParam(): string
+    {
+        return 'agenda_focus';
+    }
+
+    /**
+     * Open workspace with list view, selected date, {@see agendaWorkspaceFocusQueryParam}, and optional entity focus.
+     * Does not set the "Show" type filter — same contract as dashboard calendar agenda links and in-app calendar focus.
+     *
+     * @param  'task'|'event'|'project'  $entityType
+     */
+    public function workspaceRouteForAgendaStyleFocus(string $date, string $entityType, int $entityId): string
+    {
+        $focusParam = $this->agendaWorkspaceFocusQueryParam();
+        $base = [
+            'date' => $date,
+            'view' => 'list',
+            $focusParam => '1',
+        ];
+
+        if ($entityId < 1) {
+            return route('workspace', $base);
+        }
+
+        $normalized = match ($entityType) {
+            'event' => 'event',
+            'project' => 'project',
+            default => 'task',
+        };
+
+        return match ($normalized) {
+            'event' => route('workspace', array_merge($base, ['event' => $entityId])),
+            'project' => route('workspace', array_merge($base, ['project' => $entityId])),
+            default => route('workspace', array_merge($base, ['task' => $entityId])),
+        };
+    }
+
+    /**
      * Deep-link payload for calendar agenda rows (matches dashboard workspace card URLs).
      *
      * @return array{focus_kind: 'task'|'event', focus_id: int, workspace_url: string}
@@ -290,6 +339,14 @@ trait HandlesWorkspaceCalendar
         $date = $selectedDate->toDateString();
 
         if ($kind === 'task') {
+            if ($this->omitTypeFilterOnCalendarAgendaWorkspaceLinks()) {
+                return [
+                    'focus_kind' => 'task',
+                    'focus_id' => $id,
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus($date, 'task', $id),
+                ];
+            }
+
             return [
                 'focus_kind' => 'task',
                 'focus_id' => $id,
@@ -299,6 +356,14 @@ trait HandlesWorkspaceCalendar
                     'type' => 'tasks',
                     'task' => $id,
                 ]),
+            ];
+        }
+
+        if ($this->omitTypeFilterOnCalendarAgendaWorkspaceLinks()) {
+            return [
+                'focus_kind' => 'event',
+                'focus_id' => $id,
+                'workspace_url' => $this->workspaceRouteForAgendaStyleFocus($date, 'event', $id),
             ];
         }
 

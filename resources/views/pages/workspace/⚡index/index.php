@@ -1,81 +1,81 @@
 <?php
 
-use App\Models\Tag;
-use App\Models\Task;
-use App\Models\User;
-use App\Models\Event;
-use App\Models\Project;
-use App\Enums\TaskStatus;
-use App\Enums\EventStatus;
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Str;
-use App\Enums\AssistantSchedulePlanItemStatus;
-use App\Models\AssistantSchedulePlanItem;
-use App\Models\CalendarFeed;
-use Livewire\Component;
-use App\Enums\TaskSourceType;
-use App\Services\TagService;
-use Livewire\Attributes\Url;
-use App\Services\TaskService;
-use App\Services\EventService;
-use Livewire\Attributes\Async;
-use Livewire\Attributes\On;
-use Livewire\Attributes\Title;
-use App\Services\ProjectService;
-use Livewire\Attributes\Computed;
-use Illuminate\Support\Collection;
-use App\Actions\Tag\CreateTagAction;
-use App\Actions\Tag\DeleteTagAction;
-use Illuminate\Support\Facades\Auth;
-use App\Actions\Task\CreateTaskAction;
-use App\Actions\Task\DeleteTaskAction;
-use App\Livewire\Concerns\HandlesTags;
-use App\Livewire\Concerns\HandlesTasks;
-use App\Actions\Event\CreateEventAction;
-use App\Actions\Event\DeleteEventAction;
-use App\Livewire\Concerns\HandlesEvents;
-use App\Livewire\Concerns\HandlesComments;
-use App\Livewire\Concerns\HandlesProjects;
-use App\Livewire\Concerns\HandlesFiltering;
+use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
+use App\Actions\Collaboration\CreateCollaborationInvitationAction;
+use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
+use App\Actions\Collaboration\DeleteCollaborationAction;
+use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
-use App\Actions\Project\CreateProjectAction;
-use App\Actions\Project\DeleteProjectAction;
-use App\Actions\Task\UpdateTaskPropertyAction;
-use App\Livewire\Concerns\HandlesActivityLogs;
-use App\Actions\Task\CreateTaskExceptionAction;
-use App\Actions\Task\DeleteTaskExceptionAction;
-use App\Livewire\Concerns\HandlesCalendarFeeds;
-use App\Livewire\Concerns\HandlesWorkspaceCalendar;
-use App\Livewire\Concerns\HandlesFocusSessions;
-use App\Actions\Event\UpdateEventPropertyAction;
-use App\Livewire\Concerns\HandlesCollaborations;
+use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\CreateEventExceptionAction;
+use App\Actions\Event\DeleteEventAction;
 use App\Actions\Event\DeleteEventExceptionAction;
-use App\Livewire\Concerns\HandlesPomodoroSettings;
-use App\Actions\Project\UpdateProjectPropertyAction;
-use App\Actions\FocusSession\PauseFocusSessionAction;
-use App\Actions\FocusSession\StartFocusSessionAction;
-use App\Actions\FocusSession\ResumeFocusSessionAction;
-use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
+use App\Actions\Event\UpdateEventPropertyAction;
 use App\Actions\FocusSession\AbandonFocusSessionAction;
-use App\Actions\Pomodoro\CompletePomodoroSessionAction;
-use App\Actions\Collaboration\DeleteCollaborationAction;
 use App\Actions\FocusSession\CompleteFocusSessionAction;
 use App\Actions\FocusSession\GetActiveFocusSessionAction;
-use App\Actions\Pomodoro\GetPomodoroSequenceNumberAction;
-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use App\Actions\FocusSession\PauseFocusSessionAction;
+use App\Actions\FocusSession\ResumeFocusSessionAction;
+use App\Actions\FocusSession\StartFocusSessionAction;
+use App\Actions\Pomodoro\CompletePomodoroSessionAction;
 use App\Actions\Pomodoro\GetNextPomodoroSessionTypeAction;
 use App\Actions\Pomodoro\GetOrCreatePomodoroSettingsAction;
-use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
-use App\Actions\Collaboration\CreateCollaborationInvitationAction;
-use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
-use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
+use App\Actions\Pomodoro\GetPomodoroSequenceNumberAction;
+use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
+use App\Actions\Project\CreateProjectAction;
+use App\Actions\Project\DeleteProjectAction;
+use App\Actions\Project\UpdateProjectPropertyAction;
+use App\Actions\Tag\CreateTagAction;
+use App\Actions\Tag\DeleteTagAction;
+use App\Actions\Task\CreateTaskAction;
+use App\Actions\Task\CreateTaskExceptionAction;
+use App\Actions\Task\DeleteTaskAction;
+use App\Actions\Task\DeleteTaskExceptionAction;
+use App\Actions\Task\UpdateTaskPropertyAction;
+use App\Actions\Workspace\AlignWorkspaceForScheduledPlanItemAction;
+use App\Enums\AssistantSchedulePlanItemStatus;
+use App\Enums\EventStatus;
+use App\Enums\TaskSourceType;
+use App\Enums\TaskStatus;
+use App\Livewire\Concerns\HandlesActivityLogs;
+use App\Livewire\Concerns\HandlesCalendarFeeds;
+use App\Livewire\Concerns\HandlesCollaborations;
+use App\Livewire\Concerns\HandlesComments;
+use App\Livewire\Concerns\HandlesEvents;
+use App\Livewire\Concerns\HandlesFiltering;
+use App\Livewire\Concerns\HandlesFocusSessions;
+use App\Livewire\Concerns\HandlesPomodoroSettings;
+use App\Livewire\Concerns\HandlesProjects;
+use App\Livewire\Concerns\HandlesTags;
+use App\Livewire\Concerns\HandlesTasks;
+use App\Livewire\Concerns\HandlesWorkspaceCalendar;
+use App\Models\AssistantSchedulePlanItem;
+use App\Models\CalendarFeed;
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Tag;
+use App\Models\Task;
+use App\Models\User;
+use App\Services\EventService;
+use App\Services\ProjectService;
+use App\Services\TagService;
+use App\Services\TaskService;
+use App\Support\WorkspaceListAggregator;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
-use App\Actions\Workspace\AlignWorkspaceForScheduledPlanItemAction;
-use App\Support\WorkspaceListAggregator;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
+use Livewire\Attributes\Async;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
+use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
+use Livewire\Component;
 
 new
 #[Title('Workspace')]
@@ -83,10 +83,9 @@ class extends Component
 {
     use AuthorizesRequests;
     use HandlesActivityLogs;
+    use HandlesCalendarFeeds;
     use HandlesCollaborations;
     use HandlesComments;
-    use HandlesCalendarFeeds;
-    use HandlesWorkspaceCalendar;
     use HandlesEvents;
     use HandlesFiltering;
     use HandlesFocusSessions;
@@ -94,6 +93,7 @@ class extends Component
     use HandlesProjects;
     use HandlesTags;
     use HandlesTasks;
+    use HandlesWorkspaceCalendar;
 
     private const FEED_HEALTH_LIMIT = 5;
 
@@ -364,6 +364,9 @@ class extends Component
 
     /**
      * Focus a task or event from the sidebar calendar agenda without merging stale query-string focus ids.
+     * Does not set the "Show" item-type filter (unlike URL deep links). If the row is not in the merged list
+     * under the current date and filters, aligns the workspace date to the item when possible and clears
+     * filters (same idea as {@see focusFromScheduledPlanItem}), then expands pagination so the row can load.
      */
     public function focusCalendarAgendaItem(string $kind, int $id, bool $expandPagination = true): void
     {
@@ -386,7 +389,43 @@ class extends Component
         $this->preserveCurrentViewModeForFocus = true;
 
         try {
-            $this->applyWorkspaceDeepLinkFocus(false, $expandPagination);
+            $model = match ($kind) {
+                'task' => $this->resolveDeepLinkModel(Task::class, $this->focusTaskId ?? 0),
+                'event' => $this->resolveDeepLinkModel(Event::class, $this->focusEventId ?? 0),
+                default => $this->resolveDeepLinkModel(Project::class, $this->focusProjectId ?? 0),
+            };
+
+            if ($model === null) {
+                return;
+            }
+
+            $didExpand = false;
+
+            if ($expandPagination) {
+                $didExpand = $this->expandPaginationUntilFocusItemVisible($kind, $id);
+            }
+
+            if ($expandPagination && ! $didExpand) {
+                $anchorDate = $this->resolveWorkspaceAnchorDateStringForModel($kind, $model);
+                $currentDate = $this->getParsedSelectedDate()->toDateString();
+
+                if ($anchorDate !== null && $anchorDate !== $currentDate) {
+                    $this->selectedDate = $anchorDate;
+                    $this->dispatch('toast', type: 'info', message: __('Switched to :date for this item.', [
+                        'date' => \Carbon\Carbon::parse($anchorDate)->translatedFormat('l, F j, Y'),
+                    ]));
+                }
+
+                $this->clearAllFilters();
+                $this->expandPaginationUntilFocusItemVisible($kind, $id);
+            }
+
+            $this->applyWorkspaceDeepLinkFocus(
+                mergeQuery: false,
+                expandPagination: false,
+                applyItemTypeToFilters: false,
+                clearSearch: false,
+            );
         } finally {
             $this->preserveCurrentViewModeForFocus = false;
         }
@@ -1013,10 +1052,19 @@ class extends Component
             .trans_choice(':count minute|:count minutes', $remainingMinutes, ['count' => $remainingMinutes]);
     }
 
-    protected function applyWorkspaceDeepLinkFocus(bool $mergeQuery = true, bool $expandPagination = true): void
-    {
+    protected function applyWorkspaceDeepLinkFocus(
+        bool $mergeQuery = true,
+        bool $expandPagination = true,
+        bool $applyItemTypeToFilters = true,
+        bool $clearSearch = true,
+    ): void {
         if ($mergeQuery) {
             $this->mergeWorkspaceFocusFromRequestQuery();
+        }
+
+        if (request()->query($this->agendaWorkspaceFocusQueryParam()) === '1') {
+            $applyItemTypeToFilters = false;
+            $clearSearch = false;
         }
 
         if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null) {
@@ -1040,7 +1088,7 @@ class extends Component
 
                 return;
             }
-            $this->applyDeepLinkListShell('tasks');
+            $this->applyDeepLinkListShell('tasks', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('task', $task->id);
             }
@@ -1056,7 +1104,7 @@ class extends Component
 
                 return;
             }
-            $this->applyDeepLinkListShell('events');
+            $this->applyDeepLinkListShell('events', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('event', $event->id);
             }
@@ -1071,7 +1119,7 @@ class extends Component
 
                 return;
             }
-            $this->applyDeepLinkListShell('projects');
+            $this->applyDeepLinkListShell('projects', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('project', $project->id);
             }
@@ -1106,15 +1154,69 @@ class extends Component
         return $model;
     }
 
-    protected function applyDeepLinkListShell(string $filterItemType): void
-    {
+    /**
+     * @param  'tasks'|'events'|'projects'  $filterItemType
+     */
+    protected function applyDeepLinkListShell(
+        string $filterItemType,
+        bool $applyItemTypeToFilters = true,
+        bool $clearSearch = true,
+    ): void {
         if (! $this->preserveCurrentViewModeForFocus) {
             $this->viewMode = 'list';
         }
-        $this->searchQuery = null;
-        $this->filterItemType = $filterItemType;
+        if ($clearSearch) {
+            $this->searchQuery = null;
+        }
+        if ($applyItemTypeToFilters) {
+            $this->filterItemType = $filterItemType;
+        }
         $this->listContextProjectId = null;
         $this->listContextEventId = null;
+    }
+
+    /**
+     * Calendar date to jump to when aligning the workspace so an agenda item can appear in the list
+     * (due date for tasks; start date for events and projects when present).
+     */
+    protected function resolveWorkspaceAnchorDateStringForModel(string $kind, Model $model): ?string
+    {
+        $timezone = (string) config('app.timezone', 'UTC');
+
+        if ($kind === 'task' && $model instanceof Task) {
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        if ($kind === 'event' && $model instanceof Event) {
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        if ($kind === 'project' && $model instanceof Project) {
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        return null;
     }
 
     /**

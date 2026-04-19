@@ -600,7 +600,7 @@ test('dashboard workspace links preserve selected date context', function () {
     $response->assertSee(route('workspace', ['date' => $selectedDate]), false);
     $response->assertSee('date=2026-04-12', false);
     $response->assertSee('view=list', false);
-    $response->assertSee('type=tasks', false);
+    $response->assertSee('agenda_focus=1', false);
 
     Carbon::setTestNow();
 });

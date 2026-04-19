@@ -167,6 +167,35 @@ test('selected day agenda lists overdue tasks in overdue section and not in due-
         ->assertSee('Past Due High Priority Task');
 });
 
+test('dashboard selected day agenda workspace urls use agenda_focus and omit type filter', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
+
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Dashboard Agenda Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => Carbon::parse('2026-04-09 18:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::dashboard.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $dueRows = collect($agenda['dueDayTasks'] ?? []);
+    expect($dueRows)->not->toBeEmpty();
+    $url = $dueRows->first()['workspace_url'];
+    expect($url)->toContain('task='.$task->id)
+        ->and($url)->toContain('agenda_focus=1')
+        ->and($url)->toContain('view=list')
+        ->and($url)->not->toContain('type=');
+});
+
 test('selected day agenda workspace urls use id deep links not search query', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
 
