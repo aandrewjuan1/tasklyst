@@ -102,6 +102,19 @@ test('scope relevant for date includes tasks when date is within start and end r
     expect($tasks->contains('id', $task->id))->toBeTrue();
 });
 
+test('scope relevant for date includes task due on selected day when start is before that day', function (): void {
+    $timezone = (string) config('app.timezone', 'UTC');
+    $day = Carbon::parse('2025-02-10 00:00:00', $timezone)->startOfDay();
+    $task = Task::factory()->for($this->owner)->create([
+        'start_datetime' => Carbon::parse('2025-02-01 10:00:00', $timezone),
+        'end_datetime' => Carbon::parse('2025-02-10 15:00:00', $timezone),
+    ]);
+
+    $tasks = Task::query()->forUser($this->owner->id)->relevantForDate($day)->get();
+
+    expect($tasks->contains('id', $task->id))->toBeTrue();
+});
+
 test('scope overdue returns tasks with end_datetime before given date', function (): void {
     $pastDue = Task::factory()->for($this->owner)->create([
         'end_datetime' => Carbon::parse('2025-02-05'),

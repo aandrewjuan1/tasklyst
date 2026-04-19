@@ -667,13 +667,13 @@ class Task extends Model
                         ->where(function (Builder $windowQuery) use ($startOfDay, $endOfDay): void {
                             $windowQuery
                                 ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
-                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay, $endOfDay): void {
+                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay): void {
                                     $rangeQuery
                                         ->where('start_datetime', '<=', $startOfDay)
-                                        ->where(function (Builder $endQuery) use ($endOfDay): void {
+                                        ->where(function (Builder $endQuery) use ($startOfDay): void {
                                             $endQuery
                                                 ->whereNull('end_datetime')
-                                                ->orWhere('end_datetime', '>=', $endOfDay);
+                                                ->orWhere('end_datetime', '>=', $startOfDay);
                                         });
                                 });
                         });

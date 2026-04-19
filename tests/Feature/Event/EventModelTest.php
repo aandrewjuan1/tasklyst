@@ -88,6 +88,19 @@ test('scope active for date includes events when date is within start and end ra
     expect($events->contains('id', $event->id))->toBeTrue();
 });
 
+test('scope active for date includes event ending on selected day when start is before that day', function (): void {
+    $timezone = (string) config('app.timezone', 'UTC');
+    $day = Carbon::parse('2025-02-10 00:00:00', $timezone)->startOfDay();
+    $event = Event::factory()->for($this->owner)->create([
+        'start_datetime' => Carbon::parse('2025-02-01 10:00:00', $timezone),
+        'end_datetime' => Carbon::parse('2025-02-10 15:00:00', $timezone),
+    ]);
+
+    $events = Event::query()->forUser($this->owner->id)->activeForDate($day)->get();
+
+    expect($events->contains('id', $event->id))->toBeTrue();
+});
+
 test('scope not cancelled excludes cancelled events', function (): void {
     Event::factory()->for($this->owner)->create(['status' => EventStatus::Scheduled]);
     Event::factory()->for($this->owner)->create(['status' => EventStatus::Cancelled]);
