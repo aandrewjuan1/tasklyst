@@ -755,7 +755,7 @@ export function listItemCard(config) {
             this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
             window.dispatchEvent(
                 new CustomEvent('workspace-item-trashed-rollback', {
-                    detail: { kind: this.kind, id: this.itemId },
+                    detail: { kind: this.kind === 'schoolclass' ? 'schoolClass' : this.kind, id: this.itemId },
                     bubbles: true,
                 })
             );
@@ -764,6 +764,7 @@ export function listItemCard(config) {
             if (!this.canDelete || this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
 
             const wasOverdue = this.isOverdue;
+            const trashKind = this.kind === 'schoolclass' ? 'schoolClass' : this.kind;
 
             // PHASE 1: Snapshot BEFORE any changes
             const snapshot = {
@@ -805,7 +806,7 @@ export function listItemCard(config) {
                 window.dispatchEvent(
                     new CustomEvent('workspace-item-trashed', {
                         detail: {
-                            kind: this.kind,
+                            kind: trashKind,
                             id: this.itemId,
                             title: this.editedTitle ?? '',
                             deleted_at_display: 'Just now',
@@ -1178,6 +1179,9 @@ export function listItemCard(config) {
                     this.eventStatus = d.value ?? null;
                 }
                  if (d && d.property === 'title' && this.kind === 'task') {
+                     this.editedTitle = d.value ?? '';
+                 }
+                 if (d && d.property === 'subjectName' && this.kind === 'schoolclass') {
                      this.editedTitle = d.value ?? '';
                  }
                  if (d && d.property === 'description' && this.kind === 'task') {

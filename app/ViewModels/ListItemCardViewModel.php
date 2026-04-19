@@ -9,6 +9,7 @@ use App\Enums\TaskStatus;
 use App\Models\FocusSession;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class ListItemCardViewModel
@@ -44,6 +45,7 @@ class ListItemCardViewModel
             'project' => $item->name,
             'event' => $item->title,
             'task' => $item->title,
+            'schoolclass' => $item->subject_name,
             default => '',
         };
 
@@ -51,6 +53,7 @@ class ListItemCardViewModel
             'project' => $item->description,
             'event' => $item->description,
             'task' => $item->description,
+            'schoolclass' => null,
             default => null,
         };
 
@@ -58,6 +61,7 @@ class ListItemCardViewModel
             'project' => __('Project'),
             'event' => __('Event'),
             'task' => __('Task'),
+            'schoolclass' => __('Class'),
             default => null,
         };
 
@@ -65,6 +69,7 @@ class ListItemCardViewModel
             'project' => 'deleteProject',
             'event' => 'deleteEvent',
             'task' => 'deleteTask',
+            'schoolclass' => 'deleteSchoolClass',
             default => null,
         };
 
@@ -72,18 +77,20 @@ class ListItemCardViewModel
             'project' => 'updateProjectProperty',
             'event' => 'updateEventProperty',
             'task' => 'updateTaskProperty',
+            'schoolclass' => 'updateSchoolClassProperty',
             default => null,
         };
 
         $owner = $item->user ?? null;
         $hasCollaborators = ($item->collaborators ?? collect())->count() > 0;
-        $currentUserIsOwner = auth()->id() && $owner && (int) auth()->id() === (int) $owner->id;
+        $currentUserId = Auth::id();
+        $currentUserIsOwner = $currentUserId !== null && $owner && (int) $currentUserId === (int) $owner->id;
         $showOwnerBadge = $hasCollaborators && ! $currentUserIsOwner && $owner;
-        $canEdit = auth()->user()?->can('update', $item) ?? false;
+        $canEdit = Auth::user()?->can('update', $item) ?? false;
         $canEditTags = $currentUserIsOwner && $canEdit;
         $canEditDates = $currentUserIsOwner && $canEdit;
         $canEditRecurrence = $currentUserIsOwner && $canEdit;
-        $canDelete = $currentUserIsOwner && $canEdit;
+        $canDelete = $currentUserIsOwner && ($kind === 'schoolclass' || $canEdit);
 
         $focusModeDefaultHint = $kind === 'task'
             ? __('Using :minutes min (default). Set duration on the task to customize.', ['minutes' => $this->defaultWorkDurationMinutes])
@@ -370,6 +377,7 @@ class ListItemCardViewModel
 
         $titleProperty = match ($kind) {
             'project' => 'name',
+            'schoolclass' => 'subjectName',
             default => 'title',
         };
 

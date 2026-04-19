@@ -341,6 +341,7 @@
             task: @js(__('Task')),
             project: @js(__('Project')),
             event: @js(__('Event')),
+            schoolClass: @js(__('Class')),
         },
 
         kindLabel(kind) {

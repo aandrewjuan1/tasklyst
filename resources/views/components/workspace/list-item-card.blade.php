@@ -49,6 +49,8 @@
         $listItemCardRootClass .= ' scroll-mt-28 lic-surface-event';
     } elseif ($kind === 'project' && ! $isKanbanLayout) {
         $listItemCardRootClass .= ' scroll-mt-28 lic-surface-project';
+    } elseif ($kind === 'schoolclass' && ! $isKanbanLayout) {
+        $listItemCardRootClass .= ' scroll-mt-28 lic-surface-school-class';
     } else {
         $listItemCardRootClass .= ($isKanbanLayout ? '' : ' scroll-mt-28').' lic-surface-zinc';
     }
@@ -219,6 +221,8 @@
                     :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                     :layout="$layout"
                 />
+            @elseif($kind === 'schoolclass')
+                <x-workspace.list-item-school-class :school-class="$item" />
             @endif
         </div>
         </div>
@@ -227,6 +231,8 @@
             <x-workspace.subtasks :item="$item" :kind="$kind" />
         @endif
 
-        <x-workspace.comments :item="$item" :kind="$kind" :layout="$layout" :readonly="!$canEdit" />
+        @if(in_array($kind, ['task', 'project', 'event'], true))
+            <x-workspace.comments :item="$item" :kind="$kind" :layout="$layout" :readonly="!$canEdit" />
+        @endif
     </div>
 </div>

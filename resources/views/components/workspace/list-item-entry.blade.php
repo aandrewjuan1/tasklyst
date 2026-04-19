@@ -25,22 +25,15 @@
             : $kind.'-'.$item->id);
 @endphp
 
-@if ($kind === 'schoolClass')
-    <x-workspace.list-item-school-class
-        :school-class="$item"
-        wire:key="{{ $wireKey }}"
-    />
-@else
-    <x-workspace.list-item-card
-        :kind="$kind"
-        :item="$item"
-        :list-filter-date="$listFilterDate"
-        :filters="$filters"
-        :available-tags="$tags"
-        :is-overdue="$isOverdueForCard"
-        :active-focus-session="$activeFocusSession"
-        :default-work-duration-minutes="$defaultWorkDurationMinutes"
-        :pomodoro-settings="$pomodoroSettings"
-        wire:key="{{ $wireKey }}"
-    />
-@endif
+<x-workspace.list-item-card
+    :kind="$kind"
+    :item="$item"
+    :list-filter-date="$listFilterDate"
+    :filters="$filters"
+    :available-tags="$tags"
+    :is-overdue="$isOverdueForCard"
+    :active-focus-session="$activeFocusSession"
+    :default-work-duration-minutes="$defaultWorkDurationMinutes"
+    :pomodoro-settings="$pomodoroSettings"
+    wire:key="{{ $wireKey }}"
+/>

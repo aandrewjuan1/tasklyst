@@ -26,42 +26,28 @@
 @endphp
 
 <div
-    {{ $attributes->merge([
-        'class' => 'list-item-card flex flex-col gap-2 rounded-xl px-3 py-2 lic-surface-school-class scroll-mt-28',
-    ]) }}
+    {{ $attributes->merge(['class' => 'flex flex-col gap-2']) }}
     data-test="workspace-school-class-item"
 >
-    <div class="flex min-w-0 items-start justify-between gap-2">
-        <div class="min-w-0 flex-1">
-            <h3 class="truncate text-lg font-bold leading-tight text-foreground md:text-xl">
-                {{ $schoolClass->subject_name }}
-            </h3>
-        </div>
-        <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            @if ($recurring !== null && $recurrenceLine !== null)
-                <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
-                    <flux:icon name="arrow-path" class="size-3 shrink-0" />
-                    <span class="inline-flex items-baseline gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                            {{ __('Repeats') }}:
-                        </span>
-                        <span @class([
-                            'text-[11px] font-semibold',
-                            'uppercase' => ! $recurrenceUsesWeekdayAbbreviations,
-                        ])>
-                            {{ $recurrenceLine }}
-                        </span>
+    @if ($recurring !== null && $recurrenceLine !== null)
+        <div class="flex flex-wrap items-center gap-2 text-muted-foreground">
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                <flux:icon name="arrow-path" class="size-3 shrink-0" />
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        {{ __('Repeats') }}:
+                    </span>
+                    <span @class([
+                        'text-[11px] font-semibold',
+                        'uppercase' => ! $recurrenceUsesWeekdayAbbreviations,
+                    ])>
+                        {{ $recurrenceLine }}
                     </span>
                 </span>
-            @endif
-            <span
-                class="lic-item-type-pill lic-item-type-pill--school-class"
-                aria-hidden="true"
-            >
-                {{ __('Class') }}
             </span>
         </div>
-    </div>
+    @endif
+
     <div class="flex flex-wrap items-center gap-2 text-muted-foreground">
         @if ($teacherName !== '')
             <flux:tooltip :content="$teacherName" position="top" align="start">

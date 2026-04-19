@@ -14,8 +14,10 @@
     $itemTypePillKindClass = match ($kind ?? '') {
         'event' => 'lic-item-type-pill--event',
         'project' => 'lic-item-type-pill--project',
+        'schoolclass' => 'lic-item-type-pill--school-class',
         default => 'lic-item-type-pill--task',
     };
+    $supportsSharedAuxActions = in_array($kind, ['task', 'event', 'project'], true);
     $showRecurringInFocusModal = $kind === 'task';
     $showRecurringSelection = in_array($kind, ['task', 'event'], true)
         && (! $embedInFocusModal || $showRecurringInFocusModal);
@@ -59,7 +61,7 @@
                 />
             </div>
 
-            @if (! $isKanbanLayout)
+            @if (! $isKanbanLayout && $kind !== 'schoolclass')
             <div class="mt-0.5" x-effect="isEditingDescription && $nextTick(() => requestAnimationFrame(() => { const el = $refs.descriptionInput; if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }))">
                 {{-- Server-rendered first paint --}}
                 <div x-show="!alpineReady">
@@ -103,10 +105,10 @@
                 <div
                     x-show="isEditingDescription"
                     x-cloak
-                    class="relative inline-block min-h-[3.5rem] min-w-full"
+                    class="relative inline-block min-h-14 min-w-full"
                 >
                     <span
-                        class="invisible inline-block whitespace-pre-wrap break-words px-2 py-1 text-xs leading-relaxed"
+                        class="invisible inline-block whitespace-pre-wrap wrap-break-word px-2 py-1 text-xs leading-relaxed"
                         aria-hidden="true"
                         x-text="editedDescription || '\u00A0'"
                     ></span>
@@ -161,29 +163,119 @@
                     </div>
                 @endif
 
-                <div class="hidden md:block">
-                    <x-workspace.collaborators-popover
-                        :item="$item"
-                        :kind="$kind"
-                        position="top"
-                        align="end"
-                    />
-                </div>
+                @if($supportsSharedAuxActions)
+                    <div class="hidden md:block">
+                        <x-workspace.collaborators-popover
+                            :item="$item"
+                            :kind="$kind"
+                            position="top"
+                            align="end"
+                        />
+                    </div>
 
-                <div class="relative">
-                    <x-workspace.activity-logs-popover
-                        :item="$item"
-                        :kind="$kind"
-                        position="top"
-                        align="end"
-                    />
-                </div>
+                    <div class="relative">
+                        <x-workspace.activity-logs-popover
+                            :item="$item"
+                            :kind="$kind"
+                            position="top"
+                            align="end"
+                        />
+                    </div>
+                @endif
 
                 @if($currentUserIsOwner && $deleteMethod && ! $embedInFocusModal)
                     <flux:dropdown>
                         <flux:button size="xs" icon="ellipsis-horizontal" />
 
                         <flux:menu>
+                            @if($supportsSharedAuxActions)
+                                <flux:tooltip :content="__('Activity Logs')">
+                                    <flux:menu.item
+                                        icon="clock"
+                                        class="cursor-pointer"
+                                        @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
+                                    >
+                                        {{ __('Activity Logs') }}
+                                    </flux:menu.item>
+                                </flux:tooltip>
+
+                                <flux:tooltip :content="__('Collaborators')">
+                                    <flux:menu.item
+                                        icon="share"
+                                        class="cursor-pointer"
+                                        @click.stop.prevent="$dispatch('workspace-open-collaborators', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
+                                    >
+                                        {{ __('Collaborators') }}
+                                    </flux:menu.item>
+                                </flux:tooltip>
+                            @endif
+
+                            @if($supportsSharedAuxActions)
+                                <flux:tooltip
+                                    x-show="showSkipOccurrence"
+                                    x-cloak
+                                    style="display: none;"
+                                    :content="__('Don\'t show this occurrence on this date')"
+                                >
+                                    <flux:menu.item
+                                        icon="calendar-days"
+                                        class="cursor-pointer"
+                                        ::aria-label="skipInProgress ? skipOccurrenceSkippingLabel : skipOccurrenceLabel"
+                                        ::aria-busy="skipInProgress"
+                                        @click.throttle.250ms="skipThisOccurrence()"
+                                    >
+                                        <span x-show="!skipInProgress" x-cloak>{{ __('Skip this occurrence') }}</span>
+                                        <span x-show="skipInProgress" x-cloak class="inline-flex items-center gap-1.5">
+                                            <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
+                                            <span x-text="skipOccurrenceSkippingLabel"></span>
+                                        </span>
+                                    </flux:menu.item>
+                                </flux:tooltip>
+                                <flux:separator x-show="showSkipOccurrence" x-cloak style="display: none;" />
+                            @endif
+
+                            <flux:tooltip :content="__('Move to trash')">
+                                <flux:menu.item
+                                    variant="danger"
+                                    icon="trash"
+                                    class="cursor-pointer"
+                                    @click.throttle.250ms="deleteItem()"
+                                >
+                                    {{ __('Move to trash') }}
+                                </flux:menu.item>
+                            </flux:tooltip>
+                        </flux:menu>
+                    </flux:dropdown>
+                @endif
+            </div>
+        @endif
+
+        @if($isKanbanLayout && $currentUserIsOwner && $deleteMethod)
+            <div class="ml-2 flex items-center gap-1.5 shrink-0">
+                {{-- Invisible popover anchors beside ellipsis so menu-opened panels position like list view (not the row below). --}}
+                @if($supportsSharedAuxActions)
+                    <div class="flex flex-wrap items-center justify-end gap-1.5">
+                        <x-workspace.collaborators-popover
+                            :item="$item"
+                            :kind="$kind"
+                            position="top"
+                            align="end"
+                        />
+                        <div class="relative">
+                            <x-workspace.activity-logs-popover
+                                :item="$item"
+                                :kind="$kind"
+                                position="top"
+                                align="end"
+                            />
+                        </div>
+                    </div>
+                @endif
+                <flux:dropdown>
+                    <flux:button size="xs" icon="ellipsis-horizontal" />
+
+                    <flux:menu>
+                        @if($supportsSharedAuxActions)
                             <flux:tooltip :content="__('Activity Logs')">
                                 <flux:menu.item
                                     icon="clock"
@@ -203,7 +295,9 @@
                                     {{ __('Collaborators') }}
                                 </flux:menu.item>
                             </flux:tooltip>
+                        @endif
 
+                        @if($supportsSharedAuxActions)
                             <flux:tooltip
                                 x-show="showSkipOccurrence"
                                 x-cloak
@@ -225,87 +319,7 @@
                                 </flux:menu.item>
                             </flux:tooltip>
                             <flux:separator x-show="showSkipOccurrence" x-cloak style="display: none;" />
-
-                            <flux:tooltip :content="__('Move to trash')">
-                                <flux:menu.item
-                                    variant="danger"
-                                    icon="trash"
-                                    class="cursor-pointer"
-                                    @click.throttle.250ms="deleteItem()"
-                                >
-                                    {{ __('Move to trash') }}
-                                </flux:menu.item>
-                            </flux:tooltip>
-                        </flux:menu>
-                    </flux:dropdown>
-                @endif
-            </div>
-        @endif
-
-        @if($isKanbanLayout && $currentUserIsOwner && $deleteMethod)
-            <div class="ml-2 flex items-center gap-1.5 shrink-0">
-                {{-- Invisible popover anchors beside ellipsis so menu-opened panels position like list view (not the row below). --}}
-                <div class="flex flex-wrap items-center justify-end gap-1.5">
-                    <x-workspace.collaborators-popover
-                        :item="$item"
-                        :kind="$kind"
-                        position="top"
-                        align="end"
-                    />
-                    <div class="relative">
-                        <x-workspace.activity-logs-popover
-                            :item="$item"
-                            :kind="$kind"
-                            position="top"
-                            align="end"
-                        />
-                    </div>
-                </div>
-                <flux:dropdown>
-                    <flux:button size="xs" icon="ellipsis-horizontal" />
-
-                    <flux:menu>
-                        <flux:tooltip :content="__('Activity Logs')">
-                            <flux:menu.item
-                                icon="clock"
-                                class="cursor-pointer"
-                                @click.stop.prevent="$dispatch('workspace-open-activity-logs', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
-                            >
-                                {{ __('Activity Logs') }}
-                            </flux:menu.item>
-                        </flux:tooltip>
-
-                        <flux:tooltip :content="__('Collaborators')">
-                            <flux:menu.item
-                                icon="share"
-                                class="cursor-pointer"
-                                @click.stop.prevent="$dispatch('workspace-open-collaborators', { id: {{ $item->id }}, kind: '{{ $kind }}' })"
-                            >
-                                {{ __('Collaborators') }}
-                            </flux:menu.item>
-                        </flux:tooltip>
-
-                        <flux:tooltip
-                            x-show="showSkipOccurrence"
-                            x-cloak
-                            style="display: none;"
-                            :content="__('Don\'t show this occurrence on this date')"
-                        >
-                            <flux:menu.item
-                                icon="calendar-days"
-                                class="cursor-pointer"
-                                ::aria-label="skipInProgress ? skipOccurrenceSkippingLabel : skipOccurrenceLabel"
-                                ::aria-busy="skipInProgress"
-                                @click.throttle.250ms="skipThisOccurrence()"
-                            >
-                                <span x-show="!skipInProgress" x-cloak>{{ __('Skip this occurrence') }}</span>
-                                <span x-show="skipInProgress" x-cloak class="inline-flex items-center gap-1.5">
-                                    <flux:icon name="arrow-path" class="size-3.5 animate-spin" />
-                                    <span x-text="skipOccurrenceSkippingLabel"></span>
-                                </span>
-                            </flux:menu.item>
-                        </flux:tooltip>
-                        <flux:separator x-show="showSkipOccurrence" x-cloak style="display: none;" />
+                        @endif
 
                         <flux:tooltip :content="__('Move to trash')">
                             <flux:menu.item
@@ -361,23 +375,25 @@
                 @endif
 
                 @unless($currentUserIsOwner && $deleteMethod)
-                    <div class="hidden sm:block">
-                        <x-workspace.collaborators-popover
-                            :item="$item"
-                            :kind="$kind"
-                            position="top"
-                            align="start"
-                        />
-                    </div>
+                    @if($supportsSharedAuxActions)
+                        <div class="hidden sm:block">
+                            <x-workspace.collaborators-popover
+                                :item="$item"
+                                :kind="$kind"
+                                position="top"
+                                align="start"
+                            />
+                        </div>
 
-                    <div class="relative">
-                        <x-workspace.activity-logs-popover
-                            :item="$item"
-                            :kind="$kind"
-                            position="top"
-                            align="start"
-                        />
-                    </div>
+                        <div class="relative">
+                            <x-workspace.activity-logs-popover
+                                :item="$item"
+                                :kind="$kind"
+                                position="top"
+                                align="start"
+                            />
+                        </div>
+                    @endif
                 @endunless
             </div>
 
@@ -405,14 +421,16 @@
                 </div>
             @endif
 
-            <div class="md:hidden">
-                <x-workspace.collaborators-popover
-                    :item="$item"
-                    :kind="$kind"
-                    position="top"
-                    align="end"
-                />
-            </div>
+            @if($supportsSharedAuxActions)
+                <div class="md:hidden">
+                    <x-workspace.collaborators-popover
+                        :item="$item"
+                        :kind="$kind"
+                        position="top"
+                        align="end"
+                    />
+                </div>
+            @endif
 
         </div>
     @endif

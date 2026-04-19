@@ -3,6 +3,7 @@
 use App\Models\SchoolClass;
 use App\Models\Teacher;
 use App\Models\User;
+use App\ViewModels\ListItemCardViewModel;
 use Illuminate\Support\Facades\Blade;
 use Livewire\Livewire;
 
@@ -186,6 +187,51 @@ test('workspace list renders school class in the main list', function (): void {
 
     expect($html)->toContain('data-test="workspace-school-class-item"')
         ->and($html)->toContain('WorkspaceListClass');
+});
+
+test('workspace school class card does not render description controls', function (): void {
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Ms. No Description');
+    $schoolClass = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'NoDescriptionClass',
+        'teacher_id' => $teacher->id,
+        'start_datetime' => now()->startOfDay()->addHours(11),
+        'end_datetime' => now()->startOfDay()->addHours(12),
+    ]);
+
+    $this->actingAs($this->user);
+
+    $html = Blade::render('<x-workspace.list-item-card kind="schoolClass" :item="$item" :list-filter-date="$date" :filters="[]" :available-tags="[]" />', [
+        'item' => $schoolClass->fresh(['teacher', 'recurringSchoolClass']),
+        'date' => now()->toDateString(),
+    ]);
+
+    expect($html)->toContain('NoDescriptionClass')
+        ->and($html)->not->toContain('x-ref="descriptionInput"');
+});
+
+test('school class list item card config uses subjectName for inline title edits', function (): void {
+    $this->actingAs($this->user);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Biology',
+    ]);
+
+    $viewModel = new ListItemCardViewModel(
+        kind: 'schoolClass',
+        item: $schoolClass,
+        listFilterDate: now()->toDateString(),
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+        pomodoroSettings: null,
+    );
+
+    $alpineConfig = $viewModel->alpineConfig();
+
+    expect($alpineConfig['canEdit'])->toBeTrue()
+        ->and($alpineConfig['titleProperty'])->toBe('subjectName')
+        ->and($alpineConfig['editedTitle'])->toBe('Biology');
 });
 
 test('updateSchoolClassProperty updates allowed school class property', function (): void {
