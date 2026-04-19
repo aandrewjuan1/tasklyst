@@ -56,9 +56,10 @@
     $shouldHideWhenDisabled = (bool) $hideWhenDisabled && (bool) $readonly && ! $isInitiallyEnabled;
 
     $schoolClassCreation = (bool) $schoolClassCreation;
-    $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out';
+    $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 transition-[box-shadow,transform] duration-150 ease-out';
+    $triggerBaseClass .= $schoolClassCreation ? ' font-semibold' : ' font-medium';
     $triggerInitialStateClass = $schoolClassCreation
-        ? 'border-border/60 bg-muted text-muted-foreground'
+        ? 'border-black/10 bg-muted text-muted-foreground dark:border-white/10'
         : ($shouldRenderCompact
             ? 'border-border/60 bg-muted text-muted-foreground'
             : ($isInitiallyEnabled
@@ -443,11 +444,19 @@
         get triggerButtonDynamicClass() {
             if (this.schoolClassCreation) {
                 const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-                const base = 'border-border/60 bg-muted text-muted-foreground group-data-[schedule-mode=recurring]/sc:border-brand-blue/50 group-data-[schedule-mode=recurring]/sc:bg-brand-blue/10 group-data-[schedule-mode=recurring]/sc:text-foreground group-data-[schedule-mode=recurring]/sc:ring-1 group-data-[schedule-mode=recurring]/sc:ring-brand-blue/30';
+                const base =
+                    'border-black/10 bg-muted text-muted-foreground dark:border-white/10 group-data-[schedule-mode=recurring]/sc:bg-amber-800/10 group-data-[schedule-mode=recurring]/sc:text-amber-800';
+                const repeatSummary = this.formatDisplayValue();
+                const hasRepeatValue =
+                    this.enabled &&
+                    String(repeatSummary || '').trim() !== '' &&
+                    repeatSummary !== this.notSetLabel;
+                const valueFilled =
+                    hasRepeatValue && !this.readonly ? ' bg-amber-800/10 text-amber-800' : '';
                 if (this.readonly) {
                     return 'cursor-default pointer-events-none opacity-90 ' + base;
                 }
-                return base + openState;
+                return base + openState + valueFilled;
             }
             const state = (!this.enabled && this.compactWhenDisabled)
                 ? 'border-border/60 bg-muted text-muted-foreground'
@@ -501,14 +510,14 @@
         >
             @if ($schoolClassCreation)
                 <flux:icon name="arrow-path" class="size-3 shrink-0" />
-                <span class="shrink-0 text-[10px] font-semibold uppercase leading-tight">
-                    {{ __('Repeating class') }}
+                <span class="inline-flex min-w-0 items-baseline gap-1">
+                    <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Repeat') }}:</span>
+                    <span
+                        class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs uppercase leading-tight sm:max-w-[16rem]"
+                        :class="enabled && formatDisplayValue() !== notSetLabel ? 'font-semibold text-amber-800' : 'text-muted-foreground'"
+                        x-text="enabled ? formatDisplayValue() : notSetLabel"
+                    ></span>
                 </span>
-                <span
-                    class="min-w-0 max-w-[min(100%,12rem)] truncate text-[10px] font-medium leading-tight text-muted-foreground sm:max-w-[16rem]"
-                    x-show="enabled && formatDisplayValue() !== notSetLabel"
-                    x-text="formatDisplayValue()"
-                ></span>
                 @if (! $readonly)
                     <flux:icon name="chevron-down" class="size-3 shrink-0 opacity-80" />
                 @endif

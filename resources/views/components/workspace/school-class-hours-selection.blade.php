@@ -15,17 +15,22 @@
         aria-haspopup="true"
         :aria-expanded="classHoursPopoverOpen"
         :aria-controls="$id('school-class-hours-dropdown')"
-        class="inline-flex w-max max-w-full cursor-pointer items-center gap-1 rounded-full border border-border/60 bg-muted px-2 py-1 text-left font-medium text-muted-foreground outline-none transition-[box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring"
-        :class="{ 'shadow-md ring-1 ring-border/50': classHoursPopoverOpen }"
+        class="inline-flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 text-left font-semibold text-muted-foreground outline-none transition-[box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10"
+        :class="[
+            classHoursPopoverOpen ? 'shadow-md ring-1 ring-border/50 scale-[1.02]' : '',
+            schoolClassHoursTriggerSummary() && !isSubmitting ? 'bg-amber-800/10 text-amber-800' : '',
+        ]"
         data-item-creation-safe
     >
         <flux:icon name="clock" class="size-3 shrink-0" />
-        <span class="shrink-0 text-[10px] font-semibold uppercase leading-tight">{{ __('Class hours') }}</span>
-        <span
-            class="min-w-0 max-w-[min(100%,10rem)] truncate text-[10px] font-medium leading-tight text-muted-foreground sm:max-w-[14rem]"
-            x-show="schoolClassHoursTriggerSummary()"
-            x-text="schoolClassHoursTriggerSummary()"
-        ></span>
+        <span class="inline-flex min-w-0 items-baseline gap-1">
+            <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Class hours') }}:</span>
+            <span
+                class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs font-semibold uppercase leading-tight tabular-nums sm:max-w-[16rem]"
+                :class="schoolClassHoursTriggerSummary() ? 'text-amber-800' : 'text-muted-foreground'"
+                x-text="schoolClassHoursTriggerSummary() || @js(__('Not set'))"
+            ></span>
+        </span>
         <flux:icon name="chevron-down" class="size-3 shrink-0 text-muted-foreground opacity-80" />
     </button>
 

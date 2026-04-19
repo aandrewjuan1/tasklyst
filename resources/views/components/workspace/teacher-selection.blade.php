@@ -24,33 +24,28 @@
             disabled
             aria-haspopup="true"
             aria-disabled="true"
-            class="inline-flex w-max max-w-full cursor-default items-center gap-1 rounded-full border border-border/60 bg-muted px-2 py-1 text-left font-medium text-muted-foreground opacity-90 outline-none"
+            class="inline-flex w-max max-w-full cursor-default items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 text-left font-semibold text-muted-foreground opacity-90 outline-none dark:border-white/10"
         @else
             @click="toggleTeacherPopover()"
             aria-haspopup="true"
             :aria-expanded="teacherPopoverOpen"
             :aria-controls="$id('teacher-selection-dropdown')"
-            class="inline-flex w-max max-w-full cursor-pointer items-center gap-1 rounded-full border border-border/60 bg-muted px-2 py-1 text-left font-medium text-muted-foreground outline-none transition-[box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring"
-            :class="{ 'shadow-md ring-1 ring-border/50': teacherPopoverOpen }"
+            class="inline-flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 text-left font-semibold text-muted-foreground outline-none transition-[box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10"
+            :class="[
+                teacherPopoverOpen ? 'shadow-md ring-1 ring-border/50 scale-[1.02]' : '',
+                schoolClassTeacherTriggerLabel() ? 'bg-amber-800/10 text-amber-800' : '',
+            ]"
         @endif
         data-item-creation-safe
     >
-        <flux:icon
-            name="user"
-            class="size-3 shrink-0"
-            x-show="schoolClassTeacherTriggerLabel()"
-        />
-        <span
-            class="min-w-0 max-w-[min(100%,12rem)] truncate text-[10px] font-semibold uppercase leading-tight sm:max-w-[16rem]"
-            x-show="schoolClassTeacherTriggerLabel()"
-            x-text="schoolClassTeacherTriggerLabel()"
-        ></span>
-        <span
-            x-show="!schoolClassTeacherTriggerLabel()"
-            class="inline-flex min-w-0 items-center gap-1"
-        >
-            <flux:icon name="user" class="size-3 shrink-0" />
-            <span class="whitespace-nowrap text-[10px] font-semibold uppercase">{{ __('Add teacher') }}</span>
+        <flux:icon name="user" class="size-3 shrink-0" />
+        <span class="inline-flex min-w-0 items-baseline gap-1">
+            <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Teacher') }}:</span>
+            <span
+                class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs uppercase leading-tight sm:max-w-[16rem]"
+                :class="schoolClassTeacherTriggerLabel() ? 'font-semibold text-amber-800' : 'text-muted-foreground'"
+                x-text="schoolClassTeacherTriggerLabel() || @js(__('Add teacher'))"
+            ></span>
         </span>
         <flux:icon name="chevron-down" class="size-3 shrink-0 text-muted-foreground opacity-80" />
     </button>

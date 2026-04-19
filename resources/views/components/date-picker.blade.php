@@ -560,20 +560,23 @@
             :aria-expanded="open"
             :aria-controls="$id('date-picker-dropdown')"
             :aria-readonly="readonly"
-            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out group-data-[schedule-mode=one_off]/sc:border-brand-blue/50 group-data-[schedule-mode=one_off]/sc:bg-brand-blue/10 group-data-[schedule-mode=one_off]/sc:text-foreground group-data-[schedule-mode=one_off]/sc:ring-1 group-data-[schedule-mode=one_off]/sc:ring-brand-blue/30"
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 font-semibold text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 group-data-[schedule-mode=one_off]/sc:bg-amber-800/10 group-data-[schedule-mode=one_off]/sc:text-amber-800"
             :class="[
                 { 'pointer-events-none shadow-md scale-[1.02]': open },
                 readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer',
+                currentValue && !readonly ? 'bg-amber-800/10 text-amber-800' : '',
             ]"
             data-task-creation-safe
         >
             <flux:icon name="calendar" class="size-3 shrink-0" />
-            <span class="shrink-0 text-[10px] font-semibold uppercase leading-tight">{{ $triggerLabel }}</span>
-            <span
-                class="min-w-0 max-w-[min(100%,12rem)] truncate text-[10px] font-medium leading-tight text-muted-foreground sm:max-w-[16rem]"
-                x-show="currentValue"
-                x-text="formatDisplayValue(currentValue)"
-            >{{ $initialDisplayText !== $notSetLabel ? $initialDisplayText : '' }}</span>
+            <span class="inline-flex min-w-0 items-baseline gap-1">
+                <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ $triggerLabel }}:</span>
+                <span
+                    class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs font-semibold uppercase leading-tight tabular-nums sm:max-w-[16rem]"
+                    :class="currentValue ? 'text-amber-800' : 'text-muted-foreground'"
+                    x-text="currentValue ? formatDisplayValue(currentValue) : @js(__('Not set'))"
+                >{{ $initialDisplayText !== $notSetLabel ? $initialDisplayText : '' }}</span>
+            </span>
             @if (! $readonly)
                 <flux:icon name="chevron-down" class="size-3 shrink-0 opacity-80" />
             @endif

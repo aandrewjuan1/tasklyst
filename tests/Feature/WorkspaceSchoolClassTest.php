@@ -17,10 +17,10 @@ test('school class recurring selection is weekly-only in markup', function (): v
         ->and($html)->toContain(__('Weekly schedule'));
 });
 
-test('school class creation recurring trigger shows Repeating class label', function (): void {
+test('school class creation recurring trigger shows repeat label', function (): void {
     $html = Blade::render('<x-recurring-selection kind="schoolClass" :school-class-creation="true" />', []);
 
-    expect($html)->toContain(__('Repeating class'))
+    expect($html)->toContain(__('Repeat'))
         ->and($html)->toContain('schoolClassCreation')
         ->and($html)->not->toContain(__('Don\'t repeat'));
 });
