@@ -23,4 +23,14 @@ class UserFactory extends Factory
             'avatar' => $this->faker->imageUrl(),
         ];
     }
+
+    /**
+     * @return $this
+     */
+    public function withCalendarImportPastMonths(?int $months): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'calendar_import_past_months' => $months,
+        ]);
+    }
 }

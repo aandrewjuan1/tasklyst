@@ -7,11 +7,13 @@ use App\Actions\CalendarFeed\DisconnectCalendarFeedAction;
 use App\Actions\CalendarFeed\SyncCalendarFeedAction;
 use App\DataTransferObjects\CalendarFeed\CalendarFeedSyncResult;
 use App\DataTransferObjects\CalendarFeed\CreateCalendarFeedDto;
+use App\Http\Requests\UpdateCalendarImportPastMonthsRequest;
 use App\Models\CalendarFeed;
 use App\Models\User;
 use App\Support\Validation\CalendarFeedPayloadValidation;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 trait HandlesCalendarFeeds
 {
@@ -107,7 +109,7 @@ trait HandlesCalendarFeeds
         $this->authorize('update', $feed);
 
         try {
-            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: true);
+            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: true, queue: true);
         } catch (\Throwable $e) {
             Log::error('Failed to sync calendar feed.', [
                 'user_id' => $user->id,
@@ -225,36 +227,52 @@ trait HandlesCalendarFeeds
         return true;
     }
 
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    public function loadCalendarFeeds(): array
+    public function updateCalendarImportPastMonths(int $months): bool
     {
-        $user = Auth::user();
-        if (! $user instanceof User) {
-            return [];
+        /** @var User|null $user */
+        $user = $this->requireAuth(__('You must be logged in to update calendar import settings.'));
+        if ($user === null) {
+            return false;
         }
 
-        return CalendarFeed::query()
-            ->where('user_id', $user->id)
-            ->orderByDesc('last_synced_at')
-            ->orderByDesc('created_at')
-            ->get([
-                'id',
-                'name',
-                'source',
-                'sync_enabled',
-                'last_synced_at',
-                'created_at',
-            ])
-            ->map(fn (CalendarFeed $feed): array => [
-                'id' => $feed->id,
-                'name' => $feed->name,
-                'source' => $feed->source,
-                'sync_enabled' => $feed->sync_enabled,
-                'last_synced_at' => $feed->last_synced_at,
-                'created_at' => $feed->created_at,
-            ])
-            ->all();
+        $request = new UpdateCalendarImportPastMonthsRequest;
+
+        try {
+            Validator::make(
+                ['months' => $months],
+                $request->rules(),
+                $request->messages(),
+                $request->attributes()
+            )->validate();
+        } catch (ValidationException $e) {
+            $message = $e->validator->errors()->first('months') ?: __('Please choose a valid number of months.');
+
+            $this->dispatch('toast', type: 'error', message: $message, skipDedupe: true);
+
+            return false;
+        }
+
+        try {
+            $user->forceFill(['calendar_import_past_months' => $months])->save();
+        } catch (\Throwable $e) {
+            Log::error('Failed to update calendar import past months.', [
+                'user_id' => $user->id,
+                'months' => $months,
+                'exception' => $e,
+            ]);
+
+            $this->dispatch('toast', type: 'error', message: __('Couldn’t save your calendar import setting. Try again.'), skipDedupe: true);
+
+            return false;
+        }
+
+        $this->dispatch(
+            'toast',
+            type: 'info',
+            message: __('Import window saved. Use “Sync again” on each feed to pull events with the new range.'),
+            skipDedupe: true,
+        );
+
+        return true;
     }
 }

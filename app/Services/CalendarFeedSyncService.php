@@ -65,8 +65,13 @@ class CalendarFeedSyncService
             return new CalendarFeedSyncResult(CalendarFeedSyncStatus::Exception);
         }
 
+        $feed->loadMissing('user');
+
         $eventsInRawFeed = count($events);
-        $events = $this->filterEventsWithinSyncWindow($events);
+        $importPastMonths = $feed->user !== null
+            ? $feed->user->resolvedCalendarImportPastMonths()
+            : (int) config('calendar_feeds.default_import_past_months');
+        $events = $this->filterEventsWithinSyncWindow($events, $importPastMonths);
         $eventsInWindow = count($events);
 
         if ($events === []) {
@@ -83,104 +88,10 @@ class CalendarFeedSyncService
         }
 
         $stats = DB::transaction(function () use ($feed, $events): array {
-            $itemsApplied = 0;
-            $skippedNoUid = 0;
-            $created = 0;
-            $updated = 0;
-
-            foreach ($events as $event) {
-                if (! isset($event['uid'])) {
-                    $skippedNoUid++;
-
-                    continue;
-                }
-
-                $uid = (string) $event['uid'];
-                $summary = $event['summary'] ?? null;
-                $description = $event['description'] ?? null;
-                $location = $event['location'] ?? null;
-                $sourceUrl = $this->extractUrlFromDescription($description);
-
-                $start = $event['dtstart'] ?? null;
-                $end = $event['dtend'] ?? null;
-
-                if (! $start instanceof \Carbon\CarbonInterface) {
-                    $start = null;
-                }
-
-                if (! $end instanceof \Carbon\CarbonInterface) {
-                    $end = null;
-                }
-
-                // When both start and end exist and are identical, treat this as a due-only item.
-                // Keep only the due date on the task to avoid duplicating the same datetime.
-                if ($start !== null && $end !== null && $start->equalTo($end)) {
-                    $start = null;
-                }
-
-                $isExam = $this->isExamEvent($summary, $description);
-                $teacherName = null;
-                $subjectName = null;
-
-                if (is_string($location) && trim($location) !== '') {
-                    $location = trim($location);
-
-                    // Brightspace locations commonly look like "TEACHER_Subject Name (Section)".
-                    $parts = explode('_', $location, 2);
-                    if (count($parts) === 2) {
-                        $maybeTeacher = trim($parts[0]);
-                        $maybeSubject = trim($parts[1]);
-
-                        if ($maybeTeacher !== '' && $maybeSubject !== '') {
-                            $teacherName = $maybeTeacher;
-                            $subjectName = $maybeSubject;
-                        }
-                    }
-
-                    if ($subjectName === null) {
-                        $subjectName = $location;
-                    }
-                }
-
-                $task = Task::query()->updateOrCreate(
-                    [
-                        'user_id' => $feed->user_id,
-                        'source_type' => TaskSourceType::Brightspace,
-                        'source_id' => $uid,
-                    ],
-                    [
-                        'title' => $summary ?: __('Untitled'),
-                        'description' => null,
-                        'teacher_name' => $teacherName,
-                        'subject_name' => $subjectName,
-                        'start_datetime' => $start,
-                        'end_datetime' => $end,
-                        'source_url' => $sourceUrl,
-                        'calendar_feed_id' => $feed->id,
-                        'status' => TaskStatus::ToDo,
-                        'priority' => $isExam ? TaskPriority::High : TaskPriority::Medium,
-                        'complexity' => $isExam ? TaskComplexity::Complex : TaskComplexity::Moderate,
-                        'project_id' => null,
-                        'event_id' => null,
-                    ]
-                );
-
-                $itemsApplied++;
-                if ($task->wasRecentlyCreated) {
-                    $created++;
-                } else {
-                    $updated++;
-                }
-            }
-
+            $stats = $this->importBrightspaceEventsUsingUpsert($feed, $events);
             $feed->update(['last_synced_at' => now()]);
 
-            return [
-                'itemsApplied' => $itemsApplied,
-                'eventsSkippedNoUid' => $skippedNoUid,
-                'tasksCreated' => $created,
-                'tasksUpdated' => $updated,
-            ];
+            return $stats;
         });
 
         $this->createSyncRecoveredReminderIfAllowed($feed);
@@ -199,6 +110,168 @@ class CalendarFeedSyncService
         return $result;
     }
 
+    /**
+     * @param  array<int, array<string, mixed>>  $events
+     * @return array{itemsApplied: int, eventsSkippedNoUid: int, tasksCreated: int, tasksUpdated: int}
+     */
+    private function importBrightspaceEventsUsingUpsert(CalendarFeed $feed, array $events): array
+    {
+        $skippedNoUid = 0;
+        $rows = [];
+
+        foreach ($events as $event) {
+            if (! isset($event['uid'])) {
+                $skippedNoUid++;
+
+                continue;
+            }
+
+            $uid = (string) $event['uid'];
+            $summary = $event['summary'] ?? null;
+            $description = $event['description'] ?? null;
+            $location = $event['location'] ?? null;
+            $sourceUrl = $this->extractUrlFromDescription($description);
+
+            $start = $event['dtstart'] ?? null;
+            $end = $event['dtend'] ?? null;
+
+            if (! $start instanceof \Carbon\CarbonInterface) {
+                $start = null;
+            }
+
+            if (! $end instanceof \Carbon\CarbonInterface) {
+                $end = null;
+            }
+
+            if ($start !== null && $end !== null && $start->equalTo($end)) {
+                $start = null;
+            }
+
+            $isExam = $this->isExamEvent($summary, $description);
+            $teacherName = null;
+            $subjectName = null;
+
+            if (is_string($location) && trim($location) !== '') {
+                $location = trim($location);
+
+                $parts = explode('_', $location, 2);
+                if (count($parts) === 2) {
+                    $maybeTeacher = trim($parts[0]);
+                    $maybeSubject = trim($parts[1]);
+
+                    if ($maybeTeacher !== '' && $maybeSubject !== '') {
+                        $teacherName = $maybeTeacher;
+                        $subjectName = $maybeSubject;
+                    }
+                }
+
+                if ($subjectName === null) {
+                    $subjectName = $location;
+                }
+            }
+
+            $rows[] = [
+                'source_id' => $uid,
+                'title' => $summary !== null && trim($summary) !== '' ? $summary : __('Untitled'),
+                'description' => null,
+                'teacher_name' => $teacherName,
+                'subject_name' => $subjectName,
+                'start_datetime' => $this->formatDateTimeForStorage($start),
+                'end_datetime' => $this->formatDateTimeForStorage($end),
+                'source_url' => $sourceUrl,
+                'calendar_feed_id' => $feed->id,
+                'status' => TaskStatus::ToDo->value,
+                'priority' => ($isExam ? TaskPriority::High : TaskPriority::Medium)->value,
+                'complexity' => ($isExam ? TaskComplexity::Complex : TaskComplexity::Moderate)->value,
+                'project_id' => null,
+                'event_id' => null,
+            ];
+        }
+
+        $itemsApplied = count($rows);
+        if ($rows === []) {
+            return [
+                'itemsApplied' => 0,
+                'eventsSkippedNoUid' => $skippedNoUid,
+                'tasksCreated' => 0,
+                'tasksUpdated' => 0,
+            ];
+        }
+
+        $sourceIds = array_column($rows, 'source_id');
+        $existingIds = Task::query()
+            ->where('user_id', $feed->user_id)
+            ->where('source_type', TaskSourceType::Brightspace->value)
+            ->whereIn('source_id', $sourceIds)
+            ->pluck('source_id')
+            ->all();
+
+        $existingSet = array_fill_keys($existingIds, true);
+
+        $tasksCreated = 0;
+        $tasksUpdated = 0;
+        foreach ($rows as $row) {
+            if (isset($existingSet[$row['source_id']])) {
+                $tasksUpdated++;
+            } else {
+                $tasksCreated++;
+            }
+        }
+
+        $sourceType = TaskSourceType::Brightspace->value;
+        $now = now()->toDateTimeString();
+        $chunkSize = max(1, (int) config('calendar_feeds.task_upsert_chunk_size', 150));
+
+        $updateColumns = [
+            'title',
+            'description',
+            'teacher_name',
+            'subject_name',
+            'start_datetime',
+            'end_datetime',
+            'source_url',
+            'calendar_feed_id',
+            'status',
+            'priority',
+            'complexity',
+            'project_id',
+            'event_id',
+            'updated_at',
+            'deleted_at',
+        ];
+
+        foreach (array_chunk($rows, $chunkSize) as $chunk) {
+            $values = [];
+            foreach ($chunk as $row) {
+                $values[] = array_merge($row, [
+                    'user_id' => $feed->user_id,
+                    'source_type' => $sourceType,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                    'deleted_at' => null,
+                ]);
+            }
+
+            Task::upsert(
+                $values,
+                ['user_id', 'source_type', 'source_id'],
+                $updateColumns
+            );
+        }
+
+        return [
+            'itemsApplied' => $itemsApplied,
+            'eventsSkippedNoUid' => $skippedNoUid,
+            'tasksCreated' => $tasksCreated,
+            'tasksUpdated' => $tasksUpdated,
+        ];
+    }
+
+    private function formatDateTimeForStorage(?\Carbon\CarbonInterface $dateTime): ?string
+    {
+        return $dateTime?->format('Y-m-d H:i:s');
+    }
+
     private function notifyUserOfSuccessfulSync(CalendarFeed $feed, CalendarFeedSyncResult $result, bool $notifyUserOnSuccess): void
     {
         if (! $notifyUserOnSuccess) {
@@ -209,7 +282,10 @@ class CalendarFeedSyncService
             return;
         }
 
-        $user = User::query()->find((int) $feed->user_id);
+        $user = $feed->relationLoaded('user') && $feed->user instanceof User
+            ? $feed->user
+            : User::query()->find((int) $feed->user_id);
+
         if ($user === null) {
             return;
         }
@@ -312,17 +388,17 @@ class CalendarFeedSyncService
      * import thousands of long‑past or far‑future items from feeds.
      *
      * Currently:
-     * - Include events that ended on or after the rolling date 90 days before today (start of day).
-     * - Skip events that ended more than 90 days ago.
-     * - Skip events that start more than 1 year in the future.
+     * - Include events that ended on or after start of today minus N calendar months (N from the feed owner).
+     * - Skip events that ended strictly before that cutoff.
+     * - Skip events that start more than 1 year after today (end of that day).
      *
      * @param  array<int, array<string, mixed>>  $events
      * @return array<int, array<string, mixed>>
      */
-    private function filterEventsWithinSyncWindow(array $events): array
+    private function filterEventsWithinSyncWindow(array $events, int $importPastMonths): array
     {
         $today = now()->startOfDay();
-        $pastLimit = $today->copy()->subDays(90)->startOfDay();
+        $pastLimit = $today->copy()->subMonths($importPastMonths)->startOfDay();
         $futureLimit = $today->copy()->addYear()->endOfDay();
 
         return array_values(array_filter($events, static function (array $event) use ($pastLimit, $futureLimit): bool {

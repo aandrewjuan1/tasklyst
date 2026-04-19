@@ -72,7 +72,26 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'calendar_import_past_months' => 'integer',
         ];
+    }
+
+    /**
+     * Effective past lookback in calendar months for Brightspace feed imports.
+     * Must be one of the values in `calendar_feeds.allowed_import_past_months`; invalid stored values fall back to default.
+     */
+    public function resolvedCalendarImportPastMonths(): int
+    {
+        /** @var list<int|string> $allowedRaw */
+        $allowedRaw = config('calendar_feeds.allowed_import_past_months', [1, 3, 6]);
+        $allowed = array_values(array_map(static fn (mixed $v): int => (int) $v, $allowedRaw));
+        $default = (int) config('calendar_feeds.default_import_past_months');
+        if (! in_array($default, $allowed, true)) {
+            $default = $allowed[1] ?? $allowed[0];
+        }
+        $base = $this->calendar_import_past_months ?? $default;
+
+        return in_array($base, $allowed, true) ? $base : $default;
     }
 
     public function collaborations(): HasMany

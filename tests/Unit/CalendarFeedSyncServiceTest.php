@@ -289,7 +289,7 @@ ICS;
     expect($feed->last_synced_at)->not->toBeNull();
 });
 
-it('includes events that ended within the last 90 days', function () {
+it('includes events that ended within the default calendar import window', function () {
     $user = User::factory()->create();
 
     /** @var CalendarFeed $feed */
@@ -328,7 +328,7 @@ ICS;
     expect($task->title)->toBe('Recent Assignment');
 });
 
-it('skips events that ended more than 90 days ago', function () {
+it('skips events that ended before the rolling calendar-month import cutoff', function () {
     $user = User::factory()->create();
 
     /** @var CalendarFeed $feed */
@@ -340,7 +340,7 @@ it('skips events that ended more than 90 days ago', function () {
         'sync_enabled' => true,
     ]);
 
-    $start = now()->subDays(100)->setTime(9, 0)->utc();
+    $start = now()->subMonths(4)->setTime(9, 0)->utc();
     $end = $start->copy()->addHour();
 
     $ics = <<<ICS
@@ -366,6 +366,81 @@ ICS;
 
     $feed->refresh();
     expect($feed->last_synced_at)->not->toBeNull();
+});
+
+it('imports events within a user extended calendar import window', function () {
+    $user = User::factory()->withCalendarImportPastMonths(6)->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->subMonths(5)->setTime(9, 0)->utc();
+    $end = $start->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:extended-window@example.com
+SUMMARY:Older but in window
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+
+    $service->sync($feed);
+
+    expect(Task::query()->count())->toBe(1);
+    expect(Task::query()->first()?->title)->toBe('Older but in window');
+});
+
+it('skips events outside a user extended calendar import window', function () {
+    $user = User::factory()->withCalendarImportPastMonths(6)->create();
+
+    /** @var CalendarFeed $feed */
+    $feed = CalendarFeed::query()->create([
+        'user_id' => $user->id,
+        'name' => 'Brightspace – All Courses',
+        'feed_url' => 'https://example.test/calendar.ics',
+        'source' => 'brightspace',
+        'sync_enabled' => true,
+    ]);
+
+    $start = now()->subMonths(7)->setTime(9, 0)->utc();
+    $end = $start->copy()->addHour();
+
+    $ics = <<<ICS
+BEGIN:VCALENDAR
+BEGIN:VEVENT
+UID:beyond-extended@example.com
+SUMMARY:Too old for six months
+DTSTART:{$start->format('Ymd\\THis\\Z')}
+DTEND:{$end->format('Ymd\\THis\\Z')}
+END:VEVENT
+END:VCALENDAR
+ICS;
+
+    Http::fake([
+        $feed->feed_url => Http::response($ics, 200),
+    ]);
+
+    $service = app(CalendarFeedSyncService::class);
+
+    $service->sync($feed);
+
+    expect(Task::query()->count())->toBe(0);
 });
 
 it('stores a completion inbox notification when notifyUserOnSuccess is true', function () {
