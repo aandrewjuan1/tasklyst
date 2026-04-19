@@ -1393,8 +1393,8 @@ class extends Component
 
         $overdueAsOf = now();
 
-        // Early return: Skip overdue queries if filtered to projects only
-        if ($filterItemType === 'projects') {
+        // Early return: Skip overdue queries if filtered to projects/classes only
+        if ($filterItemType === 'projects' || $filterItemType === 'classes') {
             return collect();
         }
 

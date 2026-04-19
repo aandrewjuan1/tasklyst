@@ -99,6 +99,13 @@
                     : t
             );
         },
+        focusTask(task) {
+            if (!task || task.id == null) return;
+            if (this.removingTaskIds?.has(task.id)) return;
+            const instant = typeof window.workspaceCalendarTryInstantFocus === 'function'
+                && window.workspaceCalendarTryInstantFocus('task', task.id);
+            $wire.$parent.$call('focusCalendarAgendaItem', 'task', task.id, !instant);
+        },
         async removeFromParent(task) {
             if (this.removingTaskIds.has(task.id)) return;
             this.removingTaskIds.add(task.id);
@@ -177,7 +184,19 @@
     >
         <ul class="divide-y divide-border/30">
             <template x-for="task in tasks" :key="task.id">
-                <li class="flex items-center gap-2 px-2.5 py-1.5 first:pt-0 last:pb-0">
+                <li
+                    class="flex items-center gap-2 rounded-sm px-2.5 py-1.5 first:pt-0 last:pb-0 transition-colors duration-150"
+                    :class="removingTaskIds?.has(task.id)
+                        ? 'cursor-not-allowed opacity-60'
+                        : 'cursor-pointer hover:bg-foreground/5 focus-within:bg-foreground/5'"
+                    role="button"
+                    tabindex="0"
+                    @click="focusTask(task)"
+                    @keydown.enter.prevent="focusTask(task)"
+                    @keydown.space.prevent="focusTask(task)"
+                    :aria-disabled="(removingTaskIds?.has(task.id)).toString()"
+                    :aria-label="`{{ __('Focus task') }}: ${task.title ?? ''}`"
+                >
                     <span class="size-1.5 shrink-0 rounded-full bg-primary/50" aria-hidden="true"></span>
                     <span class="min-w-0 flex-1 truncate text-[11px] text-foreground/90" :title="task.title" x-text="task.title"></span>
                     <span
@@ -191,6 +210,7 @@
                         type="button"
                         class="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
                         :disabled="removingTaskIds?.has(task.id)"
+                        @click.stop
                         @click.throttle.250ms="removeFromParent(task)"
                         aria-label="{{ __('Remove from :parent', ['parent' => $kind === 'project' ? __('project') : ($kind === 'event' ? __('event') : __('class'))]) }}"
                     >

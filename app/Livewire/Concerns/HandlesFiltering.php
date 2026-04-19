@@ -175,7 +175,7 @@ trait HandlesFiltering
 
         if ($key === 'itemType') {
             $this->userManuallySetItemType = true;
-            $allowed = ['all', 'tasks', 'events', 'projects'];
+            $allowed = ['all', 'tasks', 'events', 'projects', 'classes'];
             if ($value === null || $value === '' || $value === 'all') {
                 $value = null;
             } elseif (! in_array($value, $allowed, true)) {
@@ -571,6 +571,33 @@ trait HandlesFiltering
                 $outer->{$method}(function (Builder $group) use ($pattern): void {
                     $group->where('name', 'like', $pattern)
                         ->orWhere('description', 'like', $pattern)
+                        ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
+                            $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
+                        });
+                });
+            }
+        });
+    }
+
+    /**
+     * Broad workspace search on school classes: subject, teacher, or matching child tasks.
+     */
+    public function applyWorkspaceSearchToSchoolClassQuery(Builder $query): void
+    {
+        $tokens = $this->getWorkspaceSearchTokens();
+        if ($tokens === []) {
+            return;
+        }
+
+        $query->where(function (Builder $outer) use ($tokens): void {
+            foreach ($tokens as $i => $token) {
+                $pattern = '%'.$this->escapeWorkspaceSearchLikeToken($token).'%';
+                $method = $i === 0 ? 'where' : 'orWhere';
+                $outer->{$method}(function (Builder $group) use ($pattern): void {
+                    $group->where('subject_name', 'like', $pattern)
+                        ->orWhereHas('teacher', function (Builder $teacherQuery) use ($pattern): void {
+                            $teacherQuery->where('name', 'like', $pattern);
+                        })
                         ->orWhereHas('tasks', function (Builder $taskQuery) use ($pattern): void {
                             $this->applyWorkspaceSearchTokenToTaskQuery($taskQuery, $pattern);
                         });

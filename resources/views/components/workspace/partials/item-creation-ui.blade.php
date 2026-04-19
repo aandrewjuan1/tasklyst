@@ -165,6 +165,20 @@
                     <button
                         type="button"
                         data-item-creation-safe
+                        class="{{ $typePickerBtnClass }} border-l-[3px] border-l-amber-500/60"
+                        @mousedown.prevent
+                        @click="beginItemCreation('schoolClass')"
+                    >
+                        <flux:icon
+                            name="book-open"
+                            class="size-7 text-amber-800 dark:text-amber-200"
+                            aria-hidden="true"
+                        />
+                        <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Class') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        data-item-creation-safe
                         class="{{ $typePickerBtnClass }} border-l-[3px] border-l-indigo-500/60"
                         @mousedown.prevent
                         @click="beginItemCreation('event')"
@@ -189,20 +203,6 @@
                             aria-hidden="true"
                         />
                         <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Project') }}</span>
-                    </button>
-                    <button
-                        type="button"
-                        data-item-creation-safe
-                        class="{{ $typePickerBtnClass }} border-l-[3px] border-l-amber-500/60"
-                        @mousedown.prevent
-                        @click="beginItemCreation('schoolClass')"
-                    >
-                        <flux:icon
-                            name="book-open"
-                            class="size-7 text-amber-800 dark:text-amber-200"
-                            aria-hidden="true"
-                        />
-                        <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Class') }}</span>
                     </button>
                 </div>
             @endif

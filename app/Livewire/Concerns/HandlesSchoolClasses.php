@@ -10,7 +10,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Async;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Renderless;
@@ -35,17 +34,27 @@ trait HandlesSchoolClasses
             return collect();
         }
 
-        $dayStart = $this->getParsedSelectedDate()->copy()->startOfDay();
-        $dayEnd = $this->getParsedSelectedDate()->copy()->endOfDay();
-
-        $classes = SchoolClass::query()
+        $classesQuery = SchoolClass::query()
             ->forUser($userId)
             ->notArchived()
             ->with(['recurringSchoolClass.schoolClass', 'teacher', 'tasks'])
             ->withCount('tasks')
-            ->orderBy('start_time')
+            ->orderBy('start_time');
+
+        if (method_exists($this, 'applyWorkspaceSearchToSchoolClassQuery')) {
+            $this->applyWorkspaceSearchToSchoolClassQuery($classesQuery);
+        }
+
+        $classes = $classesQuery
             ->orderBy('subject_name')
             ->get();
+
+        if (method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems()) {
+            return $classes->values();
+        }
+
+        $dayStart = $this->getParsedSelectedDate()->copy()->startOfDay();
+        $dayEnd = $this->getParsedSelectedDate()->copy()->endOfDay();
 
         $nonRecurring = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass === null);
         $recurringClasses = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass !== null);
@@ -80,34 +89,11 @@ trait HandlesSchoolClasses
             ? $this->normalizeFilterValue($this->filterItemType)
             : null;
 
-        if ($filterItemType !== null) {
+        if ($filterItemType !== null && $filterItemType !== 'classes') {
             return collect();
         }
 
-        $classes = $this->schoolClassesForSelectedDate;
-
-        if (! method_exists($this, 'getWorkspaceSearchTokens')) {
-            return $classes;
-        }
-
-        $tokens = $this->getWorkspaceSearchTokens();
-        if ($tokens === []) {
-            return $classes;
-        }
-
-        return $classes
-            ->filter(function (SchoolClass $class) use ($tokens): bool {
-                foreach ($tokens as $token) {
-                    $needle = Str::lower($token);
-                    if (Str::contains(Str::lower((string) $class->subject_name), $needle)
-                        || Str::contains(Str::lower((string) ($class->teacher?->name ?? '')), $needle)) {
-                        return true;
-                    }
-                }
-
-                return false;
-            })
-            ->values();
+        return $this->schoolClassesForSelectedDate;
     }
 
     /**

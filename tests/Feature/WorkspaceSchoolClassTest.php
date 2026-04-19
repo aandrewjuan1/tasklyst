@@ -189,6 +189,86 @@ test('workspace list renders school class in the main list', function (): void {
         ->and($html)->toContain('WorkspaceListClass');
 });
 
+test('workspace item type filter supports classes', function (): void {
+    $this->actingAs($this->user);
+
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Ms. Filter Class');
+    SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Class Filter Target',
+        'teacher_id' => $teacher->id,
+        'start_datetime' => now()->startOfDay()->addHours(9),
+        'end_datetime' => now()->startOfDay()->addHours(10),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('filterItemType', 'classes');
+
+    expect($component->instance()->getFilters()['itemType'])->toBe('classes')
+        ->and($component->instance()->schoolClassesForWorkspaceList)->toHaveCount(1)
+        ->and($component->instance()->tasks)->toHaveCount(0)
+        ->and($component->instance()->events)->toHaveCount(0)
+        ->and($component->instance()->projects)->toHaveCount(0);
+});
+
+test('school class search on selected date remains date-scoped', function (): void {
+    $this->actingAs($this->user);
+
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Ms. Scope Date');
+    SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Today Search Match',
+        'teacher_id' => $teacher->id,
+        'start_datetime' => now()->startOfDay()->addHours(8),
+        'end_datetime' => now()->startOfDay()->addHours(9),
+    ]);
+    SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Outside Day Search Match',
+        'teacher_id' => $teacher->id,
+        'start_datetime' => now()->addDays(3)->startOfDay()->addHours(8),
+        'end_datetime' => now()->addDays(3)->startOfDay()->addHours(9),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('filterItemType', 'classes')
+        ->set('searchScope', 'selected_date')
+        ->set('searchQuery', 'Search Match');
+
+    $subjects = $component->instance()->schoolClassesForWorkspaceList->pluck('subject_name')->all();
+
+    expect($subjects)->toContain('Today Search Match')
+        ->and($subjects)->not->toContain('Outside Day Search Match');
+});
+
+test('school class search on all items includes classes outside selected date', function (): void {
+    $this->actingAs($this->user);
+
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Ms. Scope All');
+    SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Today Global Match',
+        'teacher_id' => $teacher->id,
+        'start_datetime' => now()->startOfDay()->addHours(8),
+        'end_datetime' => now()->startOfDay()->addHours(9),
+    ]);
+    SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Future Global Match',
+        'teacher_id' => $teacher->id,
+        'start_datetime' => now()->addDays(4)->startOfDay()->addHours(8),
+        'end_datetime' => now()->addDays(4)->startOfDay()->addHours(9),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('filterItemType', 'classes')
+        ->set('searchScope', 'all_items')
+        ->set('searchQuery', 'Global Match');
+
+    $subjects = $component->instance()->schoolClassesForWorkspaceList->pluck('subject_name')->all();
+
+    expect($subjects)->toContain('Today Global Match')
+        ->and($subjects)->toContain('Future Global Match');
+});
+
 test('workspace school class card does not render description controls', function (): void {
     $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Ms. No Description');
     $schoolClass = SchoolClass::factory()->for($this->user)->create([
@@ -275,7 +355,13 @@ test('subtasks component supports school class parent mode and unbind payload', 
         ->and($contents)->toContain('removedFromThisSchoolClass')
         ->and($contents)->toContain('unboundFromThisSchoolClass')
         ->and($contents)->toContain('unboundSchoolClassId')
-        ->and($contents)->toContain("this.parentProperty === 'schoolClassId'");
+        ->and($contents)->toContain("this.parentProperty === 'schoolClassId'")
+        ->and($contents)->toContain('focusTask(task)')
+        ->and($contents)->toContain("workspaceCalendarTryInstantFocus('task', task.id)")
+        ->and($contents)->toContain("focusCalendarAgendaItem', 'task', task.id, !instant")
+        ->and($contents)->toContain('@keydown.enter.prevent="focusTask(task)"')
+        ->and($contents)->toContain('@keydown.space.prevent="focusTask(task)"')
+        ->and($contents)->toContain('@click.stop');
 });
 
 test('school class parent popover listens for trashed and meta update events', function (): void {
