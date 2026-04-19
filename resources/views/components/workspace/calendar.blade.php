@@ -117,6 +117,8 @@
     tabindex="0"
     @keydown="handleKeydown($event)"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
+    @workspace-school-class-meta-updated.window="$wire.refreshWorkspaceCalendar()"
+    @workspace-school-class-trashed.window="$wire.refreshWorkspaceCalendar()"
 >
     {{-- Calendar Container --}}
     <div
@@ -209,6 +211,10 @@
                     <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500" aria-hidden="true"></span>
                     <span>{{ __('Starts / scheduled') }}</span>
                 </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-violet-500 dark:bg-violet-400" aria-hidden="true"></span>
+                    <span>{{ __('Classes') }}</span>
+                </span>
             </div>
 
             {{-- Calendar Days Grid --}}
@@ -234,6 +240,10 @@
                                 'overdue_count' => 0,
                                 'conflict_count' => 0,
                                 'recurring_count' => 0,
+                                'due_count' => 0,
+                                'task_starts_count' => 0,
+                                'all_day_count' => 0,
+                                'school_class_count' => 0,
                             ];
                         @endphp
                         <button
@@ -254,8 +264,9 @@
                                 $overdueCount = (int) ($meta['overdue_count'] ?? 0);
                                 $hasDueToday = $dueCount > $overdueCount;
                                 $hasStartsToday = (($meta['task_starts_count'] ?? 0) > 0) || (($meta['event_count'] ?? 0) > 0);
+                                $hasClassesToday = (($meta['school_class_count'] ?? 0) > 0);
                             @endphp
-                            @if ($hasOverdue || $hasDueToday || $hasStartsToday)
+                            @if ($hasOverdue || $hasDueToday || $hasStartsToday || $hasClassesToday)
                                 <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
                                     @if ($hasOverdue)
                                         <flux:tooltip content="{{ __('Overdue items') }}">
@@ -270,6 +281,11 @@
                                     @if ($hasStartsToday)
                                         <flux:tooltip content="{{ __('Tasks or events starting or scheduled this day.') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500"></span>
+                                        </flux:tooltip>
+                                    @endif
+                                    @if ($hasClassesToday)
+                                        <flux:tooltip content="{{ __('Classes on this day.') }}">
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-violet-500 dark:bg-violet-400"></span>
                                         </flux:tooltip>
                                     @endif
                                 </div>
@@ -319,6 +335,7 @@
                                 || (dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count)
                                 || (dayData.meta?.task_starts_count ?? getMeta(dayData.dateString).task_starts_count) > 0
                                 || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0
+                                || (dayData.meta?.school_class_count ?? getMeta(dayData.dateString).school_class_count) > 0
                             ">
                                 <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
                                     <template x-if="(dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0">
@@ -337,6 +354,11 @@
                                     ">
                                         <flux:tooltip content="{{ __('Tasks or events starting or scheduled this day.') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500"></span>
+                                        </flux:tooltip>
+                                    </template>
+                                    <template x-if="(dayData.meta?.school_class_count ?? getMeta(dayData.dateString).school_class_count) > 0">
+                                        <flux:tooltip content="{{ __('Classes on this day.') }}">
+                                            <span class="inline-flex size-1.5 shrink-0 rounded-full bg-violet-500 dark:bg-violet-400"></span>
                                         </flux:tooltip>
                                     </template>
                                 </div>
@@ -363,7 +385,7 @@
                 </span>
             </div>
 
-            <div class="mb-2 grid grid-cols-3 gap-1 text-center">
+            <div class="mb-2 grid grid-cols-2 gap-1 text-center sm:grid-cols-4">
                 <div class="rounded-md bg-muted/50 px-1 py-1">
                     <p class="text-[10px] text-muted-foreground">{{ __('Tasks') }}</p>
                     <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-tasks">{{ $selectedDayAgenda['summary']['tasks'] ?? 0 }}</p>
@@ -371,6 +393,10 @@
                 <div class="rounded-md bg-muted/50 px-1 py-1">
                     <p class="text-[10px] text-muted-foreground">{{ __('Events') }}</p>
                     <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-events">{{ $selectedDayAgenda['summary']['events'] ?? 0 }}</p>
+                </div>
+                <div class="rounded-md bg-muted/50 px-1 py-1">
+                    <p class="text-[10px] text-muted-foreground">{{ __('Classes') }}</p>
+                    <p class="text-xs font-semibold text-foreground" data-testid="calendar-agenda-summary-classes">{{ $selectedDayAgenda['summary']['classes'] ?? 0 }}</p>
                 </div>
                 <div class="rounded-md bg-muted/50 px-1 py-1">
                     <p class="text-[10px] text-muted-foreground">{{ __('Overdue') }}</p>
@@ -475,6 +501,38 @@
                     </div>
                 @endif
 
+                @if (!empty($selectedDayAgenda['schoolClasses'] ?? []))
+                    <div data-testid="calendar-agenda-school-classes">
+                        <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">{{ __('Classes') }}</p>
+                        <ul class="space-y-1">
+                            @foreach (($selectedDayAgenda['schoolClasses'] ?? []) as $item)
+                                <li class="rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-1 text-xs dark:border-violet-500/25 dark:bg-violet-950/40">
+                                    @if ($agendaContext === 'dashboard')
+                                        <a href="{{ $item['workspace_url'] }}" wire:navigate class="flex items-start justify-between gap-2">
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-violet-950 dark:text-violet-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="violet" />
+                                        </a>
+                                    @else
+                                        <button
+                                            type="button"
+                                            @click="
+                                                const k = '{{ $item['focus_kind'] }}';
+                                                const i = {{ $item['focus_id'] }};
+                                                const instant = typeof window.workspaceCalendarTryInstantFocus === 'function' && window.workspaceCalendarTryInstantFocus(k, i);
+                                                $wire.focusCalendarAgendaItem(k, i, !instant);
+                                            "
+                                            class="flex w-full items-start justify-between gap-2 text-left {{ $workspaceAgendaBtnBase }}"
+                                        >
+                                            <span class="min-w-0 flex-1 truncate font-medium leading-snug text-violet-950 dark:text-violet-100">{{ $item['title'] }}</span>
+                                            <x-workspace.calendar-agenda-time-column :time-label="$item['time_label'] ?? null" :time="$item['time'] ?? null" tone="violet" />
+                                        </button>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+
                 @if (!empty($selectedDayAgenda['timedEvents'] ?? []))
                     <div data-testid="calendar-agenda-timed-events">
                         <p class="mb-2 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">{{ __('Timed events') }}</p>
@@ -553,13 +611,14 @@
                     empty($selectedDayAgenda['overdueTasks'] ?? [])
                     && empty($selectedDayAgenda['dueDayTasks'] ?? [])
                     && empty($selectedDayAgenda['scheduledStarts'] ?? [])
+                    && empty($selectedDayAgenda['schoolClasses'] ?? [])
                     && empty($selectedDayAgenda['timedEvents'] ?? [])
                     && empty($selectedDayAgenda['allDayEvents'] ?? [])
                 )
                     <div class="space-y-1.5 text-xs text-muted-foreground">
-                        <p>{{ __('No tasks or events on this day.') }}</p>
+                        <p>{{ __('No tasks, events, or classes on this day.') }}</p>
                         @if ($agendaContext === 'workspace')
-                            <p class="text-[11px] leading-relaxed text-muted-foreground/95">{{ __('Add a task or event from the quick-add section above your list or board.') }}</p>
+                            <p class="text-[11px] leading-relaxed text-muted-foreground/95">{{ __('Add a task, event, or class from the quick-add section above your list or board.') }}</p>
                         @else
                             <p class="text-[11px] leading-relaxed text-muted-foreground/95">{{ __('Open Workspace to add items, or enjoy a clear schedule.') }}</p>
                         @endif

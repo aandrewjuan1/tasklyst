@@ -252,6 +252,53 @@ class SchoolClassService
         return array_values(array_map('intval', $ids));
     }
 
+    /**
+     * Non-recurring classes: overlap with the calendar day. Recurring: occurrence on {@see $dayStart} (via recurrence expander).
+     *
+     * @param  Collection<int, SchoolClass>  $classes
+     * @return Collection<int, SchoolClass>
+     */
+    public function filterSchoolClassesForCalendarDay(Collection $classes, CarbonInterface $dayStart, CarbonInterface $dayEnd): Collection
+    {
+        $nonRecurring = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass === null);
+        $recurringClasses = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass !== null);
+
+        $relevantRecurringIds = $this->getRelevantRecurringSchoolClassIdsForDate(
+            $recurringClasses->map(fn (SchoolClass $class) => $class->recurringSchoolClass)->filter(),
+            $dayStart
+        );
+        $relevantRecurringLookup = array_flip($relevantRecurringIds);
+
+        return $classes
+            ->filter(function (SchoolClass $class) use ($dayStart, $dayEnd, $relevantRecurringLookup): bool {
+                if ($class->recurringSchoolClass === null) {
+                    return $this->nonRecurringSchoolClassOverlapsDay($class, $dayStart, $dayEnd);
+                }
+
+                return isset($relevantRecurringLookup[(int) $class->recurringSchoolClass->id]);
+            })
+            ->values();
+    }
+
+    /**
+     * @param  Collection<int, SchoolClass>  $classes
+     */
+    public function countSchoolClassesOnCalendarDay(Collection $classes, CarbonInterface $dayStart, CarbonInterface $dayEnd): int
+    {
+        return $this->filterSchoolClassesForCalendarDay($classes, $dayStart, $dayEnd)->count();
+    }
+
+    private function nonRecurringSchoolClassOverlapsDay(SchoolClass $class, CarbonInterface $dayStart, CarbonInterface $dayEnd): bool
+    {
+        $start = $class->start_datetime;
+        $end = $class->end_datetime;
+        if ($start === null || $end === null) {
+            return false;
+        }
+
+        return $start->lte($dayEnd) && $end->gte($dayStart);
+    }
+
     public function createSchoolClassException(
         RecurringSchoolClass $recurringSchoolClass,
         CarbonInterface $date,

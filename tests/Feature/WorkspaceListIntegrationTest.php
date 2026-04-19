@@ -468,3 +468,11 @@ test('workspace scheduled focus shows human-readable duration labels', function 
         ->assertSee('4 hours')
         ->assertDontSee('240 mins');
 });
+
+test('workspace list region skeleton loading targets include selected date', function (): void {
+    $this->actingAs($this->user);
+
+    $html = Livewire::test('pages::workspace.index')->html();
+
+    expect($html)->toMatch('/wire:target="[^"]*selectedDate[^"]*"/');
+});

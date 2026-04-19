@@ -79,6 +79,39 @@ test('changing selected date keeps calendarGridMetaForJs populated for dots', fu
     expect($component->get('calendarGridMetaForJs')['2026-04-15']['due_count'] ?? 0)->toBeGreaterThan(0);
 });
 
+test('createSchoolClass refreshes calendar grid meta for class dots', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-15 12:00:00'));
+
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $meetingDate = '2026-04-15';
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', $meetingDate);
+
+    $metaBefore = $component->get('calendarGridMetaForJs');
+    expect($metaBefore[$meetingDate]['school_class_count'] ?? 0)->toBe(0);
+
+    $component->call('createSchoolClass', [
+        'scheduleMode' => 'one_off',
+        'subjectName' => 'Physics',
+        'teacherName' => 'Dr. Example',
+        'meetingDate' => $meetingDate,
+        'startTime' => '09:00',
+        'endTime' => '10:00',
+        'recurrence' => [
+            'enabled' => false,
+            'type' => null,
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    $metaAfter = $component->get('calendarGridMetaForJs');
+    expect($metaAfter[$meetingDate]['school_class_count'] ?? 0)->toBeGreaterThan(0);
+});
+
 test('dashboard index can refresh workspace calendar', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-13 12:00:00'));
 

@@ -128,6 +128,9 @@ class extends Component
     #[Url(as: 'project')]
     public ?int $focusProjectId = null;
 
+    #[Url(as: 'school_class')]
+    public ?int $focusSchoolClassId = null;
+
     /**
      * Global item pagination for the workspace list (across tasks, events, projects).
      * Controls how many combined item cards are visible in the list component.
@@ -428,20 +431,23 @@ class extends Component
      */
     public function focusCalendarAgendaItem(string $kind, int $id, bool $expandPagination = true): void
     {
-        if ($id < 1 || ! in_array($kind, ['task', 'event', 'project'], true)) {
+        if ($id < 1 || ! in_array($kind, ['task', 'event', 'project', 'schoolClass'], true)) {
             return;
         }
 
         $this->focusTaskId = null;
         $this->focusEventId = null;
         $this->focusProjectId = null;
+        $this->focusSchoolClassId = null;
 
         if ($kind === 'task') {
             $this->focusTaskId = $id;
         } elseif ($kind === 'event') {
             $this->focusEventId = $id;
-        } else {
+        } elseif ($kind === 'project') {
             $this->focusProjectId = $id;
+        } else {
+            $this->focusSchoolClassId = $id;
         }
 
         $this->preserveCurrentViewModeForFocus = true;
@@ -450,7 +456,8 @@ class extends Component
             $model = match ($kind) {
                 'task' => $this->resolveDeepLinkModel(Task::class, $this->focusTaskId ?? 0),
                 'event' => $this->resolveDeepLinkModel(Event::class, $this->focusEventId ?? 0),
-                default => $this->resolveDeepLinkModel(Project::class, $this->focusProjectId ?? 0),
+                'project' => $this->resolveDeepLinkModel(Project::class, $this->focusProjectId ?? 0),
+                default => $this->resolveDeepLinkModel(SchoolClass::class, $this->focusSchoolClassId ?? 0),
             };
 
             if ($model === null) {
@@ -495,6 +502,7 @@ class extends Component
         $this->focusTaskId = null;
         $this->focusEventId = null;
         $this->focusProjectId = null;
+        $this->focusSchoolClassId = null;
     }
 
     #[On('workspace-bell-focus-item')]
@@ -1127,7 +1135,7 @@ class extends Component
             $clearSearch = false;
         }
 
-        if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null) {
+        if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null && $this->focusSchoolClassId === null) {
             return;
         }
 
@@ -1135,6 +1143,7 @@ class extends Component
             $this->focusTaskId = null;
             $this->focusEventId = null;
             $this->focusProjectId = null;
+            $this->focusSchoolClassId = null;
 
             return;
         }
@@ -1142,6 +1151,7 @@ class extends Component
         if ($this->focusTaskId !== null) {
             $this->focusEventId = null;
             $this->focusProjectId = null;
+            $this->focusSchoolClassId = null;
             $task = $this->resolveDeepLinkModel(Task::class, $this->focusTaskId);
             if (! $task instanceof Task) {
                 $this->focusTaskId = null;
@@ -1158,6 +1168,7 @@ class extends Component
 
         if ($this->focusEventId !== null) {
             $this->focusProjectId = null;
+            $this->focusSchoolClassId = null;
             $event = $this->resolveDeepLinkModel(Event::class, $this->focusEventId);
             if (! $event instanceof Event) {
                 $this->focusEventId = null;
@@ -1173,6 +1184,7 @@ class extends Component
         }
 
         if ($this->focusProjectId !== null) {
+            $this->focusSchoolClassId = null;
             $project = $this->resolveDeepLinkModel(Project::class, $this->focusProjectId);
             if (! $project instanceof Project) {
                 $this->focusProjectId = null;
@@ -1182,6 +1194,21 @@ class extends Component
             $this->applyDeepLinkListShell('projects', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('project', $project->id);
+            }
+
+            return;
+        }
+
+        if ($this->focusSchoolClassId !== null) {
+            $schoolClass = $this->resolveDeepLinkModel(SchoolClass::class, $this->focusSchoolClassId);
+            if (! $schoolClass instanceof SchoolClass) {
+                $this->focusSchoolClassId = null;
+
+                return;
+            }
+            $this->applyDeepLinkListShell('classes', $applyItemTypeToFilters, $clearSearch);
+            if ($expandPagination) {
+                $this->expandPaginationUntilFocusItemVisible('schoolClass', $schoolClass->id);
             }
         }
     }
@@ -1215,7 +1242,7 @@ class extends Component
     }
 
     /**
-     * @param  'tasks'|'events'|'projects'  $filterItemType
+     * @param  'tasks'|'events'|'projects'|'classes'  $filterItemType
      */
     protected function applyDeepLinkListShell(
         string $filterItemType,
@@ -1276,6 +1303,17 @@ class extends Component
             return null;
         }
 
+        if ($kind === 'schoolClass' && $model instanceof SchoolClass) {
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
         return null;
     }
 
@@ -1290,6 +1328,7 @@ class extends Component
                 $this->focusTaskId = $tid;
                 $this->focusEventId = null;
                 $this->focusProjectId = null;
+                $this->focusSchoolClassId = null;
             }
 
             return;
@@ -1301,6 +1340,7 @@ class extends Component
                 $this->focusEventId = $eid;
                 $this->focusTaskId = null;
                 $this->focusProjectId = null;
+                $this->focusSchoolClassId = null;
             }
 
             return;
@@ -1312,6 +1352,19 @@ class extends Component
                 $this->focusProjectId = $pid;
                 $this->focusTaskId = null;
                 $this->focusEventId = null;
+                $this->focusSchoolClassId = null;
+            }
+
+            return;
+        }
+
+        if (request()->query->has('school_class')) {
+            $sid = (int) request()->query('school_class', 0);
+            if ($sid > 0) {
+                $this->focusSchoolClassId = $sid;
+                $this->focusTaskId = null;
+                $this->focusEventId = null;
+                $this->focusProjectId = null;
             }
         }
     }
@@ -1323,6 +1376,17 @@ class extends Component
     protected function clearPaginatedWorkspaceListCaches(): void
     {
         unset($this->tasks, $this->events, $this->projects, $this->schoolClassesForSelectedDate, $this->schoolClassesForWorkspaceList);
+    }
+
+    /**
+     * True when the merged list has more rows than {@see $itemsPage} × {@see $itemsPerPage} can show (e.g. school classes only).
+     */
+    protected function hasMoreWorkspaceMergedListEntries(): bool
+    {
+        $allItems = $this->getAllListEntries();
+        $effectiveItemsPerPage = max(1, $this->itemsPerPage);
+
+        return $allItems->count() > ($this->itemsPage * $effectiveItemsPerPage);
     }
 
     /**
@@ -1348,7 +1412,7 @@ class extends Component
                 return true;
             }
 
-            if (! $this->hasMoreTasks && ! $this->hasMoreEvents && ! $this->hasMoreProjects) {
+            if (! $this->hasMoreTasks && ! $this->hasMoreEvents && ! $this->hasMoreProjects && ! $this->hasMoreWorkspaceMergedListEntries()) {
                 break;
             }
 

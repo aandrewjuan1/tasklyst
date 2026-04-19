@@ -1,5 +1,5 @@
 /**
- * Scroll + highlight list rows for ?task= / ?event= / ?project= deep links.
+ * Scroll + highlight list rows for ?task= / ?event= / ?project= / ?school_class= deep links.
  * Focus query params are consumed after first successful focus so reload does
  * not repeatedly auto-scroll/highlight.
  */
@@ -17,7 +17,7 @@ const WORKSPACE_ROW_FLASH_MS = 2100;
  */
 export function consumeWorkspaceFocusQueryParams() {
     const url = new URL(window.location.href);
-    const hasFocusParam = ['task', 'event', 'project'].some((param) => url.searchParams.has(param));
+    const hasFocusParam = ['task', 'event', 'project', 'school_class'].some((param) => url.searchParams.has(param));
 
     if (!hasFocusParam) {
         return;
@@ -26,6 +26,7 @@ export function consumeWorkspaceFocusQueryParams() {
     url.searchParams.delete('task');
     url.searchParams.delete('event');
     url.searchParams.delete('project');
+    url.searchParams.delete('school_class');
 
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     window.history.replaceState(window.history.state, '', nextUrl);
@@ -83,8 +84,17 @@ function runWorkspaceFocusBySelectorId(selectorId, shouldConsumeQuery = false) {
  *
  * @returns {boolean} true if the row was found and focused
  */
+function workspaceItemDomKind(kind) {
+    if (kind === 'schoolClass') {
+        return 'schoolclass';
+    }
+
+    return kind;
+}
+
 export function workspaceCalendarTryInstantFocus(kind, id) {
-    const el = document.getElementById(`workspace-item-${kind}-${id}`);
+    const domKind = workspaceItemDomKind(kind);
+    const el = document.getElementById(`workspace-item-${domKind}-${id}`);
     if (!el) {
         return false;
     }
@@ -108,6 +118,9 @@ export function runWorkspaceFocusFromUrl() {
     } else if (params.has('project')) {
         kind = 'project';
         rawId = params.get('project');
+    } else if (params.has('school_class')) {
+        kind = 'schoolclass';
+        rawId = params.get('school_class');
     }
 
     if (!kind || rawId === null || rawId === '') {
@@ -124,7 +137,7 @@ export function runWorkspaceFocusFromUrl() {
 }
 
 export function runWorkspaceFocusToTarget(kind, rawId) {
-    if (!['task', 'event', 'project'].includes(kind)) {
+    if (!['task', 'event', 'project', 'schoolClass'].includes(kind)) {
         return;
     }
 
@@ -133,7 +146,8 @@ export function runWorkspaceFocusToTarget(kind, rawId) {
         return;
     }
 
-    runWorkspaceFocusBySelectorId(`workspace-item-${kind}-${id}`, false);
+    const domKind = workspaceItemDomKind(kind);
+    runWorkspaceFocusBySelectorId(`workspace-item-${domKind}-${id}`, false);
 }
 
 export function initWorkspaceDeepLinkFocus() {

@@ -1,7 +1,7 @@
 @props([
     'timeLabel' => null,
     'time' => null,
-    /** @var 'red'|'amber'|'green'|'indigo'|'emerald' */
+    /** @var 'red'|'amber'|'green'|'indigo'|'emerald'|'violet' */
     'tone' => 'muted',
     'uppercaseLabels' => true,
 ])
@@ -13,6 +13,7 @@
         'green' => 'text-green-950/90 dark:text-green-200/90',
         'indigo' => 'text-indigo-900/90 dark:text-indigo-200/90',
         'emerald' => 'text-emerald-950/90 dark:text-emerald-200/90',
+        'violet' => 'text-violet-900/90 dark:text-violet-200/90',
         default => 'text-muted-foreground',
     };
     $valueClasses = match ($tone) {
@@ -21,6 +22,7 @@
         'green' => 'text-green-950 dark:text-green-100',
         'indigo' => 'text-indigo-950 dark:text-indigo-100',
         'emerald' => 'text-emerald-950 dark:text-emerald-100',
+        'violet' => 'text-violet-950 dark:text-violet-100',
         default => 'text-foreground',
     };
 @endphp

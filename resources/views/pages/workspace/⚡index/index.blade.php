@@ -5,11 +5,7 @@
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
 >
     {{--
-        Split targets: changing only selectedDate dims the list/kanban; heavier actions keep the full skeleton.
-
-        Full skeleton ($listHeavyLoadingTargets): search, view, filters, etc.
-
-        selectedDate alone: soft overlay (wire:loading on the list region).
+        List/kanban region: full skeleton for filter/search/view changes and for selectedDate changes.
 
         Intentionally omitted: loadMoreItems / getMoreItemsHtml (append-only),
         collaboration invite accept/decline (list remounts via workspaceItemsVersion without skeleton),
@@ -18,6 +14,7 @@
     @php
         $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
         $selectedDateLoadingTarget = 'selectedDate';
+        $listRegionLoadingTargets = $listHeavyLoadingTargets.','.$selectedDateLoadingTarget;
         $workspaceMobileSelectedLabel = \Illuminate\Support\Carbon::parse($this->selectedDate)->translatedFormat('D, M j, Y');
     @endphp
 
@@ -160,15 +157,9 @@
 
             {{-- List/kanban region only: loading skeletons must not cover the nav strip above --}}
             <div class="relative min-w-0 w-full">
-            {{-- Real content: full skeleton only for heavy targets; selectedDate uses dim-only (see wrapper below) --}}
-            <div
-                class="w-full transition-[opacity] duration-200 ease-out"
-                wire:loading.class.delay.shorter="pointer-events-none opacity-40"
-                wire:target="{{ $selectedDateLoadingTarget }}"
-            >
             <div
                 wire:loading.delay.shorter.remove
-                wire:target="{{ $listHeavyLoadingTargets }}"
+                wire:target="{{ $listRegionLoadingTargets }}"
                 class="w-full"
             >
                 <div
@@ -233,12 +224,11 @@
                     @endif
                 </div>
             </div>
-            </div>
 
-            {{-- Skeleton: heavy loading targets only (not selectedDate — that uses dim layer above) --}}
+            {{-- Skeleton: filters, search, view mode, and selected date --}}
             <div
                 wire:loading.delay.shorter.block
-                wire:target="{{ $listHeavyLoadingTargets }}"
+                wire:target="{{ $listRegionLoadingTargets }}"
                 class="hidden w-full"
                 role="status"
                 aria-busy="true"

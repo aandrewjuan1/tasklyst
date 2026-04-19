@@ -11,7 +11,7 @@ final class WorkspaceAgendaFocusUrl
     public const AGENDA_FOCUS_QUERY_PARAM = 'agenda_focus';
 
     /**
-     * @param  'task'|'event'|'project'  $entityType
+     * @param  'task'|'event'|'project'|'school_class'  $entityType
      */
     public static function workspaceRouteForAgendaStyleFocus(string $date, string $entityType, int $entityId): string
     {
@@ -28,12 +28,14 @@ final class WorkspaceAgendaFocusUrl
         $normalized = match ($entityType) {
             'event' => 'event',
             'project' => 'project',
+            'school_class' => 'school_class',
             default => 'task',
         };
 
         return match ($normalized) {
             'event' => route('workspace', array_merge($base, ['event' => $entityId])),
             'project' => route('workspace', array_merge($base, ['project' => $entityId])),
+            'school_class' => route('workspace', array_merge($base, ['school_class' => $entityId])),
             default => route('workspace', array_merge($base, ['task' => $entityId])),
         };
     }

@@ -4,6 +4,7 @@ use App\Enums\EventStatus;
 use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -228,6 +229,26 @@ test('focusCalendarAgendaItem keeps kanban view when focusing a project from in-
         ->assertSet('focusProjectId', null)
         ->assertSet('focusTaskId', null)
         ->assertSet('focusEventId', null)
+        ->assertSet('viewMode', 'kanban')
+        ->assertSet('filterItemType', null);
+});
+
+test('focusCalendarAgendaItem keeps kanban view when focusing a school class from in-page calendar', function (): void {
+    $user = User::factory()->create();
+    $schoolClass = SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Calendar Focus School Class',
+        'start_datetime' => now()->startOfDay()->addHours(9),
+        'end_datetime' => now()->startOfDay()->addHours(10),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('viewMode', 'kanban')
+        ->set('filterItemType', 'tasks')
+        ->call('focusCalendarAgendaItem', 'schoolClass', $schoolClass->id)
+        ->assertSet('focusSchoolClassId', null)
+        ->assertSet('focusTaskId', null)
         ->assertSet('viewMode', 'kanban')
         ->assertSet('filterItemType', null);
 });

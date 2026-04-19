@@ -3,7 +3,9 @@
 namespace App\Livewire\Concerns;
 
 use App\Models\Event;
+use App\Models\SchoolClass;
 use App\Models\Task;
+use App\Services\SchoolClassService;
 use App\Support\WorkspaceAgendaFocusUrl;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Auth;
@@ -16,6 +18,8 @@ trait HandlesWorkspaceCalendar
     private const SELECTED_DAY_AGENDA_TASK_LIMIT = 120;
 
     private const SELECTED_DAY_AGENDA_EVENT_LIMIT = 120;
+
+    private const SELECTED_DAY_AGENDA_SCHOOL_CLASS_LIMIT = 120;
 
     /**
      * When set together, the sidebar calendar grid shows this month/year without changing the workspace selected date.
@@ -141,7 +145,8 @@ trait HandlesWorkspaceCalendar
      *   event_count:int,
      *   conflict_count:int,
      *   recurring_count:int,
-     *   all_day_count:int
+     *   all_day_count:int,
+     *   school_class_count:int
      * }>
      */
     #[Computed]
@@ -159,7 +164,7 @@ trait HandlesWorkspaceCalendar
         $gridStart = $monthStart->copy()->startOfWeek();
         $gridEnd = $monthStart->copy()->endOfMonth()->endOfWeek();
 
-        /** @var array<string, array{task_count:int,overdue_count:int,due_count:int,task_starts_count:int,event_count:int,conflict_count:int,recurring_count:int,all_day_count:int}> $meta */
+        /** @var array<string, array{task_count:int,overdue_count:int,due_count:int,task_starts_count:int,event_count:int,conflict_count:int,recurring_count:int,all_day_count:int,school_class_count:int}> $meta */
         $meta = [];
         for ($cursor = $gridStart->copy(); $cursor->lte($gridEnd); $cursor->addDay()) {
             $meta[$cursor->toDateString()] = [
@@ -171,6 +176,7 @@ trait HandlesWorkspaceCalendar
                 'conflict_count' => 0,
                 'recurring_count' => 0,
                 'all_day_count' => 0,
+                'school_class_count' => 0,
             ];
         }
 
@@ -278,6 +284,24 @@ trait HandlesWorkspaceCalendar
             $meta[$key]['task_starts_count']++;
         }
 
+        $schoolClassService = app(SchoolClassService::class);
+        $schoolClassesForMeta = SchoolClass::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->with(['recurringSchoolClass'])
+            ->orderBy('subject_name')
+            ->limit(self::CALENDAR_META_MAX_ITEMS)
+            ->get();
+
+        foreach (array_keys($meta) as $dateString) {
+            $dayCarbon = \Illuminate\Support\Carbon::parse($dateString)->startOfDay();
+            $meta[$dateString]['school_class_count'] = $schoolClassService->countSchoolClassesOnCalendarDay(
+                $schoolClassesForMeta,
+                $dayCarbon,
+                $dayCarbon->copy()->endOfDay()
+            );
+        }
+
         return $meta;
     }
 
@@ -302,7 +326,7 @@ trait HandlesWorkspaceCalendar
      * Open workspace with list view, selected date, {@see agendaWorkspaceFocusQueryParam}, and optional entity focus.
      * Does not set the "Show" type filter — same contract as dashboard calendar agenda links and in-app calendar focus.
      *
-     * @param  'task'|'event'|'project'  $entityType
+     * @param  'task'|'event'|'project'|'school_class'  $entityType
      */
     public function workspaceRouteForAgendaStyleFocus(string $date, string $entityType, int $entityId): string
     {
@@ -312,7 +336,7 @@ trait HandlesWorkspaceCalendar
     /**
      * Deep-link payload for calendar agenda rows (matches dashboard workspace card URLs).
      *
-     * @return array{focus_kind: 'task'|'event', focus_id: int, workspace_url: string}
+     * @return array{focus_kind: 'task'|'event'|'schoolClass', focus_id: int, workspace_url: string}
      */
     protected function agendaWorkspaceDeepLink(CarbonInterface $selectedDate, string $kind, int $id): array
     {
@@ -339,24 +363,49 @@ trait HandlesWorkspaceCalendar
             ];
         }
 
-        if ($this->omitTypeFilterOnCalendarAgendaWorkspaceLinks()) {
+        if ($kind === 'event') {
+            if ($this->omitTypeFilterOnCalendarAgendaWorkspaceLinks()) {
+                return [
+                    'focus_kind' => 'event',
+                    'focus_id' => $id,
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus($date, 'event', $id),
+                ];
+            }
+
             return [
                 'focus_kind' => 'event',
                 'focus_id' => $id,
-                'workspace_url' => $this->workspaceRouteForAgendaStyleFocus($date, 'event', $id),
+                'workspace_url' => route('workspace', [
+                    'date' => $date,
+                    'view' => 'list',
+                    'type' => 'events',
+                    'event' => $id,
+                ]),
             ];
         }
 
-        return [
-            'focus_kind' => 'event',
-            'focus_id' => $id,
-            'workspace_url' => route('workspace', [
-                'date' => $date,
-                'view' => 'list',
-                'type' => 'events',
-                'event' => $id,
-            ]),
-        ];
+        if ($kind === 'schoolClass') {
+            if ($this->omitTypeFilterOnCalendarAgendaWorkspaceLinks()) {
+                return [
+                    'focus_kind' => 'schoolClass',
+                    'focus_id' => $id,
+                    'workspace_url' => $this->workspaceRouteForAgendaStyleFocus($date, 'school_class', $id),
+                ];
+            }
+
+            return [
+                'focus_kind' => 'schoolClass',
+                'focus_id' => $id,
+                'workspace_url' => route('workspace', [
+                    'date' => $date,
+                    'view' => 'list',
+                    'type' => 'classes',
+                    'school_class' => $id,
+                ]),
+            ];
+        }
+
+        throw new \InvalidArgumentException('Unsupported agenda focus kind: '.$kind);
     }
 
     /**
@@ -389,12 +438,13 @@ trait HandlesWorkspaceCalendar
     /**
      * @return array{
      *   date:string,
-     *   summary:array{tasks:int,events:int,overdue:int},
+     *   summary:array{tasks:int,events:int,overdue:int,classes:int},
      *   overdueTasks:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
      *   dueDayTasks:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'task',focus_id:int,workspace_url:string}>,
      *   scheduledStarts:array<int, array{title:string,time:string,time_label:string,focus_kind:'task'|'event',focus_id:int,workspace_url:string}>,
      *   timedEvents:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'event',focus_id:int,workspace_url:string}>,
-     *   allDayEvents:array<int, array{id:int,title:string,time_label:string,time:?string,focus_kind:'event',focus_id:int,workspace_url:string}>
+     *   allDayEvents:array<int, array{id:int,title:string,time_label:string,time:?string,focus_kind:'event',focus_id:int,workspace_url:string}>,
+     *   schoolClasses:array<int, array{id:int,title:string,time:string,time_label:string,focus_kind:'schoolClass',focus_id:int,workspace_url:string}>
      * }
      */
     #[Computed]
@@ -408,12 +458,13 @@ trait HandlesWorkspaceCalendar
         if ($userId === null) {
             return [
                 'date' => $selectedDate->toDateString(),
-                'summary' => ['tasks' => 0, 'events' => 0, 'overdue' => 0],
+                'summary' => ['tasks' => 0, 'events' => 0, 'overdue' => 0, 'classes' => 0],
                 'overdueTasks' => [],
                 'dueDayTasks' => [],
                 'scheduledStarts' => [],
                 'timedEvents' => [],
                 'allDayEvents' => [],
+                'schoolClasses' => [],
             ];
         }
 
@@ -607,6 +658,41 @@ trait HandlesWorkspaceCalendar
             ->values()
             ->all();
 
+        $schoolClassService = app(SchoolClassService::class);
+        $schoolClassesForAgenda = SchoolClass::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->with(['recurringSchoolClass'])
+            ->orderBy('start_time')
+            ->orderBy('subject_name')
+            ->limit(self::SELECTED_DAY_AGENDA_SCHOOL_CLASS_LIMIT)
+            ->get();
+
+        $classesForSelectedDay = $schoolClassService->filterSchoolClassesForCalendarDay(
+            $schoolClassesForAgenda,
+            $start,
+            $end
+        );
+
+        $schoolClassesAgenda = $classesForSelectedDay
+            ->map(function (SchoolClass $class) use ($selectedDate): array {
+                $link = $this->agendaWorkspaceDeepLink($selectedDate, 'schoolClass', $class->id);
+
+                return [
+                    'id' => $class->id,
+                    'title' => (string) $class->subject_name,
+                    'time_label' => __('Class'),
+                    'time' => $class->start_datetime !== null && $class->end_datetime !== null
+                        ? $this->formatCalendarAgendaTimeRange($class->start_datetime, $class->end_datetime)
+                        : __('No time'),
+                    'focus_kind' => $link['focus_kind'],
+                    'focus_id' => $link['focus_id'],
+                    'workspace_url' => $link['workspace_url'],
+                ];
+            })
+            ->values()
+            ->all();
+
         $overdueCount = count($overdueIds);
 
         return [
@@ -615,12 +701,14 @@ trait HandlesWorkspaceCalendar
                 'tasks' => $tasks->count(),
                 'events' => $events->count(),
                 'overdue' => $overdueCount,
+                'classes' => count($schoolClassesAgenda),
             ],
             'overdueTasks' => $overdueTasks,
             'dueDayTasks' => $dueDayTasks,
             'scheduledStarts' => $scheduledStarts,
             'timedEvents' => $timedEvents,
             'allDayEvents' => $allDayEvents,
+            'schoolClasses' => $schoolClassesAgenda,
         ];
     }
 

@@ -5,7 +5,6 @@ namespace App\Livewire\Concerns;
 use App\DataTransferObjects\SchoolClass\CreateSchoolClassDto;
 use App\Models\SchoolClass;
 use App\Support\Validation\SchoolClassPayloadValidation;
-use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -56,24 +55,7 @@ trait HandlesSchoolClasses
         $dayStart = $this->getParsedSelectedDate()->copy()->startOfDay();
         $dayEnd = $this->getParsedSelectedDate()->copy()->endOfDay();
 
-        $nonRecurring = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass === null);
-        $recurringClasses = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass !== null);
-
-        $relevantRecurringIds = $this->schoolClassService->getRelevantRecurringSchoolClassIdsForDate(
-            $recurringClasses->map(fn (SchoolClass $class) => $class->recurringSchoolClass)->filter(),
-            $dayStart
-        );
-        $relevantRecurringLookup = array_flip($relevantRecurringIds);
-
-        return $classes
-            ->filter(function (SchoolClass $class) use ($dayStart, $dayEnd, $relevantRecurringLookup): bool {
-                if ($class->recurringSchoolClass === null) {
-                    return $this->nonRecurringSchoolClassOverlapsDay($class, $dayStart, $dayEnd);
-                }
-
-                return isset($relevantRecurringLookup[(int) $class->recurringSchoolClass->id]);
-            })
-            ->values();
+        return $this->schoolClassService->filterSchoolClassesForCalendarDay($classes, $dayStart, $dayEnd);
     }
 
     /**
@@ -158,6 +140,10 @@ trait HandlesSchoolClasses
 
         if (method_exists($this, 'refreshWorkspaceItems')) {
             $this->refreshWorkspaceItems();
+        }
+
+        if (method_exists($this, 'refreshWorkspaceCalendar')) {
+            $this->refreshWorkspaceCalendar();
         }
     }
 
@@ -465,24 +451,13 @@ trait HandlesSchoolClasses
         return ['items' => $items, 'hasMore' => $hasMore];
     }
 
-    private function nonRecurringSchoolClassOverlapsDay(SchoolClass $class, Carbon $dayStart, Carbon $dayEnd): bool
-    {
-        $start = $class->start_datetime;
-        $end = $class->end_datetime;
-        if ($start === null || $end === null) {
-            return false;
-        }
-
-        return $start->lte($dayEnd) && $end->gte($dayStart);
-    }
-
     protected function maybeQueueWorkspaceCalendarRefreshAfterSchoolClassPropertyUpdate(string $property): void
     {
         if (! method_exists($this, 'queueWorkspaceCalendarRefresh')) {
             return;
         }
 
-        if (! in_array($property, ['startDatetime', 'endDatetime', 'recurrence'], true)) {
+        if (! in_array($property, ['startDatetime', 'endDatetime', 'recurrence', 'subjectName'], true)) {
             return;
         }
 
