@@ -6,6 +6,7 @@ use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\FocusSession;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use App\ViewModels\ListItemCardViewModel;
@@ -121,22 +122,27 @@ it('accepts collection for availableTags and normalizes to array', function () {
     expect($data['availableTags'])->toHaveCount(1);
 });
 
-it('hides project and event pills when parent project or event is trashed', function () {
+it('hides project, event, and class pills when parents are trashed', function () {
     $this->actingAs($this->user);
     $project = Project::factory()->for($this->user)->create(['name' => 'My Project']);
     $event = Event::factory()->for($this->user)->create(['title' => 'My Event']);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create(['subject_name' => 'Mathematics']);
     $task = Task::factory()->for($this->user)->create([
         'title' => 'Subtask',
         'project_id' => $project->id,
         'event_id' => $event->id,
+        'school_class_id' => $schoolClass->id,
     ]);
     $project->delete();
     $event->delete();
+    $schoolClass->delete();
     $task->refresh();
     expect($task->project_id)->toBe($project->id);
     expect($task->event_id)->toBe($event->id);
+    expect($task->school_class_id)->toBe($schoolClass->id);
     expect($task->project)->toBeNull();
     expect($task->event)->toBeNull();
+    expect($task->schoolClass)->toBeNull();
 
     $vm = new ListItemCardViewModel(
         kind: 'task',
@@ -152,20 +158,24 @@ it('hides project and event pills when parent project or event is trashed', func
 
     expect($config['showProjectPill'])->toBeFalse();
     expect($config['showEventPill'])->toBeFalse();
+    expect($config['showSchoolClassPill'])->toBeFalse();
     expect($config['itemProjectName'])->toBeNull();
     expect($config['itemEventTitle'])->toBeNull();
+    expect($config['itemSchoolClassSubject'])->toBeNull();
 });
 
-it('shows project and event pills when parents exist and are not trashed', function () {
+it('shows project, event, and class pills when parents exist and are not trashed', function () {
     $this->actingAs($this->user);
     $project = Project::factory()->for($this->user)->create(['name' => 'My Project']);
     $event = Event::factory()->for($this->user)->create(['title' => 'My Event']);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create(['subject_name' => 'Biology']);
     $task = Task::factory()->for($this->user)->create([
         'title' => 'Subtask',
         'project_id' => $project->id,
         'event_id' => $event->id,
+        'school_class_id' => $schoolClass->id,
     ]);
-    $task->load(['project', 'event']);
+    $task->load(['project', 'event', 'schoolClass']);
 
     $vm = new ListItemCardViewModel(
         kind: 'task',
@@ -181,8 +191,10 @@ it('shows project and event pills when parents exist and are not trashed', funct
 
     expect($config['showProjectPill'])->toBeTrue();
     expect($config['showEventPill'])->toBeTrue();
+    expect($config['showSchoolClassPill'])->toBeTrue();
     expect($config['itemProjectName'])->toBe('My Project');
     expect($config['itemEventTitle'])->toBe('My Event');
+    expect($config['itemSchoolClassSubject'])->toBe('Biology');
 });
 
 it('includes previous unfinished focus session payload for task cards', function () {

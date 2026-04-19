@@ -258,6 +258,54 @@ test('school class list item entry and card pass teachers and update method prop
         ->and($cardContents)->toContain(':teachers="$teachers"');
 });
 
+test('school class cards include subtasks section wiring', function (): void {
+    $cardPath = resource_path('views/components/workspace/list-item-card.blade.php');
+    $cardContents = file_get_contents($cardPath);
+
+    expect($cardContents)->toContain("in_array(\$kind, ['project', 'event', 'schoolclass'], true)")
+        ->and($cardContents)->toContain('<x-workspace.subtasks :item="$item" :kind="$kind" />');
+});
+
+test('subtasks component supports school class parent mode and unbind payload', function (): void {
+    $path = resource_path('views/components/workspace/subtasks.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain("'schoolclass' => 'schoolClassId'")
+        ->and($contents)->toContain('matchesSchoolClass')
+        ->and($contents)->toContain('removedFromThisSchoolClass')
+        ->and($contents)->toContain('unboundFromThisSchoolClass')
+        ->and($contents)->toContain('unboundSchoolClassId')
+        ->and($contents)->toContain("this.parentProperty === 'schoolClassId'");
+});
+
+test('school class parent popover listens for trashed and meta update events', function (): void {
+    $path = resource_path('views/components/workspace/school-class-parent-popover.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('removeTrashedSchoolClass')
+        ->and($contents)->toContain('onSchoolClassMetaUpdated')
+        ->and($contents)->toContain('@workspace-school-class-trashed.window')
+        ->and($contents)->toContain('@workspace-school-class-meta-updated.window');
+});
+
+test('list item card alpine dispatches school class trashed and meta events like project event', function (): void {
+    $path = resource_path('js/alpine/list-item-card.js');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('workspace-school-class-trashed')
+        ->and($contents)->toContain('workspace-school-class-meta-updated')
+        ->and($contents)->toContain('_onSchoolClassTrashed')
+        ->and($contents)->toContain('_onSchoolClassMetaUpdated');
+});
+
+test('list item school class dispatches meta updated when teacher changes', function (): void {
+    $path = resource_path('views/components/workspace/list-item-school-class.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('workspace-school-class-meta-updated')
+        ->and($contents)->toContain("property === 'teacherName'");
+});
+
 test('updateSchoolClassProperty updates allowed school class property', function (): void {
     $this->actingAs($this->user);
     $schoolClass = SchoolClass::factory()->for($this->user)->create([

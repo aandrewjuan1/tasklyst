@@ -6,7 +6,12 @@
 @php
     use App\Enums\TaskStatus;
 
-    $parentProperty = $kind === 'project' ? 'projectId' : 'eventId';
+    $parentProperty = match ($kind) {
+        'project' => 'projectId',
+        'event' => 'eventId',
+        'schoolclass' => 'schoolClassId',
+        default => 'eventId',
+    };
     $parentId = $item->id;
 
     /** @var \Illuminate\Database\Eloquent\Collection<int, \App\Models\Task> $tasks */
@@ -41,8 +46,8 @@
         tasks: @js($tasksForAlpine),
         parentProperty: @js($parentProperty),
         parentId: @js($parentId),
-        removeErrorToast: @js(__('Could not remove task from :parent. Try again.', ['parent' => $kind === 'project' ? __('project') : __('event')])),
-        removeSuccessToast: @js(__('Task removed from :parent.', ['parent' => $kind === 'project' ? __('project') : __('event')])),
+        removeErrorToast: @js(__('Could not remove task from :parent. Try again.', ['parent' => $kind === 'project' ? __('project') : ($kind === 'event' ? __('event') : __('class'))])),
+        removeSuccessToast: @js(__('Task removed from :parent.', ['parent' => $kind === 'project' ? __('project') : ($kind === 'event' ? __('event') : __('class'))])),
         removingTaskIds: new Set(),
         defaultStatusClass: @js($statusClassMap[TaskStatus::ToDo->value] ?? 'bg-muted text-muted-foreground'),
         get totalCount() { return this.tasks.length; },
@@ -53,7 +58,8 @@
             if (!detail || detail.taskId == null) return;
             const matchesProject = this.parentProperty === 'projectId' && detail.projectId != null && Number(detail.projectId) === Number(this.parentId);
             const matchesEvent = this.parentProperty === 'eventId' && detail.eventId != null && Number(detail.eventId) === Number(this.parentId);
-            if (!matchesProject && !matchesEvent) return;
+            const matchesSchoolClass = this.parentProperty === 'schoolClassId' && detail.schoolClassId != null && Number(detail.schoolClassId) === Number(this.parentId);
+            if (!matchesProject && !matchesEvent && !matchesSchoolClass) return;
             if (this.tasks.some(t => Number(t.id) === Number(detail.taskId))) return;
             this.tasks = [...this.tasks, {
                 id: detail.taskId,
@@ -66,7 +72,8 @@
             if (!detail || detail.taskId == null) return;
             const removedFromThisProject = this.parentProperty === 'projectId' && detail.previousProjectId != null && Number(detail.previousProjectId) === Number(this.parentId);
             const removedFromThisEvent = this.parentProperty === 'eventId' && detail.previousEventId != null && Number(detail.previousEventId) === Number(this.parentId);
-            if (removedFromThisProject || removedFromThisEvent) {
+            const removedFromThisSchoolClass = this.parentProperty === 'schoolClassId' && detail.previousSchoolClassId != null && Number(detail.previousSchoolClassId) === Number(this.parentId);
+            if (removedFromThisProject || removedFromThisEvent || removedFromThisSchoolClass) {
                 this.tasks = this.tasks.filter(t => Number(t.id) !== Number(detail.taskId));
             }
         },
@@ -74,7 +81,8 @@
             if (!detail || detail.taskId == null) return;
             const unboundFromThisProject = this.parentProperty === 'projectId' && detail.unboundProjectId != null && Number(detail.unboundProjectId) === Number(this.parentId);
             const unboundFromThisEvent = this.parentProperty === 'eventId' && detail.unboundEventId != null && Number(detail.unboundEventId) === Number(this.parentId);
-            if (unboundFromThisProject || unboundFromThisEvent) {
+            const unboundFromThisSchoolClass = this.parentProperty === 'schoolClassId' && detail.unboundSchoolClassId != null && Number(detail.unboundSchoolClassId) === Number(this.parentId);
+            if (unboundFromThisProject || unboundFromThisEvent || unboundFromThisSchoolClass) {
                 this.tasks = this.tasks.filter(t => Number(t.id) !== Number(detail.taskId));
             }
         },
@@ -104,6 +112,7 @@
                         taskId: task.id,
                         unboundProjectId: this.parentProperty === 'projectId' ? this.parentId : null,
                         unboundEventId: this.parentProperty === 'eventId' ? this.parentId : null,
+                        unboundSchoolClassId: this.parentProperty === 'schoolClassId' ? this.parentId : null,
                     },
                     bubbles: true,
                 }));
@@ -183,7 +192,7 @@
                         class="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"
                         :disabled="removingTaskIds?.has(task.id)"
                         @click.throttle.250ms="removeFromParent(task)"
-                        aria-label="{{ __('Remove from :parent', ['parent' => $kind === 'project' ? __('project') : __('event')]) }}"
+                        aria-label="{{ __('Remove from :parent', ['parent' => $kind === 'project' ? __('project') : ($kind === 'event' ? __('event') : __('class'))]) }}"
                     >
                         {{ __('Remove') }}
                     </button>

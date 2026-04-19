@@ -287,6 +287,12 @@
                     detail: { kind: 'schoolclass', itemId: this.itemId, property, value },
                     bubbles: true,
                 }));
+                if (property === 'teacherName') {
+                    window.dispatchEvent(new CustomEvent('workspace-school-class-meta-updated', {
+                        detail: { schoolClassId: this.itemId, teacherName: value ?? '' },
+                        bubbles: true,
+                    }));
+                }
                 return true;
             } catch (_) {
                 this.formData.schoolClass = snapshot;

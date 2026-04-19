@@ -232,7 +232,7 @@
         </div>
         </div>
 
-        @if(in_array($kind, ['project', 'event'], true))
+        @if(in_array($kind, ['project', 'event', 'schoolclass'], true))
             <x-workspace.subtasks :item="$item" :kind="$kind" />
         @endif
 

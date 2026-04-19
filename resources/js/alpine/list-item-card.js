@@ -136,6 +136,12 @@ export function listItemCard(config) {
                     this.itemEventId = null;
                     this.itemEventTitle = null;
                 }
+                if (d.unboundSchoolClassId != null && Number(d.unboundSchoolClassId) === Number(this.itemSchoolClassId)) {
+                    this.showSchoolClassPill = false;
+                    this.itemSchoolClassId = null;
+                    this.itemSchoolClassSubject = null;
+                    this.itemSchoolClassTeacherName = null;
+                }
             };
             window.addEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
 
@@ -144,6 +150,7 @@ export function listItemCard(config) {
                 if (this.kind !== 'task' || d.taskId == null || Number(d.taskId) !== Number(this.itemId)) return;
                 const previousProjectId = this.itemProjectId != null ? this.itemProjectId : null;
                 const previousEventId = this.itemEventId != null ? this.itemEventId : null;
+                const previousSchoolClassId = this.itemSchoolClassId != null ? this.itemSchoolClassId : null;
                 if ('projectId' in d) {
                     this.showProjectPill = d.projectId != null;
                     this.itemProjectId = d.projectId ?? null;
@@ -153,6 +160,12 @@ export function listItemCard(config) {
                     this.showEventPill = d.eventId != null;
                     this.itemEventId = d.eventId ?? null;
                     this.itemEventTitle = d.eventTitle ?? null;
+                }
+                if ('schoolClassId' in d) {
+                    this.showSchoolClassPill = d.schoolClassId != null;
+                    this.itemSchoolClassId = d.schoolClassId ?? null;
+                    this.itemSchoolClassSubject = d.schoolClassSubject ?? null;
+                    this.itemSchoolClassTeacherName = d.schoolClassTeacherName ?? null;
                 }
                 if ('projectId' in d && previousProjectId != null && (d.projectId == null || d.projectId === undefined)) {
                     window.dispatchEvent(
@@ -178,8 +191,21 @@ export function listItemCard(config) {
                         })
                     );
                 }
+                if ('schoolClassId' in d && previousSchoolClassId != null && (d.schoolClassId == null || d.schoolClassId === undefined)) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-subtask-unbound', {
+                            detail: {
+                                taskId: this.itemId,
+                                unboundProjectId: null,
+                                unboundEventId: null,
+                                unboundSchoolClassId: previousSchoolClassId,
+                            },
+                            bubbles: true,
+                        })
+                    );
+                }
                 // Notify parent subtasks so they can add this task to their list (optimistic)
-                if (d.projectId != null || d.eventId != null) {
+                if (d.projectId != null || d.eventId != null || d.schoolClassId != null) {
                     window.dispatchEvent(
                         new CustomEvent('workspace-subtask-added', {
                             detail: {
@@ -188,6 +214,9 @@ export function listItemCard(config) {
                                 projectName: d.projectName ?? null,
                                 eventId: d.eventId ?? null,
                                 eventTitle: d.eventTitle ?? null,
+                                schoolClassId: d.schoolClassId ?? null,
+                                schoolClassSubject: d.schoolClassSubject ?? null,
+                                schoolClassTeacherName: d.schoolClassTeacherName ?? null,
                                 title: this.editedTitle ?? '',
                                 statusLabel: this.taskStatusLabel ?? '',
                                 statusClass: this.taskStatusClass ?? 'bg-muted text-muted-foreground',
@@ -234,8 +263,31 @@ export function listItemCard(config) {
                     this.itemEventTitle = null;
                 }
             };
+            this._onSchoolClassTrashed = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.schoolClassId == null) return;
+                if (Number(d.schoolClassId) === Number(this.itemSchoolClassId)) {
+                    this.showSchoolClassPill = false;
+                    this.itemSchoolClassId = null;
+                    this.itemSchoolClassSubject = null;
+                    this.itemSchoolClassTeacherName = null;
+                }
+            };
+            this._onSchoolClassMetaUpdated = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.schoolClassId == null) return;
+                if (Number(d.schoolClassId) !== Number(this.itemSchoolClassId)) return;
+                if (d.subjectName !== undefined) {
+                    this.itemSchoolClassSubject = d.subjectName ?? null;
+                }
+                if (d.teacherName !== undefined) {
+                    this.itemSchoolClassTeacherName = d.teacherName ?? null;
+                }
+            };
             window.addEventListener('workspace-project-trashed', this._onProjectTrashed);
             window.addEventListener('workspace-event-trashed', this._onEventTrashed);
+            window.addEventListener('workspace-school-class-trashed', this._onSchoolClassTrashed);
+            window.addEventListener('workspace-school-class-meta-updated', this._onSchoolClassMetaUpdated);
         },
         /** Focus first focusable element in the modal (a11y). */
         focusFirstInModal() {
@@ -802,6 +854,14 @@ export function listItemCard(config) {
                         })
                     );
                 }
+                if (this.kind === 'schoolclass' && this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-school-class-trashed', {
+                            detail: { schoolClassId: this.itemId },
+                            bubbles: true,
+                        })
+                    );
+                }
                 // Notify trash popover so it can add the item to its list (optimistic)
                 window.dispatchEvent(
                     new CustomEvent('workspace-item-trashed', {
@@ -978,6 +1038,14 @@ export function listItemCard(config) {
                         window.dispatchEvent(
                             new CustomEvent('workspace-event-title-updated', {
                                 detail: { eventId: this.itemId, title: trimmedTitle },
+                                bubbles: true,
+                            })
+                        );
+                    }
+                    if (this.kind === 'schoolclass' && this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-school-class-meta-updated', {
+                                detail: { schoolClassId: this.itemId, subjectName: trimmedTitle },
                                 bubbles: true,
                             })
                         );
@@ -1270,6 +1338,12 @@ export function listItemCard(config) {
             }
             if (this._onEventTrashed) {
                 window.removeEventListener('workspace-event-trashed', this._onEventTrashed);
+            }
+            if (this._onSchoolClassTrashed) {
+                window.removeEventListener('workspace-school-class-trashed', this._onSchoolClassTrashed);
+            }
+            if (this._onSchoolClassMetaUpdated) {
+                window.removeEventListener('workspace-school-class-meta-updated', this._onSchoolClassMetaUpdated);
             }
             if (this.itemId != null && window.Alpine?.store) {
                 const store = window.Alpine.store('listItemCards');

@@ -41,7 +41,8 @@ trait HandlesSchoolClasses
         $classes = SchoolClass::query()
             ->forUser($userId)
             ->notArchived()
-            ->with(['recurringSchoolClass.schoolClass', 'teacher'])
+            ->with(['recurringSchoolClass.schoolClass', 'teacher', 'tasks'])
+            ->withCount('tasks')
             ->orderBy('start_time')
             ->orderBy('subject_name')
             ->get();
@@ -441,6 +442,41 @@ trait HandlesSchoolClasses
         if (method_exists($this, 'refreshWorkspaceItems')) {
             $this->refreshWorkspaceItems();
         }
+    }
+
+    /**
+     * Load school classes for parent selection (e.g. "Put task in class" popover).
+     * No date filter; returns all non-archived classes for the user.
+     *
+     * @return array{items: array<int, array{id: int, subject_name: string, teacher_name: string|null}>, hasMore: bool}
+     */
+    public function loadSchoolClassesForParentSelection(?int $cursorId = null, int $limit = 50): array
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return ['items' => [], 'hasMore' => false];
+        }
+
+        $query = SchoolClass::query()
+            ->forUser($userId)
+            ->notArchived()
+            ->with('teacher')
+            ->orderBy('subject_name')
+            ->limit($limit + 1);
+
+        if ($cursorId !== null) {
+            $query->where('id', '>', $cursorId);
+        }
+
+        $schoolClasses = $query->get(['id', 'subject_name', 'teacher_id']);
+        $hasMore = $schoolClasses->count() > $limit;
+        $items = $schoolClasses->take($limit)->map(fn (SchoolClass $schoolClass) => [
+            'id' => $schoolClass->id,
+            'subject_name' => $schoolClass->subject_name,
+            'teacher_name' => $schoolClass->teacher?->name,
+        ])->values()->all();
+
+        return ['items' => $items, 'hasMore' => $hasMore];
     }
 
     private function nonRecurringSchoolClassOverlapsDay(SchoolClass $class, Carbon $dayStart, Carbon $dayEnd): bool
