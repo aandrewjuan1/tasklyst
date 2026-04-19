@@ -25,20 +25,20 @@
     // Today's date for highlighting
     $today = $now->toDateString();
 
-    /** Always match the agenda subheader to the Livewire-selected day (not stale agenda payload). */
-    $selectedDayHeaderDate = $selectedDateString ?? $today;
-    
-    // Day names (localized) - static, doesn't change
-    $dayNames = [];
-    for ($i = 0; $i < 7; $i++) {
-        $dayNames[] = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->startOfWeek()->addDays($i)->translatedFormat('D');
-    }
-    
     // Build server-rendered days array for first paint.
     // Day headers use {@see \Illuminate\Support\Carbon::startOfWeek()} (locale week start).
     // Padding must use the same origin: PHP's `dayOfWeek` is 0=Sunday..6=Saturday, so using it
     // alone misaligns Monday-first grids by one column (headers vs cells).
     $calendarDate = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1);
+
+    // Day names (localized) — one week cursor, no repeated create/startOfWeek per column.
+    $dayNames = [];
+    $dayNameCursor = $calendarDate->copy()->startOfWeek();
+    for ($i = 0; $i < 7; $i++) {
+        $dayNames[] = $dayNameCursor->translatedFormat('D');
+        $dayNameCursor->addDay();
+    }
+
     $gridWeekStartDow = (int) $calendarDate->copy()->startOfWeek()->dayOfWeek;
     $daysToShowFromPreviousMonth = ($calendarDate->dayOfWeek - $gridWeekStartDow + 7) % 7;
     $daysInMonth = $calendarDate->daysInMonth;
@@ -58,15 +58,18 @@
         ];
     }
     
-    // Current month days
+    // Current month days — single mutable cursor (avoids N Carbon::create calls).
+    $monthDayCursor = $calendarDate->copy();
     for ($day = 1; $day <= $daysInMonth; $day++) {
-        $dateString = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, $day)->toDateString();
+        $monthDayCursor->day($day);
+        $dateString = $monthDayCursor->toDateString();
         $serverDays[] = [
             'day' => $day,
             'month' => 'current',
             'isToday' => $dateString === $today,
             'isSelected' => $dateString === $selectedDateString,
             'dateString' => $dateString,
+            'ariaLabelDate' => $monthDayCursor->translatedFormat('F j, Y'),
         ];
     }
     
@@ -87,7 +90,7 @@
     // Initial month/year for Alpine.js (0-indexed month for JavaScript)
     $initialMonth = $currentMonth - 1; // JavaScript months are 0-indexed
     $initialYear = $currentYear;
-    $initialMonthLabel = \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y');
+    $initialMonthLabel = $calendarDate->translatedFormat('F Y');
 
     // Same rule as {@see syncWorkspaceCalendarTodayButton}: disabled only when selected is today
     // and the grid is not showing a browsed month (SSR first paint before JS runs).
@@ -143,7 +146,7 @@
             {{-- Month/Year Display: single element so "Month Year" is not shown twice before Alpine hydrates --}}
             <div class="min-w-0 flex-1 text-center px-1">
                 <h2 class="text-base font-bold leading-tight tracking-tight text-brand-navy-blue tabular-nums sm:text-lg dark:text-foreground" x-text="monthLabel">
-                    {{ \Illuminate\Support\Carbon::create($currentYear, $currentMonth, 1)->translatedFormat('F Y') }}
+                    {{ $initialMonthLabel }}
                 </h2>
             </div>
 
@@ -254,7 +257,7 @@
                             :disabled="calendarNavBusy || dateSelectBusy"
                             class="group relative box-border flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm {{ $dayData['isSelected'] ? 'border-white/25 bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'border-brand-blue/30 bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:border-brand-blue/35 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
                             data-date="{{ $dayData['dateString'] }}"
-                            aria-label="{{ __('Select date') }}: {{ \Illuminate\Support\Carbon::parse($dayData['dateString'])->translatedFormat('F j, Y') }}"
+                            aria-label="{{ __('Select date') }}: {{ $dayData['ariaLabelDate'] }}"
                         >
                             <span class="relative z-10">{{ $dayData['day'] }}</span>
 
@@ -330,33 +333,34 @@
                         >
                             <span class="relative z-10" x-text="dayData.day"></span>
 
+                            {{-- dayData.meta is set in buildDays(); avoid repeated getMeta() in Alpine expressions --}}
                             <template x-if="
-                                (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0
-                                || (dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count)
-                                || (dayData.meta?.task_starts_count ?? getMeta(dayData.dateString).task_starts_count) > 0
-                                || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0
-                                || (dayData.meta?.school_class_count ?? getMeta(dayData.dateString).school_class_count) > 0
+                                (dayData.meta?.overdue_count ?? 0) > 0
+                                || (dayData.meta?.due_count ?? 0) > (dayData.meta?.overdue_count ?? 0)
+                                || (dayData.meta?.task_starts_count ?? 0) > 0
+                                || (dayData.meta?.event_count ?? 0) > 0
+                                || (dayData.meta?.school_class_count ?? 0) > 0
                             ">
                                 <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
-                                    <template x-if="(dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count) > 0">
+                                    <template x-if="(dayData.meta?.overdue_count ?? 0) > 0">
                                         <flux:tooltip content="{{ __('Overdue items') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500"></span>
                                         </flux:tooltip>
                                     </template>
-                                    <template x-if="(dayData.meta?.due_count ?? getMeta(dayData.dateString).due_count) > (dayData.meta?.overdue_count ?? getMeta(dayData.dateString).overdue_count)">
+                                    <template x-if="(dayData.meta?.due_count ?? 0) > (dayData.meta?.overdue_count ?? 0)">
                                         <flux:tooltip content="{{ __('Tasks due this day (not yet overdue).') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-amber-500"></span>
                                         </flux:tooltip>
                                     </template>
                                     <template x-if="
-                                        (dayData.meta?.task_starts_count ?? getMeta(dayData.dateString).task_starts_count) > 0
-                                        || (dayData.meta?.event_count ?? getMeta(dayData.dateString).event_count) > 0
+                                        (dayData.meta?.task_starts_count ?? 0) > 0
+                                        || (dayData.meta?.event_count ?? 0) > 0
                                     ">
                                         <flux:tooltip content="{{ __('Tasks or events starting or scheduled this day.') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500"></span>
                                         </flux:tooltip>
                                     </template>
-                                    <template x-if="(dayData.meta?.school_class_count ?? getMeta(dayData.dateString).school_class_count) > 0">
+                                    <template x-if="(dayData.meta?.school_class_count ?? 0) > 0">
                                         <flux:tooltip content="{{ __('Classes on this day.') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-violet-500 dark:bg-violet-400"></span>
                                         </flux:tooltip>
@@ -381,7 +385,7 @@
                     {{ __('Selected day') }}
                 </h3>
                 <span class="text-[11px] text-muted-foreground tabular-nums">
-                    {{ \Illuminate\Support\Carbon::parse($selectedDayHeaderDate)->translatedFormat('D, M j') }}
+                    {{ ($selectedDateObj ?? $now)->translatedFormat('D, M j') }}
                 </span>
             </div>
 
