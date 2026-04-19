@@ -151,7 +151,7 @@
                 return false;
             }
             if (sc.scheduleMode === 'recurring') {
-                if (!sc.scheduleStartDate || !sc.scheduleEndDate) {
+                if (sc.recurrence?.enabled !== true || !sc.recurrence?.type) {
                     return false;
                 }
                 const t = sc.recurrence?.type;
@@ -442,10 +442,6 @@
 
             if (kind === 'project') {
                 this.creationKind = 'project';
-                this.formData.project.name = '';
-                this.formData.project.description = null;
-                this.formData.project.startDatetime = null;
-                this.formData.project.endDatetime = null;
                 this.showItemCreation = true;
 
                 return;
@@ -453,23 +449,6 @@
 
             if (kind === 'schoolClass') {
                 this.creationKind = 'schoolClass';
-                this.formData.schoolClass = {
-                    scheduleMode: 'recurring',
-                    subjectName: '',
-                    teacherId: null,
-                    teacherName: '',
-                    scheduleStartDate: null,
-                    scheduleEndDate: null,
-                    meetingDate: null,
-                    startTime: null,
-                    endTime: null,
-                    recurrence: {
-                        enabled: true,
-                        type: 'weekly',
-                        interval: 1,
-                        daysOfWeek: [],
-                    },
-                };
                 this.showItemCreation = true;
             }
         },
@@ -1146,11 +1125,12 @@
 
             const sc = this.formData.schoolClass;
             if (sc.scheduleMode === 'recurring') {
-                if (!sc.scheduleStartDate || !sc.scheduleEndDate) {
-                    this.errors.dateRange = this.messages.schoolClassNeedScheduleDates;
+                if (sc.recurrence?.enabled !== true || !sc.recurrence?.type) {
+                    this.errors.dateRange = this.messages.schoolClassNeedRecurrenceType;
 
                     return;
                 }
+
                 const t = sc.recurrence?.type;
                 const dow = sc.recurrence?.daysOfWeek;
                 if (t === 'weekly' && (!Array.isArray(dow) || dow.length === 0)) {
@@ -1158,12 +1138,10 @@
 
                     return;
                 }
-            } else if (sc.scheduleMode === 'one_off') {
-                if (!sc.meetingDate) {
-                    this.errors.dateRange = this.messages.schoolClassNeedMeetingDate;
+            } else if (sc.scheduleMode === 'one_off' && !sc.meetingDate) {
+                this.errors.dateRange = this.messages.schoolClassNeedMeetingDate;
 
-                    return;
-                }
+                return;
             }
 
             if (!sc.startTime || !sc.endTime) {

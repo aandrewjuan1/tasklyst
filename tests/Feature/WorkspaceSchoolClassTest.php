@@ -73,8 +73,8 @@ test('creation school class schedule date pickers include tooltip content', func
     $path = resource_path('views/components/workspace/creation-school-class-fields.blade.php');
     $contents = file_get_contents($path);
 
-    expect($contents)->toContain("__('Weekly schedule starts on this date.')")
-        ->and($contents)->toContain("__('Last day this class meets; the schedule ends after this date.')");
+    expect($contents)->toContain("__('Set the first day in range.')")
+        ->and($contents)->toContain("__('Set the last day this class meets.')");
 });
 
 test('date picker school class meeting day uses schedule chip trigger', function (): void {

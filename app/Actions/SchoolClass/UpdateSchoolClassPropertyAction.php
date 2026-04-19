@@ -71,8 +71,29 @@ class UpdateSchoolClassPropertyAction
         $oldValue = $schoolClass->getPropertyValueForUpdate($property);
 
         $attributes = [$column => $validatedValue];
+        if ($column === 'start_time' || $column === 'end_time') {
+            $validatedTime = $this->parseTimeString($validatedValue);
+            if ($validatedTime === null) {
+                return UpdateSchoolClassPropertyResult::failure($oldValue, $validatedValue, __('Enter a valid start and end time.'));
+            }
+
+            $attributes[$column] = $validatedTime;
+            $counterpart = $column === 'start_time'
+                ? $this->parseTimeString($schoolClass->end_time)
+                : $this->parseTimeString($schoolClass->start_time);
+
+            if ($counterpart !== null) {
+                $startTime = $column === 'start_time' ? $validatedTime : $counterpart;
+                $endTime = $column === 'end_time' ? $validatedTime : $counterpart;
+
+                if (strtotime($endTime) <= strtotime($startTime)) {
+                    return UpdateSchoolClassPropertyResult::failure($oldValue, $validatedValue, __('End time must be after the start time.'));
+                }
+            }
+        }
+
         if ($column === 'start_datetime' || $column === 'end_datetime') {
-            $parsedDatetime = DateHelper::parseRequired($validatedValue);
+            $parsedDatetime = DateHelper::parseOptional($validatedValue);
             $attributes[$column] = $parsedDatetime;
 
             $start = $column === 'start_datetime' ? $parsedDatetime : $schoolClass->start_datetime;
@@ -108,5 +129,34 @@ class UpdateSchoolClassPropertyAction
         }
 
         return UpdateSchoolClassPropertyResult::success($oldValue, $newValue);
+    }
+
+    private function parseTimeString(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        foreach (['H:i:s', 'H:i', 'g:i A', 'h:i A'] as $format) {
+            try {
+                $parsed = \Illuminate\Support\Carbon::createFromFormat($format, $trimmed);
+                if ($parsed !== false) {
+                    return $parsed->format('H:i:s');
+                }
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse($trimmed)->format('H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

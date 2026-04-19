@@ -23,6 +23,8 @@ test('create school class sets user_id and required attributes', function (): vo
     $class = $this->service->createSchoolClass($this->user, [
         'subject_name' => 'Biology',
         'teacher_name' => 'Dr. Lee',
+        'start_time' => '09:00',
+        'end_time' => '10:30',
         'start_datetime' => $start,
         'end_datetime' => $end,
     ]);
@@ -34,6 +36,8 @@ test('create school class sets user_id and required attributes', function (): vo
         ->and($class->subject_name)->toBe('Biology')
         ->and($class->teacher)->not->toBeNull()
         ->and($class->teacher->name)->toBe('Dr. Lee')
+        ->and($class->start_time)->toBe('09:00:00')
+        ->and($class->end_time)->toBe('10:30:00')
         ->and($class->start_datetime->equalTo($start))->toBeTrue()
         ->and($class->end_datetime->equalTo($end))->toBeTrue()
         ->and($class->exists)->toBeTrue();
@@ -49,6 +53,8 @@ test('create school class with recurrence enabled creates recurring school class
     $class = $this->service->createSchoolClass($this->user, [
         'subject_name' => 'Algebra',
         'teacher_name' => 'Dr. Smith',
+        'start_time' => '09:00',
+        'end_time' => '10:30',
         'start_datetime' => $start,
         'end_datetime' => $end,
         'recurrence_series_end_datetime' => $seriesEnd,
@@ -68,6 +74,40 @@ test('create school class with recurrence enabled creates recurring school class
         ->and(json_decode($class->recurringSchoolClass->days_of_week, true))->toEqual([1, 3])
         ->and($class->recurringSchoolClass->end_datetime->isSameDay($seriesEnd))->toBeTrue()
         ->and($class->recurringSchoolClass->end_datetime->format('H:i'))->toBe($seriesEnd->format('H:i'));
+});
+
+test('create recurring school class with required times and null datetimes anchors from created at', function (): void {
+    $class = $this->service->createSchoolClass($this->user, [
+        'subject_name' => 'History',
+        'teacher_name' => 'Dr. Anchor',
+        'start_time' => '13:00',
+        'end_time' => '14:00',
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'recurrence' => [
+            'enabled' => true,
+            'type' => TaskRecurrenceType::Weekly->value,
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
+    ]);
+
+    $class->load('recurringSchoolClass');
+
+    expect($class->start_datetime)->toBeNull()
+        ->and($class->end_datetime)->toBeNull()
+        ->and($class->start_time)->toBe('13:00:00')
+        ->and($class->end_time)->toBe('14:00:00')
+        ->and($class->recurringSchoolClass)->not->toBeNull()
+        ->and($class->recurringSchoolClass->start_datetime)->toBeNull();
+
+    $occurrences = $this->service->getOccurrencesForDateRange(
+        $class->recurringSchoolClass,
+        Carbon::parse($class->created_at)->startOfDay(),
+        Carbon::parse($class->created_at)->endOfDay()
+    );
+
+    expect($occurrences)->not->toBeEmpty();
 });
 
 test('update school class updates attributes', function (): void {

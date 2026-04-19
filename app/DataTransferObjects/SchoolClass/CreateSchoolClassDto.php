@@ -10,8 +10,10 @@ final readonly class CreateSchoolClassDto
     public function __construct(
         public string $subjectName,
         public string $teacherName,
-        public Carbon $startDatetime,
-        public Carbon $endDatetime,
+        public string $startTime,
+        public string $endTime,
+        public ?Carbon $startDatetime,
+        public ?Carbon $endDatetime,
         /** @var array<string, mixed>|null */
         public ?array $recurrence,
         public ?Carbon $recurrenceSeriesEndDatetime = null,
@@ -27,6 +29,8 @@ final readonly class CreateSchoolClassDto
         return new self(
             subjectName: (string) ($validated['subjectName'] ?? ''),
             teacherName: trim((string) ($validated['teacherName'] ?? '')),
+            startTime: $normalized['start_time'],
+            endTime: $normalized['end_time'],
             startDatetime: $normalized['start_datetime'],
             endDatetime: $normalized['end_datetime'],
             recurrence: $normalized['recurrence'],
@@ -42,6 +46,8 @@ final readonly class CreateSchoolClassDto
         return [
             'subject_name' => $this->subjectName,
             'teacher_name' => $this->teacherName,
+            'start_time' => $this->startTime,
+            'end_time' => $this->endTime,
             'start_datetime' => $this->startDatetime,
             'end_datetime' => $this->endDatetime,
             'recurrence' => $this->recurrence,

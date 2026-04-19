@@ -50,7 +50,9 @@ test('toast payload for create success has expected shape', function (): void {
 
 test('property to column maps camelCase fields', function (): void {
     expect(SchoolClass::propertyToColumn('subjectName'))->toBe('subject_name')
-        ->and(SchoolClass::propertyToColumn('teacherName'))->toBe('teacher_name');
+        ->and(SchoolClass::propertyToColumn('teacherName'))->toBe('teacher_name')
+        ->and(SchoolClass::propertyToColumn('startTime'))->toBe('start_time')
+        ->and(SchoolClass::propertyToColumn('endTime'))->toBe('end_time');
 });
 
 test('scope for user returns only classes owned by the user', function (): void {

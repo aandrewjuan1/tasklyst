@@ -34,6 +34,7 @@ class SchoolClassService
             unset($attributes['recurrence'], $attributes['recurrence_series_end_datetime']);
 
             $this->assignTeacherFromNameInput($user->id, $attributes);
+            $this->ensureRequiredTimes($attributes);
 
             $schoolClass = SchoolClass::query()->create([
                 ...$attributes,
@@ -60,6 +61,7 @@ class SchoolClassService
         unset($attributes['user_id']);
 
         $this->assignTeacherFromNameInput((int) $schoolClass->user_id, $attributes);
+        $this->normalizeTimeInputs($attributes);
 
         return DB::transaction(function () use ($schoolClass, $attributes): SchoolClass {
             $schoolClass->fill($attributes);
@@ -234,6 +236,22 @@ class SchoolClassService
         return $this->recurrenceExpander->expand($recurring, $start, $end);
     }
 
+    /**
+     * @param  iterable<RecurringSchoolClass>  $recurringSchoolClasses
+     * @return array<int>
+     */
+    public function getRelevantRecurringSchoolClassIdsForDate(iterable $recurringSchoolClasses, CarbonInterface $date): array
+    {
+        $ids = $this->recurrenceExpander->getRelevantRecurringIdsForDate(
+            [],
+            [],
+            $date,
+            $recurringSchoolClasses
+        )['recurring_school_class_ids'] ?? [];
+
+        return array_values(array_map('intval', $ids));
+    }
+
     public function createSchoolClassException(
         RecurringSchoolClass $recurringSchoolClass,
         CarbonInterface $date,
@@ -321,5 +339,38 @@ class SchoolClassService
 
         $teacher = Teacher::firstOrCreateByDisplayName($userId, $displayName);
         $attributes['teacher_id'] = $teacher->id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function ensureRequiredTimes(array &$attributes): void
+    {
+        $this->normalizeTimeInputs($attributes);
+
+        if (! isset($attributes['start_time']) || ! isset($attributes['end_time'])) {
+            throw new \InvalidArgumentException(__('Start and end times are required.'));
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function normalizeTimeInputs(array &$attributes): void
+    {
+        foreach (['start_time', 'end_time'] as $column) {
+            if (! array_key_exists($column, $attributes)) {
+                continue;
+            }
+
+            $value = $attributes[$column];
+            if ($value === null || $value === '') {
+                unset($attributes[$column]);
+
+                continue;
+            }
+
+            $attributes[$column] = Carbon::parse((string) $value)->format('H:i:s');
+        }
     }
 }

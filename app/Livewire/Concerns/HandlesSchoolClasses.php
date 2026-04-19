@@ -38,13 +38,28 @@ trait HandlesSchoolClasses
         $classes = SchoolClass::query()
             ->forUser($userId)
             ->notArchived()
-            ->with(['recurringSchoolClass', 'teacher'])
-            ->orderBy('start_datetime')
+            ->with(['recurringSchoolClass.schoolClass', 'teacher'])
+            ->orderBy('start_time')
             ->orderBy('subject_name')
             ->get();
 
+        $nonRecurring = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass === null);
+        $recurringClasses = $classes->filter(fn (SchoolClass $class): bool => $class->recurringSchoolClass !== null);
+
+        $relevantRecurringIds = $this->schoolClassService->getRelevantRecurringSchoolClassIdsForDate(
+            $recurringClasses->map(fn (SchoolClass $class) => $class->recurringSchoolClass)->filter(),
+            $dayStart
+        );
+        $relevantRecurringLookup = array_flip($relevantRecurringIds);
+
         return $classes
-            ->filter(fn (SchoolClass $class): bool => $this->schoolClassIsRelevantOnDay($class, $dayStart, $dayEnd))
+            ->filter(function (SchoolClass $class) use ($dayStart, $dayEnd, $relevantRecurringLookup): bool {
+                if ($class->recurringSchoolClass === null) {
+                    return $this->nonRecurringSchoolClassOverlapsDay($class, $dayStart, $dayEnd);
+                }
+
+                return isset($relevantRecurringLookup[(int) $class->recurringSchoolClass->id]);
+            })
             ->values();
     }
 
@@ -156,22 +171,13 @@ trait HandlesSchoolClasses
         }
     }
 
-    private function schoolClassIsRelevantOnDay(SchoolClass $class, Carbon $dayStart, Carbon $dayEnd): bool
-    {
-        $recurring = $class->recurringSchoolClass;
-        if ($recurring === null) {
-            return $this->nonRecurringSchoolClassOverlapsDay($class, $dayStart, $dayEnd);
-        }
-
-        $occurrences = $this->schoolClassService->getOccurrencesForDateRange($recurring, $dayStart, $dayEnd);
-
-        return $occurrences !== [];
-    }
-
     private function nonRecurringSchoolClassOverlapsDay(SchoolClass $class, Carbon $dayStart, Carbon $dayEnd): bool
     {
         $start = $class->start_datetime;
         $end = $class->end_datetime;
+        if ($start === null || $end === null) {
+            return false;
+        }
 
         return $start->lte($dayEnd) && $end->gte($dayStart);
     }

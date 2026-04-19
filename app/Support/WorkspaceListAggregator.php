@@ -95,8 +95,7 @@ final class WorkspaceListAggregator
     private static function effectiveEndForWorkspaceList(Model $model): ?CarbonInterface
     {
         if ($model instanceof SchoolClass) {
-            $model->loadMissing('recurringSchoolClass');
-            if ($model->recurringSchoolClass?->end_datetime !== null) {
+            if ($model->relationLoaded('recurringSchoolClass') && $model->recurringSchoolClass?->end_datetime !== null) {
                 return $model->recurringSchoolClass->end_datetime;
             }
         }
@@ -202,6 +201,9 @@ final class WorkspaceListAggregator
         }
 
         $dt = $item->start_datetime ?? $item->end_datetime;
+        if ($dt === null && $item->start_time !== null) {
+            $dt = now()->setTimeFromTimeString((string) $item->start_time);
+        }
 
         return $dt !== null ? $dt->getTimestamp() : PHP_INT_MAX;
     }

@@ -442,12 +442,55 @@
                     <template x-if="creationKind === 'schoolClass'">
                         <div class="flex flex-wrap items-center gap-2">
                             <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                            >
+                                <flux:icon name="arrow-path" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurs') }}:</span>
+                                    <span class="uppercase" x-text="formData.schoolClass.scheduleMode === 'one_off'
+                                        ? '{{ __('One meeting') }}'
+                                        : (formData.schoolClass.recurrence?.type
+                                            ? String(formData.schoolClass.recurrence.type).replace('_', ' ')
+                                            : '{{ __('Not set') }}')"></span>
+                                </span>
+                            </span>
+                            <span
                                 class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-medium dark:border-white/10"
                             >
                                 <flux:icon name="user" class="size-3" />
                                 <span class="inline-flex items-baseline gap-1">
                                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Teacher') }}:</span>
                                     <span class="max-w-[140px] truncate uppercase" x-text="formData.schoolClass.teacherName"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                x-show="formData.schoolClass.scheduleMode === 'one_off'"
+                            >
+                                <flux:icon name="calendar-days" class="size-3 shrink-0" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Meeting') }}:</span>
+                                    <span class="text-xs uppercase" x-text="formData.schoolClass.meetingDate || '{{ __('Not set') }}'"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                x-show="formData.schoolClass.scheduleMode === 'recurring'"
+                            >
+                                <flux:icon name="calendar-days" class="size-3 shrink-0" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Class starts') }}:</span>
+                                    <span class="text-xs uppercase" x-text="formData.schoolClass.scheduleStartDate || '{{ __('Not set') }}'"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                x-show="formData.schoolClass.scheduleMode === 'recurring'"
+                            >
+                                <flux:icon name="calendar-days" class="size-3 shrink-0" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Class ends') }}:</span>
+                                    <span class="text-xs uppercase" x-text="formData.schoolClass.scheduleEndDate || '{{ __('Not set') }}'"></span>
                                 </span>
                             </span>
                             <span class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">

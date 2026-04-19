@@ -11,8 +11,10 @@ final class SchoolClassScheduleNormalizer
     /**
      * @param  array<string, mixed>  $payload  Validated school class payload (scheduleMode, times, dates, recurrence).
      * @return array{
-     *     start_datetime: \Illuminate\Support\Carbon,
-     *     end_datetime: \Illuminate\Support\Carbon,
+     *     start_time: string,
+     *     end_time: string,
+     *     start_datetime: \Illuminate\Support\Carbon|null,
+     *     end_datetime: \Illuminate\Support\Carbon|null,
      *     recurrence: array<string, mixed>|null,
      *     recurrence_series_end_datetime: ?\Illuminate\Support\Carbon
      * }
@@ -32,25 +34,37 @@ final class SchoolClassScheduleNormalizer
     /**
      * @param  array<string, mixed>  $payload
      * @return array{
-     *     start_datetime: \Illuminate\Support\Carbon,
-     *     end_datetime: \Illuminate\Support\Carbon,
+     *     start_time: string,
+     *     end_time: string,
+     *     start_datetime: \Illuminate\Support\Carbon|null,
+     *     end_datetime: \Illuminate\Support\Carbon|null,
      *     recurrence: null,
      *     recurrence_series_end_datetime: null
      * }
      */
     private static function normalizeOneOff(array $payload, string $timezone): array
     {
-        $meetingDate = Carbon::parse((string) ($payload['meetingDate'] ?? ''), $timezone)->startOfDay();
-        $start = self::combineDateAndTime($meetingDate, (string) ($payload['startTime'] ?? ''), $timezone);
-        $end = self::combineDateAndTime($meetingDate, (string) ($payload['endTime'] ?? ''), $timezone);
+        $startTime = self::parseTimeToCarbon((string) ($payload['startTime'] ?? ''), $timezone);
+        $endTime = self::parseTimeToCarbon((string) ($payload['endTime'] ?? ''), $timezone);
 
-        if ($end->lessThanOrEqualTo($start)) {
+        if (self::minutesSinceMidnight($endTime) <= self::minutesSinceMidnight($startTime)) {
             throw self::validationError(__('End time must be after the start time.'), 'schoolClassPayload.endTime');
         }
 
+        $meetingDateRaw = trim((string) ($payload['meetingDate'] ?? ''));
+        $startDatetime = null;
+        $endDatetime = null;
+        if ($meetingDateRaw !== '') {
+            $meetingDate = Carbon::parse($meetingDateRaw, $timezone)->startOfDay();
+            $startDatetime = self::combineDateAndTime($meetingDate, $startTime->format('H:i:s'), $timezone);
+            $endDatetime = self::combineDateAndTime($meetingDate, $endTime->format('H:i:s'), $timezone);
+        }
+
         return [
-            'start_datetime' => $start,
-            'end_datetime' => $end,
+            'start_time' => $startTime->format('H:i:s'),
+            'end_time' => $endTime->format('H:i:s'),
+            'start_datetime' => $startDatetime,
+            'end_datetime' => $endDatetime,
             'recurrence' => null,
             'recurrence_series_end_datetime' => null,
         ];
@@ -59,21 +73,16 @@ final class SchoolClassScheduleNormalizer
     /**
      * @param  array<string, mixed>  $payload
      * @return array{
-     *     start_datetime: \Illuminate\Support\Carbon,
-     *     end_datetime: \Illuminate\Support\Carbon,
+     *     start_time: string,
+     *     end_time: string,
+     *     start_datetime: \Illuminate\Support\Carbon|null,
+     *     end_datetime: \Illuminate\Support\Carbon|null,
      *     recurrence: array<string, mixed>,
-     *     recurrence_series_end_datetime: \Illuminate\Support\Carbon
+     *     recurrence_series_end_datetime: \Illuminate\Support\Carbon|null
      * }
      */
     private static function normalizeRecurring(array $payload, string $timezone): array
     {
-        $scheduleStart = Carbon::parse((string) ($payload['scheduleStartDate'] ?? ''), $timezone)->startOfDay();
-        $scheduleEnd = Carbon::parse((string) ($payload['scheduleEndDate'] ?? ''), $timezone)->startOfDay();
-
-        if ($scheduleEnd->lessThan($scheduleStart)) {
-            throw self::validationError(__('The schedule end date must be on or after the start date.'), 'schoolClassPayload.scheduleEndDate');
-        }
-
         $recurrence = $payload['recurrence'] ?? [];
         $recurrence['enabled'] = true;
         $type = TaskRecurrenceType::tryFrom((string) ($recurrence['type'] ?? ''));
@@ -92,24 +101,41 @@ final class SchoolClassScheduleNormalizer
             ? array_values(array_map(fn (mixed $d): int => (int) $d, $recurrence['daysOfWeek']))
             : [];
 
+        $scheduleStartRaw = trim((string) ($payload['scheduleStartDate'] ?? ''));
+        $scheduleEndRaw = trim((string) ($payload['scheduleEndDate'] ?? ''));
+
+        $scheduleStart = $scheduleStartRaw !== '' ? Carbon::parse($scheduleStartRaw, $timezone)->startOfDay() : null;
+        $scheduleEnd = $scheduleEndRaw !== '' ? Carbon::parse($scheduleEndRaw, $timezone)->startOfDay() : null;
+
+        if ($scheduleStart !== null && $scheduleEnd !== null && $scheduleEnd->lessThan($scheduleStart)) {
+            throw self::validationError(__('The schedule end date must be on or after the start date.'), 'schoolClassPayload.scheduleEndDate');
+        }
+
         if ($type === TaskRecurrenceType::Weekly && $daysOfWeek === []) {
-            throw self::validationError(__('Select at least one day of the week.'), 'schoolClassPayload.recurrence.daysOfWeek');
+            $anchorDay = $scheduleStart?->dayOfWeek ?? Carbon::now($timezone)->dayOfWeek;
+            $daysOfWeek = [$anchorDay];
         }
 
-        $firstDay = self::resolveFirstOccurrenceDate($scheduleStart, $scheduleEnd, $type, $daysOfWeek);
-        if ($firstDay === null) {
-            throw self::validationError(
-                __('No class day falls between the schedule start and end. Adjust the dates or selected days.'),
-                'schoolClassPayload.scheduleStartDate'
-            );
+        $firstDay = null;
+        if ($scheduleStart !== null && $scheduleEnd !== null) {
+            $firstDay = self::resolveFirstOccurrenceDate($scheduleStart, $scheduleEnd, $type, $daysOfWeek);
+            if ($firstDay === null) {
+                throw self::validationError(
+                    __('No class day falls between the schedule start and end. Adjust the dates or selected days.'),
+                    'schoolClassPayload.scheduleStartDate'
+                );
+            }
         }
 
-        $start = self::combineDateAndTime($firstDay, $startTimeStr, $timezone);
-        $end = self::combineDateAndTime($firstDay, $endTimeStr, $timezone);
+        $startTime = self::parseTimeToCarbon($startTimeStr, $timezone);
+        $endTime = self::parseTimeToCarbon($endTimeStr, $timezone);
 
-        if ($end->lessThanOrEqualTo($start)) {
-            throw self::validationError(__('End time must be after the start time.'), 'schoolClassPayload.endTime');
-        }
+        $start = $firstDay !== null
+            ? self::combineDateAndTime($firstDay, $startTime->format('H:i:s'), $timezone)
+            : null;
+        $end = $firstDay !== null
+            ? self::combineDateAndTime($firstDay, $endTime->format('H:i:s'), $timezone)
+            : null;
 
         $recurrenceForService = [
             'enabled' => true,
@@ -119,10 +145,12 @@ final class SchoolClassScheduleNormalizer
         ];
 
         return [
+            'start_time' => $startTime->format('H:i:s'),
+            'end_time' => $endTime->format('H:i:s'),
             'start_datetime' => $start,
             'end_datetime' => $end,
             'recurrence' => $recurrenceForService,
-            'recurrence_series_end_datetime' => Carbon::parse($scheduleEnd, $timezone)->copy()->endOfDay(),
+            'recurrence_series_end_datetime' => $scheduleEnd?->copy()->endOfDay(),
         ];
     }
 
@@ -211,14 +239,19 @@ final class SchoolClassScheduleNormalizer
         $start = self::parseTimeToCarbon($startTimeStr, $timezone);
         $end = self::parseTimeToCarbon($endTimeStr, $timezone);
 
-        $startM = $start->hour * 60 + $start->minute;
-        $endM = $end->hour * 60 + $end->minute;
+        $startM = self::minutesSinceMidnight($start);
+        $endM = self::minutesSinceMidnight($end);
 
         if ($endM <= $startM) {
             return __('End time must be after the start time.');
         }
 
         return null;
+    }
+
+    private static function minutesSinceMidnight(Carbon $time): int
+    {
+        return $time->hour * 60 + $time->minute;
     }
 
     private static function validationError(string $message, string $key): \Illuminate\Validation\ValidationException

@@ -21,6 +21,8 @@ class SchoolClass extends Model
         'user_id',
         'teacher_id',
         'subject_name',
+        'start_time',
+        'end_time',
         'start_datetime',
         'end_datetime',
     ];
@@ -81,6 +83,8 @@ class SchoolClass extends Model
         return match ($property) {
             'subjectName' => 'subject_name',
             'teacherName' => 'teacher_name',
+            'startTime' => 'start_time',
+            'endTime' => 'end_time',
             'startDatetime' => 'start_datetime',
             'endDatetime' => 'end_datetime',
             default => $property,
@@ -101,6 +105,8 @@ class SchoolClass extends Model
         return match ($column) {
             'start_datetime' => $this->start_datetime,
             'end_datetime' => $this->end_datetime,
+            'start_time' => $this->start_time,
+            'end_time' => $this->end_time,
             'subject_name' => $this->subject_name,
             default => $this->{$column},
         };
@@ -235,6 +241,8 @@ class SchoolClass extends Model
         return match ($property) {
             'subjectName' => __('Subject'),
             'teacherName' => __('Teacher'),
+            'startTime' => __('Start time'),
+            'endTime' => __('End time'),
             'startDatetime' => __('Start'),
             'endDatetime' => __('End'),
             default => null,
@@ -249,7 +257,7 @@ class SchoolClass extends Model
 
         return match ($property) {
             'subjectName', 'teacherName' => 'pencil-square',
-            'startDatetime', 'endDatetime' => 'clock',
+            'startDatetime', 'endDatetime', 'startTime', 'endTime' => 'clock',
             default => 'pencil-square',
         };
     }
@@ -258,6 +266,7 @@ class SchoolClass extends Model
     {
         return match ($property) {
             'subjectName', 'teacherName' => is_string($value) ? '"'.trim($value).'"' : null,
+            'startTime', 'endTime' => self::formatTime($value),
             'startDatetime', 'endDatetime' => self::formatDatetime($value),
             default => is_scalar($value) ? (string) $value : null,
         };
@@ -271,6 +280,19 @@ class SchoolClass extends Model
 
         try {
             return Carbon::parse((string) $value)->translatedFormat('M j, Y · g:i A');
+        } catch (\Throwable) {
+            return __('Not set');
+        }
+    }
+
+    private static function formatTime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return __('Not set');
+        }
+
+        try {
+            return Carbon::parse((string) $value)->translatedFormat('g:i A');
         } catch (\Throwable) {
             return __('Not set');
         }

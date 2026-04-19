@@ -40,14 +40,14 @@ final class SchoolClassPayloadValidation
             'schoolClassPayload.scheduleMode' => ['required', Rule::in(['recurring', 'one_off'])],
             'schoolClassPayload.subjectName' => ['required', 'string', 'max:255', 'regex:/\S/'],
             'schoolClassPayload.teacherName' => ['required', 'string', 'max:255', 'regex:/\S/'],
-            'schoolClassPayload.scheduleStartDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,recurring', 'date'],
-            'schoolClassPayload.scheduleEndDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,recurring', 'date', 'after_or_equal:schoolClassPayload.scheduleStartDate'],
+            'schoolClassPayload.scheduleStartDate' => ['nullable', 'date'],
+            'schoolClassPayload.scheduleEndDate' => ['nullable', 'date', 'after_or_equal:schoolClassPayload.scheduleStartDate'],
             'schoolClassPayload.meetingDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,one_off', 'date'],
             'schoolClassPayload.startTime' => ['required', 'string'],
             'schoolClassPayload.endTime' => ['required', 'string'],
-            'schoolClassPayload.recurrence' => ['nullable', 'array'],
+            'schoolClassPayload.recurrence' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,recurring', 'array'],
             'schoolClassPayload.recurrence.enabled' => ['boolean'],
-            'schoolClassPayload.recurrence.type' => ['nullable', Rule::in(array_map(fn (TaskRecurrenceType $t) => $t->value, TaskRecurrenceType::cases()))],
+            'schoolClassPayload.recurrence.type' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,recurring', Rule::in(array_map(fn (TaskRecurrenceType $t) => $t->value, TaskRecurrenceType::cases()))],
             'schoolClassPayload.recurrence.interval' => ['integer', 'min:1'],
             'schoolClassPayload.recurrence.daysOfWeek' => ['array'],
             'schoolClassPayload.recurrence.daysOfWeek.*' => ['integer', 'between:0,6'],
@@ -62,6 +62,8 @@ final class SchoolClassPayloadValidation
         return [
             'subjectName',
             'teacherName',
+            'startTime',
+            'endTime',
             'startDatetime',
             'endDatetime',
             'recurrence',
@@ -76,12 +78,14 @@ final class SchoolClassPayloadValidation
         return match ($property) {
             'subjectName' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
             'teacherName' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
-            'startDatetime' => ['value' => ['required', 'date']],
-            'endDatetime' => ['value' => ['required', 'date']],
+            'startTime' => ['value' => ['required', 'string']],
+            'endTime' => ['value' => ['required', 'string']],
+            'startDatetime' => ['value' => ['nullable', 'date']],
+            'endDatetime' => ['value' => ['nullable', 'date']],
             'recurrence' => [
-                'value' => ['array'],
+                'value' => ['required', 'array'],
                 'value.enabled' => ['boolean'],
-                'value.type' => ['nullable', Rule::in(array_map(fn (TaskRecurrenceType $t) => $t->value, TaskRecurrenceType::cases()))],
+                'value.type' => ['required', Rule::in(array_map(fn (TaskRecurrenceType $t) => $t->value, TaskRecurrenceType::cases()))],
                 'value.interval' => ['integer', 'min:1'],
                 'value.daysOfWeek' => ['array'],
                 'value.daysOfWeek.*' => ['integer', 'between:0,6'],
@@ -96,7 +100,7 @@ final class SchoolClassPayloadValidation
     public static function validateSchoolClassDateRangeForUpdate(?\DateTimeInterface $start, ?\DateTimeInterface $end): ?string
     {
         if ($start === null || $end === null) {
-            return __('Start and end are required.');
+            return null;
         }
 
         if ($end < $start) {

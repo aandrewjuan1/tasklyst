@@ -20,12 +20,16 @@ class SchoolClassFactory extends Factory
     public function definition(): array
     {
         $start = $this->faker->dateTimeBetween('-1 month', '+1 month');
+        $startCarbon = \Illuminate\Support\Carbon::instance($start);
+        $endCarbon = $startCarbon->copy()->addMinutes($this->faker->numberBetween(45, 180));
 
         return [
             'user_id' => User::factory(),
             'subject_name' => $this->faker->words(3, true),
-            'start_datetime' => $start,
-            'end_datetime' => $this->faker->dateTimeBetween($start, '+4 months'),
+            'start_time' => $startCarbon->format('H:i:s'),
+            'end_time' => $endCarbon->format('H:i:s'),
+            'start_datetime' => $startCarbon,
+            'end_datetime' => $endCarbon,
         ];
     }
 
