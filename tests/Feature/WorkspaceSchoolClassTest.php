@@ -25,6 +25,15 @@ test('school class creation recurring trigger shows repeat label', function (): 
         ->and($html)->not->toContain(__('Don\'t repeat'));
 });
 
+test('school class creation defaults recurrence to weekly enabled in x-data', function (): void {
+    $path = resource_path('views/components/workspace/partials/item-creation-xdata.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain("scheduleMode: 'recurring'")
+        ->and($contents)->toContain('enabled: true')
+        ->and($contents)->toContain("type: 'weekly'");
+});
+
 test('creation school class fields includes teacher selection component', function (): void {
     $path = resource_path('views/components/workspace/creation-school-class-fields.blade.php');
     $contents = file_get_contents($path);
@@ -34,7 +43,10 @@ test('creation school class fields includes teacher selection component', functi
         ->and($contents)->toContain('@date-picker-opened')
         ->and($contents)->toContain('clearSchoolClassMeetingDateForRecurringChoice')
         ->and($contents)->toContain('@recurring-selection-updated')
-        ->and($contents)->toContain('school-class-hours-selection');
+        ->and($contents)->toContain('school-class-hours-selection')
+        ->and($contents)->toContain("__('Class starts')")
+        ->and($contents)->toContain("__('Class ends')")
+        ->and($contents)->toContain('flux:tooltip');
 });
 
 test('item creation x-data clears meeting date when recurring is chosen', function (): void {
@@ -44,6 +56,25 @@ test('item creation x-data clears meeting date when recurring is chosen', functi
     expect($contents)->toContain('clearSchoolClassMeetingDateForRecurringChoice')
         ->and($contents)->toContain('formData.schoolClass.meetingDate')
         ->and($contents)->toContain('toggleClassHoursPopover');
+});
+
+test('item creation x-data clears recurring value when one meeting date is chosen', function (): void {
+    $path = resource_path('views/components/workspace/partials/item-creation-xdata.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('clearSchoolClassRecurrenceForOneOffChoice')
+        ->and($contents)->toContain("path !== 'formData.schoolClass.meetingDate'")
+        ->and($contents)->toContain("this.formData.schoolClass.scheduleMode = 'one_off'")
+        ->and($contents)->toContain("new CustomEvent('recurring-value'")
+        ->and($contents)->toContain("path: 'formData.schoolClass.recurrence'");
+});
+
+test('creation school class schedule date pickers include tooltip content', function (): void {
+    $path = resource_path('views/components/workspace/creation-school-class-fields.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain("__('Weekly schedule starts on this date.')")
+        ->and($contents)->toContain("__('Last day this class meets; the schedule ends after this date.')");
 });
 
 test('date picker school class meeting day uses schedule chip trigger', function (): void {

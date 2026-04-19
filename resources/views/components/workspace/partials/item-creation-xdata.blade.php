@@ -189,6 +189,36 @@
                 }),
             );
         },
+        clearSchoolClassRecurrenceForOneOffChoice() {
+            if (!this.formData?.schoolClass) {
+                return;
+            }
+
+            this.formData.schoolClass.recurrence = { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+
+            window.dispatchEvent(
+                new CustomEvent('recurring-value', {
+                    bubbles: true,
+                    detail: { path: 'formData.schoolClass.recurrence', value: this.formData.schoolClass.recurrence },
+                }),
+            );
+        },
+        onDatePickerUpdated(event) {
+            const d = event?.detail || {};
+            const path = d.path;
+            const value = d.value;
+
+            this.setFormDataByPath(path, value);
+
+            if (this.creationKind !== 'schoolClass' || path !== 'formData.schoolClass.meetingDate') {
+                return;
+            }
+
+            if (value) {
+                this.formData.schoolClass.scheduleMode = 'one_off';
+                this.clearSchoolClassRecurrenceForOneOffChoice();
+            }
+        },
         creationCardSurfaceClass() {
             if (this.creationKind === 'project') {
                 return 'lic-surface-project';

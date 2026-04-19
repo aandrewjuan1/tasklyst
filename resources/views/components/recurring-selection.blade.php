@@ -59,7 +59,9 @@
     $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 transition-[box-shadow,transform] duration-150 ease-out';
     $triggerBaseClass .= $schoolClassCreation ? ' font-semibold' : ' font-medium';
     $triggerInitialStateClass = $schoolClassCreation
-        ? 'border-black/10 bg-muted text-muted-foreground dark:border-white/10'
+        ? ($isInitiallyEnabled
+            ? 'border-amber-200/55 bg-yellow-50 text-stone-600 shadow-sm dark:border-amber-900/20 dark:bg-yellow-950/12 dark:text-stone-400'
+            : 'border-black/10 bg-muted text-muted-foreground dark:border-white/10')
         : ($shouldRenderCompact
             ? 'border-border/60 bg-muted text-muted-foreground'
             : ($isInitiallyEnabled
@@ -444,19 +446,27 @@
         get triggerButtonDynamicClass() {
             if (this.schoolClassCreation) {
                 const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
-                const base =
-                    'border-black/10 bg-muted text-muted-foreground dark:border-white/10 group-data-[schedule-mode=recurring]/sc:bg-amber-800/10 group-data-[schedule-mode=recurring]/sc:text-amber-800';
+                const yellowPill =
+                    'border-amber-200/55 bg-yellow-50 text-stone-600 shadow-sm dark:border-amber-900/20 dark:bg-yellow-950/12 dark:text-stone-400';
+                const mutedWithRecurringGroup =
+                    'border-black/10 bg-muted text-muted-foreground dark:border-white/10 ' +
+                    'group-data-[schedule-mode=recurring]/sc:border-amber-200/55 group-data-[schedule-mode=recurring]/sc:bg-yellow-50 group-data-[schedule-mode=recurring]/sc:text-stone-600 group-data-[schedule-mode=recurring]/sc:shadow-sm ' +
+                    'dark:group-data-[schedule-mode=recurring]/sc:border-amber-900/20 dark:group-data-[schedule-mode=recurring]/sc:bg-yellow-950/12 dark:group-data-[schedule-mode=recurring]/sc:text-stone-400';
                 const repeatSummary = this.formatDisplayValue();
                 const hasRepeatValue =
                     this.enabled &&
                     String(repeatSummary || '').trim() !== '' &&
                     repeatSummary !== this.notSetLabel;
-                const valueFilled =
-                    hasRepeatValue && !this.readonly ? ' bg-amber-800/10 text-amber-800' : '';
                 if (this.readonly) {
-                    return 'cursor-default pointer-events-none opacity-90 ' + base;
+                    return (
+                        'cursor-default pointer-events-none opacity-90 ' +
+                        (hasRepeatValue ? yellowPill : mutedWithRecurringGroup)
+                    );
                 }
-                return base + openState + valueFilled;
+                if (hasRepeatValue) {
+                    return yellowPill + openState;
+                }
+                return mutedWithRecurringGroup + openState;
             }
             const state = (!this.enabled && this.compactWhenDisabled)
                 ? 'border-border/60 bg-muted text-muted-foreground'
@@ -514,7 +524,7 @@
                     <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Repeat') }}:</span>
                     <span
                         class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs uppercase leading-tight sm:max-w-[16rem]"
-                        :class="enabled && formatDisplayValue() !== notSetLabel ? 'font-semibold text-amber-800' : 'text-muted-foreground'"
+                        :class="enabled && formatDisplayValue() !== notSetLabel ? 'font-semibold text-stone-600 dark:text-stone-400' : 'text-muted-foreground'"
                         x-text="enabled ? formatDisplayValue() : notSetLabel"
                     ></span>
                 </span>

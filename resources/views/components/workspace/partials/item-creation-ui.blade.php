@@ -269,7 +269,7 @@
                                 x-model="formData.schoolClass.subjectName"
                                 x-ref="schoolClassSubject"
                                 x-bind:disabled="isSubmitting"
-                                placeholder="{{ __('Subject…') }}"
+                                placeholder="{{ __('Enter subject name...') }}"
                                 autocomplete="off"
                                 aria-label="{{ __('Class subject') }}"
                                 class="w-full min-w-0 border-0 bg-transparent px-0 py-0.5 text-xl font-bold leading-tight text-foreground shadow-none ring-0 placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground/80 focus:border-0 focus:outline-none focus:ring-0 md:text-2xl md:placeholder:text-base"

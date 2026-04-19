@@ -1,7 +1,17 @@
 @php
     $scheduleDateFields = [
-        ['label' => __('Schedule starts'), 'model' => 'formData.schoolClass.scheduleStartDate', 'datePickerLabel' => __('First day in range')],
-        ['label' => __('Schedule ends'), 'model' => 'formData.schoolClass.scheduleEndDate', 'datePickerLabel' => __('Last day in range')],
+        [
+            'label' => __('Class starts'),
+            'model' => 'formData.schoolClass.scheduleStartDate',
+            'datePickerLabel' => __('First day in range'),
+            'triggerTooltip' => __('Weekly schedule starts on this date.'),
+        ],
+        [
+            'label' => __('Class ends'),
+            'model' => 'formData.schoolClass.scheduleEndDate',
+            'datePickerLabel' => __('Last day in range'),
+            'triggerTooltip' => __('Last day this class meets; the schedule ends after this date.'),
+        ],
     ];
 @endphp
 
@@ -44,14 +54,18 @@
     <template x-if="formData.schoolClass.scheduleMode === 'recurring'">
         <div class="contents" data-item-creation-safe>
             @foreach ($scheduleDateFields as $dateField)
-                <x-date-picker
-                    :triggerLabel="$dateField['label']"
-                    :label="$dateField['datePickerLabel']"
-                    :model="$dateField['model']"
-                    type="date"
-                    position="bottom"
-                    align="end"
-                />
+                <flux:tooltip :content="$dateField['triggerTooltip']">
+                    <span class="inline-flex">
+                        <x-date-picker
+                            :triggerLabel="$dateField['label']"
+                            :label="$dateField['datePickerLabel']"
+                            :model="$dateField['model']"
+                            type="date"
+                            position="bottom"
+                            align="end"
+                        />
+                    </span>
+                </flux:tooltip>
             @endforeach
 
             <x-workspace.school-class-hours-selection />

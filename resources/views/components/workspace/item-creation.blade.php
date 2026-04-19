@@ -26,7 +26,7 @@
     @tag-deleted.window="onTagDeleted($event)"
     @teacher-created.window="onTeacherCreated($event)"
     @teacher-deleted.window="onTeacherDeleted($event)"
-    @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
+    @date-picker-updated="onDatePickerUpdated($event)"
     @recurring-selection-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @item-form-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
     @tag-toggled="toggleTag($event.detail.tagId)"
