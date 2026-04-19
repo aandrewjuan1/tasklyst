@@ -19,7 +19,7 @@ test('dedupes the same task when it appears in overdue and day collections', fun
     $events = collect();
     $tasks = collect([$task]);
 
-    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks);
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks, collect());
 
     expect($result)->toHaveCount(1)
         ->and($result->first()['isOverdue'])->toBeTrue();
@@ -43,7 +43,7 @@ test('orders day items by start time ascending', function (): void {
     $events = collect();
     $tasks = collect([$later, $earlier]);
 
-    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks);
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks, collect());
 
     expect($result->pluck('item.title')->all())->toBe(['Earlier', 'Later']);
 });
@@ -66,7 +66,7 @@ test('places overdue strip before day items', function (): void {
     $events = collect();
     $tasks = collect([$dayTask]);
 
-    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks);
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks, collect());
 
     expect($result->pluck('item.title')->all())->toBe(['OverdueOne', 'DayOne']);
 });
@@ -90,7 +90,7 @@ test('sorts projects and events in day strip by start or end datetime', function
     $events = collect([$event]);
     $tasks = collect();
 
-    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks);
+    $result = WorkspaceListAggregator::mergeOrderAndDedupe($overdue, $projects, $events, $tasks, collect());
 
     expect($result->pluck('kind')->all())->toBe(['event', 'project']);
 });

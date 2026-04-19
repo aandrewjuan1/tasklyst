@@ -100,6 +100,11 @@ class User extends Authenticatable
         return $this->hasMany(AssistantSchedulePlanItem::class);
     }
 
+    public function schoolClasses(): HasMany
+    {
+        return $this->hasMany(SchoolClass::class);
+    }
+
     public function pomodoroSetting(): HasOne
     {
         return $this->hasOne(PomodoroSetting::class);

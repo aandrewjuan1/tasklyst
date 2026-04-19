@@ -19,6 +19,7 @@
     @task-created="resetForm()"
     @event-created="resetForm()"
     @project-created="resetForm()"
+    @school-class-created="resetForm()"
     @tag-created.window="onTagCreated($event)"
     @tag-deleted.window="onTagDeleted($event)"
     @date-picker-updated="setFormDataByPath($event.detail.path, $event.detail.value)"
@@ -32,6 +33,8 @@
         formData.item.endDatetime;
         formData.project.startDatetime;
         formData.project.endDatetime;
+        formData.schoolClass.startDatetime;
+        formData.schoolClass.endDatetime;
         creationKind === 'task' ? formData.item.duration : null;
         validateDateRange();
     "

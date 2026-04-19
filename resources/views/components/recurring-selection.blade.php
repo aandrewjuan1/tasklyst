@@ -58,11 +58,13 @@
     $repeatTooltip = match ($kind) {
         'task' => __('Repeat this task'),
         'event' => __('Repeat this event'),
+        'schoolClass' => __('Repeat this class'),
         default => __('Repeat this item'),
     };
     $changeTooltip = match ($kind) {
         'task' => __('Change repeat for this task'),
         'event' => __('Change repeat for this event'),
+        'schoolClass' => __('Change repeat for this class'),
         default => __('Change repeat'),
     };
 @endphp

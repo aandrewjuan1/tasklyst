@@ -2,7 +2,11 @@
 
 use App\Enums\TaskRecurrenceType;
 use App\Models\RecurringEvent;
+use App\Models\RecurringSchoolClass;
 use App\Models\RecurringTask;
+use App\Models\SchoolClass;
+use App\Models\SchoolClassException;
+use App\Models\SchoolClassInstance;
 use App\Models\Task;
 use App\Models\TaskException;
 use App\Models\TaskInstance;
@@ -222,7 +226,8 @@ test('getRelevantRecurringIdsForDate returns task and event ids that have occurr
     );
 
     expect($result['task_ids'])->toContain($taskRecurring->id)
-        ->and($result['event_ids'])->toContain($eventRecurring->id);
+        ->and($result['event_ids'])->toContain($eventRecurring->id)
+        ->and($result['recurring_school_class_ids'])->toBe([]);
 });
 
 test('getRelevantRecurringIdsForDate excludes recurring when date outside range', function (): void {
@@ -393,4 +398,83 @@ test('expand uses preloaded exceptions when provided to avoid N+1', function ():
 
     $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
     expect($formatted)->not->toContain('2025-02-03');
+});
+
+test('expand works with RecurringSchoolClass and excludes deleted exception date', function (): void {
+    $schoolClass = SchoolClass::factory()->create([
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-05'),
+    ]);
+    $recurring = RecurringSchoolClass::factory()->create([
+        'school_class_id' => $schoolClass->id,
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-05'),
+    ]);
+    SchoolClassException::factory()->create([
+        'recurring_school_class_id' => $recurring->id,
+        'exception_date' => Carbon::parse('2025-02-03'),
+        'is_deleted' => true,
+    ]);
+
+    $dates = $this->expander->expand($recurring, Carbon::parse('2025-02-01'), Carbon::parse('2025-02-05'));
+    $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
+
+    expect($formatted)->not->toContain('2025-02-03')
+        ->and($dates)->toHaveCount(4);
+});
+
+test('expand includes replacement instance date for school class exception', function (): void {
+    $schoolClass = SchoolClass::factory()->create([
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-05'),
+    ]);
+    $recurring = RecurringSchoolClass::factory()->create([
+        'school_class_id' => $schoolClass->id,
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-05'),
+    ]);
+    $replacementInstance = SchoolClassInstance::factory()->create([
+        'recurring_school_class_id' => $recurring->id,
+        'school_class_id' => $schoolClass->id,
+        'instance_date' => Carbon::parse('2025-02-04'),
+    ]);
+    SchoolClassException::factory()->create([
+        'recurring_school_class_id' => $recurring->id,
+        'exception_date' => Carbon::parse('2025-02-03'),
+        'is_deleted' => false,
+        'replacement_instance_id' => $replacementInstance->id,
+    ]);
+
+    $dates = $this->expander->expand($recurring, Carbon::parse('2025-02-01'), Carbon::parse('2025-02-05'));
+    $formatted = array_map(fn ($d) => $d->format('Y-m-d'), $dates);
+
+    expect($formatted)->not->toContain('2025-02-03')
+        ->and($formatted)->toContain('2025-02-04');
+});
+
+test('getRelevantRecurringIdsForDate returns recurring school class ids that have occurrence on date', function (): void {
+    $date = Carbon::parse('2025-02-10');
+    $schoolClass = SchoolClass::factory()->create();
+    $schoolRecurring = RecurringSchoolClass::factory()->create([
+        'school_class_id' => $schoolClass->id,
+        'recurrence_type' => TaskRecurrenceType::Daily,
+        'interval' => 1,
+        'start_datetime' => Carbon::parse('2025-02-01'),
+        'end_datetime' => Carbon::parse('2025-02-28'),
+    ]);
+
+    $result = $this->expander->getRelevantRecurringIdsForDate(
+        collect(),
+        collect(),
+        $date,
+        collect([$schoolRecurring])
+    );
+
+    expect($result['recurring_school_class_ids'])->toContain($schoolRecurring->id)
+        ->and($result['task_ids'])->toBe([])
+        ->and($result['event_ids'])->toBe([]);
 });

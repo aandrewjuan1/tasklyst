@@ -4,7 +4,9 @@ namespace App\Services;
 
 use App\Models\EventException;
 use App\Models\RecurringEvent;
+use App\Models\RecurringSchoolClass;
 use App\Models\RecurringTask;
+use App\Models\SchoolClassException;
 use App\Models\TaskException;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
@@ -13,14 +15,18 @@ use Illuminate\Support\Collection;
 class RecurrenceExpander
 {
     /**
-     * Expand a recurring task or event into concrete dates within the given range.
+     * Expand a recurring task, event, or school class into concrete dates within the given range.
      * Respects start_datetime and end_datetime on the recurring record.
      *
-     * @param  Collection<int, TaskException|EventException>|null  $preloadedExceptions  When provided, uses these instead of querying (avoids N+1 in batch).
+     * @param  Collection<int, TaskException|EventException|SchoolClassException>|null  $preloadedExceptions  When provided, uses these instead of querying (avoids N+1 in batch).
      * @return array<CarbonInterface>
      */
-    public function expand(RecurringTask|RecurringEvent $recurring, CarbonInterface $start, CarbonInterface $end, ?Collection $preloadedExceptions = null): array
-    {
+    public function expand(
+        RecurringTask|RecurringEvent|RecurringSchoolClass $recurring,
+        CarbonInterface $start,
+        CarbonInterface $end,
+        ?Collection $preloadedExceptions = null
+    ): array {
         $recurrenceType = $recurring->recurrence_type;
         $interval = max(1, (int) $recurring->interval);
         $recurringStart = $this->resolveRecurrenceAnchorStart($recurring);
@@ -49,14 +55,14 @@ class RecurrenceExpander
     }
 
     /**
-     * Apply TaskException/EventException: exclude deleted dates, replace with replacement instance dates.
+     * Apply exceptions: exclude deleted dates, replace with replacement instance dates.
      *
      * @param  array<CarbonInterface>  $dates
-     * @param  Collection<int, TaskException|EventException>|null  $preloadedExceptions
+     * @param  Collection<int, TaskException|EventException|SchoolClassException>|null  $preloadedExceptions
      * @return array<CarbonInterface>
      */
     private function applyExceptions(
-        RecurringTask|RecurringEvent $recurring,
+        RecurringTask|RecurringEvent|RecurringSchoolClass $recurring,
         array $dates,
         Carbon $effectiveStart,
         Carbon $effectiveEnd,
@@ -67,14 +73,14 @@ class RecurrenceExpander
         $exceptions = $preloadedExceptions ?? $this->loadExceptionsForRecurring($recurring, $start, $end);
 
         $excludedDates = $exceptions
-            ->filter(fn (TaskException|EventException $e) => $e->is_deleted || $e->replacement_instance_id !== null)
-            ->map(fn (TaskException|EventException $e) => $e->exception_date->format('Y-m-d'))
+            ->filter(fn (TaskException|EventException|SchoolClassException $e) => $e->is_deleted || $e->replacement_instance_id !== null)
+            ->map(fn (TaskException|EventException|SchoolClassException $e) => $e->exception_date->format('Y-m-d'))
             ->flip()
             ->all();
 
         $replacementDates = $exceptions
-            ->filter(fn (TaskException|EventException $e) => $e->replacement_instance_id !== null)
-            ->map(fn (TaskException|EventException $e) => $e->replacementInstance?->instance_date)
+            ->filter(fn (TaskException|EventException|SchoolClassException $e) => $e->replacement_instance_id !== null)
+            ->map(fn (TaskException|EventException|SchoolClassException $e) => $e->replacementInstance?->instance_date)
             ->filter()
             ->map(fn ($d) => Carbon::parse($d))
             ->filter(fn (Carbon $d) => $d->gte($effectiveStart) && $d->lte($effectiveEnd))
@@ -101,13 +107,15 @@ class RecurrenceExpander
     /**
      * Load exceptions for a single recurring item (used when not batching).
      *
-     * @return Collection<int, TaskException|EventException>
+     * @return Collection<int, TaskException|EventException|SchoolClassException>
      */
-    private function loadExceptionsForRecurring(RecurringTask|RecurringEvent $recurring, CarbonInterface $start, CarbonInterface $end): Collection
+    private function loadExceptionsForRecurring(RecurringTask|RecurringEvent|RecurringSchoolClass $recurring, CarbonInterface $start, CarbonInterface $end): Collection
     {
-        $query = $recurring instanceof RecurringTask
-            ? $recurring->taskExceptions()
-            : $recurring->eventExceptions();
+        $query = match (true) {
+            $recurring instanceof RecurringTask => $recurring->taskExceptions(),
+            $recurring instanceof RecurringSchoolClass => $recurring->schoolClassExceptions(),
+            default => $recurring->eventExceptions(),
+        };
 
         return $query
             ->where(function ($q) use ($start, $end): void {
@@ -121,7 +129,7 @@ class RecurrenceExpander
     /**
      * Whether the preloaded exceptions collection contains an exclusion for the given date (skip or replacement).
      *
-     * @param  Collection<int, TaskException|EventException>|null  $exceptions
+     * @param  Collection<int, TaskException|EventException|SchoolClassException>|null  $exceptions
      */
     private function dateHasExcludedException(?Collection $exceptions, string $dateStr): bool
     {
@@ -129,29 +137,37 @@ class RecurrenceExpander
             return false;
         }
 
-        return $exceptions->contains(fn (TaskException|EventException $e) => $e->exception_date->format('Y-m-d') === $dateStr
+        return $exceptions->contains(fn (TaskException|EventException|SchoolClassException $e) => $e->exception_date->format('Y-m-d') === $dateStr
             && ($e->is_deleted || $e->replacement_instance_id !== null)
         );
     }
 
     /**
-     * Batch-expand recurring tasks and events to determine which are relevant for a given date.
+     * Batch-expand recurring tasks, events, and school classes to determine which are relevant for a given date.
      * Preloads exceptions in bulk to avoid N+1 queries.
      *
      * @param  iterable<RecurringTask>  $recurringTasks
      * @param  iterable<RecurringEvent>  $recurringEvents
-     * @return array{task_ids: array<int>, event_ids: array<int>}
+     * @param  iterable<RecurringSchoolClass>  $recurringSchoolClasses
+     * @return array{task_ids: array<int>, event_ids: array<int>, recurring_school_class_ids: array<int>}
      */
-    public function getRelevantRecurringIdsForDate(iterable $recurringTasks, iterable $recurringEvents, CarbonInterface $date): array
-    {
+    public function getRelevantRecurringIdsForDate(
+        iterable $recurringTasks,
+        iterable $recurringEvents,
+        CarbonInterface $date,
+        iterable $recurringSchoolClasses = []
+    ): array {
         $taskIds = [];
         $eventIds = [];
+        $schoolClassIds = [];
 
         $recurringTasks = collect($recurringTasks)->filter()->values();
         $recurringEvents = collect($recurringEvents)->filter()->values();
+        $recurringSchoolClasses = collect($recurringSchoolClasses)->filter()->values();
 
         $taskExceptionMap = $this->preloadTaskExceptions($recurringTasks->pluck('id'), $date, $date);
         $eventExceptionMap = $this->preloadEventExceptions($recurringEvents->pluck('id'), $date, $date);
+        $schoolClassExceptionMap = $this->preloadSchoolClassExceptions($recurringSchoolClasses->pluck('id'), $date, $date);
 
         $dateStr = $date->format('Y-m-d');
 
@@ -201,7 +217,34 @@ class RecurrenceExpander
             }
         }
 
-        return ['task_ids' => $taskIds, 'event_ids' => $eventIds];
+        foreach ($recurringSchoolClasses as $recurring) {
+            if ($recurring->start_datetime === null && $recurring->end_datetime === null) {
+                if ($recurring->recurrence_type?->value !== 'daily') {
+                    $occurrences = $this->expand($recurring, $date, $date, $schoolClassExceptionMap[$recurring->id] ?? null);
+                    if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr)) {
+                        $schoolClassIds[] = $recurring->id;
+                    }
+
+                    continue;
+                }
+
+                if (! $this->dateHasExcludedException($schoolClassExceptionMap[$recurring->id] ?? null, $dateStr)) {
+                    $schoolClassIds[] = $recurring->id;
+                }
+
+                continue;
+            }
+            $occurrences = $this->expand($recurring, $date, $date, $schoolClassExceptionMap[$recurring->id] ?? null);
+            if (collect($occurrences)->contains(fn ($d) => $d->format('Y-m-d') === $dateStr)) {
+                $schoolClassIds[] = $recurring->id;
+            }
+        }
+
+        return [
+            'task_ids' => $taskIds,
+            'event_ids' => $eventIds,
+            'recurring_school_class_ids' => $schoolClassIds,
+        ];
     }
 
     /**
@@ -251,10 +294,37 @@ class RecurrenceExpander
     }
 
     /**
+     * Preload SchoolClassExceptions for multiple recurring school classes in one query.
+     *
+     * @return array<int, Collection<int, SchoolClassException>>
+     */
+    private function preloadSchoolClassExceptions(Collection $recurringSchoolClassIds, CarbonInterface $start, CarbonInterface $end): array
+    {
+        if ($recurringSchoolClassIds->isEmpty()) {
+            return [];
+        }
+
+        $exceptions = SchoolClassException::query()
+            ->whereIn('recurring_school_class_id', $recurringSchoolClassIds)
+            ->where(function ($q) use ($start, $end): void {
+                $q->whereBetween('exception_date', [$start, $end])
+                    ->orWhereHas('replacementInstance', fn ($r) => $r->whereBetween('instance_date', [$start, $end]));
+            })
+            ->with('replacementInstance')
+            ->get();
+
+        return $exceptions->groupBy('recurring_school_class_id')->all();
+    }
+
+    /**
      * @return array<CarbonInterface>
      */
-    private function expandDaily(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
-    {
+    private function expandDaily(
+        RecurringTask|RecurringEvent|RecurringSchoolClass $recurring,
+        Carbon $effectiveStart,
+        Carbon $effectiveEnd,
+        int $interval
+    ): array {
         if ($recurring->start_datetime === null) {
             $dates = [];
             $current = $effectiveStart->copy()->startOfDay();
@@ -284,8 +354,12 @@ class RecurrenceExpander
     /**
      * @return array<CarbonInterface>
      */
-    private function expandWeekly(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
-    {
+    private function expandWeekly(
+        RecurringTask|RecurringEvent|RecurringSchoolClass $recurring,
+        Carbon $effectiveStart,
+        Carbon $effectiveEnd,
+        int $interval
+    ): array {
         $anchorStart = $this->resolveRecurrenceAnchorStart($recurring);
         if ($anchorStart === null) {
             return [];
@@ -320,8 +394,12 @@ class RecurrenceExpander
     /**
      * @return array<CarbonInterface>
      */
-    private function expandMonthly(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
-    {
+    private function expandMonthly(
+        RecurringTask|RecurringEvent|RecurringSchoolClass $recurring,
+        Carbon $effectiveStart,
+        Carbon $effectiveEnd,
+        int $interval
+    ): array {
         $anchorStart = $this->resolveRecurrenceAnchorStart($recurring);
         if ($anchorStart === null) {
             return [];
@@ -347,8 +425,12 @@ class RecurrenceExpander
     /**
      * @return array<CarbonInterface>
      */
-    private function expandYearly(RecurringTask|RecurringEvent $recurring, Carbon $effectiveStart, Carbon $effectiveEnd, int $interval): array
-    {
+    private function expandYearly(
+        RecurringTask|RecurringEvent|RecurringSchoolClass $recurring,
+        Carbon $effectiveStart,
+        Carbon $effectiveEnd,
+        int $interval
+    ): array {
         $anchorStart = $this->resolveRecurrenceAnchorStart($recurring);
         if ($anchorStart === null) {
             return [];
@@ -386,7 +468,7 @@ class RecurrenceExpander
         return is_array($decoded) ? array_map('intval', $decoded) : [];
     }
 
-    private function resolveRecurrenceAnchorStart(RecurringTask|RecurringEvent $recurring): ?Carbon
+    private function resolveRecurrenceAnchorStart(RecurringTask|RecurringEvent|RecurringSchoolClass $recurring): ?Carbon
     {
         if ($recurring->start_datetime !== null) {
             return Carbon::parse($recurring->start_datetime);
@@ -401,6 +483,12 @@ class RecurrenceExpander
 
             if ($recurring->task?->created_at !== null) {
                 return Carbon::parse($recurring->task->created_at);
+            }
+        } elseif ($recurring instanceof RecurringSchoolClass) {
+            $recurring->loadMissing('schoolClass:id,created_at');
+
+            if ($recurring->schoolClass?->created_at !== null) {
+                return Carbon::parse($recurring->schoolClass->created_at);
             }
         } else {
             $recurring->loadMissing('event:id,created_at');

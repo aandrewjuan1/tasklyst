@@ -209,6 +209,10 @@ select:focus[data-flux-control] {
         @apply border border-zinc-200/80 border-l-4 border-l-emerald-600/55 bg-white shadow-sm ring-1 ring-zinc-200/35 dark:border-zinc-700/70 dark:border-l-emerald-500/50 dark:bg-zinc-900/40 dark:ring-zinc-700/40;
     }
 
+    .lic-surface-school-class {
+        @apply border border-zinc-200/80 border-l-4 border-l-amber-500/60 bg-white shadow-sm ring-1 ring-zinc-200/35 dark:border-zinc-700/70 dark:border-l-amber-400/50 dark:bg-zinc-900/40 dark:ring-zinc-700/40;
+    }
+
     /**
      * List + kanban: item kind badge (Task / Event / Project).
      */
@@ -248,6 +252,10 @@ select:focus[data-flux-control] {
 
     .lic-item-type-pill--project {
         @apply border-emerald-500/50 bg-emerald-100 text-emerald-950 dark:border-emerald-500/45 dark:bg-emerald-950/55 dark:text-emerald-100;
+    }
+
+    .lic-item-type-pill--school-class {
+        @apply border-amber-500/50 bg-amber-100 text-amber-950 dark:border-amber-500/45 dark:bg-amber-950/55 dark:text-amber-100;
     }
 
     /**

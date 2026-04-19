@@ -79,7 +79,7 @@ test('workspace list view shows empty hint on item creation when there are no it
         ->assertSee('data-test="workspace-item-creation"', false)
         ->assertSee('data-test="workspace-item-creation-empty"', false)
         ->assertSee(
-            __('No tasks, projects, or events for :date', ['date' => __('today')]),
+            __('No tasks, projects, events, or classes for :date', ['date' => __('today')]),
             false
         );
 });

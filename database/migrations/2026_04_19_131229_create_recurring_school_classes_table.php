@@ -1,0 +1,33 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('recurring_school_classes', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('school_class_id')->unique()->constrained()->cascadeOnDelete();
+            $table->enum('recurrence_type', ['daily', 'weekly', 'monthly', 'yearly']);
+            $table->integer('interval');
+            $table->dateTime('start_datetime')->nullable();
+            $table->dateTime('end_datetime')->nullable();
+            $table->string('days_of_week')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('recurring_school_classes');
+    }
+};

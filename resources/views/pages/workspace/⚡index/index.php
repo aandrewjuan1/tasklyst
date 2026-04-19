@@ -27,6 +27,7 @@ use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
 use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\UpdateProjectPropertyAction;
+use App\Actions\SchoolClass\CreateSchoolClassAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
 use App\Actions\Task\CreateTaskAction;
@@ -48,6 +49,7 @@ use App\Livewire\Concerns\HandlesFiltering;
 use App\Livewire\Concerns\HandlesFocusSessions;
 use App\Livewire\Concerns\HandlesPomodoroSettings;
 use App\Livewire\Concerns\HandlesProjects;
+use App\Livewire\Concerns\HandlesSchoolClasses;
 use App\Livewire\Concerns\HandlesTags;
 use App\Livewire\Concerns\HandlesTasks;
 use App\Livewire\Concerns\HandlesWorkspaceCalendar;
@@ -55,11 +57,13 @@ use App\Models\AssistantSchedulePlanItem;
 use App\Models\CalendarFeed;
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\EventService;
 use App\Services\ProjectService;
+use App\Services\SchoolClassService;
 use App\Services\TagService;
 use App\Services\TaskService;
 use App\Support\WorkspaceListAggregator;
@@ -91,6 +95,7 @@ class extends Component
     use HandlesFocusSessions;
     use HandlesPomodoroSettings;
     use HandlesProjects;
+    use HandlesSchoolClasses;
     use HandlesTags;
     use HandlesTasks;
     use HandlesWorkspaceCalendar;
@@ -163,11 +168,15 @@ class extends Component
 
     protected EventService $eventService;
 
+    protected SchoolClassService $schoolClassService;
+
     protected TagService $tagService;
 
     protected CreateEventAction $createEventAction;
 
     protected CreateProjectAction $createProjectAction;
+
+    protected CreateSchoolClassAction $createSchoolClassAction;
 
     protected CreateTagAction $createTagAction;
 
@@ -252,9 +261,11 @@ class extends Component
         TaskService $taskService,
         ProjectService $projectService,
         EventService $eventService,
+        SchoolClassService $schoolClassService,
         TagService $tagService,
         CreateEventAction $createEventAction,
         CreateProjectAction $createProjectAction,
+        CreateSchoolClassAction $createSchoolClassAction,
         CreateTagAction $createTagAction,
         CreateTaskAction $createTaskAction,
         DeleteEventAction $deleteEventAction,
@@ -291,9 +302,11 @@ class extends Component
         $this->taskService = $taskService;
         $this->projectService = $projectService;
         $this->eventService = $eventService;
+        $this->schoolClassService = $schoolClassService;
         $this->tagService = $tagService;
         $this->createEventAction = $createEventAction;
         $this->createProjectAction = $createProjectAction;
+        $this->createSchoolClassAction = $createSchoolClassAction;
         $this->createTagAction = $createTagAction;
         $this->createTaskAction = $createTaskAction;
         $this->deleteEventAction = $deleteEventAction;
@@ -349,6 +362,7 @@ class extends Component
             $this->authorize('viewAny', Task::class);
             $this->authorize('viewAny', Event::class);
             $this->authorize('viewAny', Project::class);
+            $this->authorize('viewAny', SchoolClass::class);
             $this->authorize('viewAny', Tag::class);
         }
         if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
@@ -606,6 +620,7 @@ class extends Component
             $this->projects,
             $this->events,
             $this->tasks,
+            $this->schoolClassesForWorkspaceList,
         );
     }
 
@@ -621,6 +636,7 @@ class extends Component
             $this->completedProjects,
             $this->completedEvents,
             $this->completedTasks,
+            collect(),
         );
     }
 
@@ -1262,7 +1278,7 @@ class extends Component
      */
     protected function clearPaginatedWorkspaceListCaches(): void
     {
-        unset($this->tasks, $this->events, $this->projects);
+        unset($this->tasks, $this->events, $this->projects, $this->schoolClassesForSelectedDate, $this->schoolClassesForWorkspaceList);
     }
 
     /**

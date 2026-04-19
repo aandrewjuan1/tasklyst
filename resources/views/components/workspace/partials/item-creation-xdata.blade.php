@@ -51,13 +51,27 @@
                 startDatetime: null,
                 endDatetime: null,
             },
+            schoolClass: {
+                subjectName: '',
+                teacherName: '',
+                startDatetime: null,
+                endDatetime: null,
+                recurrence: {
+                    enabled: false,
+                    type: null,
+                    interval: 1,
+                    daysOfWeek: [],
+                },
+            },
         },
         validateDateRange() {
             this.errors.dateRange = null;
 
             const dates = this.creationKind === 'project'
                 ? { start: this.formData.project.startDatetime, end: this.formData.project.endDatetime }
-                : { start: this.formData.item.startDatetime, end: this.formData.item.endDatetime };
+                : this.creationKind === 'schoolClass'
+                    ? { start: this.formData.schoolClass.startDatetime, end: this.formData.schoolClass.endDatetime }
+                    : { start: this.formData.item.startDatetime, end: this.formData.item.endDatetime };
             const start = dates.start;
             const end = dates.end;
 
@@ -96,6 +110,9 @@
         creationCardSurfaceClass() {
             if (this.creationKind === 'project') {
                 return 'lic-surface-project';
+            }
+            if (this.creationKind === 'schoolClass') {
+                return 'lic-surface-school-class';
             }
             if (this.creationKind === 'event') {
                 return 'lic-surface-event';
@@ -143,6 +160,19 @@
                 this.formData.project.startDatetime = null;
                 this.formData.project.endDatetime = null;
             }
+
+            this.formData.schoolClass = {
+                subjectName: '',
+                teacherName: '',
+                startDatetime: null,
+                endDatetime: null,
+                recurrence: {
+                    enabled: false,
+                    type: null,
+                    interval: 1,
+                    daysOfWeek: [],
+                },
+            };
         },
         scheduleFocusCreationTitle() {
             const resolveInput = (root) => {
@@ -190,7 +220,9 @@
                 const root =
                     this.creationKind === 'project'
                         ? this.$refs.projectName
-                        : this.$refs.taskTitle;
+                        : this.creationKind === 'schoolClass'
+                            ? this.$refs.schoolClassSubject
+                            : this.$refs.taskTitle;
                 let input = resolveInput(root);
 
                 if (
@@ -257,7 +289,8 @@
                 this.showItemCreation &&
                 ((kind === 'task' && this.creationKind === 'task') ||
                     (kind === 'event' && this.creationKind === 'event') ||
-                    (kind === 'project' && this.creationKind === 'project'));
+                    (kind === 'project' && this.creationKind === 'project') ||
+                    (kind === 'schoolClass' && this.creationKind === 'schoolClass'));
 
             if (isToggleClose) {
                 this.showItemCreation = false;
@@ -293,6 +326,25 @@
                 this.formData.project.description = null;
                 this.formData.project.startDatetime = null;
                 this.formData.project.endDatetime = null;
+                this.showItemCreation = true;
+
+                return;
+            }
+
+            if (kind === 'schoolClass') {
+                this.creationKind = 'schoolClass';
+                this.formData.schoolClass = {
+                    subjectName: '',
+                    teacherName: '',
+                    startDatetime: null,
+                    endDatetime: null,
+                    recurrence: {
+                        enabled: false,
+                        type: null,
+                        interval: 1,
+                        daysOfWeek: [],
+                    },
+                };
                 this.showItemCreation = true;
             }
         },
@@ -609,6 +661,54 @@
             const minLoadingMs = 150;
 
             this.workspaceWire().$call('createProject', payload)
+                .finally(() => {
+                    const elapsed = Date.now() - this.loadingStartedAt;
+                    const remaining = Math.max(0, minLoadingMs - elapsed);
+                    setTimeout(() => {
+                        this.showItemLoading = false;
+                        this.isSubmitting = false;
+                    }, remaining);
+                });
+        },
+        submitSchoolClass() {
+            if (this.isSubmitting) {
+                return;
+            }
+
+            if (!this.formData.schoolClass.subjectName || !this.formData.schoolClass.subjectName.trim()) {
+                return;
+            }
+
+            if (!this.formData.schoolClass.teacherName || !String(this.formData.schoolClass.teacherName).trim()) {
+                return;
+            }
+
+            if (!this.formData.schoolClass.startDatetime || !this.formData.schoolClass.endDatetime) {
+                return;
+            }
+
+            if (!this.validateDateRange()) {
+                return;
+            }
+
+            this.isSubmitting = true;
+            this.formData.schoolClass.subjectName = this.formData.schoolClass.subjectName.trim();
+            this.formData.schoolClass.teacherName = String(this.formData.schoolClass.teacherName).trim();
+
+            this.showItemCreation = false;
+            this.showItemLoading = true;
+            this.loadingStartedAt = Date.now();
+
+            const payload = {
+                subjectName: this.formData.schoolClass.subjectName,
+                teacherName: this.formData.schoolClass.teacherName,
+                startDatetime: this.formData.schoolClass.startDatetime,
+                endDatetime: this.formData.schoolClass.endDatetime,
+                recurrence: JSON.parse(JSON.stringify(this.formData.schoolClass.recurrence)),
+            };
+            const minLoadingMs = 150;
+
+            this.workspaceWire().$call('createSchoolClass', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);

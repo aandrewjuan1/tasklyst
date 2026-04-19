@@ -63,8 +63,8 @@
                                 <input
                                     type="search"
                                     wire:model.live.debounce.300ms="searchQuery"
-                                    placeholder="{{ __('Search tasks, events, projects…') }}"
-                                    aria-label="{{ __('Search tasks, events, and projects') }}"
+                                    placeholder="{{ __('Search tasks, events, projects, classes…') }}"
+                                    aria-label="{{ __('Search tasks, events, projects, and classes') }}"
                                     autocomplete="off"
                                     class="h-10 min-h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/30 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-brand-blue/40"
                                 />

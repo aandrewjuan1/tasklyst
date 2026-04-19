@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -18,6 +19,7 @@ final class WorkspaceListAggregator
      * @param  Collection<int, Project>  $projects
      * @param  Collection<int, Event>  $events
      * @param  Collection<int, Task>  $tasks
+     * @param  Collection<int, SchoolClass>  $schoolClasses
      * @return Collection<int, array{kind: string, item: Model, isOverdue: bool}>
      */
     public static function mergeOrderAndDedupe(
@@ -25,6 +27,7 @@ final class WorkspaceListAggregator
         Collection $projects,
         Collection $events,
         Collection $tasks,
+        Collection $schoolClasses,
     ): Collection {
         $overdueItems = $overdue->map(fn (array $entry): array => array_merge($entry, ['isOverdue' => true]));
 
@@ -41,6 +44,11 @@ final class WorkspaceListAggregator
             ]))
             ->merge($tasks->map(fn (Task $item): array => [
                 'kind' => 'task',
+                'item' => $item,
+                'isOverdue' => self::modelEndIsPast($item),
+            ]))
+            ->merge($schoolClasses->map(fn (SchoolClass $item): array => [
+                'kind' => 'schoolClass',
                 'item' => $item,
                 'isOverdue' => self::modelEndIsPast($item),
             ]));
@@ -76,7 +84,7 @@ final class WorkspaceListAggregator
         return collect([...$overdueStrip, ...$dayStrip])->values();
     }
 
-    private static function modelEndIsPast(Project|Event|Task $model): bool
+    private static function modelEndIsPast(Project|Event|Task|SchoolClass $model): bool
     {
         $end = $model->end_datetime;
 
@@ -132,6 +140,7 @@ final class WorkspaceListAggregator
             'task' => self::taskDaySortTimestamp($item),
             'event' => self::eventDaySortTimestamp($item),
             'project' => self::projectDaySortTimestamp($item),
+            'schoolClass' => self::schoolClassDaySortTimestamp($item),
             default => PHP_INT_MAX,
         };
     }
@@ -161,6 +170,17 @@ final class WorkspaceListAggregator
     private static function projectDaySortTimestamp(Model $item): int
     {
         if (! $item instanceof Project) {
+            return PHP_INT_MAX;
+        }
+
+        $dt = $item->start_datetime ?? $item->end_datetime;
+
+        return $dt !== null ? $dt->getTimestamp() : PHP_INT_MAX;
+    }
+
+    private static function schoolClassDaySortTimestamp(Model $item): int
+    {
+        if (! $item instanceof SchoolClass) {
             return PHP_INT_MAX;
         }
 
