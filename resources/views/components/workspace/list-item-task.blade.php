@@ -1140,7 +1140,7 @@
                         <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                             {{ __('Duration') }}:
                         </span>
-                        <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
+                        <span class="font-bold uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
                     </span>
                     <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
                 </button>
@@ -1232,7 +1232,7 @@
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                         {{ __('Duration') }}:
                     </span>
-                    <span class="uppercase">
+                    <span class="font-bold uppercase">
                         {{ $durationInitialLabel }}
                     </span>
                 </span>

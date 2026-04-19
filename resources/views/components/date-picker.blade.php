@@ -612,7 +612,7 @@
                     <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
                         <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
                     </span>
-                    <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+                    <span class="date-picker-trigger-value text-xs font-bold uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
                 </span>
             @else
                 <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
