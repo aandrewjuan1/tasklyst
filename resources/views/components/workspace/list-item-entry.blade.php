@@ -3,6 +3,7 @@
     'listFilterDate',
     'filters' => [],
     'tags',
+    'teachers' => [],
     'activeFocusSession' => null,
     'defaultWorkDurationMinutes' => 25,
     'pomodoroSettings' => null,
@@ -31,6 +32,7 @@
     :list-filter-date="$listFilterDate"
     :filters="$filters"
     :available-tags="$tags"
+    :teachers="$teachers"
     :is-overdue="$isOverdueForCard"
     :active-focus-session="$activeFocusSession"
     :default-work-duration-minutes="$defaultWorkDurationMinutes"

@@ -2,10 +2,13 @@
     'position' => 'bottom',
     'align' => 'end',
     'readonly' => false,
+    'initialLabel' => null,
+    'initialSelected' => false,
 ])
 
 @php
     $readonly = filter_var($readonly, FILTER_VALIDATE_BOOLEAN);
+    $initialSelected = filter_var($initialSelected, FILTER_VALIDATE_BOOLEAN);
 @endphp
 
 {{-- Popover state lives on item-creation root (same scope as newTeacherName) so Flux inputs resolve x-model; nested x-data breaks $parent inside Flux. --}}
@@ -30,7 +33,7 @@
             aria-haspopup="true"
             :aria-expanded="teacherPopoverOpen"
             :aria-controls="$id('teacher-selection-dropdown')"
-            class="inline-flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 text-left font-semibold text-muted-foreground outline-none transition-[box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10"
+            class="inline-flex w-max max-w-full cursor-pointer items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 text-left font-semibold text-muted-foreground outline-none transition-[box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 {{ $initialSelected ? 'bg-amber-800/10 text-amber-800' : '' }}"
             :class="[
                 teacherPopoverOpen ? 'shadow-md ring-1 ring-border/50 scale-[1.02]' : '',
                 schoolClassTeacherTriggerLabel() ? 'bg-amber-800/10 text-amber-800' : '',
@@ -42,10 +45,10 @@
         <span class="inline-flex min-w-0 items-baseline gap-1">
             <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Teacher') }}:</span>
             <span
-                class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs uppercase leading-tight sm:max-w-[16rem]"
+                class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs uppercase leading-tight sm:max-w-[16rem] {{ $initialSelected ? 'font-semibold text-amber-800' : 'text-muted-foreground' }}"
                 :class="schoolClassTeacherTriggerLabel() ? 'font-semibold text-amber-800' : 'text-muted-foreground'"
                 x-text="schoolClassTeacherTriggerLabel() || @js(__('Add teacher'))"
-            ></span>
+            >{{ $initialLabel ?? __('Add teacher') }}</span>
         </span>
         <flux:icon name="chevron-down" class="size-3 shrink-0 text-muted-foreground opacity-80" />
     </button>
@@ -110,7 +113,7 @@
                 <template x-for="teacher in mergedSchoolClassTeachers()" :key="String(teacher.id)">
                     <div
                         class="group flex cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        :class="isSchoolClassTeacherSelected(teacher.id) ? 'bg-muted/90 ring-1 ring-border/60 dark:bg-zinc-800/80' : ''"
+                        :class="isSchoolClassTeacherSelected(teacher.id) ? 'bg-muted/90 dark:bg-zinc-800/80' : ''"
                         @click="selectSchoolClassTeacher(teacher)"
                         role="menuitemradio"
                         :aria-checked="isSchoolClassTeacherSelected(teacher.id)"

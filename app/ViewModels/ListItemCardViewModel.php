@@ -461,6 +461,24 @@ class ListItemCardViewModel
             'taskStartDatetime' => $kind === 'task' ? ($data['startDatetimeInitial'] ?? null) : null,
             'taskEndDatetime' => $kind === 'task' ? ($data['endDatetimeInitial'] ?? null) : null,
             'eventStatus' => $kind === 'event' ? ($data['eventEffectiveStatus']?->value ?? null) : null,
+            'schoolClassTeacherName' => $kind === 'schoolclass' ? ($item->teacher?->name ?? null) : null,
+            'schoolClassStartDatetime' => $kind === 'schoolclass' ? ($item->start_datetime?->toIso8601String()) : null,
+            'schoolClassEndDatetime' => $kind === 'schoolclass'
+                ? (($item->recurringSchoolClass?->end_datetime ?? $item->end_datetime)?->toIso8601String())
+                : null,
+            'schoolClassRecurrence' => $kind === 'schoolclass'
+                ? ($item->recurringSchoolClass ? [
+                    'enabled' => true,
+                    'type' => $item->recurringSchoolClass->recurrence_type?->value,
+                    'interval' => $item->recurringSchoolClass->interval ?? 1,
+                    'daysOfWeek' => $item->recurringSchoolClass->days_of_week ? (json_decode($item->recurringSchoolClass->days_of_week, true) ?? []) : [],
+                ] : [
+                    'enabled' => false,
+                    'type' => null,
+                    'interval' => 1,
+                    'daysOfWeek' => [],
+                ])
+                : null,
             'sourceUrl' => $kind === 'task' ? ($item->source_url ?? null) : null,
             'hasTaskDurationTarget' => $hasTaskDurationTarget,
             'taskTargetDurationSeconds' => $taskTargetDurationSeconds,

@@ -4,6 +4,7 @@
     'listFilterDate' => null,
     'filters' => [],
     'availableTags' => [],
+    'teachers' => [],
     'isOverdue' => false,
     'activeFocusSession' => null,
     'defaultWorkDurationMinutes' => 25,
@@ -222,7 +223,11 @@
                     :layout="$layout"
                 />
             @elseif($kind === 'schoolclass')
-                <x-workspace.list-item-school-class :school-class="$item" />
+                <x-workspace.list-item-school-class
+                    :school-class="$item"
+                    :teachers="$teachers"
+                    :update-property-method="$updatePropertyMethod"
+                />
             @endif
         </div>
         </div>

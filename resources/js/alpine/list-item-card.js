@@ -1181,9 +1181,25 @@ export function listItemCard(config) {
                  if (d && d.property === 'title' && this.kind === 'task') {
                      this.editedTitle = d.value ?? '';
                  }
-                 if (d && d.property === 'subjectName' && this.kind === 'schoolclass') {
-                     this.editedTitle = d.value ?? '';
-                 }
+                if (this.kind === 'schoolclass' && d && d.property) {
+                    if (d.property === 'subjectName') {
+                        this.editedTitle = d.value ?? '';
+                    }
+                    if (d.property === 'teacherName') {
+                        this.schoolClassTeacherName = d.value ?? '';
+                    }
+                    if (d.property === 'startDatetime') {
+                        this.schoolClassStartDatetime = d.value ?? null;
+                    }
+                    if (d.property === 'endDatetime') {
+                        this.schoolClassEndDatetime = d.value ?? null;
+                    }
+                    if (d.property === 'recurrence' && d.value !== undefined) {
+                        this.schoolClassRecurrence = typeof d.value === 'object' && d.value !== null
+                            ? JSON.parse(JSON.stringify(d.value))
+                            : d.value;
+                    }
+                }
                  if (d && d.property === 'description' && this.kind === 'task') {
                      this.editedDescription = d.value ?? '';
                  }

@@ -526,7 +526,7 @@
                         class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs uppercase leading-tight sm:max-w-[16rem]"
                         :class="enabled && formatDisplayValue() !== notSetLabel ? 'font-semibold text-stone-600 dark:text-stone-400' : 'text-muted-foreground'"
                         x-text="enabled ? formatDisplayValue() : notSetLabel"
-                    ></span>
+                    >{{ $isInitiallyEnabled ? $initialDisplayLabel : $notSetLabel }}</span>
                 </span>
                 @if (! $readonly)
                     <flux:icon name="chevron-down" class="size-3 shrink-0 opacity-80" />

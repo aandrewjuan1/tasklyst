@@ -234,6 +234,30 @@ test('school class list item card config uses subjectName for inline title edits
         ->and($alpineConfig['editedTitle'])->toBe('Biology');
 });
 
+test('school class list item uses editable popover components', function (): void {
+    $path = resource_path('views/components/workspace/list-item-school-class.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('x-workspace.teacher-selection')
+        ->and($contents)->toContain('x-workspace.school-class-hours-selection')
+        ->and($contents)->toContain('x-recurring-selection')
+        ->and($contents)->toContain('updatePropertyMethod')
+        ->and($contents)->toContain('updateProperty(\'teacherName\'')
+        ->and($contents)->toContain('handleDatePickerUpdated')
+        ->and($contents)->toContain('handleRecurringSelectionUpdated');
+});
+
+test('school class list item entry and card pass teachers and update method props', function (): void {
+    $entryPath = resource_path('views/components/workspace/list-item-entry.blade.php');
+    $entryContents = file_get_contents($entryPath);
+    $cardPath = resource_path('views/components/workspace/list-item-card.blade.php');
+    $cardContents = file_get_contents($cardPath);
+
+    expect($entryContents)->toContain(':teachers="$teachers"')
+        ->and($cardContents)->toContain(':update-property-method="$updatePropertyMethod"')
+        ->and($cardContents)->toContain(':teachers="$teachers"');
+});
+
 test('updateSchoolClassProperty updates allowed school class property', function (): void {
     $this->actingAs($this->user);
     $schoolClass = SchoolClass::factory()->for($this->user)->create([
