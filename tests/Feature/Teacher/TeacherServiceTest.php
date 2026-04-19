@@ -1,6 +1,5 @@
 <?php
 
-use App\Exceptions\TeacherCannotBeDeletedException;
 use App\Exceptions\TeacherDisplayNameConflictException;
 use App\Models\SchoolClass;
 use App\Models\Teacher;
@@ -48,13 +47,19 @@ test('delete teacher removes teacher from database when not referenced', functio
 
     $result = $this->service->deleteTeacher($teacher);
 
-    expect($result)->toBeTrue()
+    expect($result['deleted'])->toBeTrue()
+        ->and($result['affectedClassCount'])->toBe(0)
         ->and(Teacher::find($teacher->id))->toBeNull();
 });
 
-test('delete teacher throws when school class references teacher', function (): void {
+test('delete teacher unassigns school classes and deletes teacher when referenced', function (): void {
     $teacher = Teacher::factory()->for($this->user)->create();
-    SchoolClass::factory()->for($this->user)->create(['teacher_id' => $teacher->id]);
+    $class = SchoolClass::factory()->for($this->user)->create(['teacher_id' => $teacher->id]);
 
-    $this->service->deleteTeacher($teacher);
-})->throws(TeacherCannotBeDeletedException::class);
+    $result = $this->service->deleteTeacher($teacher);
+
+    expect($result['deleted'])->toBeTrue()
+        ->and($result['affectedClassCount'])->toBe(1)
+        ->and(Teacher::find($teacher->id))->toBeNull()
+        ->and($class->fresh()->teacher_id)->toBeNull();
+});

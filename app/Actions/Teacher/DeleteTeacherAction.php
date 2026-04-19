@@ -11,7 +11,10 @@ class DeleteTeacherAction
         private TeacherService $teacherService
     ) {}
 
-    public function execute(Teacher $teacher): bool
+    /**
+     * @return array{deleted: bool, affectedClassCount: int}
+     */
+    public function execute(Teacher $teacher): array
     {
         return $this->teacherService->deleteTeacher($teacher);
     }

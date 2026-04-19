@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Exceptions\TeacherCannotBeDeletedException;
 use App\Exceptions\TeacherDisplayNameConflictException;
 use App\Models\SchoolClass;
 use App\Models\Teacher;
@@ -54,16 +53,19 @@ class TeacherService
     }
 
     /**
-     * @throws TeacherCannotBeDeletedException
+     * @return array{deleted: bool, affectedClassCount: int}
      */
-    public function deleteTeacher(Teacher $teacher): bool
+    public function deleteTeacher(Teacher $teacher): array
     {
-        if (SchoolClass::query()->where('teacher_id', $teacher->id)->exists()) {
-            throw TeacherCannotBeDeletedException::make();
-        }
+        return DB::transaction(function () use ($teacher): array {
+            $affectedClassCount = SchoolClass::query()
+                ->where('teacher_id', $teacher->id)
+                ->update(['teacher_id' => null]);
 
-        return DB::transaction(function () use ($teacher): bool {
-            return (bool) $teacher->delete();
+            return [
+                'deleted' => (bool) $teacher->delete(),
+                'affectedClassCount' => (int) $affectedClassCount,
+            ];
         });
     }
 }

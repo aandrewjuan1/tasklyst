@@ -536,10 +536,14 @@
             return name || '';
         },
         teacherPopoverOpen: false,
+        teacherDeleteMode: false,
         teacherPopoverPlacementVertical: 'bottom',
         teacherPopoverPlacementHorizontal: 'end',
         teacherPopoverPanelHeightEst: 240,
         teacherPopoverPanelWidthEst: 260,
+        toggleTeacherDeleteMode() {
+            this.teacherDeleteMode = !this.teacherDeleteMode;
+        },
         toggleTeacherPopover() {
             if (this.teacherPopoverOpen) {
                 return this.closeTeacherPopover(this.$refs.teacherSelectionTrigger);
@@ -586,6 +590,7 @@
             }
 
             this.teacherPopoverOpen = false;
+            this.teacherDeleteMode = false;
             const leaveMs = 50;
             setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
 

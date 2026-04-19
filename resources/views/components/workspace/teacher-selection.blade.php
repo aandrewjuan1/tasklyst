@@ -85,6 +85,25 @@
                 >
                     <flux:icon name="paper-airplane" class="size-3.5" />
                 </button>
+                <flux:tooltip :content="__('Manage deletions')" position="left">
+                    <button
+                        type="button"
+                        class="cursor-pointer shrink-0 rounded-md p-1 transition hover:bg-muted/80"
+                        :class="teacherDeleteMode ? 'bg-red-500/10 text-red-600 dark:text-red-400' : 'text-muted-foreground'"
+                        :aria-pressed="teacherDeleteMode"
+                        @click="toggleTeacherDeleteMode()"
+                        aria-label="{{ __('Toggle delete mode') }}"
+                    >
+                        <flux:icon name="trash" class="size-3.5" />
+                    </button>
+                </flux:tooltip>
+            </div>
+            <div
+                x-show="teacherDeleteMode"
+                x-cloak
+                class="mx-3 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-700 dark:text-red-300"
+            >
+                {{ __('Deleting a teacher here also unassigns them from other classes.') }}
             </div>
 
             <div class="max-h-44 overflow-y-auto">
@@ -108,17 +127,19 @@
                             ></span>
                         </span>
                         <span x-text="teacher.name" class="min-w-0 flex-1 truncate text-left"></span>
-                        <flux:tooltip :content="__('Delete teacher')" position="left">
-                            <button
-                                type="button"
-                                @click.stop="$dispatch('teacher-delete-request', { teacher })"
-                                x-bind:disabled="deletingTeacherIds?.has(teacher.id)"
-                                class="cursor-pointer shrink-0 rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="{{ __('Delete teacher') }}"
-                            >
-                                <flux:icon name="x-mark" class="size-3.5" />
-                            </button>
-                        </flux:tooltip>
+                        <template x-if="teacherDeleteMode">
+                            <flux:tooltip :content="__('Delete teacher')" position="left">
+                                <button
+                                    type="button"
+                                    @click.stop="$dispatch('teacher-delete-request', { teacher })"
+                                    x-bind:disabled="deletingTeacherIds?.has(teacher.id)"
+                                    class="cursor-pointer shrink-0 rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label="{{ __('Delete teacher') }}"
+                                >
+                                    <flux:icon name="x-mark" class="size-3.5" />
+                                </button>
+                            </flux:tooltip>
+                        </template>
                     </div>
                 </template>
                 <div

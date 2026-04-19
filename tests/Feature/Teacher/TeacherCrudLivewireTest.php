@@ -42,15 +42,22 @@ test('owner can delete teacher and teacher is removed', function (): void {
     expect(Teacher::find($teacherId))->toBeNull();
 });
 
-test('delete teacher fails when school class references teacher', function (): void {
+test('delete teacher unassigns school classes when teacher is referenced', function (): void {
     $this->actingAs($this->owner);
     $teacher = Teacher::factory()->for($this->owner)->create(['name' => 'In use']);
-    SchoolClass::factory()->for($this->owner)->create(['teacher_id' => $teacher->id]);
+    $class = SchoolClass::factory()->for($this->owner)->create(['teacher_id' => $teacher->id]);
 
     Livewire::test('pages::workspace.index')
-        ->call('deleteTeacher', $teacher->id);
+        ->call('deleteTeacher', $teacher->id)
+        ->assertDispatched('teacher-deleted', id: $teacher->id, affectedClassCount: 1)
+        ->assertDispatched(
+            'toast',
+            type: 'success',
+            message: __('Teacher ":name" deleted and removed from :count class.', ['name' => 'In use', 'count' => 1]),
+        );
 
-    expect(Teacher::find($teacher->id))->not->toBeNull();
+    expect(Teacher::find($teacher->id))->toBeNull()
+        ->and($class->fresh()->teacher_id)->toBeNull();
 });
 
 test('delete teacher with non existent id does not throw', function (): void {

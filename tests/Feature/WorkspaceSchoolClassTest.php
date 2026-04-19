@@ -49,6 +49,34 @@ test('creation school class fields includes teacher selection component', functi
         ->and($contents)->toContain('flux:tooltip');
 });
 
+test('teacher selection markup uses delete mode toggle and warning state', function (): void {
+    $path = resource_path('views/components/workspace/teacher-selection.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('toggleTeacherDeleteMode()')
+        ->and($contents)->toContain('x-show="teacherDeleteMode"')
+        ->and($contents)->toContain('x-if="teacherDeleteMode"')
+        ->and($contents)->toContain('Deleting a teacher here also unassigns them from other classes.')
+        ->and($contents)->toContain('teacher-delete-request');
+});
+
+test('item creation x-data resets teacher delete mode when popover closes', function (): void {
+    $path = resource_path('views/components/workspace/partials/item-creation-xdata.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('teacherDeleteMode: false')
+        ->and($contents)->toContain('this.teacherDeleteMode = false;');
+});
+
+test('item creation x-data clears selected teacher when teacher-deleted event is received', function (): void {
+    $path = resource_path('views/components/workspace/partials/item-creation-xdata.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->toContain('onTeacherDeleted(event)')
+        ->and($contents)->toContain('this.formData.schoolClass.teacherId = null;')
+        ->and($contents)->toContain("this.formData.schoolClass.teacherName = '';");
+});
+
 test('item creation x-data clears meeting date when recurring is chosen', function (): void {
     $path = resource_path('views/components/workspace/partials/item-creation-xdata.blade.php');
     $contents = file_get_contents($path);

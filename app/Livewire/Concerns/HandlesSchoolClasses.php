@@ -171,6 +171,15 @@ trait HandlesSchoolClasses
         }
     }
 
+    public function syncSchoolClassesAfterTeacherDeleted(int $teacherId): void
+    {
+        unset($teacherId);
+
+        if (method_exists($this, 'refreshWorkspaceItems')) {
+            $this->refreshWorkspaceItems();
+        }
+    }
+
     private function nonRecurringSchoolClassOverlapsDay(SchoolClass $class, Carbon $dayStart, Carbon $dayEnd): bool
     {
         $start = $class->start_datetime;

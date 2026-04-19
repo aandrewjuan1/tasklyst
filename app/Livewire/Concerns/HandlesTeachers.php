@@ -4,7 +4,6 @@ namespace App\Livewire\Concerns;
 
 use App\DataTransferObjects\Teacher\CreateTeacherDto;
 use App\DataTransferObjects\Teacher\UpdateTeacherDto;
-use App\Exceptions\TeacherCannotBeDeletedException;
 use App\Exceptions\TeacherDisplayNameConflictException;
 use App\Models\Teacher;
 use App\Support\Validation\TeacherPayloadValidation;
@@ -155,11 +154,7 @@ trait HandlesTeachers
         $this->authorize('delete', $teacher);
 
         try {
-            $deleted = $this->deleteTeacherAction->execute($teacher);
-        } catch (TeacherCannotBeDeletedException $e) {
-            $this->dispatch('toast', type: 'error', message: $e->getMessage());
-
-            return;
+            $result = $this->deleteTeacherAction->execute($teacher);
         } catch (\Throwable $e) {
             Log::error('Failed to delete teacher from workspace.', [
                 'user_id' => $user->id,
@@ -172,15 +167,22 @@ trait HandlesTeachers
             return;
         }
 
-        if (! $deleted) {
+        if (! $result['deleted']) {
             $this->dispatch('toast', type: 'error', message: __('Something went wrong deleting the teacher.'));
 
             return;
         }
 
-        $this->dispatch('teacher-deleted', id: $teacherId);
+        $this->dispatch('teacher-deleted', id: $teacherId, affectedClassCount: $result['affectedClassCount']);
+        if (method_exists($this, 'syncSchoolClassesAfterTeacherDeleted')) {
+            $this->syncSchoolClassesAfterTeacherDeleted($teacherId);
+        }
         if (! $silentToasts) {
-            $this->dispatch('toast', type: 'success', message: __('Teacher ":name" deleted.', ['name' => $teacher->name]));
+            $this->dispatch('toast', type: 'success', message: trans_choice(
+                'Teacher ":name" deleted and removed from :count class.|Teacher ":name" deleted and removed from :count classes.',
+                $result['affectedClassCount'],
+                ['name' => $teacher->name, 'count' => $result['affectedClassCount']]
+            ));
         }
         $this->dispatch('$refresh');
     }
