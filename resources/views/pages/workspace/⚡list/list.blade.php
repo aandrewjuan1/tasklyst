@@ -35,6 +35,7 @@
 
     <x-workspace.item-creation
         :tags="$tags"
+        :teachers="$teachers"
         :projects="$projects"
         :active-focus-session="$activeFocusSession"
         mode="list"

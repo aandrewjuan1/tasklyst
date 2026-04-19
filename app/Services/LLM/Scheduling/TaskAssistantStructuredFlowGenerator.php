@@ -566,7 +566,7 @@ final class TaskAssistantStructuredFlowGenerator
         $tasks = is_array($contextualSnapshot['tasks'] ?? null) ? $contextualSnapshot['tasks'] : [];
 
         $fetched = Task::query()
-            ->with(['tags', 'recurringTask'])
+            ->with(['tags', 'recurringTask', 'schoolClass.teacher'])
             ->forUser($userId)
             ->whereIn('id', $missing)
             ->get()
@@ -597,7 +597,7 @@ final class TaskAssistantStructuredFlowGenerator
                 'id' => $task->id,
                 'title' => Str::limit((string) $task->title, 160),
                 'subject_name' => $task->subject_name,
-                'teacher_name' => $task->teacher_name,
+                'teacher_name' => $task->resolvedTeacherName(),
                 'tags' => $task->tags->pluck('name')->values()->all(),
                 'status' => $task->status?->value,
                 'priority' => $task->priority?->value,
@@ -605,6 +605,7 @@ final class TaskAssistantStructuredFlowGenerator
                 'ends_at' => $task->end_datetime?->toIso8601String(),
                 'project_id' => $task->project_id,
                 'event_id' => $task->event_id,
+                'school_class_id' => $task->school_class_id,
                 'duration_minutes' => $task->duration,
                 'is_recurring' => $task->recurringTask !== null,
             ];

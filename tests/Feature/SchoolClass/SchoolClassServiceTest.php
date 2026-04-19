@@ -27,10 +27,13 @@ test('create school class sets user_id and required attributes', function (): vo
         'end_datetime' => $end,
     ]);
 
+    $class->load('teacher');
+
     expect($class)->toBeInstanceOf(SchoolClass::class)
         ->and($class->user_id)->toBe($this->user->id)
         ->and($class->subject_name)->toBe('Biology')
-        ->and($class->teacher_name)->toBe('Dr. Lee')
+        ->and($class->teacher)->not->toBeNull()
+        ->and($class->teacher->name)->toBe('Dr. Lee')
         ->and($class->start_datetime->equalTo($start))->toBeTrue()
         ->and($class->end_datetime->equalTo($end))->toBeTrue()
         ->and($class->exists)->toBeTrue();
@@ -57,8 +60,9 @@ test('create school class with recurrence enabled creates recurring school class
         ],
     ]);
 
-    $class->load('recurringSchoolClass');
-    expect($class->recurringSchoolClass)->not->toBeNull()
+    $class->load(['recurringSchoolClass', 'teacher']);
+    expect($class->teacher->name)->toBe('Dr. Smith')
+        ->and($class->recurringSchoolClass)->not->toBeNull()
         ->and($class->recurringSchoolClass->recurrence_type)->toBe(TaskRecurrenceType::Weekly)
         ->and($class->recurringSchoolClass->interval)->toBe(2)
         ->and(json_decode($class->recurringSchoolClass->days_of_week, true))->toEqual([1, 3])

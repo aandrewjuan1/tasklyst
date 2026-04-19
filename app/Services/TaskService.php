@@ -10,6 +10,7 @@ use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringTask;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\TaskException;
 use App\Models\TaskInstance;
@@ -41,6 +42,11 @@ class TaskService
 
             $recurrenceData = $attributes['recurrence'] ?? null;
             unset($attributes['recurrence']);
+
+            if (array_key_exists('school_class_id', $attributes)) {
+                $schoolClassId = $attributes['school_class_id'] !== null ? (int) $attributes['school_class_id'] : null;
+                $attributes = array_merge($attributes, $this->courseFieldsForSchoolClass($schoolClassId, $user->id));
+            }
 
             $task = Task::query()->create([
                 ...$attributes,
@@ -160,6 +166,11 @@ class TaskService
                 ? $attributes['status']
                 : TaskStatus::tryFrom((string) $attributes['status']);
             $attributes['completed_at'] = $status === TaskStatus::Done ? now() : null;
+        }
+
+        if (array_key_exists('school_class_id', $attributes)) {
+            $schoolClassId = $attributes['school_class_id'] !== null ? (int) $attributes['school_class_id'] : null;
+            $attributes = array_merge($attributes, $this->courseFieldsForSchoolClass($schoolClassId, (int) $task->user_id));
         }
 
         return DB::transaction(function () use ($task, $attributes): Task {
@@ -594,6 +605,34 @@ class TaskService
         }
 
         return $query->orderBy('exception_date')->get();
+    }
+
+    /**
+     * Resolve school class FK and course labels for storage. When unlinked, clears subject and teacher on the task.
+     * Teacher for linked tasks is read from the school class relationship, not denormalized onto tasks.teacher_name.
+     *
+     * @return array{school_class_id: ?int, subject_name: ?string, teacher_name: ?string}
+     */
+    private function courseFieldsForSchoolClass(?int $schoolClassId, int $userId): array
+    {
+        if ($schoolClassId === null) {
+            return [
+                'school_class_id' => null,
+                'subject_name' => null,
+                'teacher_name' => null,
+            ];
+        }
+
+        $schoolClass = SchoolClass::query()->forUser($userId)->find($schoolClassId);
+        if ($schoolClass === null) {
+            throw new \InvalidArgumentException('School class not found for user.');
+        }
+
+        return [
+            'school_class_id' => $schoolClass->id,
+            'subject_name' => $schoolClass->subject_name,
+            'teacher_name' => null,
+        ];
     }
 
     /**

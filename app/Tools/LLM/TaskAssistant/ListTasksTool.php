@@ -12,9 +12,10 @@ class ListTasksTool extends Tool
         parent::__construct();
 
         $this->as('list_tasks')
-            ->for('List tasks for the user. Use when the user wants to see their tasks. Optionally filter by project or event.')
+            ->for('List tasks for the user. Use when the user wants to see their tasks. Optionally filter by project, event, or school class.')
             ->withNumberParameter('projectId', 'Optional project ID to filter tasks', false)
             ->withNumberParameter('eventId', 'Optional event ID to filter tasks', false)
+            ->withNumberParameter('schoolClassId', 'Optional school class ID to filter tasks', false)
             ->withNumberParameter('limit', 'Max number of tasks to return (default 50)', false)
             ->using($this);
     }
@@ -32,9 +33,12 @@ class ListTasksTool extends Tool
         if (isset($params['eventId'])) {
             $query->forEvent((int) $params['eventId']);
         }
+        if (isset($params['schoolClassId'])) {
+            $query->forSchoolClass((int) $params['schoolClassId']);
+        }
         $limit = isset($params['limit']) ? min(100, (int) $params['limit']) : 50;
         $tasks = $query
-            ->with(['tags'])
+            ->with(['tags', 'schoolClass.teacher'])
             ->limit($limit)
             ->get();
 
@@ -45,7 +49,8 @@ class ListTasksTool extends Tool
             'priority' => $task->priority?->value ?? $task->priority,
             'project_id' => $task->project_id,
             'event_id' => $task->event_id,
-            'teacher_name' => $task->teacher_name,
+            'school_class_id' => $task->school_class_id,
+            'teacher_name' => $task->resolvedTeacherName(),
             'subject_name' => $task->subject_name,
             'start_datetime' => $task->start_datetime?->toIso8601String(),
             'end_datetime' => $task->end_datetime?->toIso8601String(),

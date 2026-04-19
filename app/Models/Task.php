@@ -392,6 +392,7 @@ class Task extends Model
         'end_datetime',
         'project_id',
         'event_id',
+        'school_class_id',
         'calendar_feed_id',
         'completed_at',
     ];
@@ -423,6 +424,28 @@ class Task extends Model
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
+    }
+
+    public function schoolClass(): BelongsTo
+    {
+        return $this->belongsTo(SchoolClass::class);
+    }
+
+    /**
+     * Effective teacher label: from the school class when linked, otherwise the task's own teacher_name (e.g. calendar import).
+     */
+    public function resolvedTeacherName(): ?string
+    {
+        if ($this->school_class_id !== null) {
+            $this->loadMissing('schoolClass.teacher');
+            $name = $this->schoolClass?->teacher?->name;
+
+            return ($name !== null && $name !== '') ? $name : null;
+        }
+
+        $direct = trim((string) ($this->teacher_name ?? ''));
+
+        return $direct !== '' ? $direct : null;
     }
 
     public function calendarFeed(): BelongsTo
@@ -528,6 +551,7 @@ class Task extends Model
             'endDatetime' => 'end_datetime',
             'projectId' => 'project_id',
             'eventId' => 'event_id',
+            'schoolClassId' => 'school_class_id',
             default => $property,
         };
     }
@@ -547,6 +571,7 @@ class Task extends Model
             'end_datetime' => $this->end_datetime,
             'project_id' => $this->project_id,
             'event_id' => $this->event_id,
+            'school_class_id' => $this->school_class_id,
             default => $this->{$column},
         };
     }
@@ -610,6 +635,16 @@ class Task extends Model
         $eventId = $event instanceof Event ? $event->id : $event;
 
         return $query->where('event_id', $eventId);
+    }
+
+    /**
+     * Tasks that belong to the given school class.
+     */
+    public function scopeForSchoolClass(Builder $query, SchoolClass|int $schoolClass): Builder
+    {
+        $schoolClassId = $schoolClass instanceof SchoolClass ? $schoolClass->id : $schoolClass;
+
+        return $query->where('school_class_id', $schoolClassId);
     }
 
     public function scopeFromFeed(Builder $query): Builder

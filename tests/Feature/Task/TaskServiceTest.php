@@ -8,10 +8,12 @@ use App\Models\Event;
 use App\Models\FocusSession;
 use App\Models\Project;
 use App\Models\RecurringTask;
+use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskException;
 use App\Models\TaskInstance;
+use App\Models\Teacher;
 use App\Models\User;
 use App\Services\TaskService;
 use Carbon\Carbon;
@@ -71,6 +73,72 @@ test('create task without project has null project_id', function (): void {
     ]);
 
     expect($task->project_id)->toBeNull();
+});
+
+test('create task with school_class_id copies subject from class and resolves teacher via school class', function (): void {
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Prof. A');
+    $class = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Math 101',
+        'teacher_id' => $teacher->id,
+    ]);
+
+    $task = $this->service->createTask($this->user, [
+        'title' => 'Homework',
+        'school_class_id' => $class->id,
+    ]);
+
+    expect($task->school_class_id)->toBe($class->id)
+        ->and($task->subject_name)->toBe('Math 101')
+        ->and($task->teacher_name)->toBeNull()
+        ->and($task->resolvedTeacherName())->toBe('Prof. A');
+});
+
+test('update task with school_class_id null clears course fields', function (): void {
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Dr. B');
+    $class = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Biology',
+        'teacher_id' => $teacher->id,
+    ]);
+
+    $task = Task::factory()->for($this->user)->create([
+        'school_class_id' => $class->id,
+        'subject_name' => 'Biology',
+        'teacher_name' => null,
+    ]);
+
+    $this->service->updateTask($task, ['school_class_id' => null]);
+
+    $task->refresh();
+    expect($task->school_class_id)->toBeNull()
+        ->and($task->subject_name)->toBeNull()
+        ->and($task->teacher_name)->toBeNull();
+});
+
+test('update task changes school class and recopies course fields', function (): void {
+    $teacher1 = Teacher::firstOrCreateByDisplayName($this->user->id, 'T1');
+    $teacher2 = Teacher::firstOrCreateByDisplayName($this->user->id, 'T2');
+    $classA = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Chemistry',
+        'teacher_id' => $teacher1->id,
+    ]);
+    $classB = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Physics',
+        'teacher_id' => $teacher2->id,
+    ]);
+
+    $task = Task::factory()->for($this->user)->create([
+        'school_class_id' => $classA->id,
+        'subject_name' => 'Chemistry',
+        'teacher_name' => null,
+    ]);
+
+    $this->service->updateTask($task, ['school_class_id' => $classB->id]);
+
+    $task->refresh();
+    expect($task->school_class_id)->toBe($classB->id)
+        ->and($task->subject_name)->toBe('Physics')
+        ->and($task->teacher_name)->toBeNull()
+        ->and($task->resolvedTeacherName())->toBe('T2');
 });
 
 test('update task updates attributes', function (): void {

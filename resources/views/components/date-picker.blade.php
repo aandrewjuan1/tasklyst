@@ -10,6 +10,8 @@
     'itemId' => null,
     'readonly' => false,
     'compact' => false,
+    /** School class item creation: trigger matches schedule chip style ("One meeting" + optional date); parent uses named group `group/sc` + `data-schedule-mode`. */
+    'schoolClassMeetingDay' => false,
 ])
 
 @php
@@ -40,6 +42,7 @@
         : (string) $triggerLabel;
 
     $compact = filter_var($compact, FILTER_VALIDATE_BOOLEAN);
+    $schoolClassMeetingDay = filter_var($schoolClassMeetingDay, FILTER_VALIDATE_BOOLEAN);
     $datePickerTriggerAriaLabelBase = (string) $label;
 @endphp
 
@@ -548,45 +551,74 @@
     data-task-creation-safe
     {{ $attributes }}
 >
-    <button
-        x-ref="button"
-        type="button"
-        @click="toggle()"
-        aria-haspopup="true"
-        :aria-expanded="open"
-        :aria-controls="$id('date-picker-dropdown')"
-        :aria-readonly="readonly"
-        @if($compact)
-            :aria-label="@js($datePickerTriggerAriaLabelBase) + ': ' + formatDisplayValue(currentValue)"
-        @endif
-        @class([
-            'date-picker-trigger inline-flex items-center rounded-full border border-border/60 bg-muted font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out',
-            'gap-1 px-2 py-1' => $compact,
-            'gap-1.5 px-2.5 py-0.5' => ! $compact,
-        ])
-        :class="[
-            { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
-            readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer'
-        ]"
-        data-task-creation-safe
-    >
-        <span class="date-picker-trigger-icon inline-flex">
-            <flux:icon name="clock" class="size-3" />
-        </span>
-        @if(! $compact)
-            <span class="inline-flex items-baseline gap-1">
-                <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
-                </span>
-                <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+    @if ($schoolClassMeetingDay)
+        <button
+            x-ref="button"
+            type="button"
+            @click="toggle()"
+            aria-haspopup="true"
+            :aria-expanded="open"
+            :aria-controls="$id('date-picker-dropdown')"
+            :aria-readonly="readonly"
+            class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out group-data-[schedule-mode=one_off]/sc:border-brand-blue/50 group-data-[schedule-mode=one_off]/sc:bg-brand-blue/10 group-data-[schedule-mode=one_off]/sc:text-foreground group-data-[schedule-mode=one_off]/sc:ring-1 group-data-[schedule-mode=one_off]/sc:ring-brand-blue/30"
+            :class="[
+                { 'pointer-events-none shadow-md scale-[1.02]': open },
+                readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer',
+            ]"
+            data-task-creation-safe
+        >
+            <flux:icon name="calendar" class="size-3 shrink-0" />
+            <span class="shrink-0 text-[10px] font-semibold uppercase leading-tight">{{ $triggerLabel }}</span>
+            <span
+                class="min-w-0 max-w-[min(100%,12rem)] truncate text-[10px] font-medium leading-tight text-muted-foreground sm:max-w-[16rem]"
+                x-show="currentValue"
+                x-text="formatDisplayValue(currentValue)"
+            >{{ $initialDisplayText !== $notSetLabel ? $initialDisplayText : '' }}</span>
+            @if (! $readonly)
+                <flux:icon name="chevron-down" class="size-3 shrink-0 opacity-80" />
+            @endif
+        </button>
+    @else
+        <button
+            x-ref="button"
+            type="button"
+            @click="toggle()"
+            aria-haspopup="true"
+            :aria-expanded="open"
+            :aria-controls="$id('date-picker-dropdown')"
+            :aria-readonly="readonly"
+            @if ($compact)
+                :aria-label="@js($datePickerTriggerAriaLabelBase) + ': ' + formatDisplayValue(currentValue)"
+            @endif
+            @class([
+                'date-picker-trigger inline-flex items-center rounded-full border border-border/60 bg-muted font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out',
+                'gap-1 px-2 py-1' => $compact,
+                'gap-1.5 px-2.5 py-0.5' => ! $compact,
+            ])
+            :class="[
+                { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
+                readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer',
+            ]"
+            data-task-creation-safe
+        >
+            <span class="date-picker-trigger-icon inline-flex">
+                <flux:icon name="clock" class="size-3" />
             </span>
-        @else
-            <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
-        @endif
-        @if(!$readonly)
-            <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
-        @endif
-    </button>
+            @if (! $compact)
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
+                    </span>
+                    <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+                </span>
+            @else
+                <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+            @endif
+            @if (! $readonly)
+                <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
+            @endif
+        </button>
+    @endif
 
     <div
         x-ref="panel"

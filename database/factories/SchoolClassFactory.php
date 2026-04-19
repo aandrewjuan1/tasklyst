@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Models\SchoolClass;
+use App\Models\Teacher;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -22,9 +24,27 @@ class SchoolClassFactory extends Factory
         return [
             'user_id' => User::factory(),
             'subject_name' => $this->faker->words(3, true),
-            'teacher_name' => $this->faker->name(),
             'start_datetime' => $start,
             'end_datetime' => $this->faker->dateTimeBetween($start, '+4 months'),
         ];
+    }
+
+    public function configure(): static
+    {
+        return $this->afterMaking(function (SchoolClass $schoolClass): void {
+            if ($schoolClass->teacher_id !== null) {
+                return;
+            }
+
+            $userId = (int) $schoolClass->user_id;
+            if ($userId === 0) {
+                return;
+            }
+
+            $schoolClass->teacher_id = Teacher::firstOrCreateByDisplayName(
+                $userId,
+                $this->faker->name()
+            )->id;
+        });
     }
 }

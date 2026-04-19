@@ -266,7 +266,8 @@ test('get property value for update returns correct value for enums and dates', 
 
 test('property to column maps project id and event id', function (): void {
     expect(Task::propertyToColumn('projectId'))->toBe('project_id')
-        ->and(Task::propertyToColumn('eventId'))->toBe('event_id');
+        ->and(Task::propertyToColumn('eventId'))->toBe('event_id')
+        ->and(Task::propertyToColumn('schoolClassId'))->toBe('school_class_id');
 });
 
 test('scope for project returns only tasks in that project', function (): void {

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -18,8 +19,8 @@ class SchoolClass extends Model
 
     protected $fillable = [
         'user_id',
+        'teacher_id',
         'subject_name',
-        'teacher_name',
         'start_datetime',
         'end_datetime',
     ];
@@ -37,9 +38,19 @@ class SchoolClass extends Model
         return $this->belongsTo(User::class);
     }
 
+    public function teacher(): BelongsTo
+    {
+        return $this->belongsTo(Teacher::class);
+    }
+
     public function recurringSchoolClass(): HasOne
     {
         return $this->hasOne(RecurringSchoolClass::class);
+    }
+
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(Task::class);
     }
 
     public function activityLogs(): MorphMany
@@ -63,7 +74,7 @@ class SchoolClass extends Model
     }
 
     /**
-     * Map frontend property name (camelCase) to database column.
+     * Map frontend property name (camelCase) to database column (or service input key for teacher).
      */
     public static function propertyToColumn(string $property): string
     {
@@ -81,13 +92,16 @@ class SchoolClass extends Model
      */
     public function getPropertyValueForUpdate(string $property): mixed
     {
+        if ($property === 'teacherName') {
+            return $this->teacher?->name;
+        }
+
         $column = self::propertyToColumn($property);
 
         return match ($column) {
             'start_datetime' => $this->start_datetime,
             'end_datetime' => $this->end_datetime,
             'subject_name' => $this->subject_name,
-            'teacher_name' => $this->teacher_name,
             default => $this->{$column},
         };
     }

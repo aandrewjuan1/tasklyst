@@ -105,6 +105,11 @@ class User extends Authenticatable
         return $this->hasMany(SchoolClass::class);
     }
 
+    public function teachers(): HasMany
+    {
+        return $this->hasMany(Teacher::class);
+    }
+
     public function pomodoroSetting(): HasOne
     {
         return $this->hasOne(PomodoroSetting::class);

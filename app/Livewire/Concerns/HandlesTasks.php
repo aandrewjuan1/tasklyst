@@ -8,6 +8,7 @@ use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
 use App\Models\RecurringTask;
+use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\TaskException;
@@ -87,6 +88,17 @@ trait HandlesTasks
                 return;
             }
             $this->authorize('update', $event);
+        }
+
+        $schoolClassId = $validatedTask['schoolClassId'] ?? null;
+        if ($schoolClassId !== null) {
+            $schoolClass = SchoolClass::query()->forUser($user->id)->find((int) $schoolClassId);
+            if ($schoolClass === null) {
+                $this->dispatch('toast', type: 'error', message: __('Class not found.'));
+
+                return;
+            }
+            $this->authorize('update', $schoolClass);
         }
 
         if (($validatedTask['pendingTagNames'] ?? []) !== []) {
@@ -342,6 +354,16 @@ trait HandlesTasks
             $this->authorize('update', $event);
         }
 
+        if ($property === 'schoolClassId' && $validatedValue !== null) {
+            $schoolClass = SchoolClass::query()->forUser($user->id)->find((int) $validatedValue);
+            if ($schoolClass === null) {
+                $this->dispatch('toast', type: 'error', message: __('Class not found.'));
+
+                return false;
+            }
+            $this->authorize('update', $schoolClass);
+        }
+
         if ($property === 'tagIds') {
             Log::info('[TAG-SYNC] Validation passed, calling action', [
                 'task_id' => $taskId,
@@ -456,6 +478,7 @@ trait HandlesTasks
             ->with([
                 'project',
                 'event',
+                'schoolClass.teacher',
                 'user',
                 'recurringTask',
                 'latestUnfinishedFocusSession',
@@ -608,6 +631,7 @@ trait HandlesTasks
             ->with([
                 'project',
                 'event',
+                'schoolClass.teacher',
                 'user',
                 'recurringTask',
                 'latestUnfinishedFocusSession',

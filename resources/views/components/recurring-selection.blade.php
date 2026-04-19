@@ -12,6 +12,8 @@
     'recurringTaskId' => null,
     /** When set, {@see @recurring-value.window} only applies if detail.itemId matches (teleported focus modal sync). */
     'syncItemId' => null,
+    /** School class item creation: trigger shows "Repeating class"; selection ring follows parent `group/sc` + `data-schedule-mode`. */
+    'schoolClassCreation' => false,
 ])
 
 @php
@@ -53,12 +55,15 @@
     $shouldRenderCompact = (bool) $compactWhenDisabled && ! $isInitiallyEnabled;
     $shouldHideWhenDisabled = (bool) $hideWhenDisabled && (bool) $readonly && ! $isInitiallyEnabled;
 
+    $schoolClassCreation = (bool) $schoolClassCreation;
     $triggerBaseClass = 'cursor-pointer inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-medium transition-[box-shadow,transform] duration-150 ease-out';
-    $triggerInitialStateClass = $shouldRenderCompact
+    $triggerInitialStateClass = $schoolClassCreation
         ? 'border-border/60 bg-muted text-muted-foreground'
-        : ($isInitiallyEnabled
-            ? 'border-amber-200/55 bg-yellow-50 text-stone-600 shadow-sm dark:border-amber-900/20 dark:bg-yellow-950/12 dark:text-stone-400'
-            : 'border-border/60 bg-muted text-muted-foreground');
+        : ($shouldRenderCompact
+            ? 'border-border/60 bg-muted text-muted-foreground'
+            : ($isInitiallyEnabled
+                ? 'border-amber-200/55 bg-yellow-50 text-stone-600 shadow-sm dark:border-amber-900/20 dark:bg-yellow-950/12 dark:text-stone-400'
+                : 'border-border/60 bg-muted text-muted-foreground'));
     $triggerInitialClass = $triggerBaseClass . ' ' . $triggerInitialStateClass;
 
     $repeatTooltip = match ($kind) {
@@ -102,6 +107,7 @@
         recurringEventId: @js($recurringEventId ?? null),
         recurringTaskId: @js($recurringTaskId ?? null),
         syncItemId: @js($syncItemId),
+        schoolClassCreation: @js($schoolClassCreation),
         skippedDates: [],
         loadingSkipped: false,
         restoreInProgressIds: [],
@@ -435,6 +441,14 @@
         },
 
         get triggerButtonDynamicClass() {
+            if (this.schoolClassCreation) {
+                const openState = this.open ? ' pointer-events-none shadow-md scale-[1.02]' : '';
+                const base = 'border-border/60 bg-muted text-muted-foreground group-data-[schedule-mode=recurring]/sc:border-brand-blue/50 group-data-[schedule-mode=recurring]/sc:bg-brand-blue/10 group-data-[schedule-mode=recurring]/sc:text-foreground group-data-[schedule-mode=recurring]/sc:ring-1 group-data-[schedule-mode=recurring]/sc:ring-brand-blue/30';
+                if (this.readonly) {
+                    return 'cursor-default pointer-events-none opacity-90 ' + base;
+                }
+                return base + openState;
+            }
             const state = (!this.enabled && this.compactWhenDisabled)
                 ? 'border-border/60 bg-muted text-muted-foreground'
                 : (this.enabled
@@ -469,7 +483,7 @@
     data-task-creation-safe
     {{ $attributes }}
 >
-    <flux:tooltip :content="$compactWhenDisabled ? $repeatTooltip : $changeTooltip">
+    <flux:tooltip :content="$schoolClassCreation || $compactWhenDisabled ? $repeatTooltip : $changeTooltip">
         <button
             x-ref="button"
             type="button"
@@ -485,37 +499,52 @@
             :class="triggerButtonDynamicClass"
             data-task-creation-safe
         >
-            <flux:icon name="arrow-path" class="size-3" />
-
-            <span
-                class="sr-only"
-                x-show="!enabled && compactWhenDisabled"
-                style="{{ $shouldRenderCompact ? '' : 'display:none;' }}"
-            >
-                {{ $repeatTooltip }}
-            </span>
-
-            <span
-                class="inline-flex items-baseline gap-1"
-                x-show="enabled"
-                style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
-            >
-                <span
-                    class="text-[10px] font-semibold uppercase tracking-wide opacity-70"
-                    x-show="enabled"
-                >
-                    {{ __($triggerLabel) }}:
+            @if ($schoolClassCreation)
+                <flux:icon name="arrow-path" class="size-3 shrink-0" />
+                <span class="shrink-0 text-[10px] font-semibold uppercase leading-tight">
+                    {{ __('Repeating class') }}
                 </span>
-                <span class="text-xs" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
-            </span>
+                <span
+                    class="min-w-0 max-w-[min(100%,12rem)] truncate text-[10px] font-medium leading-tight text-muted-foreground sm:max-w-[16rem]"
+                    x-show="enabled && formatDisplayValue() !== notSetLabel"
+                    x-text="formatDisplayValue()"
+                ></span>
+                @if (! $readonly)
+                    <flux:icon name="chevron-down" class="size-3 shrink-0 opacity-80" />
+                @endif
+            @else
+                <flux:icon name="arrow-path" class="size-3" />
 
-            @if(!$readonly)
-                <flux:icon
-                    name="chevron-down"
-                    class="size-3"
+                <span
+                    class="sr-only"
+                    x-show="!enabled && compactWhenDisabled"
+                    style="{{ $shouldRenderCompact ? '' : 'display:none;' }}"
+                >
+                    {{ $repeatTooltip }}
+                </span>
+
+                <span
+                    class="inline-flex items-baseline gap-1"
                     x-show="enabled"
                     style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
-                />
+                >
+                    <span
+                        class="text-[10px] font-semibold uppercase tracking-wide opacity-70"
+                        x-show="enabled"
+                    >
+                        {{ __($triggerLabel) }}:
+                    </span>
+                    <span class="text-xs" x-text="formatDisplayValue()">{{ $initialDisplayLabel }}</span>
+                </span>
+
+                @if (! $readonly)
+                    <flux:icon
+                        name="chevron-down"
+                        class="size-3"
+                        x-show="enabled"
+                        style="{{ $isInitiallyEnabled ? '' : 'display:none;' }}"
+                    />
+                @endif
             @endif
         </button>
     </flux:tooltip>
@@ -662,15 +691,17 @@
                 </div>
             </template>
 
-            <div class="flex w-full justify-center border-t border-border/60 pt-3">
-                <button
-                    type="button"
-                    @click="enabled = false; type = null; daysOfWeek = []; close($refs.button)"
-                    class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                >
-                    {{ __('Don\'t repeat') }}
-                </button>
-            </div>
+            @unless ($schoolClassCreation)
+                <div class="flex w-full justify-center border-t border-border/60 pt-3">
+                    <button
+                        type="button"
+                        @click="enabled = false; type = null; daysOfWeek = []; close($refs.button)"
+                        class="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                        {{ __('Don\'t repeat') }}
+                    </button>
+                </div>
+            @endunless
         </div>
     </div>
 </div>

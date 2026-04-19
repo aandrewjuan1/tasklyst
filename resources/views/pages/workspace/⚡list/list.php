@@ -29,6 +29,8 @@ new class extends Component
 
     public Collection $tags;
 
+    public Collection $teachers;
+
     #[Reactive]
     public int $itemsPage = 1;
 

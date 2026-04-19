@@ -40,7 +40,39 @@ class UpdateTaskPropertyAction
             }
         }
 
+        if ($property === 'schoolClassId') {
+            return $this->updateSchoolClassId($task, $validatedValue, $actor);
+        }
+
         return $this->updateSimpleProperty($task, $property, $validatedValue, $actor);
+    }
+
+    private function updateSchoolClassId(Task $task, mixed $validatedValue, ?User $actor): UpdateTaskPropertyResult
+    {
+        $oldValue = $task->school_class_id;
+        $newValue = $validatedValue === null || $validatedValue === '' ? null : (int) $validatedValue;
+
+        try {
+            $this->taskService->updateTask($task, ['school_class_id' => $newValue]);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update task school class from workspace.', [
+                'task_id' => $task->id,
+                'exception' => $e,
+            ]);
+
+            return UpdateTaskPropertyResult::failure($oldValue, $newValue);
+        }
+
+        if ($actor !== null) {
+            $this->activityLogRecorder->record(
+                $task,
+                $actor,
+                ActivityLogAction::FieldUpdated,
+                ['field' => 'schoolClassId', 'from' => $oldValue, 'to' => $newValue]
+            );
+        }
+
+        return UpdateTaskPropertyResult::success($oldValue, $newValue, null, null, false);
     }
 
     private function updateTagIds(Task $task, mixed $validatedValue, ?User $actor): UpdateTaskPropertyResult

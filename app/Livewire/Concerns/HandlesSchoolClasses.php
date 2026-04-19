@@ -38,7 +38,7 @@ trait HandlesSchoolClasses
         $classes = SchoolClass::query()
             ->forUser($userId)
             ->notArchived()
-            ->with('recurringSchoolClass')
+            ->with(['recurringSchoolClass', 'teacher'])
             ->orderBy('start_datetime')
             ->orderBy('subject_name')
             ->get();
@@ -81,7 +81,7 @@ trait HandlesSchoolClasses
                 foreach ($tokens as $token) {
                     $needle = Str::lower($token);
                     if (Str::contains(Str::lower((string) $class->subject_name), $needle)
-                        || Str::contains(Str::lower((string) ($class->teacher_name ?? '')), $needle)) {
+                        || Str::contains(Str::lower((string) ($class->teacher?->name ?? '')), $needle)) {
                         return true;
                     }
                 }

@@ -4,7 +4,7 @@
 
 @php
     /** @var \App\Models\SchoolClass $schoolClass */
-    $schoolClass->loadMissing('recurringSchoolClass');
+    $schoolClass->loadMissing(['recurringSchoolClass', 'teacher']);
     $recurring = $schoolClass->recurringSchoolClass;
     $start = $schoolClass->start_datetime;
     $end = $schoolClass->end_datetime;
@@ -23,7 +23,7 @@
                 {{ $schoolClass->subject_name }}
             </h3>
             <p class="mt-0.5 truncate text-sm text-muted-foreground">
-                {{ $schoolClass->teacher_name }}
+                {{ $schoolClass->teacher?->name }}
             </p>
         </div>
         <span

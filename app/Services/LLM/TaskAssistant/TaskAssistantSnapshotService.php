@@ -13,10 +13,12 @@ class TaskAssistantSnapshotService
     /**
      * Build a lightweight snapshot of the user's current state for the task assistant.
      *
+     * Each task's `teacher_name` field is the effective label from {@see Task::resolvedTeacherName()}.
+     *
      * @return array{
      *     today: string,
      *     timezone: string,
-     *     tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,complexity:?string,ends_at:?string,project_id:?int,event_id:?int,duration_minutes:?int,is_recurring:bool}>,
+     *     tasks: list<array{id:int,title:string,subject_name:?string,teacher_name:?string,tags:list<string>,status:?string,priority:?string,complexity:?string,ends_at:?string,project_id:?int,event_id:?int,school_class_id:?int,duration_minutes:?int,is_recurring:bool}>,
      *     events: list<array{id:int,title:string,starts_at:?string,ends_at:?string,all_day:bool,status:?string}>,
      *     projects: list<array{id:int,name:string,start_at:?string,end_at:?string}>
      * }
@@ -27,7 +29,7 @@ class TaskAssistantSnapshotService
         $now = now()->setTimezone($timezone);
 
         $tasks = Task::query()
-            ->with(['tags', 'recurringTask'])
+            ->with(['tags', 'recurringTask', 'schoolClass.teacher'])
             ->forAssistantSnapshot($user->id, $now, $taskLimit)
             ->get()
             ->map(function (Task $task): array {
@@ -35,7 +37,7 @@ class TaskAssistantSnapshotService
                     'id' => $task->id,
                     'title' => Str::limit((string) $task->title, 160),
                     'subject_name' => $task->subject_name,
-                    'teacher_name' => $task->teacher_name,
+                    'teacher_name' => $task->resolvedTeacherName(),
                     'tags' => $task->tags->pluck('name')->values()->all(),
                     'status' => $task->status?->value,
                     'priority' => $task->priority?->value,
@@ -43,6 +45,7 @@ class TaskAssistantSnapshotService
                     'ends_at' => $task->end_datetime?->toIso8601String(),
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,
+                    'school_class_id' => $task->school_class_id,
                     'duration_minutes' => $task->duration,
                     'is_recurring' => $task->recurringTask !== null,
                 ];
@@ -126,7 +129,7 @@ class TaskAssistantSnapshotService
         }
 
         $fetched = Task::query()
-            ->with(['tags', 'recurringTask'])
+            ->with(['tags', 'recurringTask', 'schoolClass.teacher'])
             ->forUser($user->id)
             ->whereIn('id', array_keys($needed))
             ->get();
@@ -137,7 +140,7 @@ class TaskAssistantSnapshotService
                 'id' => $task->id,
                 'title' => Str::limit((string) $task->title, 160),
                 'subject_name' => $task->subject_name,
-                'teacher_name' => $task->teacher_name,
+                'teacher_name' => $task->resolvedTeacherName(),
                 'tags' => $task->tags->pluck('name')->values()->all(),
                 'status' => $task->status?->value,
                 'priority' => $task->priority?->value,
@@ -145,6 +148,7 @@ class TaskAssistantSnapshotService
                 'ends_at' => $task->end_datetime?->toIso8601String(),
                 'project_id' => $task->project_id,
                 'event_id' => $task->event_id,
+                'school_class_id' => $task->school_class_id,
                 'duration_minutes' => $task->duration,
                 'is_recurring' => $task->recurringTask !== null,
             ];

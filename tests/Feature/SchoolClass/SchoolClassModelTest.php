@@ -5,6 +5,7 @@ use App\Models\RecurringSchoolClass;
 use App\Models\SchoolClass;
 use App\Models\SchoolClassException;
 use App\Models\SchoolClassInstance;
+use App\Models\Task;
 use App\Models\User;
 
 beforeEach(function (): void {
@@ -17,6 +18,15 @@ test('user has many school classes', function (): void {
 
     expect($this->owner->schoolClasses)->toHaveCount(1)
         ->and($this->owner->schoolClasses->first()->id)->toBe($schoolClass->id);
+});
+
+test('school class has many tasks', function (): void {
+    $schoolClass = SchoolClass::factory()->for($this->owner)->create();
+    Task::factory()->for($this->owner)->create(['school_class_id' => $schoolClass->id]);
+
+    $schoolClass->load('tasks');
+
+    expect($schoolClass->tasks)->toHaveCount(1);
 });
 
 test('scope not archived excludes soft deleted school classes', function (): void {

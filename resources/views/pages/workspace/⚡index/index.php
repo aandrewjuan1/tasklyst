@@ -30,6 +30,9 @@ use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\SchoolClass\CreateSchoolClassAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
+use App\Actions\Teacher\CreateTeacherAction;
+use App\Actions\Teacher\DeleteTeacherAction;
+use App\Actions\Teacher\UpdateTeacherAction;
 use App\Actions\Task\CreateTaskAction;
 use App\Actions\Task\CreateTaskExceptionAction;
 use App\Actions\Task\DeleteTaskAction;
@@ -51,6 +54,7 @@ use App\Livewire\Concerns\HandlesPomodoroSettings;
 use App\Livewire\Concerns\HandlesProjects;
 use App\Livewire\Concerns\HandlesSchoolClasses;
 use App\Livewire\Concerns\HandlesTags;
+use App\Livewire\Concerns\HandlesTeachers;
 use App\Livewire\Concerns\HandlesTasks;
 use App\Livewire\Concerns\HandlesWorkspaceCalendar;
 use App\Models\AssistantSchedulePlanItem;
@@ -60,11 +64,13 @@ use App\Models\Project;
 use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\Teacher;
 use App\Models\User;
 use App\Services\EventService;
 use App\Services\ProjectService;
 use App\Services\SchoolClassService;
 use App\Services\TagService;
+use App\Services\TeacherService;
 use App\Services\TaskService;
 use App\Support\WorkspaceListAggregator;
 use Carbon\CarbonImmutable;
@@ -97,6 +103,7 @@ class extends Component
     use HandlesProjects;
     use HandlesSchoolClasses;
     use HandlesTags;
+    use HandlesTeachers;
     use HandlesTasks;
     use HandlesWorkspaceCalendar;
 
@@ -172,6 +179,8 @@ class extends Component
 
     protected TagService $tagService;
 
+    protected TeacherService $teacherService;
+
     protected CreateEventAction $createEventAction;
 
     protected CreateProjectAction $createProjectAction;
@@ -180,11 +189,15 @@ class extends Component
 
     protected CreateTagAction $createTagAction;
 
+    protected CreateTeacherAction $createTeacherAction;
+
     protected CreateTaskAction $createTaskAction;
 
     protected DeleteEventAction $deleteEventAction;
 
     protected DeleteTagAction $deleteTagAction;
+
+    protected DeleteTeacherAction $deleteTeacherAction;
 
     protected DeleteProjectAction $deleteProjectAction;
 
@@ -195,6 +208,8 @@ class extends Component
     protected UpdateProjectPropertyAction $updateProjectPropertyAction;
 
     protected UpdateTaskPropertyAction $updateTaskPropertyAction;
+
+    protected UpdateTeacherAction $updateTeacherAction;
 
     protected CreateTaskExceptionAction $createTaskExceptionAction;
 
@@ -263,18 +278,22 @@ class extends Component
         EventService $eventService,
         SchoolClassService $schoolClassService,
         TagService $tagService,
+        TeacherService $teacherService,
         CreateEventAction $createEventAction,
         CreateProjectAction $createProjectAction,
         CreateSchoolClassAction $createSchoolClassAction,
         CreateTagAction $createTagAction,
+        CreateTeacherAction $createTeacherAction,
         CreateTaskAction $createTaskAction,
         DeleteEventAction $deleteEventAction,
         DeleteProjectAction $deleteProjectAction,
         DeleteTagAction $deleteTagAction,
+        DeleteTeacherAction $deleteTeacherAction,
         DeleteTaskAction $deleteTaskAction,
         UpdateEventPropertyAction $updateEventPropertyAction,
         UpdateProjectPropertyAction $updateProjectPropertyAction,
         UpdateTaskPropertyAction $updateTaskPropertyAction,
+        UpdateTeacherAction $updateTeacherAction,
         CreateTaskExceptionAction $createTaskExceptionAction,
         DeleteTaskExceptionAction $deleteTaskExceptionAction,
         CreateEventExceptionAction $createEventExceptionAction,
@@ -304,18 +323,22 @@ class extends Component
         $this->eventService = $eventService;
         $this->schoolClassService = $schoolClassService;
         $this->tagService = $tagService;
+        $this->teacherService = $teacherService;
         $this->createEventAction = $createEventAction;
         $this->createProjectAction = $createProjectAction;
         $this->createSchoolClassAction = $createSchoolClassAction;
         $this->createTagAction = $createTagAction;
+        $this->createTeacherAction = $createTeacherAction;
         $this->createTaskAction = $createTaskAction;
         $this->deleteEventAction = $deleteEventAction;
         $this->deleteProjectAction = $deleteProjectAction;
         $this->deleteTagAction = $deleteTagAction;
+        $this->deleteTeacherAction = $deleteTeacherAction;
         $this->deleteTaskAction = $deleteTaskAction;
         $this->updateEventPropertyAction = $updateEventPropertyAction;
         $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;
+        $this->updateTeacherAction = $updateTeacherAction;
         $this->createTaskExceptionAction = $createTaskExceptionAction;
         $this->deleteTaskExceptionAction = $deleteTaskExceptionAction;
         $this->createEventExceptionAction = $createEventExceptionAction;
@@ -364,6 +387,7 @@ class extends Component
             $this->authorize('viewAny', Project::class);
             $this->authorize('viewAny', SchoolClass::class);
             $this->authorize('viewAny', Tag::class);
+            $this->authorize('viewAny', Teacher::class);
         }
         if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
             $this->selectedDate = now()->toDateString();

@@ -102,6 +102,22 @@ test('task payload fails when project id does not exist', function (): void {
         ->and($validator->errors()->has('taskPayload.projectId'))->toBeTrue();
 });
 
+test('task payload fails when school class id does not exist', function (): void {
+    $this->actingAs($this->user);
+    $payload = array_replace_recursive(TaskPayloadValidation::defaults(), [
+        'title' => 'Task',
+        'schoolClassId' => 99999,
+    ]);
+
+    $validator = Validator::make(
+        ['taskPayload' => $payload],
+        TaskPayloadValidation::rules()
+    );
+
+    expect($validator->fails())->toBeTrue()
+        ->and($validator->errors()->has('taskPayload.schoolClassId'))->toBeTrue();
+});
+
 test('task payload fails when tag id belongs to another user', function (): void {
     $this->actingAs($this->user);
     $otherUser = User::factory()->create();

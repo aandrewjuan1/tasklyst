@@ -11,6 +11,7 @@ use App\Models\Event;
 use App\Models\Task;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
 
@@ -490,6 +491,14 @@ trait HandlesFiltering
                 ->orWhere('description', 'like', $pattern)
                 ->orWhere('teacher_name', 'like', $pattern)
                 ->orWhere('subject_name', 'like', $pattern)
+                ->orWhereExists(function ($sub) use ($pattern): void {
+                    $sub->select(DB::raw(1))
+                        ->from('school_classes')
+                        ->join('teachers', 'teachers.id', '=', 'school_classes.teacher_id')
+                        ->whereColumn('school_classes.id', 'tasks.school_class_id')
+                        ->whereNull('school_classes.deleted_at')
+                        ->where('teachers.name', 'like', $pattern);
+                })
                 ->orWhereHas('tags', function (Builder $tagQuery) use ($pattern): void {
                     $tagQuery->where('tags.name', 'like', $pattern);
                 });

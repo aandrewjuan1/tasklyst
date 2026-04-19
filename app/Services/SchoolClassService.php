@@ -9,6 +9,7 @@ use App\Models\RecurringSchoolClass;
 use App\Models\SchoolClass;
 use App\Models\SchoolClassException;
 use App\Models\SchoolClassInstance;
+use App\Models\Teacher;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
@@ -31,6 +32,8 @@ class SchoolClassService
             $recurrenceData = $attributes['recurrence'] ?? null;
             $seriesEndCap = $attributes['recurrence_series_end_datetime'] ?? null;
             unset($attributes['recurrence'], $attributes['recurrence_series_end_datetime']);
+
+            $this->assignTeacherFromNameInput($user->id, $attributes);
 
             $schoolClass = SchoolClass::query()->create([
                 ...$attributes,
@@ -55,6 +58,8 @@ class SchoolClassService
     public function updateSchoolClass(SchoolClass $schoolClass, array $attributes): SchoolClass
     {
         unset($attributes['user_id']);
+
+        $this->assignTeacherFromNameInput((int) $schoolClass->user_id, $attributes);
 
         return DB::transaction(function () use ($schoolClass, $attributes): SchoolClass {
             $schoolClass->fill($attributes);
@@ -294,5 +299,27 @@ class SchoolClassService
         }
 
         return $exception->fresh();
+    }
+
+    /**
+     * Replace `teacher_name` input with `teacher_id` for persistence.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function assignTeacherFromNameInput(int $userId, array &$attributes): void
+    {
+        if (! array_key_exists('teacher_name', $attributes)) {
+            return;
+        }
+
+        $displayName = trim((string) $attributes['teacher_name']);
+        unset($attributes['teacher_name']);
+
+        if ($displayName === '') {
+            throw new \InvalidArgumentException(__('Teacher name cannot be empty.'));
+        }
+
+        $teacher = Teacher::firstOrCreateByDisplayName($userId, $displayName);
+        $attributes['teacher_id'] = $teacher->id;
     }
 }

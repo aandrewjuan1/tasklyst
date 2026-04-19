@@ -4,8 +4,10 @@ use App\Enums\CollaborationPermission;
 use App\Enums\TaskStatus;
 use App\Models\Collaboration;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\Teacher;
 use App\Models\User;
 use App\Support\Validation\TaskPayloadValidation;
 use Livewire\Livewire;
@@ -54,6 +56,50 @@ test('create task with project id creates task linked to user project', function
     $task = Task::query()->where('user_id', $this->owner->id)->where('title', 'Task with project')->first();
     expect($task)->not->toBeNull()
         ->and($task->project_id)->toBe($project->id);
+});
+
+test('create task with school class id links task and copies course fields', function (): void {
+    $this->actingAs($this->owner);
+    $teacher = Teacher::firstOrCreateByDisplayName($this->owner->id, 'Ms. Smith');
+    $schoolClass = SchoolClass::factory()->for($this->owner)->create([
+        'subject_name' => 'History',
+        'teacher_id' => $teacher->id,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('createTask', [
+            'title' => 'Task with class',
+            'schoolClassId' => $schoolClass->id,
+        ]);
+
+    $task = Task::query()->where('user_id', $this->owner->id)->where('title', 'Task with class')->first();
+    expect($task)->not->toBeNull()
+        ->and($task->school_class_id)->toBe($schoolClass->id)
+        ->and($task->subject_name)->toBe('History')
+        ->and($task->teacher_name)->toBeNull()
+        ->and($task->resolvedTeacherName())->toBe('Ms. Smith');
+});
+
+test('updateTaskProperty with schoolClassId null clears link and course fields', function (): void {
+    $this->actingAs($this->owner);
+    $teacher = Teacher::firstOrCreateByDisplayName($this->owner->id, 'Mr. Lee');
+    $schoolClass = SchoolClass::factory()->for($this->owner)->create([
+        'subject_name' => 'Art',
+        'teacher_id' => $teacher->id,
+    ]);
+    $task = Task::factory()->for($this->owner)->create([
+        'school_class_id' => $schoolClass->id,
+        'subject_name' => 'Art',
+        'teacher_name' => null,
+    ]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('updateTaskProperty', $task->id, 'schoolClassId', null);
+
+    $task->refresh();
+    expect($task->school_class_id)->toBeNull()
+        ->and($task->subject_name)->toBeNull()
+        ->and($task->teacher_name)->toBeNull();
 });
 
 test('create task with tag ids attaches tags', function (): void {

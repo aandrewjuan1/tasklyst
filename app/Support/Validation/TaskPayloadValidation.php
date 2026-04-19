@@ -29,6 +29,7 @@ final class TaskPayloadValidation
             'endDatetime' => null,
             'projectId' => null,
             'eventId' => null,
+            'schoolClassId' => null,
             'tagIds' => [],
             'pendingTagNames' => [],
             'recurrence' => [
@@ -61,6 +62,7 @@ final class TaskPayloadValidation
 
             'taskPayload.projectId' => ['nullable', 'integer', 'exists:projects,id'],
             'taskPayload.eventId' => ['nullable', 'integer', 'exists:events,id'],
+            'taskPayload.schoolClassId' => ['nullable', 'integer', 'exists:school_classes,id'],
             'taskPayload.tagIds' => ['array'],
             'taskPayload.tagIds.*' => [
                 'integer',
@@ -101,6 +103,7 @@ final class TaskPayloadValidation
             'endDatetime',
             'projectId',
             'eventId',
+            'schoolClassId',
             'tagIds',
             'recurrence',
         ];
@@ -142,6 +145,7 @@ final class TaskPayloadValidation
             ],
             'projectId' => ['value' => ['nullable', 'integer', 'exists:projects,id']],
             'eventId' => ['value' => ['nullable', 'integer', 'exists:events,id']],
+            'schoolClassId' => ['value' => ['nullable', 'integer', 'exists:school_classes,id']],
             default => [],
         };
 

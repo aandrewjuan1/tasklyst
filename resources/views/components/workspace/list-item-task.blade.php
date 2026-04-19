@@ -104,7 +104,7 @@
     $canEditTags = $currentUserIsOwner && $canEdit;
 
     $subjectDisplay = trim((string) ($item->subject_name ?? ''));
-    $teacherDisplay = trim((string) ($item->teacher_name ?? ''));
+    $teacherDisplay = trim((string) ($item->resolvedTeacherName() ?? ''));
     $showCourseContextPill = $subjectDisplay !== '' || $teacherDisplay !== '';
     $hasTaskTags = $item->tags->isNotEmpty();
     $hasProjectParent = (bool) ($item->project_id && $item->project);

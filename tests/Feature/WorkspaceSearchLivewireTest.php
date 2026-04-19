@@ -4,8 +4,10 @@ use App\Enums\EventStatus;
 use App\Enums\TaskStatus;
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Tag;
 use App\Models\Task;
+use App\Models\Teacher;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -146,6 +148,32 @@ test('search query matches task by teacher_name', function (): void {
         ->set('searchQuery', 'UniqueTeacherGamma44');
 
     expect($component->instance()->tasks()->pluck('title'))->toContain('HomeworkItemGamma');
+});
+
+test('search query matches task by school class teacher when task teacher_name is null', function (): void {
+    $teacher = Teacher::firstOrCreateByDisplayName($this->user->id, 'Prof UniqueRelationTeacherSearch88');
+    $class = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'RelSearchSubj',
+        'teacher_id' => $teacher->id,
+    ]);
+
+    Task::factory()->for($this->user)->create([
+        'title' => 'LinkedTeacherSearchTask',
+        'description' => null,
+        'school_class_id' => $class->id,
+        'subject_name' => $class->subject_name,
+        'teacher_name' => null,
+        'start_datetime' => null,
+        'end_datetime' => null,
+    ]);
+
+    $this->actingAs($this->user);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', now()->toDateString())
+        ->set('searchQuery', 'UniqueRelationTeacherSearch88');
+
+    expect($component->instance()->tasks()->pluck('title'))->toContain('LinkedTeacherSearchTask');
 });
 
 test('search query matches task by subject_name', function (): void {
