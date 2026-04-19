@@ -28,6 +28,10 @@ use App\Actions\Project\CreateProjectAction;
 use App\Actions\Project\DeleteProjectAction;
 use App\Actions\Project\UpdateProjectPropertyAction;
 use App\Actions\SchoolClass\CreateSchoolClassAction;
+use App\Actions\SchoolClass\DeleteSchoolClassAction;
+use App\Actions\SchoolClass\ForceDeleteSchoolClassAction;
+use App\Actions\SchoolClass\RestoreSchoolClassAction;
+use App\Actions\SchoolClass\UpdateSchoolClassPropertyAction;
 use App\Actions\Tag\CreateTagAction;
 use App\Actions\Tag\DeleteTagAction;
 use App\Actions\Teacher\CreateTeacherAction;
@@ -187,6 +191,14 @@ class extends Component
 
     protected CreateSchoolClassAction $createSchoolClassAction;
 
+    protected DeleteSchoolClassAction $deleteSchoolClassAction;
+
+    protected RestoreSchoolClassAction $restoreSchoolClassAction;
+
+    protected ForceDeleteSchoolClassAction $forceDeleteSchoolClassAction;
+
+    protected UpdateSchoolClassPropertyAction $updateSchoolClassPropertyAction;
+
     protected CreateTagAction $createTagAction;
 
     protected CreateTeacherAction $createTeacherAction;
@@ -282,6 +294,10 @@ class extends Component
         CreateEventAction $createEventAction,
         CreateProjectAction $createProjectAction,
         CreateSchoolClassAction $createSchoolClassAction,
+        DeleteSchoolClassAction $deleteSchoolClassAction,
+        RestoreSchoolClassAction $restoreSchoolClassAction,
+        ForceDeleteSchoolClassAction $forceDeleteSchoolClassAction,
+        UpdateSchoolClassPropertyAction $updateSchoolClassPropertyAction,
         CreateTagAction $createTagAction,
         CreateTeacherAction $createTeacherAction,
         CreateTaskAction $createTaskAction,
@@ -327,6 +343,10 @@ class extends Component
         $this->createEventAction = $createEventAction;
         $this->createProjectAction = $createProjectAction;
         $this->createSchoolClassAction = $createSchoolClassAction;
+        $this->deleteSchoolClassAction = $deleteSchoolClassAction;
+        $this->restoreSchoolClassAction = $restoreSchoolClassAction;
+        $this->forceDeleteSchoolClassAction = $forceDeleteSchoolClassAction;
+        $this->updateSchoolClassPropertyAction = $updateSchoolClassPropertyAction;
         $this->createTagAction = $createTagAction;
         $this->createTeacherAction = $createTeacherAction;
         $this->createTaskAction = $createTaskAction;

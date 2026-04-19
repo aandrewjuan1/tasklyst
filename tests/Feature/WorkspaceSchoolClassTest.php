@@ -187,3 +187,132 @@ test('workspace list renders school class in the main list', function (): void {
     expect($html)->toContain('data-test="workspace-school-class-item"')
         ->and($html)->toContain('WorkspaceListClass');
 });
+
+test('updateSchoolClassProperty updates allowed school class property', function (): void {
+    $this->actingAs($this->user);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Original Subject',
+    ]);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('updateSchoolClassProperty', $schoolClass->id, 'subjectName', 'Updated Subject');
+
+    $result->assertReturned(true);
+
+    expect($schoolClass->fresh()->subject_name)->toBe('Updated Subject');
+});
+
+test('updateSchoolClassProperty rejects disallowed property', function (): void {
+    $this->actingAs($this->user);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Original Subject',
+    ]);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('updateSchoolClassProperty', $schoolClass->id, 'user_id', 999);
+
+    $result->assertReturned(false);
+
+    expect($schoolClass->fresh()->user_id)->toBe($this->user->id);
+});
+
+test('updateSchoolClassProperty requires owner authorization', function (): void {
+    $owner = User::factory()->create();
+    $schoolClass = SchoolClass::factory()->for($owner)->create();
+
+    $this->actingAs($this->user);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('updateSchoolClassProperty', $schoolClass->id, 'subjectName', 'Unauthorized Update');
+
+    $result->assertReturned(false);
+});
+
+test('updateSchoolClassProperty returns false for validation failure', function (): void {
+    $this->actingAs($this->user);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Original Subject',
+    ]);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('updateSchoolClassProperty', $schoolClass->id, 'subjectName', '   ');
+
+    $result->assertReturned(false);
+
+    expect($schoolClass->fresh()->subject_name)->toBe('Original Subject');
+});
+
+test('updateSchoolClassProperty recurrence returns recurring school class id payload', function (): void {
+    $this->actingAs($this->user);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create();
+
+    Livewire::test('pages::workspace.index')
+        ->call('updateSchoolClassProperty', $schoolClass->id, 'recurrence', [
+            'enabled' => true,
+            'type' => 'weekly',
+            'interval' => 1,
+            'daysOfWeek' => [1, 3],
+        ]);
+
+    $schoolClass->refresh()->load('recurringSchoolClass');
+
+    expect($schoolClass->recurringSchoolClass)->not->toBeNull();
+});
+
+test('deleteSchoolClass soft deletes an owned class', function (): void {
+    $this->actingAs($this->user);
+    $schoolClass = SchoolClass::factory()->for($this->user)->create([
+        'subject_name' => 'Delete Me',
+    ]);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('deleteSchoolClass', $schoolClass->id);
+
+    $result->assertReturned(true);
+
+    expect(SchoolClass::query()->find($schoolClass->id))->toBeNull()
+        ->and(SchoolClass::query()->withTrashed()->find($schoolClass->id)?->trashed())->toBeTrue();
+});
+
+test('deleteSchoolClass returns false when class does not belong to user', function (): void {
+    $owner = User::factory()->create();
+    $schoolClass = SchoolClass::factory()->for($owner)->create();
+
+    $this->actingAs($this->user);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('deleteSchoolClass', $schoolClass->id);
+
+    $result->assertReturned(false);
+
+    expect(SchoolClass::query()->find($schoolClass->id))->not->toBeNull();
+});
+
+test('restoreSchoolClass restores an owned trashed class', function (): void {
+    $schoolClass = SchoolClass::factory()->for($this->user)->create();
+    $schoolClass->delete();
+
+    $this->actingAs($this->user);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('restoreSchoolClass', $schoolClass->id);
+
+    $result->assertReturned(true);
+
+    expect(SchoolClass::query()->find($schoolClass->id))->not->toBeNull()
+        ->and(SchoolClass::query()->find($schoolClass->id)?->trashed())->toBeFalse();
+});
+
+test('forceDeleteSchoolClass permanently deletes an owned class', function (): void {
+    $schoolClass = SchoolClass::factory()->for($this->user)->create();
+    $schoolClass->delete();
+
+    $this->actingAs($this->user);
+
+    $result = Livewire::test('pages::workspace.index')
+        ->call('forceDeleteSchoolClass', $schoolClass->id);
+
+    $result->assertReturned(true);
+
+    expect(SchoolClass::query()->withTrashed()->find($schoolClass->id))->toBeNull();
+});
