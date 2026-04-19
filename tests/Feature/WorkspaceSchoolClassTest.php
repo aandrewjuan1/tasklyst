@@ -2,10 +2,18 @@
 
 use App\Models\SchoolClass;
 use App\Models\User;
+use Illuminate\Support\Facades\Blade;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
+});
+
+test('school class recurring selection is weekly-only in markup', function (): void {
+    $html = Blade::render('<x-recurring-selection kind="schoolClass" />', []);
+
+    expect($html)->toContain('weeklyOnly')
+        ->and($html)->toContain(__('Weekly schedule'));
 });
 
 test('createSchoolClass creates a school class from workspace', function (): void {
@@ -14,14 +22,13 @@ test('createSchoolClass creates a school class from workspace', function (): voi
     $component = Livewire::test('pages::workspace.index');
     $component->set('selectedDate', now()->toDateString());
 
-    $start = now()->setTime(9, 0);
-    $end = now()->setTime(10, 0);
-
     $component->call('createSchoolClass', [
+        'scheduleMode' => 'one_off',
         'subjectName' => 'Calculus',
         'teacherName' => 'Dr. Example',
-        'startDatetime' => $start->toIso8601String(),
-        'endDatetime' => $end->toIso8601String(),
+        'meetingDate' => now()->toDateString(),
+        'startTime' => '09:00',
+        'endTime' => '10:00',
         'recurrence' => [
             'enabled' => false,
             'type' => null,
@@ -47,10 +54,12 @@ test('createSchoolClass does not create when required fields are invalid', funct
     $before = SchoolClass::query()->count();
 
     $component->call('createSchoolClass', [
+        'scheduleMode' => 'one_off',
         'subjectName' => '   ',
         'teacherName' => '   ',
-        'startDatetime' => null,
-        'endDatetime' => null,
+        'meetingDate' => null,
+        'startTime' => null,
+        'endTime' => null,
         'recurrence' => [
             'enabled' => false,
             'type' => null,

@@ -1,6 +1,7 @@
 <?php
 
 use App\DataTransferObjects\SchoolClass\CreateSchoolClassDto;
+use App\Enums\TaskRecurrenceType;
 use App\Models\RecurringSchoolClass;
 use App\Models\User;
 use App\Support\Validation\SchoolClassExceptionPayloadValidation;
@@ -12,13 +13,47 @@ beforeEach(function (): void {
     $this->user = User::factory()->create();
 });
 
-test('valid school class payload passes validation', function (): void {
+test('valid recurring school class payload passes validation', function (): void {
     $this->actingAs($this->user);
     $payload = array_replace_recursive(SchoolClassPayloadValidation::defaults(), [
+        'scheduleMode' => 'recurring',
         'subjectName' => 'Biology',
         'teacherName' => 'Dr. Lee',
-        'startDatetime' => '2025-02-10 09:00',
-        'endDatetime' => '2025-02-10 17:00',
+        'scheduleStartDate' => '2025-02-01',
+        'scheduleEndDate' => '2025-06-30',
+        'startTime' => '09:00',
+        'endTime' => '10:30',
+        'recurrence' => [
+            'enabled' => true,
+            'type' => TaskRecurrenceType::Weekly->value,
+            'interval' => 1,
+            'daysOfWeek' => [1, 3],
+        ],
+    ]);
+
+    $validator = Validator::make(
+        ['schoolClassPayload' => $payload],
+        SchoolClassPayloadValidation::rules()
+    );
+
+    expect($validator->passes())->toBeTrue();
+});
+
+test('valid one-off school class payload passes validation', function (): void {
+    $this->actingAs($this->user);
+    $payload = array_replace_recursive(SchoolClassPayloadValidation::defaults(), [
+        'scheduleMode' => 'one_off',
+        'subjectName' => 'Lab',
+        'teacherName' => 'Dr. Lee',
+        'meetingDate' => '2025-02-10',
+        'startTime' => '14:00',
+        'endTime' => '15:00',
+        'recurrence' => [
+            'enabled' => false,
+            'type' => null,
+            'interval' => 1,
+            'daysOfWeek' => [],
+        ],
     ]);
 
     $validator = Validator::make(
@@ -42,13 +77,22 @@ test('school class payload fails when subject name is empty', function (): void 
         ->and($validator->errors()->has('schoolClassPayload.subjectName'))->toBeTrue();
 });
 
-test('school class payload fails when end date is before start date', function (): void {
+test('school class payload fails when schedule end is before schedule start', function (): void {
     $this->actingAs($this->user);
     $payload = array_replace_recursive(SchoolClassPayloadValidation::defaults(), [
         'subjectName' => 'Class',
         'teacherName' => 'Dr. A',
-        'startDatetime' => '2025-02-10 17:00',
-        'endDatetime' => '2025-02-10 09:00',
+        'scheduleMode' => 'recurring',
+        'scheduleStartDate' => '2025-02-10',
+        'scheduleEndDate' => '2025-02-01',
+        'startTime' => '09:00',
+        'endTime' => '10:00',
+        'recurrence' => [
+            'enabled' => true,
+            'type' => TaskRecurrenceType::Weekly->value,
+            'interval' => 1,
+            'daysOfWeek' => [1],
+        ],
     ]);
 
     $validator = Validator::make(
@@ -59,30 +103,22 @@ test('school class payload fails when end date is before start date', function (
     expect($validator->fails())->toBeTrue();
 });
 
-test('school class payload passes with valid start and end datetime', function (): void {
-    $this->actingAs($this->user);
-    $payload = array_replace_recursive(SchoolClassPayloadValidation::defaults(), [
-        'subjectName' => 'Class',
-        'teacherName' => 'Prof. Kim',
-        'startDatetime' => '2025-02-10 09:00',
-        'endDatetime' => '2025-02-10 17:00',
-    ]);
-
-    $validator = Validator::make(
-        ['schoolClassPayload' => $payload],
-        SchoolClassPayloadValidation::rules()
-    );
-
-    expect($validator->passes())->toBeTrue();
-});
-
 test('school class payload fails when teacher name is empty', function (): void {
     $this->actingAs($this->user);
     $payload = array_replace_recursive(SchoolClassPayloadValidation::defaults(), [
         'subjectName' => 'Class',
         'teacherName' => '   ',
-        'startDatetime' => '2025-02-10 09:00',
-        'endDatetime' => '2025-02-10 17:00',
+        'scheduleMode' => 'recurring',
+        'scheduleStartDate' => '2025-02-01',
+        'scheduleEndDate' => '2025-06-30',
+        'startTime' => '09:00',
+        'endTime' => '10:00',
+        'recurrence' => [
+            'enabled' => true,
+            'type' => TaskRecurrenceType::Weekly->value,
+            'interval' => 1,
+            'daysOfWeek' => [1],
+        ],
     ]);
 
     $validator = Validator::make(
@@ -119,23 +155,33 @@ test('rules for property recurrence accepts valid structure', function (): void 
 
 test('create school class dto from validated maps fields and to service attributes', function (): void {
     $validated = [
+        'scheduleMode' => 'recurring',
         'subjectName' => 'Physics',
         'teacherName' => 'Dr. Jones',
-        'startDatetime' => '2025-02-10 09:00',
-        'endDatetime' => '2025-02-10 17:00',
-        'recurrence' => ['enabled' => false, 'type' => null, 'interval' => 1, 'daysOfWeek' => []],
+        'scheduleStartDate' => '2025-02-03',
+        'scheduleEndDate' => '2025-06-30',
+        'startTime' => '09:00',
+        'endTime' => '10:00',
+        'recurrence' => [
+            'enabled' => true,
+            'type' => TaskRecurrenceType::Weekly->value,
+            'interval' => 1,
+            'daysOfWeek' => [1],
+        ],
     ];
 
     $dto = CreateSchoolClassDto::fromValidated($validated);
 
     expect($dto->subjectName)->toBe('Physics')
-        ->and($dto->teacherName)->toBe('Dr. Jones');
+        ->and($dto->teacherName)->toBe('Dr. Jones')
+        ->and($dto->recurrence)->not->toBeNull();
 
     $serviceAttrs = $dto->toServiceAttributes();
     expect($serviceAttrs['subject_name'])->toBe('Physics')
         ->and($serviceAttrs['teacher_name'])->toBe('Dr. Jones')
         ->and($serviceAttrs['start_datetime'])->toBeInstanceOf(Carbon::class)
-        ->and($serviceAttrs['end_datetime'])->toBeInstanceOf(Carbon::class);
+        ->and($serviceAttrs['end_datetime'])->toBeInstanceOf(Carbon::class)
+        ->and($serviceAttrs['recurrence_series_end_datetime'])->toBeInstanceOf(Carbon::class);
 });
 
 test('validate school class date range for update returns message when end before start', function (): void {

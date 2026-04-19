@@ -6,6 +6,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\SchoolClass;
 use App\Models\Task;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -86,9 +87,25 @@ final class WorkspaceListAggregator
 
     private static function modelEndIsPast(Project|Event|Task|SchoolClass $model): bool
     {
-        $end = $model->end_datetime;
+        $end = self::effectiveEndForWorkspaceList($model);
 
         return $end !== null && $end->isPast();
+    }
+
+    private static function effectiveEndForWorkspaceList(Model $model): ?CarbonInterface
+    {
+        if ($model instanceof SchoolClass) {
+            $model->loadMissing('recurringSchoolClass');
+            if ($model->recurringSchoolClass?->end_datetime !== null) {
+                return $model->recurringSchoolClass->end_datetime;
+            }
+        }
+
+        if ($model instanceof Project || $model instanceof Event || $model instanceof Task || $model instanceof SchoolClass) {
+            return $model->end_datetime;
+        }
+
+        return null;
     }
 
     /**
@@ -97,8 +114,8 @@ final class WorkspaceListAggregator
      */
     private static function compareOverdueEntries(array $a, array $b): int
     {
-        $ea = $a['item']->end_datetime?->getTimestamp() ?? PHP_INT_MAX;
-        $eb = $b['item']->end_datetime?->getTimestamp() ?? PHP_INT_MAX;
+        $ea = self::effectiveEndForWorkspaceList($a['item'])?->getTimestamp() ?? PHP_INT_MAX;
+        $eb = self::effectiveEndForWorkspaceList($b['item'])?->getTimestamp() ?? PHP_INT_MAX;
 
         if ($ea !== $eb) {
             return $ea <=> $eb;

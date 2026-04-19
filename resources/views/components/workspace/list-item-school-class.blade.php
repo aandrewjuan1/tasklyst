@@ -4,8 +4,11 @@
 
 @php
     /** @var \App\Models\SchoolClass $schoolClass */
+    $schoolClass->loadMissing('recurringSchoolClass');
+    $recurring = $schoolClass->recurringSchoolClass;
     $start = $schoolClass->start_datetime;
     $end = $schoolClass->end_datetime;
+    $timeLine = $start->translatedFormat('g:i A').' – '.$end->translatedFormat('g:i A');
 @endphp
 
 <div
@@ -31,13 +34,37 @@
         </span>
     </div>
     <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <span class="inline-flex items-center gap-1">
-            <flux:icon name="clock" class="size-3.5 shrink-0 opacity-80" />
-            <span>{{ __('Start') }}: {{ $start->translatedFormat('M j, Y · g:i A') }}</span>
-        </span>
-        <span class="inline-flex items-center gap-1">
-            <flux:icon name="clock" class="size-3.5 shrink-0 opacity-80" />
-            <span>{{ __('End') }}: {{ $end->translatedFormat('M j, Y · g:i A') }}</span>
-        </span>
+        @if ($recurring !== null)
+            <span class="inline-flex items-center gap-1">
+                <flux:icon name="clock" class="size-3.5 shrink-0 opacity-80" />
+                <span>{{ $timeLine }}</span>
+            </span>
+            @if ($recurring->recurrence_type?->value === 'weekly' && $recurring->weekdayAbbreviationList() !== '')
+                <span class="inline-flex items-center gap-1">
+                    <flux:icon name="calendar" class="size-3.5 shrink-0 opacity-80" />
+                    <span>{{ $recurring->weekdayAbbreviationList() }}</span>
+                </span>
+            @elseif ($recurring->recurrence_type !== null)
+                <span class="inline-flex items-center gap-1 capitalize">
+                    <flux:icon name="arrow-path" class="size-3.5 shrink-0 opacity-80" />
+                    <span>{{ $recurring->recurrence_type->value }}</span>
+                </span>
+            @endif
+            @if ($recurring->end_datetime !== null)
+                <span class="inline-flex items-center gap-1">
+                    <span class="text-muted-foreground/90">{{ __('Through') }}</span>
+                    <span>{{ $recurring->end_datetime->translatedFormat('M j, Y') }}</span>
+                </span>
+            @endif
+        @else
+            <span class="inline-flex items-center gap-1">
+                <flux:icon name="clock" class="size-3.5 shrink-0 opacity-80" />
+                <span>{{ $start->translatedFormat('M j, Y · g:i A') }}</span>
+            </span>
+            <span class="inline-flex items-center gap-1">
+                <flux:icon name="clock" class="size-3.5 shrink-0 opacity-80" />
+                <span>{{ $end->translatedFormat('M j, Y · g:i A') }}</span>
+            </span>
+        @endif
     </div>
 </div>

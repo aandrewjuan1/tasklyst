@@ -104,12 +104,6 @@ trait HandlesSchoolClasses
         $this->authorize('create', SchoolClass::class);
 
         $defaults = SchoolClassPayloadValidation::defaults();
-        $defaults['recurrence'] = [
-            'enabled' => false,
-            'type' => null,
-            'interval' => 1,
-            'daysOfWeek' => [],
-        ];
 
         $this->schoolClassPayload = array_replace_recursive($defaults, $payload);
 
@@ -127,7 +121,19 @@ trait HandlesSchoolClasses
         }
 
         $inner = $validated['schoolClassPayload'];
-        $dto = CreateSchoolClassDto::fromValidated($inner);
+
+        try {
+            $dto = CreateSchoolClassDto::fromValidated($inner);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            foreach ($e->errors() as $key => $messages) {
+                foreach ($messages as $message) {
+                    $this->addError($key, $message);
+                }
+            }
+            $this->dispatch('toast', type: 'error', message: __('Please fix the school class details and try again.'));
+
+            return;
+        }
 
         try {
             $schoolClass = $this->createSchoolClassAction->execute($user, $dto);

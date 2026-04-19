@@ -62,6 +62,20 @@ test('recurring to payload array returns disabled when null', function (): void 
     ]);
 });
 
+test('recurring weekday abbreviation list formats selected days', function (): void {
+    $schoolClass = SchoolClass::factory()->for($this->owner)->create();
+    $recurring = RecurringSchoolClass::query()->create([
+        'school_class_id' => $schoolClass->id,
+        'recurrence_type' => TaskRecurrenceType::Weekly,
+        'interval' => 1,
+        'start_datetime' => now(),
+        'end_datetime' => now()->addMonth(),
+        'days_of_week' => json_encode([1, 3]),
+    ]);
+
+    expect($recurring->fresh()->weekdayAbbreviationList())->toBe('Mon, Wed');
+});
+
 test('recurring to payload array maps stored recurring row', function (): void {
     $schoolClass = SchoolClass::factory()->for($this->owner)->create();
     $recurring = RecurringSchoolClass::query()->create([

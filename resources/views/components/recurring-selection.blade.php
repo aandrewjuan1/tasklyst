@@ -24,6 +24,12 @@
         'startDatetime' => null,
         'endDatetime' => null,
     ];
+
+    $weeklyOnly = ($kind ?? null) === 'schoolClass';
+    if ($weeklyOnly && ($initialRecurrence['enabled'] ?? false) && ($initialRecurrence['type'] ?? null) !== 'weekly') {
+        $initialRecurrence['type'] = 'weekly';
+    }
+
     $initialDisplayLabel = $notSetLabel;
     if (($initialRecurrence['enabled'] ?? false) && ($initialRecurrence['type'] ?? null)) {
         $type = $initialRecurrence['type'];
@@ -109,12 +115,13 @@
         restoreErrorNotFound: @js(__('Exception not found.')),
         restoreErrorValidation: @js(__('Invalid request. Please try again.')),
         creationAnchorHint: @js(__('No start date is set, so weekly/monthly/yearly repeats are anchored to this item\'s creation date.')),
+        weeklyOnly: @js((bool) $weeklyOnly),
 
         init() {
             this.applyInitialValue();
             this.$watch('enabled', (value) => {
                 if (value && !this.type) {
-                    this.type = 'daily';
+                    this.type = this.weeklyOnly ? 'weekly' : 'daily';
                 }
             });
         },
@@ -127,7 +134,17 @@
             this.type = initial.type ?? null;
             this.interval = initial.interval ?? 1;
             this.daysOfWeek = Array.isArray(initial.daysOfWeek) ? [...initial.daysOfWeek] : [];
+            this.ensureWeeklyOnlyType();
             this.currentValue = { enabled: this.enabled, type: this.type, interval: this.interval, daysOfWeek: [...this.daysOfWeek] };
+        },
+
+        ensureWeeklyOnlyType() {
+            if (!this.weeklyOnly) {
+                return;
+            }
+            if (this.enabled && this.type !== 'weekly') {
+                this.type = 'weekly';
+            }
         },
 
         handleRecurringValue(e) {
@@ -177,10 +194,10 @@
             if (this.open) return this.close(this.$refs.button);
             this.$refs.button.focus();
 
-            // When opening with recurrence disabled, auto-enable and set to daily
+            // When opening with recurrence disabled, auto-enable and set default repeat type
             if (!this.enabled) {
                 this.enabled = true;
-                this.type = 'daily';
+                this.type = this.weeklyOnly ? 'weekly' : 'daily';
                 this.$dispatch('recurring-selection-updated', {
                     path: this.modelPath,
                     value: this.getCurrentRecurrenceValue(),
@@ -343,6 +360,7 @@
         },
 
         getCurrentRecurrenceValue() {
+            this.ensureWeeklyOnlyType();
             return {
                 enabled: this.enabled,
                 type: this.type,
@@ -365,6 +383,9 @@
         },
 
         updateField(field, value) {
+            if (this.weeklyOnly && field === 'type' && value !== 'weekly') {
+                value = 'weekly';
+            }
             this[field] = value;
         },
 
@@ -517,8 +538,14 @@
         data-task-creation-safe
     >
         <div class="flex flex-col items-center space-y-4 p-4">
-            <!-- Recurrence Type Selection -->
-            <div class="flex flex-col items-center">
+            <!-- Recurrence Type Selection (tasks/events); school classes are weekly-only -->
+            <div class="flex flex-col items-center" x-show="weeklyOnly" x-cloak>
+                <p class="mb-1 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {{ __('Weekly schedule') }}
+                </p>
+                <p class="text-center text-sm text-foreground">{{ __('Repeats every week on the days you choose.') }}</p>
+            </div>
+            <div class="flex flex-col items-center" x-show="!weeklyOnly">
                 <label class="mb-2 block text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {{ __('How often?') }}
                 </label>

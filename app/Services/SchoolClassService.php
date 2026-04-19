@@ -11,6 +11,7 @@ use App\Models\SchoolClassException;
 use App\Models\SchoolClassInstance;
 use App\Models\User;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +29,8 @@ class SchoolClassService
     {
         return DB::transaction(function () use ($user, $attributes): SchoolClass {
             $recurrenceData = $attributes['recurrence'] ?? null;
-            unset($attributes['recurrence']);
+            $seriesEndCap = $attributes['recurrence_series_end_datetime'] ?? null;
+            unset($attributes['recurrence'], $attributes['recurrence_series_end_datetime']);
 
             $schoolClass = SchoolClass::query()->create([
                 ...$attributes,
@@ -36,7 +38,7 @@ class SchoolClassService
             ]);
 
             if ($recurrenceData !== null && ($recurrenceData['enabled'] ?? false)) {
-                $this->createRecurringSchoolClass($schoolClass, $recurrenceData);
+                $this->createRecurringSchoolClass($schoolClass, $recurrenceData, $seriesEndCap);
             }
 
             $this->activityLogRecorder->record($schoolClass, $user, ActivityLogAction::ItemCreated, [
@@ -70,10 +72,12 @@ class SchoolClassService
     public function updateOrCreateRecurringSchoolClass(SchoolClass $schoolClass, array $recurrenceData): void
     {
         DB::transaction(function () use ($schoolClass, $recurrenceData): void {
+            $preservedSeriesEnd = $schoolClass->recurringSchoolClass?->end_datetime;
+
             $schoolClass->recurringSchoolClass?->delete();
 
             if (($recurrenceData['enabled'] ?? false) && ($recurrenceData['type'] ?? null) !== null) {
-                $this->createRecurringSchoolClass($schoolClass, $recurrenceData);
+                $this->createRecurringSchoolClass($schoolClass, $recurrenceData, $preservedSeriesEnd);
             }
         });
     }
@@ -81,7 +85,7 @@ class SchoolClassService
     /**
      * @param  array<string, mixed>  $recurrenceData
      */
-    private function createRecurringSchoolClass(SchoolClass $schoolClass, array $recurrenceData): void
+    private function createRecurringSchoolClass(SchoolClass $schoolClass, array $recurrenceData, mixed $recurringSeriesEndCap = null): void
     {
         $recurrenceType = $recurrenceData['type'] ?? null;
         if ($recurrenceType === null) {
@@ -93,7 +97,9 @@ class SchoolClassService
         $daysOfWeek = $recurrenceData['daysOfWeek'] ?? [];
 
         $startDatetime = $schoolClass->start_datetime;
-        $endDatetime = $schoolClass->end_datetime;
+        $endForRecurringRow = $recurringSeriesEndCap !== null
+            ? Carbon::parse($recurringSeriesEndCap)
+            : $schoolClass->end_datetime;
 
         $daysOfWeekString = null;
         if (is_array($daysOfWeek) && ! empty($daysOfWeek)) {
@@ -106,7 +112,7 @@ class SchoolClassService
             'interval' => $interval,
             'days_of_week' => $daysOfWeekString,
             'start_datetime' => $startDatetime,
-            'end_datetime' => $endDatetime,
+            'end_datetime' => $endForRecurringRow,
         ]);
     }
 
@@ -130,9 +136,6 @@ class SchoolClassService
         $syncAttributes = [];
         if (array_key_exists('start_datetime', $attributes)) {
             $syncAttributes['start_datetime'] = $attributes['start_datetime'];
-        }
-        if (array_key_exists('end_datetime', $attributes)) {
-            $syncAttributes['end_datetime'] = $attributes['end_datetime'];
         }
 
         if ($syncAttributes !== []) {

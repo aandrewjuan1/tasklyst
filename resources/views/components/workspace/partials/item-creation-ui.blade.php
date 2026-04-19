@@ -282,7 +282,7 @@
                                 variant="primary"
                                 icon="paper-airplane"
                                 class="shrink-0 rounded-full"
-                                x-bind:disabled="isSubmitting || (creationKind === 'project' ? (!formData.project.name || !formData.project.name.trim()) : creationKind === 'schoolClass' ? (!formData.schoolClass.subjectName || !formData.schoolClass.subjectName.trim() || !formData.schoolClass.teacherName || !String(formData.schoolClass.teacherName).trim() || !formData.schoolClass.startDatetime || !formData.schoolClass.endDatetime) : (!formData.item.title || !formData.item.title.trim()))"
+                                x-bind:disabled="isSubmitting || (creationKind === 'project' ? (!formData.project.name || !formData.project.name.trim()) : creationKind === 'schoolClass' ? !schoolClassCanSubmit() : (!formData.item.title || !formData.item.title.trim()))"
                                 @click="creationKind === 'project' ? submitProject() : (creationKind === 'schoolClass' ? submitSchoolClass() : (creationKind === 'task' ? submitTask() : submitEvent()))"
                             />
                         </div>
@@ -450,20 +450,24 @@
                                     <span class="max-w-[140px] truncate uppercase" x-text="formData.schoolClass.teacherName"></span>
                                 </span>
                             </span>
+                            <span class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                                <flux:icon name="clock" class="size-3 shrink-0" />
+                                <span class="text-xs leading-tight" x-text="schoolClassLoadingScheduleLabel()"></span>
+                            </span>
                         </div>
                     </template>
-                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground" x-show="creationKind !== 'schoolClass'">
                         <flux:icon name="clock" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
-                            <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.startDatetime : creationKind === 'schoolClass' ? formData.schoolClass.startDatetime : formData.item.startDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.startDatetime : creationKind === 'schoolClass' ? formData.schoolClass.startDatetime : formData.item.startDatetime) : '{{ __('Not set') }}'"></span>
+                            <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.startDatetime : formData.item.startDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.startDatetime : formData.item.startDatetime) : '{{ __('Not set') }}'"></span>
                         </span>
                     </span>
-                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground" x-show="creationKind !== 'schoolClass'">
                         <flux:icon name="clock" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70" x-text="creationKind === 'task' ? '{{ __('Due') }}:' : '{{ __('End') }}:'"></span>
-                            <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.endDatetime : creationKind === 'schoolClass' ? formData.schoolClass.endDatetime : formData.item.endDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.endDatetime : creationKind === 'schoolClass' ? formData.schoolClass.endDatetime : formData.item.endDatetime) : '{{ __('Not set') }}'"></span>
+                            <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.endDatetime : formData.item.endDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.endDatetime : formData.item.endDatetime) : '{{ __('Not set') }}'"></span>
                         </span>
                     </span>
                     <span

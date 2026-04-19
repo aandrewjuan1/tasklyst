@@ -9,6 +9,10 @@
         messages: {
             taskEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
             taskEndTooSoon: @js(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes'])),
+            schoolClassEndBeforeStart: @js(__('End time must be after the start time.')),
+            schoolClassNeedScheduleDates: @js(__('Choose schedule start and end dates.')),
+            schoolClassNeedMeetingDate: @js(__('Choose the meeting date.')),
+            schoolClassNeedWeekdays: @js(__('Select at least one weekday for a weekly class.')),
             tagAlreadyExists: @js(__('Tag already exists.')),
             tagError: @js(__('Something went wrong. Please try again.')),
         },
@@ -52,13 +56,17 @@
                 endDatetime: null,
             },
             schoolClass: {
+                scheduleMode: 'recurring',
                 subjectName: '',
                 teacherName: '',
-                startDatetime: null,
-                endDatetime: null,
+                scheduleStartDate: null,
+                scheduleEndDate: null,
+                meetingDate: null,
+                startTime: null,
+                endTime: null,
                 recurrence: {
-                    enabled: false,
-                    type: null,
+                    enabled: true,
+                    type: 'weekly',
                     interval: 1,
                     daysOfWeek: [],
                 },
@@ -67,11 +75,13 @@
         validateDateRange() {
             this.errors.dateRange = null;
 
+            if (this.creationKind === 'schoolClass') {
+                return this.validateSchoolClassSchedule();
+            }
+
             const dates = this.creationKind === 'project'
                 ? { start: this.formData.project.startDatetime, end: this.formData.project.endDatetime }
-                : this.creationKind === 'schoolClass'
-                    ? { start: this.formData.schoolClass.startDatetime, end: this.formData.schoolClass.endDatetime }
-                    : { start: this.formData.item.startDatetime, end: this.formData.item.endDatetime };
+                : { start: this.formData.item.startDatetime, end: this.formData.item.endDatetime };
             const start = dates.start;
             const end = dates.end;
 
@@ -106,6 +116,62 @@
             }
 
             return true;
+        },
+        validateSchoolClassSchedule() {
+            const sc = this.formData.schoolClass;
+            if (!sc.startTime || !sc.endTime) {
+                return true;
+            }
+            if (sc.startTime >= sc.endTime) {
+                this.errors.dateRange = this.messages.schoolClassEndBeforeStart;
+
+                return false;
+            }
+            if (sc.scheduleMode === 'recurring') {
+                if (sc.scheduleStartDate && sc.scheduleEndDate) {
+                    const a = new Date(sc.scheduleStartDate);
+                    const b = new Date(sc.scheduleEndDate);
+                    if (!Number.isNaN(a.getTime()) && !Number.isNaN(b.getTime()) && b.getTime() < a.getTime()) {
+                        this.errors.dateRange = this.messages.taskEndBeforeStart;
+
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        },
+        schoolClassCanSubmit() {
+            const sc = this.formData.schoolClass;
+            if (!sc?.subjectName?.trim() || !String(sc.teacherName || '').trim() || !sc.startTime || !sc.endTime) {
+                return false;
+            }
+            if (sc.scheduleMode === 'recurring') {
+                if (!sc.scheduleStartDate || !sc.scheduleEndDate) {
+                    return false;
+                }
+                const t = sc.recurrence?.type;
+                const dow = sc.recurrence?.daysOfWeek;
+                if (t === 'weekly' && (!Array.isArray(dow) || dow.length === 0)) {
+                    return false;
+                }
+            } else if (sc.scheduleMode === 'one_off' && !sc.meetingDate) {
+                return false;
+            }
+
+            return true;
+        },
+        schoolClassLoadingScheduleLabel() {
+            const sc = this.formData.schoolClass;
+            if (sc.scheduleMode === 'one_off') {
+                return sc.meetingDate
+                    ? `${sc.meetingDate} · ${sc.startTime ?? ''}–${sc.endTime ?? ''}`
+                    : '{{ __('Not set') }}';
+            }
+
+            return sc.scheduleStartDate && sc.scheduleEndDate
+                ? `${sc.scheduleStartDate} → ${sc.scheduleEndDate} · ${sc.startTime ?? ''}–${sc.endTime ?? ''}`
+                : '{{ __('Not set') }}';
         },
         creationCardSurfaceClass() {
             if (this.creationKind === 'project') {
@@ -162,13 +228,17 @@
             }
 
             this.formData.schoolClass = {
+                scheduleMode: 'recurring',
                 subjectName: '',
                 teacherName: '',
-                startDatetime: null,
-                endDatetime: null,
+                scheduleStartDate: null,
+                scheduleEndDate: null,
+                meetingDate: null,
+                startTime: null,
+                endTime: null,
                 recurrence: {
-                    enabled: false,
-                    type: null,
+                    enabled: true,
+                    type: 'weekly',
                     interval: 1,
                     daysOfWeek: [],
                 },
@@ -334,13 +404,17 @@
             if (kind === 'schoolClass') {
                 this.creationKind = 'schoolClass';
                 this.formData.schoolClass = {
+                    scheduleMode: 'recurring',
                     subjectName: '',
                     teacherName: '',
-                    startDatetime: null,
-                    endDatetime: null,
+                    scheduleStartDate: null,
+                    scheduleEndDate: null,
+                    meetingDate: null,
+                    startTime: null,
+                    endTime: null,
                     recurrence: {
-                        enabled: false,
-                        type: null,
+                        enabled: true,
+                        type: 'weekly',
                         interval: 1,
                         daysOfWeek: [],
                     },
@@ -683,7 +757,29 @@
                 return;
             }
 
-            if (!this.formData.schoolClass.startDatetime || !this.formData.schoolClass.endDatetime) {
+            const sc = this.formData.schoolClass;
+            if (sc.scheduleMode === 'recurring') {
+                if (!sc.scheduleStartDate || !sc.scheduleEndDate) {
+                    this.errors.dateRange = this.messages.schoolClassNeedScheduleDates;
+
+                    return;
+                }
+                const t = sc.recurrence?.type;
+                const dow = sc.recurrence?.daysOfWeek;
+                if (t === 'weekly' && (!Array.isArray(dow) || dow.length === 0)) {
+                    this.errors.dateRange = this.messages.schoolClassNeedWeekdays;
+
+                    return;
+                }
+            } else if (sc.scheduleMode === 'one_off') {
+                if (!sc.meetingDate) {
+                    this.errors.dateRange = this.messages.schoolClassNeedMeetingDate;
+
+                    return;
+                }
+            }
+
+            if (!sc.startTime || !sc.endTime) {
                 return;
             }
 
@@ -699,12 +795,21 @@
             this.showItemLoading = true;
             this.loadingStartedAt = Date.now();
 
+            const recurrencePayload =
+                sc.scheduleMode === 'one_off'
+                    ? { enabled: false, type: null, interval: 1, daysOfWeek: [] }
+                    : JSON.parse(JSON.stringify(sc.recurrence));
+
             const payload = {
-                subjectName: this.formData.schoolClass.subjectName,
-                teacherName: this.formData.schoolClass.teacherName,
-                startDatetime: this.formData.schoolClass.startDatetime,
-                endDatetime: this.formData.schoolClass.endDatetime,
-                recurrence: JSON.parse(JSON.stringify(this.formData.schoolClass.recurrence)),
+                scheduleMode: sc.scheduleMode,
+                subjectName: sc.subjectName,
+                teacherName: sc.teacherName,
+                scheduleStartDate: sc.scheduleStartDate,
+                scheduleEndDate: sc.scheduleEndDate,
+                meetingDate: sc.meetingDate,
+                startTime: sc.startTime,
+                endTime: sc.endTime,
+                recurrence: recurrencePayload,
             };
             const minLoadingMs = 150;
 

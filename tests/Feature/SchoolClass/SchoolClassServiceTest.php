@@ -40,13 +40,15 @@ test('create school class sets user_id and required attributes', function (): vo
 
 test('create school class with recurrence enabled creates recurring school class', function (): void {
     $start = Carbon::parse('2025-02-01 09:00');
-    $end = Carbon::parse('2025-06-30 15:00');
+    $end = Carbon::parse('2025-02-01 10:30');
+    $seriesEnd = Carbon::parse('2025-06-30')->endOfDay();
 
     $class = $this->service->createSchoolClass($this->user, [
         'subject_name' => 'Algebra',
         'teacher_name' => 'Dr. Smith',
         'start_datetime' => $start,
         'end_datetime' => $end,
+        'recurrence_series_end_datetime' => $seriesEnd,
         'recurrence' => [
             'enabled' => true,
             'type' => TaskRecurrenceType::Weekly->value,
@@ -59,7 +61,9 @@ test('create school class with recurrence enabled creates recurring school class
     expect($class->recurringSchoolClass)->not->toBeNull()
         ->and($class->recurringSchoolClass->recurrence_type)->toBe(TaskRecurrenceType::Weekly)
         ->and($class->recurringSchoolClass->interval)->toBe(2)
-        ->and(json_decode($class->recurringSchoolClass->days_of_week, true))->toEqual([1, 3]);
+        ->and(json_decode($class->recurringSchoolClass->days_of_week, true))->toEqual([1, 3])
+        ->and($class->recurringSchoolClass->end_datetime->isSameDay($seriesEnd))->toBeTrue()
+        ->and($class->recurringSchoolClass->end_datetime->format('H:i'))->toBe($seriesEnd->format('H:i'));
 });
 
 test('update school class updates attributes', function (): void {
@@ -71,7 +75,8 @@ test('update school class updates attributes', function (): void {
         ->and($class->fresh()->subject_name)->toBe('Updated');
 });
 
-test('update school class start and end datetime syncs to recurring school class', function (): void {
+test('update school class start datetime syncs to recurring school class without changing series end', function (): void {
+    $seriesEnd = Carbon::parse('2025-12-31')->endOfDay();
     $class = SchoolClass::factory()->for($this->user)->create([
         'start_datetime' => Carbon::parse('2025-01-01 08:00'),
         'end_datetime' => Carbon::parse('2025-01-01 09:00'),
@@ -79,11 +84,11 @@ test('update school class start and end datetime syncs to recurring school class
     RecurringSchoolClass::factory()->create([
         'school_class_id' => $class->id,
         'start_datetime' => $class->start_datetime,
-        'end_datetime' => $class->end_datetime,
+        'end_datetime' => $seriesEnd,
     ]);
 
     $newStart = Carbon::parse('2025-03-01 09:00');
-    $newEnd = Carbon::parse('2025-03-31 17:00');
+    $newEnd = Carbon::parse('2025-03-01 10:00');
     $this->service->updateSchoolClass($class, [
         'start_datetime' => $newStart,
         'end_datetime' => $newEnd,
@@ -92,7 +97,8 @@ test('update school class start and end datetime syncs to recurring school class
     $recurring = $class->recurringSchoolClass()->first();
     expect($recurring)->not->toBeNull()
         ->and($recurring->start_datetime->format('Y-m-d H:i'))->toBe($newStart->format('Y-m-d H:i'))
-        ->and($recurring->end_datetime->format('Y-m-d H:i'))->toBe($newEnd->format('Y-m-d H:i'));
+        ->and($recurring->end_datetime->isSameDay($seriesEnd))->toBeTrue()
+        ->and($recurring->end_datetime->format('H:i'))->toBe($seriesEnd->format('H:i'));
 });
 
 test('delete school class soft deletes', function (): void {

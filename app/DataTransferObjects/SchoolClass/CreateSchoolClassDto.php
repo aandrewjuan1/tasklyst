@@ -2,7 +2,7 @@
 
 namespace App\DataTransferObjects\SchoolClass;
 
-use App\Support\DateHelper;
+use App\Support\SchoolClassScheduleNormalizer;
 use Illuminate\Support\Carbon;
 
 final readonly class CreateSchoolClassDto
@@ -14,6 +14,7 @@ final readonly class CreateSchoolClassDto
         public Carbon $endDatetime,
         /** @var array<string, mixed>|null */
         public ?array $recurrence,
+        public ?Carbon $recurrenceSeriesEndDatetime = null,
     ) {}
 
     /**
@@ -21,15 +22,15 @@ final readonly class CreateSchoolClassDto
      */
     public static function fromValidated(array $validated): self
     {
-        $recurrenceData = $validated['recurrence'] ?? null;
-        $recurrenceEnabled = $recurrenceData['enabled'] ?? false;
+        $normalized = SchoolClassScheduleNormalizer::normalize($validated);
 
         return new self(
             subjectName: (string) ($validated['subjectName'] ?? ''),
             teacherName: trim((string) ($validated['teacherName'] ?? '')),
-            startDatetime: DateHelper::parseRequired($validated['startDatetime'] ?? null),
-            endDatetime: DateHelper::parseRequired($validated['endDatetime'] ?? null),
-            recurrence: $recurrenceEnabled && is_array($recurrenceData) ? $recurrenceData : null,
+            startDatetime: $normalized['start_datetime'],
+            endDatetime: $normalized['end_datetime'],
+            recurrence: $normalized['recurrence'],
+            recurrenceSeriesEndDatetime: $normalized['recurrence_series_end_datetime'] ?? null,
         );
     }
 
@@ -44,6 +45,7 @@ final readonly class CreateSchoolClassDto
             'start_datetime' => $this->startDatetime,
             'end_datetime' => $this->endDatetime,
             'recurrence' => $this->recurrence,
+            'recurrence_series_end_datetime' => $this->recurrenceSeriesEndDatetime,
         ];
     }
 }

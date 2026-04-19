@@ -13,6 +13,7 @@
 
 <div
     class="space-y-4"
+    data-workspace-creation-form
     data-test="workspace-item-creation"
     x-data="{ @include('components.workspace.partials.item-creation-xdata') }"
     @workspace-list-visible-count.window="mode === 'list' && $event.detail?.count != null && (visibleItemCount = parseInt($event.detail.count, 10))"
@@ -33,8 +34,13 @@
         formData.item.endDatetime;
         formData.project.startDatetime;
         formData.project.endDatetime;
-        formData.schoolClass.startDatetime;
-        formData.schoolClass.endDatetime;
+        formData.schoolClass.scheduleMode;
+        formData.schoolClass.scheduleStartDate;
+        formData.schoolClass.scheduleEndDate;
+        formData.schoolClass.meetingDate;
+        formData.schoolClass.startTime;
+        formData.schoolClass.endTime;
+        formData.schoolClass.recurrence;
         creationKind === 'task' ? formData.item.duration : null;
         validateDateRange();
     "

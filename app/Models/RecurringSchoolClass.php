@@ -64,4 +64,25 @@ class RecurringSchoolClass extends Model
             'daysOfWeek' => $recurring->days_of_week ? (json_decode($recurring->days_of_week, true) ?? []) : [],
         ];
     }
+
+    /**
+     * Short weekday labels from stored JSON (0 = Sunday … 6 = Saturday).
+     */
+    public function weekdayAbbreviationList(): string
+    {
+        if ($this->days_of_week === null || $this->days_of_week === '') {
+            return '';
+        }
+
+        $decoded = json_decode($this->days_of_week, true);
+        if (! is_array($decoded) || $decoded === []) {
+            return '';
+        }
+
+        $labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+        $ints = array_map(fn (mixed $d): int => (int) $d, $decoded);
+
+        return implode(', ', array_map(fn (int $d): string => $labels[$d] ?? '', $ints));
+    }
 }

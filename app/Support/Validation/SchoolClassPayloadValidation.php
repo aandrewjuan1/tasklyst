@@ -13,13 +13,17 @@ final class SchoolClassPayloadValidation
     public static function defaults(): array
     {
         return [
+            'scheduleMode' => 'recurring',
             'subjectName' => '',
             'teacherName' => '',
-            'startDatetime' => null,
-            'endDatetime' => null,
+            'scheduleStartDate' => null,
+            'scheduleEndDate' => null,
+            'meetingDate' => null,
+            'startTime' => null,
+            'endTime' => null,
             'recurrence' => [
-                'enabled' => false,
-                'type' => null,
+                'enabled' => true,
+                'type' => TaskRecurrenceType::Weekly->value,
                 'interval' => 1,
                 'daysOfWeek' => [],
             ],
@@ -32,11 +36,16 @@ final class SchoolClassPayloadValidation
     public static function rules(): array
     {
         return [
+            'schoolClassPayload' => ['required', 'array'],
+            'schoolClassPayload.scheduleMode' => ['required', Rule::in(['recurring', 'one_off'])],
             'schoolClassPayload.subjectName' => ['required', 'string', 'max:255', 'regex:/\S/'],
             'schoolClassPayload.teacherName' => ['required', 'string', 'max:255', 'regex:/\S/'],
-            'schoolClassPayload.startDatetime' => ['required', 'date'],
-            'schoolClassPayload.endDatetime' => ['required', 'date', 'after_or_equal:schoolClassPayload.startDatetime'],
-            'schoolClassPayload.recurrence' => ['array'],
+            'schoolClassPayload.scheduleStartDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,recurring', 'date'],
+            'schoolClassPayload.scheduleEndDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,recurring', 'date', 'after_or_equal:schoolClassPayload.scheduleStartDate'],
+            'schoolClassPayload.meetingDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,one_off', 'date'],
+            'schoolClassPayload.startTime' => ['required', 'string'],
+            'schoolClassPayload.endTime' => ['required', 'string'],
+            'schoolClassPayload.recurrence' => ['nullable', 'array'],
             'schoolClassPayload.recurrence.enabled' => ['boolean'],
             'schoolClassPayload.recurrence.type' => ['nullable', Rule::in(array_map(fn (TaskRecurrenceType $t) => $t->value, TaskRecurrenceType::cases()))],
             'schoolClassPayload.recurrence.interval' => ['integer', 'min:1'],
