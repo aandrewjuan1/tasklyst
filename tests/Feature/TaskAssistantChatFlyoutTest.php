@@ -26,6 +26,19 @@ test('authenticated user sees task assistant flyout trigger and can open chat', 
     $response->assertDontSee('wire:click="applyQuickPromptChip', false);
 });
 
+test('chat flyout help modal describes hosted model and assistant scope', function () {
+    $user = User::factory()->create();
+    assert($user instanceof User);
+    $this->actingAs($user);
+
+    Livewire::test('assistant.chat-flyout')
+        ->assertSee(__('Where the model runs'), false)
+        ->assertSee(__('What it is for'), false)
+        ->assertSee(__('How to use it well'), false)
+        ->assertSee(__('Limitations'), false)
+        ->assertDontSee('Replies are generated on your local machine', false);
+});
+
 test('chat flyout component dispatches job on submit', function () {
     /** @var \Illuminate\Foundation\Testing\TestCase $this */
     Bus::fake();

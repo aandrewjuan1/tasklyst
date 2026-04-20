@@ -91,14 +91,69 @@
         },
     }"
 >
-    <div class="relative z-10 flex shrink-0 items-center gap-3 border-b border-border/60 px-4 py-3 dark:border-zinc-800">
+    <div class="relative z-20 flex shrink-0 items-start gap-3 overflow-visible border-b border-border/60 px-4 py-3 dark:border-zinc-800">
         <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-brand-blue/20 bg-white text-brand-blue shadow-sm dark:border-brand-blue/30 dark:bg-zinc-900/20 dark:text-brand-light-blue">
             <x-icons.assistant-robot class="size-5 text-brand-navy-blue dark:text-brand-light-blue" title="" />
         </div>
-        <div class="min-w-0">
-            <flux:text class="block text-xs font-semibold uppercase tracking-[0.12em] text-brand-blue dark:text-brand-light-blue">
-                {{ __('taskLyst assistant') }}
-            </flux:text>
+        <div class="min-w-0 flex-1 pt-0.5">
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <div class="inline-flex items-center gap-x-1.5">
+                    <flux:text class="block text-xs font-semibold uppercase leading-none tracking-[0.12em] text-brand-blue dark:text-brand-light-blue">
+                        {{ __('taskLyst assistant') }}
+                    </flux:text>
+
+                    <flux:modal.trigger name="task-assistant-help">
+                        <button
+                            type="button"
+                            aria-label="{{ __('How this assistant works') }}"
+                            class="inline-flex shrink-0 items-center justify-center rounded-md p-px text-zinc-500 transition-colors hover:text-zinc-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35 focus-visible:ring-offset-1 dark:text-zinc-400 dark:hover:text-zinc-200 dark:focus-visible:ring-offset-zinc-900"
+                        >
+                            <flux:icon name="information-circle" class="size-4" />
+                        </button>
+                    </flux:modal.trigger>
+                </div>
+
+                <flux:modal
+                    name="task-assistant-help"
+                    scroll="body"
+                    class="w-full max-w-lg"
+                >
+                    <div class="space-y-2.5 text-sm leading-snug text-zinc-700 dark:text-zinc-300">
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('Where the model runs') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('This assistant uses Hermes 3:3b, a compact model running locally on infrastructure we control. Local hosting keeps processing within a secure environment, supporting better privacy. Because it runs on limited local resources, responses may take some time to generate. As a smaller model, outputs may also be less nuanced than larger cloud-based assistants.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('What it is for') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('It helps with prioritization, scheduling, and planning using your tasks and calendar data in taskLyst. You\'ll get ranked suggestions, proposed time blocks, and quick follow-up prompts to refine results. It is not a general-purpose chatbot, so unrelated or vague prompts may return limited guidance.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('How to use it well') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('Send one clear goal per message and include a timeframe when relevant, such as "today" or "this week." This helps the assistant generate more accurate priorities and schedules. You can refine outputs using follow-ups or suggested chips, like adjusting time blocks or narrowing the scope.') }}
+                                </p>
+                            </div>
+                            <div>
+                                <p class="font-semibold text-zinc-900 dark:text-zinc-100">
+                                    {{ __('Limitations') }}
+                                </p>
+                                <p class="mt-1">
+                                    {{ __('It only supports task-related use and cannot browse the web or access data outside taskLyst. Smaller models may occasionally misinterpret wording, counts, or dates, so double-check important details. Responses are generated on the server and may take a moment to complete after you send a message.') }}
+                                </p>
+                            </div>
+                    </div>
+                </flux:modal>
+            </div>
             <flux:heading size="md">{{ __('Plan, prioritize, and organize faster') }}</flux:heading>
         </div>
     </div>
