@@ -5,7 +5,6 @@ namespace App\Support\Reminders;
 use App\Enums\ReminderType;
 use App\Models\Reminder;
 use App\Notifications\AssistantActionRequiredNotification;
-use App\Notifications\AssistantToolCallFailedNotification;
 use App\Notifications\CalendarFeedRecoveredNotification;
 use App\Notifications\CalendarFeedStaleSyncNotification;
 use App\Notifications\CalendarFeedSyncFailedNotification;
@@ -196,17 +195,6 @@ final class ReminderNotificationFactory
                 threadId: (int) ($payload['thread_id'] ?? $reminder->remindable_id),
                 threadTitle: (string) ($payload['thread_title'] ?? ''),
                 pendingProposalsCount: (int) ($payload['pending_proposals_count'] ?? 0),
-            );
-        }
-
-        if ($type === ReminderType::AssistantToolCallFailed) {
-            return new AssistantToolCallFailedNotification(
-                toolCallId: (int) ($payload['tool_call_id'] ?? $payload['id'] ?? 0),
-                toolName: (string) ($payload['tool_name'] ?? ''),
-                operationToken: isset($payload['operation_token']) ? (string) $payload['operation_token'] : null,
-                threadId: isset($payload['thread_id']) ? (int) $payload['thread_id'] : null,
-                messageId: isset($payload['message_id']) ? (int) $payload['message_id'] : null,
-                error: isset($payload['error']) ? (string) $payload['error'] : null,
             );
         }
 

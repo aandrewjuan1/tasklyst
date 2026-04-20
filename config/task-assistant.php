@@ -146,6 +146,11 @@ return [
          */
         'smart_default_spread_days' => (int) env('TASK_ASSISTANT_SCHEDULE_SMART_DEFAULT_SPREAD_DAYS', 3),
         /**
+         * Hard-block buffer (minutes) around effective SchoolClass intervals when placing schedule proposals.
+         * Set to 0 to disable the extra prep/travel margin.
+         */
+        'school_class_buffer_minutes' => (int) env('TASK_ASSISTANT_SCHOOL_CLASS_BUFFER_MINUTES', 15),
+        /**
          * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
          * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
          */
@@ -162,14 +167,6 @@ return [
             'llm_fallback_enabled' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_LLM_FALLBACK', true),
         ],
     ],
-    'tools' => [
-        'routes' => [
-            'listing' => [],
-            'schedule' => ['list_tasks'],
-            'prioritize' => [],
-        ],
-    ],
-
     /*
     |--------------------------------------------------------------------------
     | Intent routing (LLM + heuristic validation)

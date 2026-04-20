@@ -30,7 +30,6 @@ test('daily_schedule narrative keeps deterministic reasoning times when model re
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -96,7 +95,6 @@ test('daily_schedule time grounding rejects mismatched framing end time', functi
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -154,7 +152,6 @@ test('daily_schedule framing keeps digit-minute phrasing when no clock tokens ar
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -210,7 +207,6 @@ test('daily_schedule replaces prioritize-style framing with schedule fallback co
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -278,7 +274,6 @@ test('daily_schedule replaces hallucinated multi-task placement when digest has 
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -346,7 +341,6 @@ test('daily_schedule time grounding rejects "starting at X and ending at Y"', fu
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -404,7 +398,6 @@ test('daily_schedule reasoning explains skipped targets are left unchanged', fun
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -489,7 +482,6 @@ test('daily_schedule deterministic reasoning does not imply one continuous block
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-04-01',
             'timezone' => 'UTC',
@@ -559,7 +551,6 @@ test('daily_schedule narrative rejects unsupported one-task-per-two-hour-window 
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-04-01',
             'timezone' => 'UTC',
@@ -616,7 +607,6 @@ test('daily_schedule narrative sanitizes mismatched explicit confirmation time a
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-23',
             'timezone' => 'UTC',
@@ -674,7 +664,6 @@ test('daily_schedule narrative sanitizes contradictory relative date wording aga
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',
@@ -731,7 +720,6 @@ test('daily_schedule narrative falls back when model invents unsupported time cl
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',
@@ -795,7 +783,6 @@ test('daily_schedule narrative falls back when due next weekday claim conflicts 
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-04-01',
             'timezone' => 'Asia/Manila',
@@ -868,7 +855,6 @@ test('daily_schedule narrative falls back when reasoning claims first in the day
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-04-17',
             'timezone' => 'Asia/Manila',
@@ -935,7 +921,6 @@ test('daily_schedule narrative framing falls back when claiming top task starts 
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'Asia/Manila', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-04-01',
             'timezone' => 'Asia/Manila',
@@ -994,7 +979,6 @@ test('daily_schedule narrative strips internal placement jargon from model outpu
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',
@@ -1069,7 +1053,6 @@ test('refinePrioritizeListing derives focus from items order and uses suggested_
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1142,7 +1125,6 @@ test('refinePrioritizeListing falls back suggested_next_actions and strips place
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1211,7 +1193,6 @@ test('refinePrioritizeListing suppresses optional fields when UX include flags a
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1280,7 +1261,6 @@ test('refinePrioritizeListing includes acknowledgment when UX include flags are 
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1341,7 +1321,6 @@ test('refinePrioritizeListing provides a single-item start guidance in reasoning
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1407,7 +1386,6 @@ test('refinePrioritizeListing removes conflicting due timing from framing', func
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1460,7 +1438,6 @@ test('refinePrioritizeListing removes conflicting due timing from reasoning', fu
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-30',
             'timezone' => 'UTC',
@@ -1523,7 +1500,6 @@ test('refinePrioritizeListing replaces due soon framing with singular overdue op
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-28',
             'timezone' => 'UTC',
@@ -1579,7 +1555,6 @@ test('refinePrioritizeListing strips overdue duration units in reasoning', funct
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',
@@ -1643,7 +1618,6 @@ test('refinePrioritizeListing ignores \"tomorrow\\u2019s\" in titles for due dri
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1698,7 +1672,6 @@ test('refinePrioritizeListing ensures stressed prompts yield an empathetic ackno
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -1754,7 +1727,6 @@ test('refinePrioritizeListing strips bracketed artifacts from next_options', fun
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-22',
             'timezone' => 'UTC',
@@ -1831,7 +1803,6 @@ test('refinePrioritizeListing sanitizes visibility overclaims and avoids bundled
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-22',
             'timezone' => 'UTC',
@@ -1885,7 +1856,6 @@ test('refinePrioritizeListing replaces over-claimy neutral framing with grounded
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-22',
             'timezone' => 'UTC',
@@ -1943,7 +1913,6 @@ test('refinePrioritizeListing handles mixed entity types without insight field',
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -2002,7 +1971,6 @@ test('refinePrioritizeListing does not append ordered-list boilerplate when reas
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-22',
             'timezone' => 'UTC',
@@ -2049,7 +2017,6 @@ test('refinePrioritizeListing does not use connection fallbacks when the model r
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -2105,7 +2072,6 @@ test('refinePrioritizeListing returns doing_progress_coach when doing_context is
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -2173,7 +2139,6 @@ test('refinePrioritizeListing replaces doing_progress_coach when it quotes ITEMS
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-01',
             'timezone' => 'UTC',
@@ -2243,7 +2208,6 @@ test('refinePrioritizeListing grounds generic reasoning with first row due_phras
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',
@@ -2305,7 +2269,6 @@ test('refinePrioritizeListing appends coaching tone tail for single-item generic
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',
@@ -2365,7 +2328,6 @@ test('refinePrioritizeListing does not append coaching tone tail when reasoning 
 
     $promptData = [
         'userContext' => ['id' => 1, 'name' => 'Tester', 'timezone' => 'UTC', 'date_format' => 'Y-m-d H:i'],
-        'toolManifest' => [],
         'snapshot' => [
             'today' => '2026-03-31',
             'timezone' => 'UTC',

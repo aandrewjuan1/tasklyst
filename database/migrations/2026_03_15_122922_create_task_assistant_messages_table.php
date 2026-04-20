@@ -16,7 +16,6 @@ return new class extends Migration
             $table->foreignId('thread_id')->constrained('task_assistant_threads')->cascadeOnDelete();
             $table->string('role');
             $table->text('content');
-            $table->json('tool_calls')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
 

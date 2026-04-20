@@ -19,7 +19,6 @@ use App\Services\Reminders\ReminderDispatcherService;
 use App\Services\Reminders\ReminderInsightsSchedulerService;
 use App\Services\SchoolClassService;
 use App\Services\TaskService;
-use App\Tools\LLM\TaskAssistant\DelegatingTool;
 use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -527,33 +526,6 @@ test('collaboration invitation creation schedules invite received reminder for i
         ->exists();
 
     expect($exists)->toBeTrue();
-});
-
-test('assistant tool call failure creates a reminder (deduped by operation token)', function (): void {
-    $user = $this->user;
-
-    $tool = new class($user) extends DelegatingTool
-    {
-        public function publicRun(array $params): string
-        {
-            $this->action = function (): void {
-                throw new RuntimeException('boom');
-            };
-
-            return $this->runDelegatedAction($params, 'test_tool', 'op-token-1');
-        }
-    };
-
-    $tool->publicRun(['x' => 1]);
-    $tool->publicRun(['x' => 1]);
-
-    $count = Reminder::query()
-        ->where('user_id', $user->id)
-        ->where('type', ReminderType::AssistantToolCallFailed->value)
-        ->where('payload->operation_token', 'op-token-1')
-        ->count();
-
-    expect($count)->toBe(1);
 });
 
 test('accepting collaboration invitation cancels pending invite reminder', function (): void {

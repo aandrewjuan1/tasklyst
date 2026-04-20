@@ -5,6 +5,7 @@ use App\Enums\MessageRole;
 use App\Enums\TaskPriority;
 use App\Enums\TaskStatus;
 use App\Models\Event;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
@@ -276,7 +277,7 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
                         'start_datetime' => '2026-04-02T08:00:00+08:00',
                         'end_datetime' => '2026-04-02T09:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'b',
@@ -287,7 +288,7 @@ test('edit-like turn after pending schedule draft rewrites prioritize intent to 
                         'start_datetime' => '2026-04-02T09:30:00+08:00',
                         'end_datetime' => '2026-04-02T10:00:00+08:00',
                         'duration_minutes' => 30,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
                     ],
                 ],
             ],
@@ -354,7 +355,7 @@ test('schedule refinement without explicit day keeps edited item on its original
                         'start_datetime' => '2026-04-04T08:00:00+08:00',
                         'end_datetime' => '2026-04-04T09:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'b',
@@ -365,7 +366,7 @@ test('schedule refinement without explicit day keeps edited item on its original
                         'start_datetime' => '2026-04-04T10:00:00+08:00',
                         'end_datetime' => '2026-04-04T11:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'c',
@@ -376,7 +377,7 @@ test('schedule refinement without explicit day keeps edited item on its original
                         'start_datetime' => '2026-04-04T13:00:00+08:00',
                         'end_datetime' => '2026-04-04T14:30:00+08:00',
                         'duration_minutes' => 90,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
                     ],
                 ],
             ],
@@ -446,7 +447,7 @@ test('schedule refinement later today overrides only edited item day to today', 
                         'start_datetime' => '2026-04-04T08:00:00+08:00',
                         'end_datetime' => '2026-04-04T09:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskA->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'b',
@@ -457,7 +458,7 @@ test('schedule refinement later today overrides only edited item day to today', 
                         'start_datetime' => '2026-04-04T10:00:00+08:00',
                         'end_datetime' => '2026-04-04T11:00:00+08:00',
                         'duration_minutes' => 60,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskB->id, 'updates' => []]],
                     ],
                     [
                         'proposal_id' => 'c',
@@ -468,7 +469,7 @@ test('schedule refinement later today overrides only edited item day to today', 
                         'start_datetime' => '2026-04-04T13:00:00+08:00',
                         'end_datetime' => '2026-04-04T14:30:00+08:00',
                         'duration_minutes' => 90,
-                        'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
+                        'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $taskC->id, 'updates' => []]],
                     ],
                 ],
             ],
@@ -545,7 +546,7 @@ test('fresh prioritize ask still stays prioritize even when pending schedule dra
                     'start_datetime' => '2026-04-02T08:00:00+08:00',
                     'end_datetime' => '2026-04-02T09:00:00+08:00',
                     'duration_minutes' => 60,
-                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                 ]],
             ],
             'structured' => ['flow' => 'schedule'],
@@ -600,7 +601,7 @@ test('prioritize_schedule stays fresh schedule when pending schedule draft exist
                     'start_datetime' => '2026-04-02T08:00:00+08:00',
                     'end_datetime' => '2026-04-02T09:00:00+08:00',
                     'duration_minutes' => 60,
-                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                 ]],
             ],
             'structured' => [
@@ -882,6 +883,78 @@ test('today schedule does not place new blocks before now', function (): void {
         if ($start !== null && $start->toDateString() === $now->toDateString()) {
             expect($start->greaterThanOrEqualTo($now))->toBeTrue();
         }
+    }
+
+    CarbonImmutable::setTestNow();
+});
+
+test('schedule proposals do not overlap buffered school class windows', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+        'task-assistant.schedule.school_class_buffer_minutes' => 15,
+    ]);
+
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-05-04 07:30:00', $timezone));
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-05-05 21:00:00', $timezone),
+    ]);
+
+    expect($task->id)->toBeInt();
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Calculus',
+        'start_datetime' => CarbonImmutable::parse('2026-05-05 10:00:00', $timezone),
+        'end_datetime' => CarbonImmutable::parse('2026-05-05 11:00:00', $timezone),
+        'start_time' => '10:00:00',
+        'end_time' => '11:00:00',
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my top task for tomorrow morning',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+    expect($proposals)->toBeArray();
+    expect($proposals)->not->toBeEmpty();
+
+    $blockedStart = CarbonImmutable::parse('2026-05-05 09:45:00', $timezone);
+    $blockedEnd = CarbonImmutable::parse('2026-05-05 11:15:00', $timezone);
+
+    foreach ($proposals as $proposal) {
+        if (! is_array($proposal)) {
+            continue;
+        }
+
+        $startRaw = (string) ($proposal['start_datetime'] ?? '');
+        $endRaw = (string) ($proposal['end_datetime'] ?? '');
+        if ($startRaw === '' || $endRaw === '') {
+            continue;
+        }
+
+        $start = CarbonImmutable::parse($startRaw, $timezone);
+        $end = CarbonImmutable::parse($endRaw, $timezone);
+        if ($end->lessThanOrEqualTo($start)) {
+            continue;
+        }
+
+        $overlapsBufferedClass = $start->lessThan($blockedEnd) && $end->greaterThan($blockedStart);
+        expect($overlapsBufferedClass)->toBeFalse();
     }
 
     CarbonImmutable::setTestNow();
@@ -1192,7 +1265,7 @@ test('fallback confirmation narrative does not claim explicit top-N for generic 
             'start_datetime' => '2026-04-18T20:50:56+08:00',
             'end_datetime' => '2026-04-18T21:10:56+08:00',
             'duration_minutes' => 20,
-            'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+            'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
         ]],
         'blocks' => [[
             'start_time' => '20:50',
@@ -1263,7 +1336,7 @@ test('pending schedule fallback proceeds on affirmative follow-up', function ():
             'duration_minutes' => 60,
             'conflict_notes' => [],
             'apply_payload' => [
-                'tool' => 'update_task',
+                'action' => 'update_task',
                 'arguments' => [
                     'taskId' => $task->id,
                     'updates' => [
@@ -1370,7 +1443,7 @@ test('pending schedule fallback decline asks for alternate window and clears pen
                             'start_datetime' => '2026-04-03T08:00:00+08:00',
                             'end_datetime' => '2026-04-03T09:00:00+08:00',
                             'duration_minutes' => 60,
-                            'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => $task->id, 'updates' => []]],
+                            'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => $task->id, 'updates' => []]],
                         ]],
                     ],
                     'time_window_hint' => 'later',
@@ -1446,7 +1519,7 @@ test('pending schedule fallback accepts natural window-adjustment reply and re-r
             'duration_minutes' => 180,
             'conflict_notes' => [],
             'apply_payload' => [
-                'tool' => 'update_task',
+                'action' => 'update_task',
                 'arguments' => [
                     'taskId' => $tasks[0]->id,
                     'updates' => [
@@ -1620,7 +1693,7 @@ test('pending schedule fallback fit-all follow-ups reroute instead of looping cl
                 'duration_minutes' => 120,
                 'conflict_notes' => [],
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => [
                         'taskId' => $task->id,
                         'updates' => [

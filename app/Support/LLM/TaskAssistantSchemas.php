@@ -75,16 +75,16 @@ final class TaskAssistantSchemas
                             ),
                             new ObjectSchema(
                                 name: 'apply_payload',
-                                description: 'Tool payload used when user accepts this item.',
+                                description: 'Apply payload used when user accepts this item.',
                                 nullable: true,
                                 properties: [
                                     new StringSchema(
-                                        name: 'tool',
-                                        description: 'Tool name to apply.'
+                                        name: 'action',
+                                        description: 'Apply action name.'
                                     ),
                                     new ObjectSchema(
                                         name: 'arguments',
-                                        description: 'Tool arguments.',
+                                        description: 'Apply action arguments.',
                                         properties: [],
                                         requiredFields: []
                                     ),

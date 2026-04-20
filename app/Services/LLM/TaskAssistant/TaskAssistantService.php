@@ -24,6 +24,7 @@ use App\Services\LLM\Scheduling\ScheduleRefinementStructuredOpExtractor;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleHorizonResolver;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
+use App\Services\Scheduling\SchoolClassBusyIntervalResolver;
 use App\Support\LLM\TaskAssistantPrioritizeOutputDefaults;
 use App\Support\LLM\TaskAssistantSchemas;
 use Carbon\CarbonImmutable;
@@ -33,10 +34,7 @@ use Illuminate\Support\Str;
 use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
 use Prism\Prism\ValueObjects\Messages\AssistantMessage;
-use Prism\Prism\ValueObjects\Messages\ToolResultMessage;
 use Prism\Prism\ValueObjects\Messages\UserMessage;
-use Prism\Prism\ValueObjects\ToolCall;
-use Prism\Prism\ValueObjects\ToolResult;
 
 /**
  * Task Assistant orchestration: queued messages are routed once via
@@ -72,6 +70,7 @@ final class TaskAssistantService
         private readonly ScheduleRefinementStructuredOpExtractor $scheduleRefinementStructuredOpExtractor,
         private readonly TaskAssistantScheduleHorizonResolver $scheduleHorizonResolver,
         private readonly TaskAssistantListingFollowupService $listingFollowupService,
+        private readonly SchoolClassBusyIntervalResolver $schoolClassBusyIntervalResolver,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -1488,6 +1487,12 @@ final class TaskAssistantService
                 continue;
             }
 
+            if ($this->hasSchoolClassConflictInDraft($thread, (array) ($mutation['proposals'] ?? []), $timezone)) {
+                $partialFailureNotes[] = 'I could not apply that change because it overlaps your class schedule.';
+
+                continue;
+            }
+
             $finalProposals = $mutation['proposals'];
             $hadSuccessfulEdit = true;
             $extraUuids = $this->proposalUuidsFromScheduleOperations($resolvedOperations);
@@ -1975,7 +1980,7 @@ final class TaskAssistantService
 
     /**
      * @param  Collection<int, TaskAssistantMessage>  $messages
-     * @return array<int, UserMessage|AssistantMessage|ToolResultMessage>
+     * @return array<int, UserMessage|AssistantMessage>
      */
     private function mapToPrismMessages(Collection $messages): array
     {
@@ -1987,61 +1992,13 @@ final class TaskAssistantService
                 continue;
             }
             if ($msg->role === MessageRole::Assistant) {
-                $prismToolCalls = [];
-                foreach ($msg->tool_calls ?? [] as $tc) {
-                    if (! is_array($tc)) {
-                        continue;
-                    }
-                    $id = (string) ($tc['id'] ?? '');
-                    if ($id === '') {
-                        continue;
-                    }
-                    $prismToolCalls[] = new ToolCall(
-                        id: $id,
-                        name: (string) ($tc['name'] ?? ''),
-                        arguments: $tc['arguments'] ?? [],
-                    );
-                }
-                $out[] = new AssistantMessage($msg->content ?? '', $prismToolCalls);
+                $out[] = new AssistantMessage($msg->content ?? '');
 
                 continue;
-            }
-            if ($msg->role === MessageRole::Tool) {
-                $meta = $msg->metadata ?? [];
-                $toolCallId = (string) ($meta['tool_call_id'] ?? '');
-                if ($toolCallId === '') {
-                    continue;
-                }
-                $toolName = (string) ($meta['tool_name'] ?? '');
-                $args = is_array($meta['args'] ?? null) ? $meta['args'] : [];
-                $result = $this->decodeToolMessageResult((string) ($msg->content ?? ''));
-                $out[] = new ToolResultMessage([
-                    new ToolResult($toolCallId, $toolName, $args, $result),
-                ]);
             }
         }
 
         return $out;
-    }
-
-    private function decodeToolMessageResult(string $raw): array|float|int|string|null
-    {
-        $trim = trim($raw);
-        if ($trim === '') {
-            return '';
-        }
-        if (str_starts_with($trim, '{') || str_starts_with($trim, '[')) {
-            $decoded = json_decode($trim, true);
-            if (json_last_error() === JSON_ERROR_NONE) {
-                if (is_bool($decoded)) {
-                    return $decoded ? 'true' : 'false';
-                }
-
-                return $decoded;
-            }
-        }
-
-        return $raw;
     }
 
     /**
@@ -2199,6 +2156,10 @@ final class TaskAssistantService
 
         $mutation = $this->scheduleDraftMutationService->applyOperations($workingProposals, $operations, $timezone);
         if (! ($mutation['ok'] ?? false)) {
+            return null;
+        }
+
+        if ($this->hasSchoolClassConflictInDraft($thread, (array) ($mutation['proposals'] ?? []), $timezone)) {
             return null;
         }
 
@@ -3430,6 +3391,98 @@ PROMPT)
             'prioritize_variant' => $plan->flow === 'prioritize' ? TaskAssistantPrioritizeVariant::Rank->value : null,
             'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
         ]);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $proposals
+     */
+    private function hasSchoolClassConflictInDraft(TaskAssistantThread $thread, array $proposals, string $timezone): bool
+    {
+        $draftIntervals = [];
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if ((string) ($proposal['status'] ?? 'pending') !== 'pending') {
+                continue;
+            }
+            if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
+                continue;
+            }
+
+            $startRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+            if ($startRaw === '') {
+                continue;
+            }
+
+            try {
+                $startAt = CarbonImmutable::parse($startRaw, $timezone);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $endRaw = trim((string) ($proposal['end_datetime'] ?? ''));
+            if ($endRaw !== '') {
+                try {
+                    $endAt = CarbonImmutable::parse($endRaw, $timezone);
+                } catch (\Throwable) {
+                    continue;
+                }
+            } else {
+                $minutes = max(1, (int) ($proposal['duration_minutes'] ?? 30));
+                $endAt = $startAt->addMinutes($minutes);
+            }
+
+            if ($endAt->lessThanOrEqualTo($startAt)) {
+                continue;
+            }
+
+            $draftIntervals[] = ['start' => $startAt, 'end' => $endAt];
+        }
+
+        if ($draftIntervals === []) {
+            return false;
+        }
+
+        $minStart = collect($draftIntervals)->min('start');
+        $maxEnd = collect($draftIntervals)->max('end');
+        if (! $minStart instanceof CarbonImmutable || ! $maxEnd instanceof CarbonImmutable) {
+            return false;
+        }
+
+        $classBusy = $this->schoolClassBusyIntervalResolver->resolveForUser(
+            user: $thread->user,
+            rangeStart: $minStart->copy()->startOfDay(),
+            rangeEnd: $maxEnd->copy()->endOfDay(),
+            bufferMinutes: max(0, (int) config('task-assistant.schedule.school_class_buffer_minutes', 15)),
+        );
+
+        if ($classBusy === []) {
+            return false;
+        }
+
+        foreach ($draftIntervals as $draft) {
+            foreach ($classBusy as $busy) {
+                if (! is_array($busy)) {
+                    continue;
+                }
+                try {
+                    $busyStart = CarbonImmutable::parse((string) ($busy['start'] ?? ''), $timezone);
+                    $busyEnd = CarbonImmutable::parse((string) ($busy['end'] ?? ''), $timezone);
+                } catch (\Throwable) {
+                    continue;
+                }
+                if ($busyEnd->lessThanOrEqualTo($busyStart)) {
+                    continue;
+                }
+
+                if ($draft['start']->lessThan($busyEnd) && $draft['end']->greaterThan($busyStart)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function previewForLogs(string $text, int $maxChars = 120): string

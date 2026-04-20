@@ -355,6 +355,8 @@ final class TaskAssistantResponseProcessor
 
     private function validateDailyScheduleData(array $data, array $snapshot): array
     {
+        $data = $this->normalizeApplyPayloadActions($data);
+
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
         $maxConfirmation = TaskAssistantPrioritizeOutputDefaults::maxNextFieldChars();
@@ -375,7 +377,8 @@ final class TaskAssistantResponseProcessor
             'proposals.*.conflict_notes' => ['nullable', 'array', 'max:10'],
             'proposals.*.conflict_notes.*' => ['string', 'max:300'],
             'proposals.*.apply_payload' => ['nullable', 'array'],
-            'proposals.*.apply_payload.tool' => ['required_with:proposals.*.apply_payload', 'string', 'max:64', 'in:update_task,update_event,update_project,create_event'],
+            'proposals.*.apply_payload.action' => ['required_with:proposals.*.apply_payload', 'string', 'max:64', 'in:update_task,update_event,update_project,create_event'],
+            'proposals.*.apply_payload.tool' => ['nullable', 'string', 'max:64'],
             'proposals.*.apply_payload.arguments' => ['nullable', 'array'],
             'proposals.*.apply_payload.arguments.title' => ['nullable', 'string', 'max:200'],
             'proposals.*.apply_payload.arguments.description' => ['nullable', 'string', 'max:2000'],
@@ -582,7 +585,8 @@ final class TaskAssistantResponseProcessor
                     continue;
                 }
                 $ap = $proposal['apply_payload'] ?? null;
-                if (! is_array($ap) || ($ap['tool'] ?? '') !== 'create_event') {
+                $applyAction = (string) ($ap['action'] ?? $ap['tool'] ?? '');
+                if (! is_array($ap) || $applyAction !== 'create_event') {
                     continue;
                 }
                 $args = is_array($ap['arguments'] ?? null) ? $ap['arguments'] : [];
@@ -729,5 +733,40 @@ final class TaskAssistantResponseProcessor
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    private function normalizeApplyPayloadActions(array $data): array
+    {
+        $proposals = is_array($data['proposals'] ?? null) ? $data['proposals'] : [];
+        if ($proposals === []) {
+            return $data;
+        }
+
+        foreach ($proposals as $index => $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+
+            $applyPayload = $proposal['apply_payload'] ?? null;
+            if (! is_array($applyPayload)) {
+                continue;
+            }
+
+            $action = trim((string) ($applyPayload['action'] ?? ''));
+            $legacyTool = trim((string) ($applyPayload['tool'] ?? ''));
+            if ($action === '' && $legacyTool !== '') {
+                $applyPayload['action'] = $legacyTool;
+                $proposal['apply_payload'] = $applyPayload;
+                $proposals[$index] = $proposal;
+            }
+        }
+
+        $data['proposals'] = $proposals;
+
+        return $data;
     }
 }

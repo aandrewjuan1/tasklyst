@@ -1985,7 +1985,7 @@ final class TaskAssistantStructuredFlowGenerator
             $description = sprintf('Task assistant focus block linked to task #%d.', $taskId);
 
             return [
-                'tool' => 'create_event',
+                'action' => 'create_event',
                 'arguments' => [
                     'title' => $title,
                     'description' => $description,
@@ -1997,7 +1997,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         if ($candidate['entity_type'] === 'task') {
             return [
-                'tool' => 'update_task',
+                'action' => 'update_task',
                 'arguments' => [
                     'taskId' => $candidate['entity_id'],
                     'updates' => [
@@ -2016,7 +2016,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         if ($candidate['entity_type'] === 'event') {
             return [
-                'tool' => 'update_event',
+                'action' => 'update_event',
                 'arguments' => [
                     'eventId' => $candidate['entity_id'],
                     'updates' => [
@@ -2034,7 +2034,7 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return [
-            'tool' => 'update_project',
+            'action' => 'update_project',
             'arguments' => [
                 'projectId' => $candidate['entity_id'],
                 'updates' => [
@@ -2050,6 +2050,31 @@ final class TaskAssistantStructuredFlowGenerator
     private function buildBusyRanges(array $snapshot, \DateTimeImmutable $dayStart, \DateTimeImmutable $dayEnd, \DateTimeZone $timezone): array
     {
         $ranges = [];
+
+        $classBusyIntervals = is_array($snapshot['school_class_busy_intervals'] ?? null)
+            ? $snapshot['school_class_busy_intervals']
+            : [];
+
+        foreach ($classBusyIntervals as $interval) {
+            if (! is_array($interval)) {
+                continue;
+            }
+
+            $start = $this->safeDateTime($interval['start'] ?? null, $timezone);
+            $end = $this->safeDateTime($interval['end'] ?? null, $timezone);
+            if ($start === null || $end === null || $end <= $start) {
+                continue;
+            }
+
+            if ($end <= $dayStart || $start >= $dayEnd) {
+                continue;
+            }
+
+            $ranges[] = [
+                'start' => $start < $dayStart ? $dayStart : $start,
+                'end' => $end > $dayEnd ? $dayEnd : $end,
+            ];
+        }
 
         // Built-in lunch break (product default): 12:00–13:00 local time.
         // Represented as a busy range so it naturally subtracts from free windows.

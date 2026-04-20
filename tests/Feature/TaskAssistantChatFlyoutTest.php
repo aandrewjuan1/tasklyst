@@ -201,7 +201,7 @@ test('chat flyout submits prioritize-oriented message and dispatches job', funct
     Bus::assertDispatched(BroadcastTaskAssistantStreamJob::class);
 });
 
-test('chat flyout submits list message and dispatches job', function () {
+test('chat flyout submits message and dispatches job', function () {
     /** @var \Illuminate\Foundation\Testing\TestCase $this */
     Bus::fake();
     $user = User::factory()->create();
@@ -211,8 +211,13 @@ test('chat flyout submits list message and dispatches job', function () {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
-                'action' => 'list_tasks',
-                'args' => ['limit' => 5],
+                'intent' => 'task',
+                'acknowledgement' => 'Sure.',
+                'message' => 'I can help with your task planning.',
+                'suggested_next_actions' => [
+                    'Tell me what to prioritize first',
+                    'Share when you want to schedule work',
+                ],
             ])
             ->withUsage(new Usage(5, 10)),
     ]);
@@ -363,6 +368,56 @@ test('chat flyout accept all applies multiple pending task proposals', function 
     expect(data_get($assistantMessage->metadata, 'schedule.proposals.1.status'))->toBe('accepted');
     expect($taskA->duration)->toBe(60);
     expect($taskB->duration)->toBe(45);
+});
+
+test('chat flyout accept all persists scheduled focus items visible in workspace plan panel', function () {
+    /** @var User $user */
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    session(['task_assistant.current_thread_id' => $thread->id]);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Focus panel persistence check',
+        'status' => \App\Enums\TaskStatus::ToDo,
+        'start_datetime' => null,
+        'duration' => 30,
+    ]);
+    $startAt = now()->addHour()->startOfHour();
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => \App\Enums\MessageRole::Assistant,
+        'content' => 'Proposed schedule',
+        'metadata' => [
+            'daily_schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'focus-plan-panel-1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => $task->id,
+                    'title' => $task->title,
+                    'start_datetime' => $startAt->toIso8601String(),
+                    'duration_minutes' => 60,
+                ]],
+            ],
+        ],
+    ]);
+
+    Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $assistantMessage->id);
+
+    $planItem = AssistantSchedulePlanItem::query()
+        ->where('user_id', $user->id)
+        ->where('proposal_uuid', 'focus-plan-panel-1')
+        ->first();
+
+    expect($planItem)->not->toBeNull();
+    expect($planItem?->status?->value)->toBe('planned');
+
+    Livewire::test('pages::workspace.index')
+        ->assertSee('Scheduled focus')
+        ->assertSee('Focus panel persistence check');
 });
 
 test('chat flyout does not accept all on stale schedule card when a newer assistant message exists', function () {

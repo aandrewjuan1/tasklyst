@@ -273,7 +273,32 @@ class SchoolClassService
             $recurringSchoolClasses
         )['recurring_school_class_ids'] ?? [];
 
-        return array_values(array_map('intval', $ids));
+        $ids = array_values(array_map('intval', $ids));
+        if ($ids === []) {
+            return [];
+        }
+
+        $instanceDate = $date->format('Y-m-d');
+        $cancelledRecurringIds = SchoolClassInstance::query()
+            ->whereIn('recurring_school_class_id', $ids)
+            ->whereDate('instance_date', $instanceDate)
+            ->where(function ($query): void {
+                $query->where('cancelled', true)
+                    ->orWhere('status', EventStatus::Cancelled->value);
+            })
+            ->pluck('recurring_school_class_id')
+            ->map(static fn ($value): int => (int) $value)
+            ->all();
+
+        if ($cancelledRecurringIds !== []) {
+            $cancelledLookup = array_flip($cancelledRecurringIds);
+            $ids = array_values(array_filter(
+                $ids,
+                static fn (int $id): bool => ! isset($cancelledLookup[$id])
+            ));
+        }
+
+        return $ids;
     }
 
     /**

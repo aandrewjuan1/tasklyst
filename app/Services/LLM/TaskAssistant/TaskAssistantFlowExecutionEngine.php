@@ -15,7 +15,6 @@ final class TaskAssistantFlowExecutionEngine
     public function __construct(
         private readonly TaskAssistantResponseProcessor $responseProcessor,
         private readonly TaskAssistantSnapshotService $snapshotService,
-        private readonly TaskAssistantToolEventPersister $toolEventPersister,
     ) {}
 
     /**
@@ -83,25 +82,6 @@ final class TaskAssistantFlowExecutionEngine
         $snapshot = $this->buildSnapshotForFlow($flow, $thread->user, $payload);
         if ($flow === 'daily_schedule' && is_array($payload['proposals'] ?? null)) {
             // Snapshot is already built for validation in buildSnapshotForFlow().
-        }
-
-        $toolCalls = $generationResult['tool_calls'] ?? [];
-        $toolResults = $generationResult['tool_results'] ?? [];
-
-        if ($toolCalls !== [] || $toolResults !== []) {
-            $toolCalls = $toolCalls instanceof \Illuminate\Support\Collection
-                ? $toolCalls->all()
-                : (is_array($toolCalls) ? $toolCalls : iterator_to_array($toolCalls));
-
-            $toolResults = $toolResults instanceof \Illuminate\Support\Collection
-                ? $toolResults->all()
-                : (is_array($toolResults) ? $toolResults : iterator_to_array($toolResults));
-
-            $this->toolEventPersister->persistToolCallsAndResults(
-                assistantMessage: $assistantMessage,
-                toolCalls: $toolCalls,
-                toolResults: $toolResults
-            );
         }
 
         $generationValid = (bool) ($generationResult['valid'] ?? false);

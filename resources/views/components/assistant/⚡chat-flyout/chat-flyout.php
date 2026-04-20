@@ -5,16 +5,18 @@ use App\Enums\MessageRole;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\AssistantSchedulePlan;
 use App\Models\AssistantSchedulePlanItem;
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\Task;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Notifications\AssistantScheduleAcceptedNotification;
+use App\Services\EventService;
 use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
+use App\Services\ProjectService;
+use App\Services\TaskService;
 use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
 use App\Services\UserNotificationBroadcastService;
-use App\Tools\LLM\TaskAssistant\CreateEventTool;
-use App\Tools\LLM\TaskAssistant\UpdateEventTool;
-use App\Tools\LLM\TaskAssistant\UpdateProjectTool;
-use App\Tools\LLM\TaskAssistant\UpdateTaskTool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -184,18 +186,6 @@ new class extends Component
         }
 
         $this->refreshMessages();
-    }
-
-    #[On('echo-private:task-assistant.user.{userId},.tool_call')]
-    public function onToolCall(): void
-    {
-        $this->showWorking = true;
-    }
-
-    #[On('echo-private:task-assistant.user.{userId},.tool_result')]
-    public function onToolResult(): void
-    {
-        $this->showWorking = false;
     }
 
     public function checkStreamingTimeout(): void
@@ -781,59 +771,90 @@ new class extends Component
         $durationMinutes = (int) ($proposal['duration_minutes'] ?? 0);
 
         if ($entityType === 'task' && $entityId > 0 && $startDatetime !== '') {
-            /** @var UpdateTaskTool $tool */
-            $tool = app()->make(UpdateTaskTool::class, ['user' => $user]);
-            $tool(['taskId' => $entityId, 'property' => 'startDatetime', 'value' => $startDatetime]);
+            $task = Task::query()
+                ->forUser($user->id)
+                ->whereKey($entityId)
+                ->first();
+            if (! $task) {
+                return;
+            }
+
+            $attributes = [
+                'start_datetime' => $startDatetime,
+            ];
 
             if ($durationMinutes > 0) {
-                $tool(['taskId' => $entityId, 'property' => 'duration', 'value' => (string) $durationMinutes]);
+                $attributes['duration'] = $durationMinutes;
             }
+
+            app(TaskService::class)->updateTask($task, $attributes);
 
             return;
         }
 
         if ($entityType === 'event' && $entityId > 0 && $startDatetime !== '' && $endDatetime !== '') {
-            /** @var UpdateEventTool $tool */
-            $tool = app()->make(UpdateEventTool::class, ['user' => $user]);
-            $tool(['eventId' => $entityId, 'property' => 'startDatetime', 'value' => $startDatetime]);
-            $tool(['eventId' => $entityId, 'property' => 'endDatetime', 'value' => $endDatetime]);
+            $event = Event::query()
+                ->forUser($user->id)
+                ->whereKey($entityId)
+                ->first();
+            if (! $event) {
+                return;
+            }
 
-            return;
-        }
-
-        if ($entityType === 'project' && $entityId > 0 && $startDatetime !== '') {
-            /** @var UpdateProjectTool $tool */
-            $tool = app()->make(UpdateProjectTool::class, ['user' => $user]);
-            $tool(['projectId' => $entityId, 'property' => 'startDatetime', 'value' => $startDatetime]);
-        }
-    }
-
-    private function applyFromPayload(\App\Models\User $user, array $applyPayload): void
-    {
-        $toolName = (string) ($applyPayload['tool'] ?? '');
-        $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
-        $updates = is_array($arguments['updates'] ?? null) ? $arguments['updates'] : [];
-
-        if ($toolName === 'create_event') {
-            /** @var CreateEventTool $tool */
-            $tool = app()->make(CreateEventTool::class, ['user' => $user]);
-            $tool([
-                'title' => (string) ($arguments['title'] ?? ''),
-                'description' => isset($arguments['description']) ? (string) $arguments['description'] : null,
-                'startDatetime' => $arguments['startDatetime'] ?? null,
-                'endDatetime' => $arguments['endDatetime'] ?? null,
+            app(EventService::class)->updateEvent($event, [
+                'start_datetime' => $startDatetime,
+                'end_datetime' => $endDatetime,
             ]);
 
             return;
         }
 
-        if ($toolName === 'update_task') {
+        if ($entityType === 'project' && $entityId > 0 && $startDatetime !== '') {
+            $project = Project::query()
+                ->forUser($user->id)
+                ->whereKey($entityId)
+                ->first();
+            if (! $project) {
+                return;
+            }
+
+            app(ProjectService::class)->updateProject($project, [
+                'start_datetime' => $startDatetime,
+            ]);
+        }
+    }
+
+    private function applyFromPayload(\App\Models\User $user, array $applyPayload): void
+    {
+        $applyAction = (string) ($applyPayload['action'] ?? $applyPayload['tool'] ?? '');
+        $arguments = is_array($applyPayload['arguments'] ?? null) ? $applyPayload['arguments'] : [];
+        $updates = is_array($arguments['updates'] ?? null) ? $arguments['updates'] : [];
+
+        if ($applyAction === 'create_event') {
+            app(EventService::class)->createEvent($user, [
+                'title' => (string) ($arguments['title'] ?? ''),
+                'description' => isset($arguments['description']) ? (string) $arguments['description'] : null,
+                'start_datetime' => $arguments['startDatetime'] ?? null,
+                'end_datetime' => $arguments['endDatetime'] ?? null,
+            ]);
+
+            return;
+        }
+
+        if ($applyAction === 'update_task') {
             $taskId = (int) ($arguments['taskId'] ?? 0);
             if ($taskId <= 0) {
                 return;
             }
-            /** @var UpdateTaskTool $tool */
-            $tool = app()->make(UpdateTaskTool::class, ['user' => $user]);
+            $task = Task::query()
+                ->forUser($user->id)
+                ->whereKey($taskId)
+                ->first();
+            if (! $task) {
+                return;
+            }
+
+            $attributes = [];
             foreach ($updates as $update) {
                 if (! is_array($update)) {
                     continue;
@@ -843,19 +864,34 @@ new class extends Component
                 if ($property === '' || $value === null) {
                     continue;
                 }
-                $tool(['taskId' => $taskId, 'property' => $property, 'value' => (string) $value]);
+                if ($property === 'startDatetime') {
+                    $attributes['start_datetime'] = (string) $value;
+                } elseif ($property === 'duration') {
+                    $attributes['duration'] = (int) $value;
+                }
+            }
+
+            if ($attributes !== []) {
+                app(TaskService::class)->updateTask($task, $attributes);
             }
 
             return;
         }
 
-        if ($toolName === 'update_event') {
+        if ($applyAction === 'update_event') {
             $eventId = (int) ($arguments['eventId'] ?? 0);
             if ($eventId <= 0) {
                 return;
             }
-            /** @var UpdateEventTool $tool */
-            $tool = app()->make(UpdateEventTool::class, ['user' => $user]);
+            $event = Event::query()
+                ->forUser($user->id)
+                ->whereKey($eventId)
+                ->first();
+            if (! $event) {
+                return;
+            }
+
+            $attributes = [];
             foreach ($updates as $update) {
                 if (! is_array($update)) {
                     continue;
@@ -865,19 +901,34 @@ new class extends Component
                 if ($property === '' || $value === null) {
                     continue;
                 }
-                $tool(['eventId' => $eventId, 'property' => $property, 'value' => (string) $value]);
+                if ($property === 'startDatetime') {
+                    $attributes['start_datetime'] = (string) $value;
+                } elseif ($property === 'endDatetime') {
+                    $attributes['end_datetime'] = (string) $value;
+                }
+            }
+
+            if ($attributes !== []) {
+                app(EventService::class)->updateEvent($event, $attributes);
             }
 
             return;
         }
 
-        if ($toolName === 'update_project') {
+        if ($applyAction === 'update_project') {
             $projectId = (int) ($arguments['projectId'] ?? 0);
             if ($projectId <= 0) {
                 return;
             }
-            /** @var UpdateProjectTool $tool */
-            $tool = app()->make(UpdateProjectTool::class, ['user' => $user]);
+            $project = Project::query()
+                ->forUser($user->id)
+                ->whereKey($projectId)
+                ->first();
+            if (! $project) {
+                return;
+            }
+
+            $attributes = [];
             foreach ($updates as $update) {
                 if (! is_array($update)) {
                     continue;
@@ -887,7 +938,13 @@ new class extends Component
                 if ($property === '' || $value === null) {
                     continue;
                 }
-                $tool(['projectId' => $projectId, 'property' => $property, 'value' => (string) $value]);
+                if ($property === 'startDatetime') {
+                    $attributes['start_datetime'] = (string) $value;
+                }
+            }
+
+            if ($attributes !== []) {
+                app(ProjectService::class)->updateProject($project, $attributes);
             }
         }
     }

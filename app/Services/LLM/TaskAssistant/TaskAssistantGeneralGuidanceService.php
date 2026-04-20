@@ -54,7 +54,6 @@ final class TaskAssistantGeneralGuidanceService
         $promptData = $this->promptData->forUser($user);
         // Hide tools from this prompt so the model doesn't leak tool/function
         // signature artifacts (we also pass withTools([]) below).
-        $promptData['toolManifest'] = [];
 
         $timeContext = '';
         $timeLabelForFallback = null;
@@ -952,7 +951,6 @@ final class TaskAssistantGeneralGuidanceService
         string $userAnswer
     ): array {
         $promptData = $this->promptData->forUser($user);
-        $promptData['toolManifest'] = [];
         $maxRetries = max(0, (int) config('task-assistant.retry.max_retries', 2));
         $schema = TaskAssistantSchemas::generalGuidanceTargetSchema();
 

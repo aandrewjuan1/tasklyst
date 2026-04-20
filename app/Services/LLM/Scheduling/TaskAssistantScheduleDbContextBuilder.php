@@ -6,6 +6,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\User;
+use App\Services\Scheduling\SchoolClassBusyIntervalResolver;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
@@ -25,6 +26,7 @@ final class TaskAssistantScheduleDbContextBuilder
 {
     public function __construct(
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
+        private readonly SchoolClassBusyIntervalResolver $schoolClassBusyIntervalResolver,
     ) {}
 
     /**
@@ -70,6 +72,13 @@ final class TaskAssistantScheduleDbContextBuilder
         $tasks = $this->queryTasksForSchedule($user, $now, $taskLimit);
         $events = $this->queryEventsForBusy($user, $windowStart, $windowEnd, $eventsLimit);
         $projects = $this->queryProjectsForSchedule($user, $now, $projectsLimit);
+        $classBufferMinutes = max(0, (int) config('task-assistant.schedule.school_class_buffer_minutes', 15));
+        $schoolClassBusyIntervals = $this->schoolClassBusyIntervalResolver->resolveForUser(
+            user: $user,
+            rangeStart: $windowStart->copy()->startOfDay(),
+            rangeEnd: $windowEnd->copy()->endOfDay(),
+            bufferMinutes: $classBufferMinutes,
+        );
 
         $scheduleTargetSkips = [];
         $targetTaskIds = $this->extractTargetTaskIds($options['target_entities'] ?? null);
@@ -83,6 +92,7 @@ final class TaskAssistantScheduleDbContextBuilder
         }
 
         $snapshot = [
+            'user_id' => $user->id,
             'today' => $today,
             'timezone' => $timezone,
             // Preserve the exact \"now\" used for horizon resolution so downstream
@@ -91,6 +101,8 @@ final class TaskAssistantScheduleDbContextBuilder
             'tasks' => $tasks,
             'events' => $events,
             'events_for_busy' => $events, // preserved by downstream logic
+            'school_class_busy_intervals' => $schoolClassBusyIntervals,
+            'school_class_buffer_minutes' => $classBufferMinutes,
             'projects' => $projects,
             'schedule_target_skips' => $scheduleTargetSkips,
         ];

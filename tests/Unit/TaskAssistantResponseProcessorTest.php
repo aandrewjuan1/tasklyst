@@ -393,7 +393,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'end_datetime' => '2026-03-29T09:30:00+00:00',
                 'duration_minutes' => 30,
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => ['taskId' => 1, 'updates' => []],
                 ],
             ]],
@@ -442,7 +442,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'end_datetime' => '2026-03-29T09:30:00+00:00',
                 'duration_minutes' => 30,
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => ['taskId' => 1, 'updates' => []],
                 ],
             ]],
@@ -526,7 +526,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'end_datetime' => '2026-03-29T09:30:00+00:00',
                 'duration_minutes' => 30,
                 'apply_payload' => [
-                    'tool' => 'update_project',
+                    'action' => 'update_project',
                     'arguments' => ['projectId' => 99, 'updates' => []],
                 ],
             ]],
@@ -575,7 +575,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                     'start_datetime' => '2026-03-29T09:00:00+00:00',
                     'end_datetime' => '2026-03-29T09:30:00+00:00',
                     'duration_minutes' => 30,
-                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
                 ],
                 [
                     'proposal_id' => 'dup-1',
@@ -586,7 +586,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                     'start_datetime' => '2026-03-29T10:00:00+00:00',
                     'end_datetime' => '2026-03-29T10:30:00+00:00',
                     'duration_minutes' => 30,
-                    'apply_payload' => ['tool' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 2, 'updates' => []]],
                 ],
             ],
             'items' => [
@@ -641,7 +641,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'end_datetime' => '2026-03-29T09:30:00+00:00',
                 'duration_minutes' => 30,
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => ['taskId' => 1, 'updates' => []],
                 ],
             ]],
@@ -691,7 +691,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'end_datetime' => '2026-03-29T09:30:00+00:00',
                 'duration_minutes' => 30,
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => ['taskId' => 1, 'updates' => []],
                 ],
             ]],
@@ -755,7 +755,7 @@ class TaskAssistantResponseProcessorTest extends TestCase
                 'end_datetime' => '2026-03-29T09:30:00+00:00',
                 'duration_minutes' => 30,
                 'apply_payload' => [
-                    'tool' => 'update_task',
+                    'action' => 'update_task',
                     'arguments' => ['taskId' => 1, 'updates' => []],
                 ],
             ]],

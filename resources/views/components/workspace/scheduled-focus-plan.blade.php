@@ -34,6 +34,39 @@
     x-data="{
         storageKey: 'workspace-scheduled-focus-collapsed-v1',
         expanded: document.documentElement.dataset.workspaceScheduledFocusCollapsed !== 'true',
+        async focusPlanItem(planItemId, kind, entityId) {
+            const normalizedKind = String(kind || '');
+            const normalizedEntityId = Number(entityId);
+            const normalizedPlanItemId = Number(planItemId);
+
+            if (!Number.isFinite(normalizedEntityId) || normalizedEntityId < 1) {
+                return;
+            }
+            if (!Number.isFinite(normalizedPlanItemId) || normalizedPlanItemId < 1) {
+                return;
+            }
+
+            const instant = typeof window.workspaceCalendarTryInstantFocus === 'function'
+                && window.workspaceCalendarTryInstantFocus(normalizedKind, normalizedEntityId);
+            const shouldShowLoadingSkeleton = !instant;
+
+            if (shouldShowLoadingSkeleton) {
+                window.dispatchEvent(new CustomEvent('workspace-focus-navigation-loading-start', { bubbles: true }));
+            }
+
+            try {
+                await $wire.$parent.$call('focusFromScheduledPlanItem', normalizedPlanItemId);
+                if (!instant && typeof window.runWorkspaceFocusToTarget === 'function') {
+                    requestAnimationFrame(() => {
+                        setTimeout(() => window.runWorkspaceFocusToTarget(normalizedKind, normalizedEntityId), 0);
+                    });
+                }
+            } finally {
+                if (shouldShowLoadingSkeleton) {
+                    window.dispatchEvent(new CustomEvent('workspace-focus-navigation-loading-end', { bubbles: true }));
+                }
+            }
+        },
         toggle() {
             this.expanded = !this.expanded;
             try {
@@ -111,7 +144,6 @@
                             @endphp
                             <button
                                 type="button"
-                                wire:click="$parent.focusFromScheduledPlanItem({{ $planItemId }})"
                                 wire:key="scheduled-focus-{{ $planItemId }}"
                                 @disabled($planItemId <= 0 || ! in_array($entityType, ['task', 'event', 'project'], true))
                                 @class([
@@ -119,6 +151,7 @@
                                     'px-2 py-1.5 sm:gap-1.5 sm:px-2.5 sm:py-2' => ! $isCompact,
                                     'min-w-[11rem] max-w-[14rem] shrink-0 px-2 py-1.5 sm:min-w-[12rem]' => $isCompact,
                                 ])
+                                @click="focusPlanItem({{ $planItemId }}, '{{ $entityType }}', {{ $entityId }})"
                                 data-scheduled-focus-kind="{{ $entityType }}"
                                 data-scheduled-focus-entity-id="{{ $entityId }}"
                                 data-scheduled-focus-plan-item-id="{{ $planItemId }}"

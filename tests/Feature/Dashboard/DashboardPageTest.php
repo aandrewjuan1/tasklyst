@@ -11,7 +11,6 @@ use App\Models\Collaboration;
 use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\FocusSession;
-use App\Models\LlmToolCall;
 use App\Models\Project;
 use App\Models\RecurringTask;
 use App\Models\SchoolClass;
@@ -581,17 +580,6 @@ test('dashboard rich sections render focus, calendar load, no-date backlog, and 
         'user_id' => $user->id,
         'title' => 'Planner thread',
         'metadata' => [],
-    ]);
-
-    LlmToolCall::query()->create([
-        'thread_id' => $thread->id,
-        'message_id' => null,
-        'tool_name' => 'update_task',
-        'params_json' => ['taskId' => 1],
-        'result_json' => ['ok' => true],
-        'status' => 'success',
-        'operation_token' => null,
-        'user_id' => $user->id,
     ]);
 
     $response = $this->actingAs($user)->get(route('dashboard'));
