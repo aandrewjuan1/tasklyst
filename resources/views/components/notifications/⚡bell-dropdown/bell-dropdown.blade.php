@@ -95,6 +95,7 @@
                                 'task' => __('Task'),
                                 'event' => __('Event'),
                                 'project' => __('Project'),
+                                'school_class', 'schoolclass' => __('Class'),
                                 default => __('Item'),
                             };
                             $inviterName = $invite['inviter_name'] ?? __('Someone');
@@ -189,7 +190,7 @@
                             $useWorkspaceInstantFocus = $opensWorkspace
                                 && request()->routeIs('workspace')
                                 && is_string($wfKind)
-                                && in_array($wfKind, ['task', 'event', 'project'], true)
+                                && in_array($wfKind, ['task', 'event', 'project', 'schoolClass'], true)
                                 && $wfId > 0;
                         @endphp
                         <div

@@ -11,6 +11,8 @@ use App\Models\SchoolClassException;
 use App\Models\SchoolClassInstance;
 use App\Models\Teacher;
 use App\Models\User;
+use App\Services\Reminders\ReminderDispatcherService;
+use App\Services\Reminders\ReminderSchedulerService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -21,6 +23,8 @@ class SchoolClassService
     public function __construct(
         private ActivityLogRecorder $activityLogRecorder,
         private RecurrenceExpander $recurrenceExpander,
+        private ReminderSchedulerService $reminderSchedulerService,
+        private ReminderDispatcherService $reminderDispatcherService,
     ) {}
 
     /**
@@ -49,6 +53,9 @@ class SchoolClassService
                 'subject_name' => $schoolClass->subject_name,
             ]);
 
+            $this->reminderSchedulerService->syncSchoolClassReminders($schoolClass);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($schoolClass);
+
             return $schoolClass;
         });
     }
@@ -68,6 +75,8 @@ class SchoolClassService
             $schoolClass->save();
 
             $this->syncRecurringSchoolClassDatesIfNeeded($schoolClass, $attributes);
+            $this->reminderSchedulerService->syncSchoolClassReminders($schoolClass);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($schoolClass);
 
             return $schoolClass->fresh();
         });
@@ -86,6 +95,9 @@ class SchoolClassService
             if (($recurrenceData['enabled'] ?? false) && ($recurrenceData['type'] ?? null) !== null) {
                 $this->createRecurringSchoolClass($schoolClass, $recurrenceData, $preservedSeriesEnd);
             }
+
+            $this->reminderSchedulerService->syncSchoolClassReminders($schoolClass);
+            $this->reminderDispatcherService->queueProcessDueForRemindable($schoolClass);
         });
     }
 
@@ -157,7 +169,10 @@ class SchoolClassService
                 'subject_name' => $schoolClass->subject_name,
             ]);
 
-            return (bool) $schoolClass->delete();
+            $deleted = (bool) $schoolClass->delete();
+            $this->reminderSchedulerService->cancelForRemindable($schoolClass);
+
+            return $deleted;
         });
     }
 
@@ -168,7 +183,14 @@ class SchoolClassService
                 'subject_name' => $schoolClass->subject_name,
             ]);
 
-            return (bool) $schoolClass->restore();
+            $restored = (bool) $schoolClass->restore();
+
+            if ($restored) {
+                $this->reminderSchedulerService->syncSchoolClassReminders($schoolClass);
+                $this->reminderDispatcherService->queueProcessDueForRemindable($schoolClass);
+            }
+
+            return $restored;
         });
     }
 
@@ -178,6 +200,8 @@ class SchoolClassService
             $this->activityLogRecorder->record($schoolClass, $actor, ActivityLogAction::ItemDeleted, [
                 'subject_name' => $schoolClass->subject_name,
             ]);
+
+            $this->reminderSchedulerService->cancelForRemindable($schoolClass);
 
             return (bool) $schoolClass->forceDelete();
         });

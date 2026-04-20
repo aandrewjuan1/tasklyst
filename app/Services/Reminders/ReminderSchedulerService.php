@@ -8,7 +8,9 @@ use App\Enums\ReminderStatus;
 use App\Enums\ReminderType;
 use App\Models\Event;
 use App\Models\Reminder;
+use App\Models\SchoolClass;
 use App\Models\Task;
+use App\Services\RecurrenceExpander;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +19,7 @@ class ReminderSchedulerService
 {
     public function __construct(
         private CancelPendingRemindersForRemindableAction $cancelPendingRemindersForRemindable,
+        private RecurrenceExpander $recurrenceExpander,
     ) {}
 
     public function syncTaskReminders(Task $task): void
@@ -44,6 +47,30 @@ class ReminderSchedulerService
         }
 
         $this->syncEventStartSoonReminders($event);
+    }
+
+    public function syncSchoolClassReminders(SchoolClass $schoolClass): void
+    {
+        $schoolClass->refresh();
+        $schoolClass->loadMissing('recurringSchoolClass');
+
+        if ($schoolClass->trashed()) {
+            $this->cancelForRemindable($schoolClass);
+
+            return;
+        }
+
+        [$startsAt, $endsAt] = $this->resolveNextSchoolClassWindow($schoolClass);
+        if ($startsAt === null || $endsAt === null) {
+            $this->cancelForRemindable($schoolClass);
+
+            return;
+        }
+
+        $this->syncSchoolClassStartSoonReminders($schoolClass, $startsAt, $endsAt);
+        $this->syncSchoolClassNowLiveReminder($schoolClass, $startsAt, $endsAt);
+        $this->syncSchoolClassEndingSoonReminders($schoolClass, $startsAt, $endsAt);
+        $this->syncSchoolClassMissedReminder($schoolClass, $startsAt, $endsAt);
     }
 
     public function cancelForRemindable(Model $model, ?ReminderType $type = null): void
@@ -195,5 +222,193 @@ class ReminderSchedulerService
                 ],
             ]);
         }
+    }
+
+    private function syncSchoolClassStartSoonReminders(SchoolClass $schoolClass, CarbonImmutable $startsAt, CarbonImmutable $endsAt): void
+    {
+        $this->cancelForRemindable($schoolClass, ReminderType::SchoolClassStartSoon);
+
+        $offsets = config('reminders.school_class_start_soon_offsets_minutes', []);
+        if (! is_array($offsets) || $offsets === []) {
+            return;
+        }
+
+        $created = false;
+        $smallestPositiveOffset = null;
+
+        foreach ($offsets as $offsetMinutes) {
+            $minutes = (int) $offsetMinutes;
+            if ($minutes <= 0) {
+                continue;
+            }
+
+            $smallestPositiveOffset = $smallestPositiveOffset === null
+                ? $minutes
+                : min($smallestPositiveOffset, $minutes);
+
+            $scheduledAt = $startsAt->subMinutes($minutes);
+            if ($scheduledAt->lte(now())) {
+                continue;
+            }
+
+            Reminder::query()->create([
+                'user_id' => $schoolClass->user_id,
+                'remindable_type' => $schoolClass->getMorphClass(),
+                'remindable_id' => $schoolClass->getKey(),
+                'type' => ReminderType::SchoolClassStartSoon,
+                'scheduled_at' => $scheduledAt,
+                'status' => ReminderStatus::Pending,
+                'payload' => [
+                    'school_class_id' => $schoolClass->id,
+                    'subject_name' => (string) $schoolClass->subject_name,
+                    'starts_at' => $startsAt->toIso8601String(),
+                    'ends_at' => $endsAt->toIso8601String(),
+                    'offset_minutes' => $minutes,
+                ],
+            ]);
+            $created = true;
+        }
+
+        if (! $created && $startsAt->gt(now())) {
+            $minutesUntilStart = max(1, (int) now()->diffInMinutes($startsAt, false));
+            Reminder::query()->create([
+                'user_id' => $schoolClass->user_id,
+                'remindable_type' => $schoolClass->getMorphClass(),
+                'remindable_id' => $schoolClass->getKey(),
+                'type' => ReminderType::SchoolClassStartSoon,
+                'scheduled_at' => now(),
+                'status' => ReminderStatus::Pending,
+                'payload' => [
+                    'school_class_id' => $schoolClass->id,
+                    'subject_name' => (string) $schoolClass->subject_name,
+                    'starts_at' => $startsAt->toIso8601String(),
+                    'ends_at' => $endsAt->toIso8601String(),
+                    'offset_minutes' => $smallestPositiveOffset ?? $minutesUntilStart,
+                    'fallback_immediate' => true,
+                ],
+            ]);
+        }
+    }
+
+    private function syncSchoolClassNowLiveReminder(SchoolClass $schoolClass, CarbonImmutable $startsAt, CarbonImmutable $endsAt): void
+    {
+        $this->cancelForRemindable($schoolClass, ReminderType::SchoolClassNowLive);
+
+        Reminder::query()->create([
+            'user_id' => $schoolClass->user_id,
+            'remindable_type' => $schoolClass->getMorphClass(),
+            'remindable_id' => $schoolClass->getKey(),
+            'type' => ReminderType::SchoolClassNowLive,
+            'scheduled_at' => $startsAt,
+            'status' => ReminderStatus::Pending,
+            'payload' => [
+                'school_class_id' => $schoolClass->id,
+                'subject_name' => (string) $schoolClass->subject_name,
+                'starts_at' => $startsAt->toIso8601String(),
+                'ends_at' => $endsAt->toIso8601String(),
+            ],
+        ]);
+    }
+
+    private function syncSchoolClassEndingSoonReminders(SchoolClass $schoolClass, CarbonImmutable $startsAt, CarbonImmutable $endsAt): void
+    {
+        $this->cancelForRemindable($schoolClass, ReminderType::SchoolClassEndingSoon);
+
+        $offsets = config('reminders.school_class_ending_soon_offsets_minutes', []);
+        if (! is_array($offsets) || $offsets === []) {
+            return;
+        }
+
+        foreach ($offsets as $offsetMinutes) {
+            $minutes = (int) $offsetMinutes;
+            if ($minutes <= 0) {
+                continue;
+            }
+
+            $scheduledAt = $endsAt->subMinutes($minutes);
+            if ($scheduledAt->lte(now())) {
+                continue;
+            }
+
+            Reminder::query()->create([
+                'user_id' => $schoolClass->user_id,
+                'remindable_type' => $schoolClass->getMorphClass(),
+                'remindable_id' => $schoolClass->getKey(),
+                'type' => ReminderType::SchoolClassEndingSoon,
+                'scheduled_at' => $scheduledAt,
+                'status' => ReminderStatus::Pending,
+                'payload' => [
+                    'school_class_id' => $schoolClass->id,
+                    'subject_name' => (string) $schoolClass->subject_name,
+                    'starts_at' => $startsAt->toIso8601String(),
+                    'ends_at' => $endsAt->toIso8601String(),
+                    'offset_minutes' => $minutes,
+                ],
+            ]);
+        }
+    }
+
+    private function syncSchoolClassMissedReminder(SchoolClass $schoolClass, CarbonImmutable $startsAt, CarbonImmutable $endsAt): void
+    {
+        $this->cancelForRemindable($schoolClass, ReminderType::SchoolClassMissed);
+
+        Reminder::query()->create([
+            'user_id' => $schoolClass->user_id,
+            'remindable_type' => $schoolClass->getMorphClass(),
+            'remindable_id' => $schoolClass->getKey(),
+            'type' => ReminderType::SchoolClassMissed,
+            'scheduled_at' => $endsAt,
+            'status' => ReminderStatus::Pending,
+            'payload' => [
+                'school_class_id' => $schoolClass->id,
+                'subject_name' => (string) $schoolClass->subject_name,
+                'starts_at' => $startsAt->toIso8601String(),
+                'ends_at' => $endsAt->toIso8601String(),
+            ],
+        ]);
+    }
+
+    /**
+     * @return array{0: CarbonImmutable|null, 1: CarbonImmutable|null}
+     */
+    private function resolveNextSchoolClassWindow(SchoolClass $schoolClass): array
+    {
+        if ($schoolClass->start_time === null || $schoolClass->end_time === null) {
+            return [null, null];
+        }
+
+        $anchorDate = null;
+        $recurring = $schoolClass->recurringSchoolClass;
+
+        if ($recurring !== null) {
+            $rangeStart = CarbonImmutable::now()->startOfDay();
+            $rangeEnd = $recurring->end_datetime !== null
+                ? CarbonImmutable::instance($recurring->end_datetime)->endOfDay()
+                : CarbonImmutable::now()->addMonths(6)->endOfDay();
+
+            $occurrences = $this->recurrenceExpander->expand($recurring, $rangeStart, $rangeEnd);
+            $anchorDate = collect($occurrences)
+                ->map(fn (CarbonInterface $date) => CarbonImmutable::instance($date)->startOfDay())
+                ->first(fn (CarbonImmutable $date) => $date->greaterThanOrEqualTo(CarbonImmutable::now()->startOfDay()));
+        } elseif ($schoolClass->start_datetime !== null) {
+            $anchorDate = CarbonImmutable::instance($schoolClass->start_datetime)->startOfDay();
+        }
+
+        if (! $anchorDate instanceof CarbonImmutable) {
+            return [null, null];
+        }
+
+        try {
+            $startsAt = CarbonImmutable::parse($anchorDate->toDateString().' '.$schoolClass->start_time);
+            $endsAt = CarbonImmutable::parse($anchorDate->toDateString().' '.$schoolClass->end_time);
+        } catch (\Throwable) {
+            return [null, null];
+        }
+
+        if ($endsAt->lessThanOrEqualTo($startsAt)) {
+            $endsAt = $endsAt->addDay();
+        }
+
+        return [$startsAt, $endsAt];
     }
 }

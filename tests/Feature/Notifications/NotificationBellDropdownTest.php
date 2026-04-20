@@ -326,6 +326,24 @@ test('assistant schedule accept success notification opens workspace row from be
     expect($target)->toMatchArray(['kind' => 'task', 'id' => 123]);
 });
 
+test('school class notifications open workspace row from bell', function (): void {
+    $data = [
+        'type' => 'school_class_start_soon',
+        'route' => 'workspace',
+        'params' => [
+            'date' => now()->toDateString(),
+            'view' => 'list',
+            'type' => 'classes',
+            'school_class' => 456,
+        ],
+    ];
+
+    expect(NotificationBellState::notificationDataOpensWorkspaceRow($data))->toBeTrue();
+
+    $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
+    expect($target)->toMatchArray(['kind' => 'schoolClass', 'id' => 456]);
+});
+
 test('markWorkspaceNotificationOpened does not mark read when not on workspace route', function (): void {
     $user = $this->user;
     $today = now()->toDateString();
