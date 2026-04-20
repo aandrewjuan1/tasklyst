@@ -63,6 +63,16 @@ test('creating a task while in kanban view shows it on the board', function (): 
         ->assertSee('Kanban created task');
 });
 
+test('creating a non-task item in kanban view shows visibility guidance toast', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::withQueryParams(['view' => 'kanban'])
+        ->test('pages::workspace.index')
+        ->assertSet('viewMode', 'kanban')
+        ->call('createProject', ['name' => 'Kanban hidden project'])
+        ->assertDispatched('toast', type: 'info', message: 'Item no longer matches this view. Switch view or Show filters to see it again.');
+});
+
 test('kanban task cards use neutral zinc surface without status left border classes', function (): void {
     $this->actingAs($this->user);
 

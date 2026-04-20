@@ -121,7 +121,6 @@
     @keydown="handleKeydown($event)"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
     @workspace-school-class-meta-updated.window="$wire.refreshWorkspaceCalendar()"
-    @workspace-school-class-trashed.window="$wire.refreshWorkspaceCalendar()"
 >
     {{-- Calendar Container --}}
     <div

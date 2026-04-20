@@ -59,6 +59,8 @@ function stopGlobalPreviousUnfinishedTickerIfIdle() {
 export function listItemCard(config) {
     return {
         ...config,
+        _lastVisibilityToastKey: null,
+        _lastVisibilityToastAtMs: 0,
         focusReady: false,
         focusCountdownText: '',
         nextSessionInfo: null, // Stores next session info from pomodoro completion
@@ -699,10 +701,53 @@ export function listItemCard(config) {
         async stopFocus() {
             return this._focus.stopFocus(this);
         },
-        hideFromList() {
+        dedupeVisibilityToast(reason) {
+            const key = `${this.kind}:${this.itemId}:${reason}`;
+            const nowMs = Date.now();
+            if (this._lastVisibilityToastKey === key && nowMs - Number(this._lastVisibilityToastAtMs ?? 0) < 1200) {
+                return true;
+            }
+            this._lastVisibilityToastKey = key;
+            this._lastVisibilityToastAtMs = nowMs;
+            return false;
+        },
+        visibilityToastMessageForReason(reason) {
+            if (reason === 'date') {
+                return this.visibilityToastDateMismatch;
+            }
+            if (reason === 'search') {
+                return this.visibilityToastSearchMismatch;
+            }
+            if (reason === 'filter') {
+                return this.visibilityToastFilterMismatch;
+            }
+            if (reason === 'view') {
+                return this.visibilityToastViewMismatch;
+            }
+            if (reason === 'access') {
+                return this.visibilityToastAccessLost;
+            }
+            return this.visibilityToastFilterMismatch;
+        },
+        emitVisibilityToast(reason) {
+            if (!reason) {
+                return;
+            }
+            if (this.dedupeVisibilityToast(reason)) {
+                return;
+            }
+            const message = this.visibilityToastMessageForReason(reason);
+            if (!message) {
+                return;
+            }
+            this.$wire.$dispatch('toast', { type: 'info', message });
+        },
+        hideFromList(options = {}) {
             if (this.hideCard) {
                 return;
             }
+            const reason = options?.reason ?? null;
+            const showToast = options?.showToast === true;
             // If this card had focus, clear global focus state so blur styling is removed
             if (this.focusReady || this.isFocused) {
                 this.stopFocusTicker();
@@ -712,6 +757,9 @@ export function listItemCard(config) {
                 this.dispatchFocusSessionUpdated(null);
             }
             this.hideCard = true;
+            if (showToast) {
+                this.emitVisibilityToast(reason);
+            }
             this.$dispatch('list-item-hidden', { fromOverdue: this.isOverdue });
             if (this.kind === 'task' && this.itemId != null) {
                 window.dispatchEvent(
@@ -741,7 +789,7 @@ export function listItemCard(config) {
             const { property, value, startDatetime: detailStart, endDatetime: detailEnd } = detail;
             // Never hide task card when user marks task as done (match default no-filter behaviour)
             if (this.kind === 'task' && property === 'status' && value === 'done') {
-                return false;
+                return null;
             }
             const f = this.filters ?? {};
 
@@ -750,52 +798,58 @@ export function listItemCard(config) {
                 const end = detailEnd ?? null;
                 if (this.kind === 'task') {
                     if (this.isOverdue) {
-                        return false;
+                        return null;
                     }
                     if (this.isStillOverdue(start, end)) {
-                        return false;
+                        return null;
                     }
-                    return !this.isTaskStillRelevantForList(start, end);
+                    return !this.isTaskStillRelevantForList(start, end) ? 'date' : null;
                 }
                 if (this.kind === 'event') {
                     if (this.isOverdue) {
-                        return false;
+                        return null;
                     }
                     if (this.isStillOverdue(start, end)) {
-                        return false;
+                        return null;
                     }
-                    return !this.isEventStillRelevantForList(start, end);
+                    return !this.isEventStillRelevantForList(start, end) ? 'date' : null;
                 }
                 if (this.kind === 'project') {
-                    return !this.isProjectStillRelevantForList(start, end);
+                    return !this.isProjectStillRelevantForList(start, end) ? 'date' : null;
+                }
+            }
+
+            if (f?.hasActiveSearch) {
+                if (property === 'title' || property === 'description' || property === 'subjectName' || property === 'teacherName') {
+                    return 'search';
                 }
             }
 
             if (!f?.hasActiveFilters) {
-                return false;
+                return null;
             }
 
             if (this.kind === 'task') {
-                if (f.taskPriority && property === 'priority' && value !== f.taskPriority) return true;
+                if (f.taskPriority && property === 'priority' && value !== f.taskPriority) return 'filter';
                 // Never hide when user marks task as done; keep card visible like default (no filter) behaviour
-                if (f.taskStatus && property === 'status' && value !== f.taskStatus && value !== 'done') return true;
-                if (f.taskComplexity && property === 'complexity' && value !== f.taskComplexity) return true;
+                if (f.taskStatus && property === 'status' && value !== f.taskStatus && value !== 'done') return 'filter';
+                if (f.taskComplexity && property === 'complexity' && value !== f.taskComplexity) return 'filter';
             }
 
             if (this.kind === 'event') {
-                if (f.eventStatus && property === 'status' && value !== f.eventStatus) return true;
+                if (f.eventStatus && property === 'status' && value !== f.eventStatus) return 'filter';
             }
 
             if (f.tagIds?.length && property === 'tagIds') {
                 const ids = Array.isArray(value) ? value : [];
                 const hasMatch = ids.some((id) => f.tagIds.includes(Number(id)) || f.tagIds.includes(String(id)));
-                if (!hasMatch) return true;
+                if (!hasMatch) return 'filter';
             }
 
-            if (f.recurring === 'recurring' && property === 'recurrence' && !value?.enabled) return true;
-            if (f.recurring === 'oneTime' && property === 'recurrence' && value?.enabled) return true;
+            if (f.recurring === 'recurring' && property === 'recurrence' && !value?.enabled) return 'filter';
+            if (f.recurring === 'oneTime' && property === 'recurrence' && value?.enabled) return 'filter';
 
-            return false;
+            return null;
         },
         rollbackDeleteItem(snapshot, wasOverdue) {
             this.hideCard = snapshot.hideCard;
@@ -829,7 +883,7 @@ export function listItemCard(config) {
 
             try {
                 // PHASE 2: Optimistic UI update - hide card immediately
-                this.hideFromList();
+                this.hideFromList({ showToast: false });
                 if (this.kind === 'task' && this.itemId != null) {
                     window.dispatchEvent(
                         new CustomEvent('workspace-subtask-trashed', {
@@ -913,7 +967,7 @@ export function listItemCard(config) {
 
             try {
                 // PHASE 2: Optimistic UI update - hide card immediately
-                this.hideFromList();
+                this.hideFromList({ showToast: false });
                 // PHASE 3: Call server asynchronously
                 const method =
                     this.kind === 'event' ? 'skipRecurringEventOccurrence' : 'skipRecurringTaskOccurrence';
@@ -1243,9 +1297,10 @@ export function listItemCard(config) {
             if (detail.itemId != null && Number(detail.itemId) !== Number(this.itemId)) {
                 return;
             }
-            if (this.shouldHideAfterPropertyUpdate(detail)) {
+            const hideReason = this.shouldHideAfterPropertyUpdate(detail);
+            if (hideReason) {
                 this.dateChangeHidingCard = true;
-                this.hideFromList();
+                this.hideFromList({ reason: hideReason, showToast: true });
             } else {
                 this.dateChangeHidingCard = false;
                 const d = detail;

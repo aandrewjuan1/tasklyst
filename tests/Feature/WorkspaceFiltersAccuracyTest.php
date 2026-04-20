@@ -267,3 +267,16 @@ test('workspace shows contextual toast when opened from dashboard recurring filt
         ->test('pages::workspace.index')
         ->assertDispatched('toast', type: 'info', message: 'Showing Recurring tasks.');
 });
+
+test('creating an item outside selected date scope shows visibility guidance toast', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-20')
+        ->call('createProject', [
+            'name' => 'Future project hidden from selected date',
+            'startDatetime' => '2026-04-22T09:00:00',
+            'endDatetime' => '2026-04-23T09:00:00',
+        ])
+        ->assertDispatched('toast', type: 'info', message: 'Item moved out of this date view. Pick its date or switch search to all items.');
+});

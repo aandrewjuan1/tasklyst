@@ -129,6 +129,9 @@ trait HandlesTasks
         if (method_exists($this, 'refreshWorkspaceItems')) {
             $this->refreshWorkspaceItems();
         }
+        if (method_exists($this, 'dispatchWorkspaceVisibilityToastForCreatedItem')) {
+            $this->dispatchWorkspaceVisibilityToastForCreatedItem('task', $task);
+        }
 
         if (method_exists($this, 'refreshWorkspaceCalendar')) {
             $this->refreshWorkspaceCalendar();

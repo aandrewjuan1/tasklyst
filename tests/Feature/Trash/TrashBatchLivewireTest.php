@@ -67,6 +67,19 @@ test('authenticated forceDeleteTrashItems permanently deletes one trashed task',
     expect(Task::withTrashed()->find($taskId))->toBeNull();
 });
 
+test('authenticated forceDeleteTrashItem does not delete an active item', function (): void {
+    $this->actingAs($this->owner);
+    $task = Task::factory()->for($this->owner)->create(['title' => 'Still active']);
+
+    $result = Livewire::test('workspace.trash-popover')
+        ->call('forceDeleteTrashItem', 'task', $task->id);
+
+    $result->assertReturned(false);
+
+    expect(Task::query()->find($task->id))->not->toBeNull()
+        ->and($task->fresh()?->trashed())->toBeFalse();
+});
+
 test('restoreTrashItems restores multiple trashed tasks', function (): void {
     $this->actingAs($this->owner);
     $t1 = Task::factory()->for($this->owner)->create();

@@ -78,6 +78,9 @@ trait HandlesProjects
         if (method_exists($this, 'refreshWorkspaceItems')) {
             $this->refreshWorkspaceItems();
         }
+        if (method_exists($this, 'dispatchWorkspaceVisibilityToastForCreatedItem')) {
+            $this->dispatchWorkspaceVisibilityToastForCreatedItem('project', $project);
+        }
     }
 
     /**

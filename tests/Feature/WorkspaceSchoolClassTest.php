@@ -392,6 +392,14 @@ test('list item school class dispatches meta updated when teacher changes', func
         ->and($contents)->toContain("property === 'teacherName'");
 });
 
+test('workspace calendar does not directly listen for school class trashed events', function (): void {
+    $path = resource_path('views/components/workspace/calendar.blade.php');
+    $contents = file_get_contents($path);
+
+    expect($contents)->not->toContain('@workspace-school-class-trashed.window')
+        ->and($contents)->toContain('@workspace-school-class-meta-updated.window');
+});
+
 test('updateSchoolClassProperty updates allowed school class property', function (): void {
     $this->actingAs($this->user);
     $schoolClass = SchoolClass::factory()->for($this->user)->create([

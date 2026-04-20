@@ -84,7 +84,7 @@
     @recurring-revert="onRecurringRevert($event.detail)"
     @item-property-updated="onItemPropertyUpdated($event.detail)"
     @item-update-rollback="onItemUpdateRollback()"
-    @collaboration-self-left="hideFromList()"
+    @collaboration-self-left="hideFromList({ reason: 'access', showToast: true })"
     @workspace-item-property-updated.window="if ($event.detail?.kind === '{{ $kind }}' && String($event.detail.itemId) === String(itemId)) onItemPropertyUpdated($event.detail)"
     @workspace-item-visibility-updated.window="if ($event.detail?.kind === '{{ $kind }}' && String($event.detail.itemId) === String(itemId) && $event.detail.visible === false) hideFromList()"
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"

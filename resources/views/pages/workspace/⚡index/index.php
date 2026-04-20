@@ -725,6 +725,54 @@ class extends Component
         );
     }
 
+    protected function dispatchWorkspaceVisibilityToastForCreatedItem(string $kind, Model $model): void
+    {
+        if (! in_array($kind, ['task', 'event', 'project', 'schoolClass'], true)) {
+            return;
+        }
+
+        if ($this->viewMode === 'kanban' && $kind !== 'task') {
+            $this->dispatch('toast', type: 'info', message: __('Item no longer matches this view. Switch view or Show filters to see it again.'));
+
+            return;
+        }
+
+        $this->clearPaginatedWorkspaceListCaches();
+        unset($this->overdue);
+
+        $itemId = (int) $model->getKey();
+        $isVisible = $this->getAllListEntries()->contains(
+            fn (array $entry): bool => ($entry['kind'] ?? null) === $kind
+                && (int) ($entry['item']->id ?? 0) === $itemId
+        );
+
+        if ($isVisible) {
+            return;
+        }
+
+        $filters = $this->getFilters();
+        $reason = 'filter';
+        $searchScope = (string) ($filters['searchScope'] ?? 'selected_date');
+        if ($searchScope !== 'all_items') {
+            $anchorDate = $this->resolveWorkspaceAnchorDateStringForModel($kind, $model);
+            if ($anchorDate !== null && $anchorDate !== $this->getParsedSelectedDate()->toDateString()) {
+                $reason = 'date';
+            }
+        }
+
+        if (($filters['hasActiveSearch'] ?? false) === true) {
+            $reason = 'search';
+        }
+
+        $message = match ($reason) {
+            'date' => __('Item moved out of this date view. Pick its date or switch search to all items.'),
+            'search' => __('Item no longer matches current search. Clear search or switch scope.'),
+            default => __('Item no longer matches active filters. Clear or adjust filters to see it again.'),
+        };
+
+        $this->dispatch('toast', type: 'info', message: $message);
+    }
+
     /**
      * @return Collection<int, array<string, mixed>>
      */
