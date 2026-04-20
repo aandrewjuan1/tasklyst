@@ -348,7 +348,8 @@ export function createFocusSessionController() {
                     ended_at: new Date().toISOString(),
                     completed: true,
                     paused_seconds: pausedSeconds,
-                    mark_task_status: ctx.activeFocusSession?.type === 'work' ? 'done' : null,
+                    // Pomodoro is multi-step; do not auto-complete the task on each work block (Sprint still uses completeFocusSession + done).
+                    mark_task_status: null,
                 });
                 if (result && result.error) {
                     rollbackAfterError(result.error);
@@ -1069,6 +1070,14 @@ export function createFocusSessionController() {
 
         destroy(ctx) {
             ctx.stopFocusTicker();
+            if (ctx._pomodoroAutoStartTimeoutId != null) {
+                clearTimeout(ctx._pomodoroAutoStartTimeoutId);
+                ctx._pomodoroAutoStartTimeoutId = null;
+            }
+            ctx._pomodoroAutoStartTransitioned = false;
+            ctx._pomodoroAutoStartOptimisticStartedAt = null;
+            ctx.completingPomodoro = false;
+            ctx.startingNextSessionInProgress = false;
             if (ctx._savePomodoroSettingsTimeout) {
                 clearTimeout(ctx._savePomodoroSettingsTimeout);
                 ctx._savePomodoroSettingsTimeout = null;

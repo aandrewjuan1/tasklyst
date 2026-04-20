@@ -192,6 +192,16 @@
                     >
                         {{ __('Skip') }}
                     </flux:button>
+                    <flux:button
+                        x-show="kind === 'task'"
+                        variant="ghost"
+                        size="sm"
+                        icon="check-circle"
+                        class="focus-modal-btn focus-modal-btn--secondary shrink-0"
+                        @click="markTaskDoneFromFocus()"
+                    >
+                        {{ __('Mark as Done') }}
+                    </flux:button>
                 </div>
                 {{-- Auto-starting indicator --}}
                 <div class="focus-modal-autostart flex shrink-0 items-center gap-2" x-show="sessionComplete && nextSessionInfo && nextSessionInfo.auto_start" x-cloak>
