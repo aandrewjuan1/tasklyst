@@ -158,9 +158,12 @@ final class TaskAssistantResponseProcessor
                 || str_contains($nextOptionsLower, 'tackle')
                 || str_contains($nextOptionsLower, 'rank');
             $nextHasScheduleTheme = str_contains($nextOptionsLower, 'schedule')
+                || str_contains($nextOptionsLower, 'scheduling')
+                || str_contains($nextOptionsLower, 'schedul')
                 || str_contains($nextOptionsLower, 'time block')
                 || str_contains($nextOptionsLower, 'block time')
-                || str_contains($nextOptionsLower, 'calendar');
+                || str_contains($nextOptionsLower, 'calendar')
+                || str_contains($nextOptionsLower, 'study time');
             if (! $nextHasPrioritizeTheme) {
                 $validator->errors()->add('next_options', 'next_options must offer a prioritize or ordering theme.');
             }

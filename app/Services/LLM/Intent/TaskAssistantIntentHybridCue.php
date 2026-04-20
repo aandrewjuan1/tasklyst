@@ -19,6 +19,7 @@ final class TaskAssistantIntentHybridCue
 
         $replacements = [
             '/\btmrw\b/u' => 'tomorrow',
+            '/\btmr\b/u' => 'tomorrow',
             '/\btommor?w\b/u' => 'tomorrow',
             '/\btonite\b/u' => 'tonight',
             '/\b2mrw\b/u' => 'tomorrow',
@@ -31,7 +32,17 @@ final class TaskAssistantIntentHybridCue
             '/\bgotta\b/u' => 'got to',
             '/\brn\b/u' => 'right now',
             '/\bidk\b/u' => 'i do not know',
+            '/\basap\b/u' => 'as soon as possible',
             '/\bthru\b/u' => 'through',
+            '/\bsort\s+out\b/u' => 'organize',
+            '/\bmap\s+out\b/u' => 'plan',
+            '/\bline\s+up\b/u' => 'plan',
+            '/\bslot\s+in\b/u' => 'fit in',
+            '/\bcalendar\s+this\b/u' => 'put on my calendar',
+            '/\bfigure\s+out\s+what\s+to\s+do\b/u' => 'what should i do first',
+            '/\bwhat\s+matters\s+rn\b/u' => 'what matters right now',
+            '/\bwhat\s+should\s+i\s+hit\s+first\b/u' => 'what should i do first',
+            '/\bknock\s+it\s+out\b/u' => 'tackle first',
         ];
 
         foreach ($replacements as $pattern => $replacement) {
@@ -63,7 +74,9 @@ final class TaskAssistantIntentHybridCue
             || preg_match('/\bwhat\s+matters\s+most\b/u', $normalized) === 1
             || preg_match('/\burgent(est)?\s+(tasks?|items?)\b/u', $normalized) === 1
             || preg_match('/\b(highest|high)\s+priority\b/u', $normalized) === 1
-            || preg_match('/\bwhich\s+.*\bshould\s+i\s+do\b/u', $normalized) === 1;
+            || preg_match('/\bwhich\s+.*\bshould\s+i\s+do\b/u', $normalized) === 1
+            || preg_match('/\b(what\s+should\s+i\s+tackle|which\s+one\s+first|tackle\s+first|what\s+do\s+i\s+do\s+first)\b/u', $normalized) === 1
+            || preg_match('/\b(sort|rank|order)\b.{0,28}\b(tasks?|priorit(?:y|ies)|urgency)\b/u', $normalized) === 1;
 
         if (! $hasPrioritizeCue) {
             return false;
@@ -77,7 +90,9 @@ final class TaskAssistantIntentHybridCue
             || preg_match('/\b(time\s+slot|block\s+out|block\s+time)\b/u', $normalized) === 1
             || preg_match('/\b(fit|squeeze)\s+.{0,40}\bin\b/u', $normalized) === 1
             || preg_match('/\bperfect\s+time\b/u', $normalized) === 1
-            || preg_match('/\b(at\s+\d{1,2})(?::\d{2})?\s*(am|pm)\b/iu', $normalized) === 1;
+            || preg_match('/\b(at\s+\d{1,2})(?::\d{2})?\s*(am|pm)\b/iu', $normalized) === 1
+            || preg_match('/\b(plan|organize|line up)\b.{0,24}\b(my|the)\s+day\b/u', $normalized) === 1
+            || preg_match('/\b(later\s+today|this\s+evening|tomorrow\s+morning)\b/u', $normalized) === 1;
 
         return $hasSchedulingCue;
     }

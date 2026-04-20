@@ -16,6 +16,8 @@ final class TaskAssistantFlowExecutionEngine
     public function __construct(
         private readonly TaskAssistantResponseProcessor $responseProcessor,
         private readonly AssistantCandidateProvider $candidateProvider,
+        private readonly AssistantMetadataGateway $metadataGateway,
+        private readonly TaskAssistantProcessingGuard $processingGuard,
     ) {}
 
     /**
@@ -58,7 +60,7 @@ final class TaskAssistantFlowExecutionEngine
             'generation_data_keys' => array_keys(is_array($generationResult['data'] ?? null) ? $generationResult['data'] : []),
         ]);
 
-        if ($this->isStopped($assistantMessage)) {
+        if ($this->processingGuard->isMessageStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
                 'layer' => 'flow_execution',
                 'run_id' => $runId,
@@ -104,7 +106,7 @@ final class TaskAssistantFlowExecutionEngine
             ? (string) ($processedResponse['formatted_content'] ?? '')
             : $assistantFallbackContent;
 
-        if ($this->isStopped($assistantMessage)) {
+        if ($this->processingGuard->isMessageStopped($assistantMessage)) {
             Log::info('task-assistant.flow_execution', [
                 'layer' => 'flow_execution',
                 'run_id' => $runId,
@@ -125,14 +127,14 @@ final class TaskAssistantFlowExecutionEngine
             ];
         }
 
-        $assistantMessage->update([
-            'content' => $assistantContent,
-            'metadata' => array_merge($assistantMessage->metadata ?? [], [
-                $metadataKey => $payload,
-                'processed' => $processedValid,
-                'validation_errors' => $processedResponse['errors'],
-            ]),
-        ]);
+        $assistantMessage->update(['content' => $assistantContent]);
+        $this->metadataGateway->updateProcessedPayload(
+            assistantMessage: $assistantMessage,
+            metadataKey: $metadataKey,
+            payload: $payload,
+            processed: $processedValid,
+            errors: is_array($processedResponse['errors'] ?? null) ? $processedResponse['errors'] : [],
+        );
 
         $mergedErrors = array_values(array_unique(array_merge($generationErrors, $processedResponse['errors'] ?? [])));
         $elapsedMs = (int) ((hrtime(true) - $startNs) / 1_000_000);
@@ -355,20 +357,6 @@ final class TaskAssistantFlowExecutionEngine
             'events' => $events,
             'projects' => $projects,
         ];
-    }
-
-    private function isStopped(TaskAssistantMessage $assistantMessage): bool
-    {
-        $fresh = TaskAssistantMessage::query()
-            ->whereKey($assistantMessage->id)
-            ->where('role', \App\Enums\MessageRole::Assistant)
-            ->first();
-
-        if (! $fresh) {
-            return false;
-        }
-
-        return data_get($fresh->metadata, 'stream.status') === 'stopped';
     }
 
     /**

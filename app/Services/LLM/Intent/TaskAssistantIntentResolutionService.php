@@ -5,6 +5,7 @@ namespace App\Services\LLM\Intent;
 use App\Enums\TaskAssistantUserIntent;
 use App\Models\TaskAssistantThread;
 use App\Services\LLM\TaskAssistant\IntentRoutingDecision;
+use App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -12,6 +13,10 @@ use Illuminate\Support\Facades\Log;
  */
 final class TaskAssistantIntentResolutionService
 {
+    public function __construct(
+        private readonly TaskAssistantConversationStateService $conversationState,
+    ) {}
+
     /**
      * @param  array{prioritization: float, scheduling: float, hybrid?: float}  $signals
      */
@@ -201,6 +206,33 @@ final class TaskAssistantIntentResolutionService
         }
 
         if ($llmIntent === TaskAssistantUserIntent::ListingFollowup) {
+            if (! $this->hasListingFollowupContext($thread)) {
+                $codes = array_values(array_unique(array_merge(
+                    $reasonCodes,
+                    ['intent_llm_listing_followup_missing_context_clarify']
+                )));
+
+                $this->logResolution(
+                    $thread,
+                    $llmIntent->value,
+                    $llmConf,
+                    $signals,
+                    'general_guidance',
+                    $codes,
+                    false,
+                    null
+                );
+
+                return new IntentRoutingDecision(
+                    flow: 'general_guidance',
+                    confidence: max($llmConf, 0.6),
+                    reasonCodes: $codes,
+                    constraints: [],
+                    clarificationNeeded: false,
+                    clarificationQuestion: null,
+                );
+            }
+
             $codes = array_values(array_unique(array_merge(
                 $reasonCodes,
                 ['intent_llm_listing_followup']
@@ -374,6 +406,7 @@ final class TaskAssistantIntentResolutionService
 
         $pComp = (float) ($compositeScores['prioritize'] ?? 0.0);
         $sComp = (float) ($compositeScores['schedule'] ?? 0.0);
+        $hybridComposite = (float) ($compositeScores['prioritize_schedule'] ?? 0.0);
         $topPairComposite = max($pComp, $sComp);
         $secondPairComposite = min($pComp, $sComp);
         $prioritizeScheduleMargin = $topPairComposite - $secondPairComposite;
@@ -404,15 +437,13 @@ final class TaskAssistantIntentResolutionService
         $ambiguityGapMin = (float) config('task-assistant.intent.merge.ambiguity_gap_min', 0.15);
         $ambiguitySecondCompositeMin = (float) config('task-assistant.intent.merge.ambiguity_second_composite_min', 0.12);
         $ambiguityTopCompositeMax = (float) config('task-assistant.intent.merge.ambiguity_top_composite_max', 0.65);
+        $hybridAmbiguityMin = (float) config('task-assistant.intent.merge.hybrid_ambiguity_resolution_min', 0.47);
 
         $confidenceGapAmbiguous = $prioritizeScheduleMargin < $ambiguityGapMin
             && $secondPairComposite >= $ambiguitySecondCompositeMin
             && $topPairComposite <= $ambiguityTopCompositeMax;
 
         if ($confidenceGapAmbiguous) {
-            $hybridComposite = (float) ($compositeScores['prioritize_schedule'] ?? 0.0);
-            $hybridAmbiguityMin = (float) config('task-assistant.intent.merge.hybrid_ambiguity_resolution_min', 0.47);
-
             if ($hybridComposite >= $hybridAmbiguityMin) {
                 $reasonCodes[] = 'hybrid_resolves_prioritize_schedule_ambiguity';
                 $reasonCodes[] = 'validator_merged';
@@ -453,6 +484,36 @@ final class TaskAssistantIntentResolutionService
             return new IntentRoutingDecision(
                 flow: 'general_guidance',
                 confidence: $topComposite,
+                reasonCodes: array_values(array_unique($reasonCodes)),
+                constraints: [],
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
+        $hybridDualSignalMin = (float) config('task-assistant.intent.merge.hybrid_dual_signal_min', 0.5);
+        if (($finalFlow === 'prioritize' || $finalFlow === 'schedule')
+            && $prioritizeSignal >= $hybridDualSignalMin
+            && $scheduleSignal >= $hybridDualSignalMin
+            && $hybridComposite >= $hybridAmbiguityMin
+        ) {
+            $reasonCodes[] = 'hybrid_promoted_dual_signal';
+            $reasonCodes[] = 'validator_merged';
+
+            $this->logResolution(
+                $thread,
+                $llmIntent->value,
+                $llmConf,
+                $signals,
+                'prioritize_schedule',
+                array_values(array_unique($reasonCodes)),
+                false,
+                $compositeScores
+            );
+
+            return new IntentRoutingDecision(
+                flow: 'prioritize_schedule',
+                confidence: $hybridComposite,
                 reasonCodes: array_values(array_unique($reasonCodes)),
                 constraints: [],
                 clarificationNeeded: false,
@@ -611,6 +672,22 @@ final class TaskAssistantIntentResolutionService
             'scheduling' => TaskAssistantUserIntent::Scheduling,
             default => null,
         };
+    }
+
+    private function hasListingFollowupContext(TaskAssistantThread $thread): bool
+    {
+        if ($this->conversationState->lastListing($thread) !== null) {
+            return true;
+        }
+
+        $state = $this->conversationState->get($thread);
+        if ((string) ($state['last_flow'] ?? '') !== 'schedule') {
+            return false;
+        }
+
+        $targets = data_get($state, 'last_schedule.target_entities', []);
+
+        return is_array($targets) && $targets !== [];
     }
 
     /**

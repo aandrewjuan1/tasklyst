@@ -112,6 +112,35 @@ final class IntentRoutingPolicy
             );
         }
 
+        if ($this->isLikelyFreshDayPlanningPrompt($normalized)) {
+            $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+
+            Log::info('task-assistant.intent.policy', [
+                'layer' => 'intent_policy',
+                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
+                'thread_id' => $thread->id,
+                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
+                'outcome' => 'fresh_day_planning_shortcircuit',
+                'flow' => 'prioritize_schedule',
+                'constraints' => [
+                    'count_limit' => $constraints['count_limit'] ?? 1,
+                    'time_window_hint' => $constraints['time_window_hint'] ?? null,
+                    'target_entities_count' => is_array($constraints['target_entities'] ?? null)
+                        ? count($constraints['target_entities'])
+                        : 0,
+                ],
+            ]);
+
+            return new IntentRoutingDecision(
+                flow: 'prioritize_schedule',
+                confidence: 1.0,
+                reasonCodes: ['fresh_day_planning_prioritize_schedule'],
+                constraints: $constraints,
+                clarificationNeeded: false,
+                clarificationQuestion: null,
+            );
+        }
+
         if ($this->isLikelyDirectPrioritizeFirstPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize');
 
@@ -164,26 +193,6 @@ final class IntentRoutingPolicy
                 confidence: 1.0,
                 reasonCodes: ['schedule_refinement_context_shortcircuit'],
                 constraints: $constraints,
-                clarificationNeeded: false,
-                clarificationQuestion: null,
-            );
-        }
-
-        if ($this->isLikelyGeneralAssistancePrompt($normalized)) {
-            Log::info('task-assistant.intent.policy', [
-                'layer' => 'intent_policy',
-                'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
-                'thread_id' => $thread->id,
-                'assistant_message_id' => app()->bound('task_assistant.message_id') ? app('task_assistant.message_id') : null,
-                'outcome' => 'general_guidance_heuristic',
-                'flow' => 'general_guidance',
-            ]);
-
-            return new IntentRoutingDecision(
-                flow: 'general_guidance',
-                confidence: 1.0,
-                reasonCodes: ['general_guidance_heuristic'],
-                constraints: [],
                 clarificationNeeded: false,
                 clarificationQuestion: null,
             );
@@ -577,6 +586,24 @@ final class IntentRoutingPolicy
         return TaskAssistantIntentHybridCue::matchesCombinedPrioritizeSchedulePrompt($normalized);
     }
 
+    private function isLikelyFreshDayPlanningPrompt(string $normalized): bool
+    {
+        if ($normalized === '') {
+            return false;
+        }
+
+        if ($this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+            return false;
+        }
+
+        return preg_match(
+            '/\b(plan|schedule|organi[sz]e|organize|map\s+out|line\s+up)\b.{0,45}\b(my|the)\s+(whole\s+)?day\b/u',
+            $normalized
+        ) === 1
+            || preg_match('/\b(plan|schedule)\b.{0,45}\b(all|everything)\b.{0,30}\b(tasks?|important|priority)\b/u', $normalized) === 1
+            || preg_match('/\b(plan|schedule)\b.{0,45}\b(important|priority|urgent)\b.{0,30}\b(tasks?)\b/u', $normalized) === 1;
+    }
+
     private function isLikelyDirectPrioritizeFirstPrompt(string $normalized): bool
     {
         return TaskAssistantWhatToDoFirstIntent::matches($normalized);
@@ -601,7 +628,7 @@ final class IntentRoutingPolicy
             return false;
         }
 
-        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|do|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
+        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
         $hasScheduleCue = preg_match(
             '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|item|task|one|it|this|that|same one|before|after|later|earlier|tomorrow|today|tmrw|tomorow|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
             $normalized
@@ -617,7 +644,12 @@ final class IntentRoutingPolicy
             $normalized
         ) === 1;
 
-        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase;
+        $hasDoIndexedSchedulingPhrase = preg_match(
+            '/\bdo\b.{0,16}\b(the\s+)?(first|second|third|last|\d+(?:st|nd|rd|th)|one)\b.{0,36}\b(later|today|tomorrow|morning|afternoon|evening|night|tonight)\b/u',
+            $normalized
+        ) === 1;
+
+        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase || $hasDoIndexedSchedulingPhrase;
     }
 
     private function isLikelyPureGreeting(string $normalized): bool

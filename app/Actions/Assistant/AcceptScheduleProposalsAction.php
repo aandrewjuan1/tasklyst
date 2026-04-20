@@ -17,6 +17,7 @@ use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Services\ProjectService;
 use App\Services\TaskService;
 use App\Support\LLM\SchedulableProposalPolicy;
+use App\Support\LLM\TaskAssistantMetadataKeys;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 
@@ -134,7 +135,7 @@ final class AcceptScheduleProposalsAction
 
         $message->update(['metadata' => $normalized['canonical_metadata']]);
 
-        return ['schedule.proposals', count($normalized['proposals'] ?? [])];
+        return [TaskAssistantMetadataKeys::SCHEDULE_PROPOSALS, count($normalized['proposals'] ?? [])];
     }
 
     /**

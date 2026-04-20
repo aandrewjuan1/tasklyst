@@ -635,6 +635,72 @@ test('prioritize_schedule stays fresh schedule when pending schedule draft exist
     expect($assistantMessage->metadata['schedule']['proposals'] ?? null)->toBeArray();
 });
 
+test('whole-day fresh planning prompt does not rewrite to schedule_refinement when draft exists', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Fresh schedule proposal.',
+                'reasoning' => 'Placed your top tasks into available time slots.',
+                'confirmation' => 'Do these times work?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => 'Draft schedule',
+        'metadata' => [
+            'schedule' => [
+                'proposals' => [[
+                    'proposal_id' => 'a',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Task A',
+                    'start_datetime' => '2026-04-02T08:00:00+08:00',
+                    'end_datetime' => '2026-04-02T09:00:00+08:00',
+                    'duration_minutes' => 60,
+                    'apply_payload' => ['action' => 'update_task', 'arguments' => ['taskId' => 1, 'updates' => []]],
+                ]],
+            ],
+            'structured' => [
+                'flow' => 'schedule',
+            ],
+        ],
+    ]);
+
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+        'duration' => 45,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'i said plan my whole day later schedule all important tasks that i need to do asap',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->not->toBe('schedule_refinement');
+});
+
 test('processQueuedMessage clears task assistant container bindings after run', function (): void {
     config(['task-assistant.intent.use_llm' => false]);
 

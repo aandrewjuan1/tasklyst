@@ -4,6 +4,8 @@ namespace App\Jobs;
 
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
+use App\Services\LLM\TaskAssistant\AssistantMetadataGateway;
+use App\Services\LLM\TaskAssistant\TaskAssistantProcessingGuard;
 use App\Services\LLM\TaskAssistant\TaskAssistantService;
 use App\Services\LLM\TaskAssistant\TaskAssistantStreamingBroadcaster;
 use Carbon\CarbonImmutable;
@@ -42,7 +44,7 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
 
     public function handle(TaskAssistantService $service): void
     {
-        if ($this->alreadyProcessed()) {
+        if (app(TaskAssistantProcessingGuard::class)->alreadyProcessed($this->threadId, $this->assistantMessageId)) {
             Log::debug('task-assistant.job.skip_already_processed', [
                 'layer' => 'queue_job',
                 'thread_id' => $this->threadId,
@@ -159,39 +161,12 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
 
     private function isCancellationRequested(): bool
     {
-        $assistantMessage = TaskAssistantMessage::query()
-            ->where('thread_id', $this->threadId)
-            ->where('id', $this->assistantMessageId)
-            ->where('role', \App\Enums\MessageRole::Assistant)
-            ->first();
-
-        if (! $assistantMessage) {
-            return false;
-        }
-
         $thread = TaskAssistantThread::query()->whereKey($this->threadId)->first();
-        $threadCancelRequested = (bool) data_get($thread?->metadata, 'stream.processing.cancel_requested', false);
-        $messageStopped = data_get($assistantMessage->metadata, 'stream.status') === 'stopped';
-
-        return $threadCancelRequested || $messageStopped;
-    }
-
-    private function alreadyProcessed(): bool
-    {
-        $assistantMessage = TaskAssistantMessage::query()
-            ->where('thread_id', $this->threadId)
-            ->where('id', $this->assistantMessageId)
-            ->where('role', \App\Enums\MessageRole::Assistant)
-            ->first();
-
-        if (! $assistantMessage) {
+        if (! $thread) {
             return false;
         }
 
-        $phase = (string) data_get($assistantMessage->metadata, 'stream.phase', '');
-        $hasStructuredEnvelope = is_array(data_get($assistantMessage->metadata, 'structured', null));
-
-        return $phase === 'stream_end' || $hasStructuredEnvelope;
+        return app(TaskAssistantProcessingGuard::class)->isCancellationRequested($thread, $this->assistantMessageId);
     }
 
     private function markAsCancelled(TaskAssistantThread $thread): void
@@ -233,13 +208,6 @@ class BroadcastTaskAssistantStreamJob implements ShouldQueue
         if (! $assistantMessage) {
             return;
         }
-
-        $metadata = is_array($assistantMessage->metadata ?? null) ? $assistantMessage->metadata : [];
-        data_set($metadata, 'stream.phase', $phase);
-        data_set($metadata, 'stream.phase_at', now()->toIso8601String());
-        foreach ($extra as $key => $value) {
-            data_set($metadata, 'stream.'.$key, $value);
-        }
-        $assistantMessage->update(['metadata' => $metadata]);
+        app(AssistantMetadataGateway::class)->setStreamPhase($assistantMessage, $phase, $extra);
     }
 }

@@ -183,6 +183,14 @@ test('llm listing_followup intent routes to listing_followup flow', function ():
 
     $user = User::factory()->create();
     $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 10, 'title' => 'A'],
+        ],
+        null
+    );
 
     $inference = new TaskAssistantIntentInferenceResult(
         intent: TaskAssistantUserIntent::ListingFollowup,
@@ -200,6 +208,30 @@ test('llm listing_followup intent routes to listing_followup flow', function ():
 
     expect($decision->flow)->toBe('listing_followup');
     expect($decision->reasonCodes)->toContain('intent_llm_listing_followup');
+});
+
+test('llm listing_followup intent without context falls back to clarify-first general guidance', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::ListingFollowup,
+        confidence: 0.8,
+        failed: false,
+        rationale: 'Follow-up confidence is high.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'is that ordering right?',
+        $inference,
+        ['prioritization' => 0.2, 'scheduling' => 0.05, 'hybrid' => 0.0],
+    );
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain('intent_llm_listing_followup_missing_context_clarify');
 });
 
 test('llm prioritize_schedule demotes to prioritize when scheduling signal is weak and no combined cue', function (): void {
@@ -224,4 +256,51 @@ test('llm prioritize_schedule demotes to prioritize when scheduling signal is we
 
     expect($decision->flow)->toBe('prioritize');
     expect($decision->reasonCodes)->toContain('prioritize_schedule_demoted_weak_schedule_signal');
+});
+
+test('hybrid dual-signal promotion routes to prioritize_schedule', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::Prioritization,
+        confidence: 0.62,
+        failed: false,
+        rationale: 'Slightly prioritize-leaning.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'help me figure out top tasks and when i should do them',
+        $inference,
+        ['prioritization' => 0.65, 'scheduling' => 0.62, 'hybrid' => 0.9],
+    );
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('hybrid_promoted_dual_signal');
+});
+
+test('hybrid cue from slang-like plan phrase resolves to prioritize_schedule override', function (): void {
+    config()->set('task-assistant.intent.use_llm', true);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $inference = new TaskAssistantIntentInferenceResult(
+        intent: TaskAssistantUserIntent::Scheduling,
+        confidence: 0.7,
+        failed: false,
+        rationale: 'Time planning intent.',
+    );
+
+    $decision = app(TaskAssistantIntentResolutionService::class)->resolve(
+        $thread,
+        'map out my day and what should i tackle first',
+        $inference,
+        ['prioritization' => 0.88, 'scheduling' => 0.84, 'hybrid' => 0.9],
+    );
+
+    expect($decision->flow)->toBe('prioritize_schedule');
 });

@@ -377,6 +377,29 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertNotEmpty($result['errors']);
     }
 
+    public function test_general_guidance_validation_accepts_scheduling_word_in_next_options(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('general_guidance', [
+            'intent' => 'task',
+            'acknowledgement' => 'Thanks for checking in.',
+            'message' => 'I can help you narrow this down quickly.',
+            'suggested_next_actions' => [
+                'Prioritize my tasks.',
+                'Schedule time blocks for my tasks.',
+            ],
+            'next_options' => 'If you want, I can help with prioritizing the list first, then scheduling focused study times.',
+            'next_options_chip_texts' => [
+                'What should I do first',
+                'Schedule my most important task',
+            ],
+        ], []);
+
+        $this->assertTrue($result['valid']);
+        $this->assertSame([], $result['errors']);
+    }
+
     public function test_daily_schedule_validation_fails_when_reasoning_duplicates_framing(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);

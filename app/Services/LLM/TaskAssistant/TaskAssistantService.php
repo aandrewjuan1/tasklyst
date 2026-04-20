@@ -18,6 +18,7 @@ use App\Services\LLM\Scheduling\ScheduleEditLexicon;
 use App\Services\LLM\Scheduling\ScheduleEditTargetResolver;
 use App\Services\LLM\Scheduling\ScheduleEditTemporalParser;
 use App\Services\LLM\Scheduling\ScheduleFallbackConfirmationService;
+use App\Services\LLM\Scheduling\ScheduleFallbackPolicy;
 use App\Services\LLM\Scheduling\ScheduleProposalReferenceService;
 use App\Services\LLM\Scheduling\ScheduleRefinementClauseSplitter;
 use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
@@ -26,6 +27,8 @@ use App\Services\LLM\Scheduling\ScheduleRefinementStructuredOpExtractor;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleDbContextBuilder;
 use App\Services\LLM\Scheduling\TaskAssistantScheduleHorizonResolver;
 use App\Services\LLM\Scheduling\TaskAssistantStructuredFlowGenerator;
+use App\Services\LLM\TaskAssistant\FlowHandlers\TaskAssistantFlowHandlerContext;
+use App\Services\LLM\TaskAssistant\FlowHandlers\TaskAssistantFlowHandlerRegistry;
 use App\Services\Scheduling\SchoolClassBusyIntervalResolver;
 use App\Support\LLM\SchedulableProposalPolicy;
 use App\Support\LLM\TaskAssistantFlowNames;
@@ -77,6 +80,9 @@ final class TaskAssistantService
         private readonly SchoolClassBusyIntervalResolver $schoolClassBusyIntervalResolver,
         private readonly ScheduleProposalReferenceService $scheduleProposalReferenceService,
         private readonly ScheduleFallbackConfirmationService $scheduleFallbackConfirmationService,
+        private readonly TaskAssistantFlowHandlerRegistry $flowHandlerRegistry,
+        private readonly TaskAssistantProcessingGuard $processingGuard,
+        private readonly ScheduleFallbackPolicy $scheduleFallbackPolicy,
     ) {}
 
     public function processQueuedMessage(TaskAssistantThread $thread, int $userMessageId, int $assistantMessageId): void
@@ -282,26 +288,19 @@ final class TaskAssistantService
                 return;
             }
 
-            if ($plan->flow === TaskAssistantFlowNames::PRIORITIZE) {
-                $this->runPrioritizeFlow($thread, $assistantMessage, $content, $plan);
-
-                return;
-            }
-
-            if ($plan->flow === TaskAssistantFlowNames::PRIORITIZE_SCHEDULE) {
-                $this->runPrioritizeScheduleFlow($thread, $userMessage, $assistantMessage, $content, $plan);
-
-                return;
-            }
-
-            if ($plan->flow === TaskAssistantFlowNames::SCHEDULE_REFINEMENT) {
-                $this->runScheduleRefinementFlow($thread, $userMessage, $assistantMessage, $content, $plan);
-
-                return;
-            }
-
-            if ($plan->flow === TaskAssistantFlowNames::SCHEDULE) {
-                $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $content, $plan);
+            if (in_array($plan->flow, [
+                TaskAssistantFlowNames::PRIORITIZE,
+                TaskAssistantFlowNames::PRIORITIZE_SCHEDULE,
+                TaskAssistantFlowNames::SCHEDULE_REFINEMENT,
+                TaskAssistantFlowNames::SCHEDULE,
+            ], true)) {
+                $this->dispatchFlowHandler(new TaskAssistantFlowHandlerContext(
+                    thread: $thread,
+                    userMessage: $userMessage,
+                    assistantMessage: $assistantMessage,
+                    content: $content,
+                    plan: $plan,
+                ));
 
                 return;
             }
@@ -324,6 +323,51 @@ final class TaskAssistantService
             app()->forgetInstance('task_assistant.message_id');
             app()->forgetInstance('task_assistant.run_id');
         }
+    }
+
+    public function executePrioritizeFlow(TaskAssistantFlowHandlerContext $context): void
+    {
+        $this->runPrioritizeFlow($context->thread, $context->assistantMessage, $context->content, $context->plan);
+    }
+
+    public function executePrioritizeScheduleFlow(TaskAssistantFlowHandlerContext $context): void
+    {
+        $this->runPrioritizeScheduleFlow(
+            $context->thread,
+            $context->userMessage,
+            $context->assistantMessage,
+            $context->content,
+            $context->plan
+        );
+    }
+
+    public function executeScheduleRefinementFlow(TaskAssistantFlowHandlerContext $context): void
+    {
+        $this->runScheduleRefinementFlow(
+            $context->thread,
+            $context->userMessage,
+            $context->assistantMessage,
+            $context->content,
+            $context->plan
+        );
+    }
+
+    public function executeScheduleFlow(TaskAssistantFlowHandlerContext $context): void
+    {
+        $this->runScheduleFlow(
+            $context->thread,
+            $context->userMessage,
+            $context->assistantMessage,
+            $context->content,
+            $context->plan
+        );
+    }
+
+    private function dispatchFlowHandler(TaskAssistantFlowHandlerContext $context): void
+    {
+        $this->flowHandlerRegistry
+            ->resolve($context->plan->flow)
+            ->handle($context);
     }
 
     /**
@@ -1065,17 +1109,8 @@ final class TaskAssistantService
             return $plan;
         }
 
-        if ($plan->flow === 'prioritize') {
-            if (! $this->isLikelyScheduleRefinementEditPrompt($content)) {
-                return $plan;
-            }
-        }
-
-        // Combined "prioritize_schedule" prompts are intended to generate a fresh
-        // schedule from ranked top tasks. When the user is not asking for an
-        // edit/reorder, do not rewrite into schedule_refinement even if a
-        // pending schedule draft exists.
-        if ($plan->flow === 'prioritize_schedule' && ! $this->isLikelyScheduleRefinementEditPrompt($content)) {
+        $isEditPrompt = $this->isLikelyScheduleRefinementEditPrompt($content);
+        if (! $isEditPrompt) {
             return $plan;
         }
 
@@ -1125,7 +1160,7 @@ final class TaskAssistantService
             return false;
         }
 
-        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|do|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
+        $hasEditVerb = preg_match('/\b(move|set|change|edit|shift|push|swap|reorder|put|make|reschedule|adjust|bring|bump|drag|slide|delay|advance|pull|drop)\b/u', $normalized) === 1;
         $hasScheduleCue = preg_match(
             '/\b(first|second|third|last|\d+(?:st|nd|rd|th)|item|task|one|it|this|that|same one|before|after|later|earlier|tomorrow|today|tmrw|tomorow|next week|next|at\s+\d{1,2}|am|pm|minute|minutes|duration|shorter|longer)\b/u',
             $normalized
@@ -1141,7 +1176,12 @@ final class TaskAssistantService
             $normalized
         ) === 1;
 
-        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase;
+        $hasDoIndexedSchedulingPhrase = preg_match(
+            '/\bdo\b.{0,16}\b(the\s+)?(first|second|third|last|\d+(?:st|nd|rd|th)|one)\b.{0,36}\b(later|today|tomorrow|morning|afternoon|evening|night|tonight)\b/u',
+            $normalized
+        ) === 1;
+
+        return ($hasEditVerb && $hasScheduleCue) || $hasStandaloneReorderShape || $implicitEditPhrase || $hasDoIndexedSchedulingPhrase;
     }
 
     private function findPendingScheduleDraftSourceMessage(TaskAssistantThread $thread, int $excludeAssistantMessageId): ?TaskAssistantMessage
@@ -1746,6 +1786,26 @@ final class TaskAssistantService
             return $plan;
         }
 
+        if ($this->isLikelyFreshDayPlanningPrompt($userMessageContent)) {
+            $reasonCodes = array_values(array_unique(array_merge(
+                $plan->reasonCodes,
+                [TaskAssistantReasonCodes::SCHEDULE_PROMOTED_PRIORITIZE_SCHEDULE_DAY_PLANNING]
+            )));
+
+            return new ExecutionPlan(
+                flow: 'prioritize_schedule',
+                confidence: $plan->confidence,
+                clarificationNeeded: $plan->clarificationNeeded,
+                clarificationQuestion: $plan->clarificationQuestion,
+                reasonCodes: $reasonCodes,
+                constraints: $plan->constraints,
+                targetEntities: $plan->targetEntities,
+                timeWindowHint: $plan->timeWindowHint,
+                countLimit: $plan->countLimit,
+                generationProfile: 'schedule',
+            );
+        }
+
         $snapshot = $this->candidateProvider->candidatesForUser($thread->user, taskLimit: 200);
         $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
         $now = CarbonImmutable::now($timezone);
@@ -1789,6 +1849,33 @@ final class TaskAssistantService
             countLimit: $plan->countLimit,
             generationProfile: 'prioritize',
         );
+    }
+
+    private function isLikelyFreshDayPlanningPrompt(string $content): bool
+    {
+        $normalized = mb_strtolower(trim($content));
+        if ($normalized === '') {
+            return false;
+        }
+
+        if ($this->isLikelyScheduleRefinementEditPrompt($normalized)) {
+            return false;
+        }
+
+        $hasDayPlanningCue = preg_match(
+            '/\b(plan|schedule|organi[sz]e|map\s*out|set\s*up)\b.{0,45}\b(my|the)\s+(whole\s+)?day\b/u',
+            $normalized
+        ) === 1;
+        $hasScheduleAllCue = preg_match(
+            '/\b(schedule|plan)\b.{0,45}\b(all|everything)\b.{0,30}\b(tasks?|important|priority)\b/u',
+            $normalized
+        ) === 1;
+        $hasWhenToDoCue = preg_match(
+            '/\b(when\s+should\s+i\s+do|fit\s+in|time\s+block|calendar|later\s+today|later)\b/u',
+            $normalized
+        ) === 1;
+
+        return $hasDayPlanningCue || $hasScheduleAllCue || ($hasWhenToDoCue && str_contains($normalized, 'day'));
     }
 
     private function runGeneralGuidanceFlow(
@@ -2184,12 +2271,7 @@ final class TaskAssistantService
      */
     private function shouldRequireFallbackConfirmation(ExecutionPlan $plan, array $scheduleData): bool
     {
-        $digest = is_array($scheduleData['placement_digest'] ?? null) ? $scheduleData['placement_digest'] : [];
-        $fallbackMode = (string) ($digest['fallback_mode'] ?? '');
-        $topNShortfall = (bool) ($digest['top_n_shortfall'] ?? false);
-        $topNPolicy = (string) config('task-assistant.schedule.top_n_shortfall_policy', 'confirm_if_shortfall');
-
-        if ($topNPolicy === 'confirm_if_shortfall' && $topNShortfall) {
+        if ($this->scheduleFallbackPolicy->shouldRequireConfirmation($plan, $scheduleData)) {
             return true;
         }
 
@@ -2202,7 +2284,7 @@ final class TaskAssistantService
             return false;
         }
 
-        return $fallbackMode === 'auto_relaxed_today_or_tomorrow';
+        return false;
     }
 
     /**
@@ -2867,55 +2949,11 @@ PROMPT)
 
     private function classifyScheduleFallbackDecision(string $content): string
     {
-        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $content) ?? $content));
-        if ($normalized === '') {
-            return 'unclear';
-        }
-
-        $affirmativePatterns = [
-            '/\byes\b/u',
-            '/\bconfirm\b/u',
-            '/\bgo ahead\b/u',
-            '/\bproceed\b/u',
-            '/\bdo it\b/u',
-            '/\bsounds good\b/u',
-            '/\bok(?:ay)?\b/u',
-            '/\bfine\b/u',
-        ];
-        $negativePatterns = [
-            '/\bno\b/u',
-            '/\bdon\'t\b/u',
-            '/\bdo not\b/u',
-            '/\bnot now\b/u',
-            '/\bcancel\b/u',
-            '/\bnever mind\b/u',
-            '/\bstop\b/u',
-        ];
-
-        $hasAffirmative = false;
-        foreach ($affirmativePatterns as $pattern) {
-            if (preg_match($pattern, $normalized) === 1) {
-                $hasAffirmative = true;
-                break;
-            }
-        }
-
-        $hasNegative = false;
-        foreach ($negativePatterns as $pattern) {
-            if (preg_match($pattern, $normalized) === 1) {
-                $hasNegative = true;
-                break;
-            }
-        }
-
-        if ($hasAffirmative && ! $hasNegative) {
-            return 'confirm';
-        }
-        if ($hasNegative && ! $hasAffirmative) {
-            return 'decline';
-        }
-
-        return 'unclear';
+        return match ($this->scheduleFallbackPolicy->classifyPendingDecision($content)) {
+            'confirm' => 'confirm',
+            'decline' => 'decline',
+            default => 'unclear',
+        };
     }
 
     private function buildJsonEnvelope(string $flow, array $data, int $threadId, int $assistantMessageId, bool $ok = true): array
@@ -3184,20 +3222,6 @@ PROMPT)
             }, $rankedTasks));
         }
 
-        // Ensure scheduling filters out events/projects (tasks-only correctness).
-        // If there are no target tasks, we use a sentinel target ID so the generator
-        // produces an "empty placement" schedule with no events/projects proposals.
-        // Sentinel: must be non-empty `target_entities` so the scheduler applies
-        // tasks-only filtering, but must not reference any real task id.
-        $sentinelTaskId = 0;
-        $generatorTargetEntities = $topTaskEntities !== []
-            ? $topTaskEntities
-            : [[
-                'entity_type' => 'task',
-                'entity_id' => $sentinelTaskId,
-                'title' => 'Sentinel',
-                'position' => 0,
-            ]];
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
 
         $result = $this->structuredFlowGenerator->generateDailySchedule(
@@ -3205,7 +3229,8 @@ PROMPT)
             userMessageContent: $content,
             historyMessages: $historyMessages,
             options: [
-                'target_entities' => $generatorTargetEntities,
+                'target_entities' => $topTaskEntities,
+                'scheduling_scope' => 'tasks_only',
                 'time_window_hint' => $plan->timeWindowHint,
                 'count_limit' => $plan->countLimit,
                 'explicit_requested_count' => $explicitRequestedCount,
@@ -3425,17 +3450,7 @@ PROMPT)
 
     private function isCancellationRequested(TaskAssistantThread $thread, int $assistantMessageId): bool
     {
-        $assistantMessage = TaskAssistantMessage::query()
-            ->where('thread_id', $thread->id)
-            ->where('id', $assistantMessageId)
-            ->where('role', MessageRole::Assistant)
-            ->first();
-
-        if (! $assistantMessage) {
-            return false;
-        }
-
-        return data_get($assistantMessage->metadata, 'stream.status') === 'stopped';
+        return $this->processingGuard->isCancellationRequested($thread, $assistantMessageId);
     }
 
     private function looksLikeStandaloneGeneralGuidancePrompt(string $content): bool

@@ -322,11 +322,11 @@ TXT,
             'signal_only_clarify_margin' => (float) env('TASK_ASSISTANT_INTENT_SIGNAL_CLARIFY_MARGIN', 0.15),
             // When the confidence gap between the top two candidate composites
             // is small, prefer general guidance to avoid wrong hard routing.
-            'ambiguity_gap_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_GAP_MIN', 0.15),
+            'ambiguity_gap_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_GAP_MIN', 0.18),
             // Require the second-best composite to be meaningfully non-zero.
             'ambiguity_second_composite_min' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_SECOND_COMPOSITE_MIN', 0.12),
             // Keep general-guidance override limited to medium confidence.
-            'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.65),
+            'ambiguity_top_composite_max' => (float) env('TASK_ASSISTANT_INTENT_AMBIGUITY_TOP_COMPOSITE_MAX', 0.75),
             /**
              * Minimum min(prioritization, scheduling) before non-pattern hybrid signal blends apply
              * (@see TaskAssistantIntentHybridCue::scoreHybridSignal).
@@ -336,7 +336,12 @@ TXT,
              * When the top two merged composites are prioritize vs schedule with a small margin,
              * route to prioritize_schedule if the hybrid composite meets this floor.
              */
-            'hybrid_ambiguity_resolution_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_AMBIGUITY_RESOLUTION_MIN', 0.47),
+            'hybrid_ambiguity_resolution_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_AMBIGUITY_RESOLUTION_MIN', 0.42),
+            /**
+             * When both prioritize and scheduling signals are each meaningfully strong, this allows
+             * a hybrid promotion to prioritize_schedule even when a single-flow composite narrowly wins.
+             */
+            'hybrid_dual_signal_min' => (float) env('TASK_ASSISTANT_INTENT_HYBRID_DUAL_SIGNAL_MIN', 0.5),
             /**
              * When the LLM says prioritize_schedule but scheduling heuristics are weaker than this,
              * demote to prioritize unless the message matches a combined rank+time pattern.

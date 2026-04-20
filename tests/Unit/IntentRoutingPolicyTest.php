@@ -38,7 +38,7 @@ test('LLM intent prioritization maps to prioritize flow', function (): void {
     expect($decision->reasonCodes)->toContain('llm_intent_prioritization');
 });
 
-test('LLM intent scheduling maps to schedule flow', function (): void {
+test('schedule my day maps to prioritize_schedule planning flow', function (): void {
     Prism::fake([
         StructuredResponseFake::make()
             ->withStructured([
@@ -54,8 +54,8 @@ test('LLM intent scheduling maps to schedule flow', function (): void {
 
     $decision = app(IntentRoutingPolicy::class)->decide($thread, 'Schedule my day');
 
-    expect($decision->flow)->toBe('schedule');
-    expect($decision->reasonCodes)->toContain('llm_intent_scheduling');
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('fresh_day_planning_prioritize_schedule');
 });
 
 test('LLM intent prioritize_schedule maps to prioritize_schedule flow', function (): void {
@@ -391,6 +391,83 @@ test('schedule flow resolves top N against last_listing', function (): void {
     expect($decision->constraints['target_entities'])->toHaveCount(2);
     expect($decision->constraints['target_entities'][0]['entity_id'])->toBe(101);
     expect($decision->constraints['target_entities'][1]['entity_id'])->toBe(102);
+});
+
+test('llm listing_followup without context routes to general guidance clarify path', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'intent' => 'listing_followup',
+                'confidence' => 0.82,
+                'rationale' => 'Likely follow-up.',
+            ])
+            ->withUsage(new Usage(1, 2)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'is that order right?');
+
+    expect($decision->flow)->toBe('general_guidance');
+    expect($decision->reasonCodes)->toContain('intent_llm_listing_followup_missing_context_clarify');
+});
+
+test('help phrasing with specific scheduling intent does not short-circuit to general guidance', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'can you help me schedule my tasks for tomorrow afternoon');
+
+    expect($decision->flow)->not->toBe('general_guidance');
+    expect($decision->flow)->toBe('schedule');
+});
+
+test('whole-day planning prompt shortcircuits to prioritize_schedule', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'plan my whole day later');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->reasonCodes)->toContain('fresh_day_planning_prioritize_schedule');
+});
+
+test('slang-ish prioritize phrase routes to prioritize in signal-only mode', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'what should i tackle first rn');
+
+    expect($decision->flow)->toBe('prioritize');
+});
+
+test('slang-ish day planning phrase routes to prioritize_schedule in signal-only mode', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'map out my day and what should i do first');
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+});
+
+test('off-topic sorting phrase does not route to prioritize', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'sort out the best phone for me');
+
+    expect($decision->flow)->toBe('general_guidance');
 });
 
 test('execution plan holds normalized orchestration fields', function (): void {

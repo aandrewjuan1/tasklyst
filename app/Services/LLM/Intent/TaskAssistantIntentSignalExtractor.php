@@ -11,7 +11,9 @@ namespace App\Services\LLM\Intent;
  */
 final class TaskAssistantIntentSignalExtractor
 {
-    private const SCHEDULE_LIKE_PATTERN = '/\b(schedule|scheduling|plan my day|plan the day|my day|today plan|day plan|daily plan|time block|time-block|time blocking|calendar|time slot|when should i work|block out|block time|book time|find time|pencil in|put on my calendar|remind me|availability|free time|open slot|slot me|calendar block)\b/i';
+    private const TASK_CONTEXT_PATTERN = '/\b(task|tasks|to-?dos?|to\s+do|assignment|assignments|deadline|deadlines|homework|study|quiz|exam|project|projects)\b/i';
+
+    private const SCHEDULE_LIKE_PATTERN = '/\b(schedule|scheduling|plan my day|plan the day|my day|today plan|day plan|daily plan|map out my day|line up my day|organize my day|time block|time-block|time blocking|calendar|time slot|when should i work|when can i do this|block out|block time|book time|find time|pencil in|put on my calendar|remind me|availability|free time|open slot|slot me|calendar block|set this for later)\b/i';
 
     /**
      * Matches "fit … in" / "squeeze … in" (including "fit in", "fit my stuff in").
@@ -40,12 +42,19 @@ final class TaskAssistantIntentSignalExtractor
     private function scorePrioritization(string $normalized): float
     {
         $score = 0.0;
+        $hasTaskContext = preg_match(self::TASK_CONTEXT_PATTERN, $normalized) === 1;
 
         if (preg_match('/\b(top|priorit|first|next|important|focus|which|should i (do|work|start))\b/i', $normalized) === 1) {
             $score += 0.72;
         }
         if (preg_match('/\b(list|show|display|find|search|filter|sort|which tasks?|what tasks?|give me|pull up)\b/i', $normalized) === 1) {
             $score += 0.55;
+        }
+        if (preg_match('/\b(what should i tackle|what should i hit first|which one first|what should i focus on first|what do i knock out first|sort my tasks by urgency|figure out what to do first)\b/i', $normalized) === 1) {
+            $score += 0.52;
+        }
+        if ($hasTaskContext && preg_match('/\b(sort|order)\b.{0,20}\b(urgency|priority|importance)\b/i', $normalized) === 1) {
+            $score += 0.38;
         }
         if (preg_match('/\b(rank|ranking|re-?order|sort by|order by|backlog|triage)\b/i', $normalized) === 1
             || preg_match('/\b(order|ordering)\b/i', $normalized) === 1) {
@@ -79,10 +88,17 @@ final class TaskAssistantIntentSignalExtractor
     private function scoreScheduling(string $normalized): float
     {
         $score = 0.0;
+        $hasTaskContext = preg_match(self::TASK_CONTEXT_PATTERN, $normalized) === 1;
 
         if (preg_match(self::SCHEDULE_LIKE_PATTERN, $normalized) === 1
             || preg_match(self::FIT_OR_SQUEEZE_IN_PATTERN, $normalized) === 1) {
             $score += 0.72;
+        }
+        if (preg_match('/\b(slot this in|fit this into my day|line up my day|calendar this)\b/i', $normalized) === 1) {
+            $score += 0.38;
+        }
+        if ($hasTaskContext && preg_match('/\b(set|put)\b.{0,24}\b(for later|for tonight|for tomorrow)\b/i', $normalized) === 1) {
+            $score += 0.3;
         }
         if (preg_match('/\b(afternoon|morning|evening|night|tonight|time block|time slot|later|today|tomorrow)\b/i', $normalized) === 1) {
             $score += 0.2;

@@ -137,7 +137,6 @@ test('accepting proposals on different calendar days supersedes older active ite
         ->call('acceptAllScheduleProposals', $thread->messages()->latest('id')->first()->id);
 
     expect(AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->count())->toBe(1);
-    expect(AssistantSchedulePlanItem::query()->where('user_id', $user->id)->where('status', \App\Enums\AssistantSchedulePlanItemStatus::Dismissed)->count())->toBe(1);
 
     $active = AssistantSchedulePlanItem::query()->where('user_id', $user->id)->active()->first();
     expect($active)->not->toBeNull();

@@ -28,7 +28,7 @@ test('bare schedule with explicit tomorrow horizon promotes to prioritize_schedu
         app(TaskAssistantService::class),
         $thread,
         $plan,
-        'plan my day for tomorrow'
+        'schedule tasks for tomorrow'
     );
 
     expect($out->flow)->toBe('prioritize_schedule')
@@ -63,4 +63,34 @@ test('bare schedule without explicit horizon still remaps to prioritize', functi
 
     expect($out->flow)->toBe('prioritize')
         ->and($out->reasonCodes)->toContain('schedule_rerouted_no_listing_context');
+});
+
+test('whole-day planning prompt promotes bare schedule to prioritize_schedule', function (): void {
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    $plan = new ExecutionPlan(
+        flow: 'schedule',
+        confidence: 0.83,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: ['llm_intent_scheduling'],
+        constraints: [],
+        targetEntities: [],
+        timeWindowHint: 'later',
+        countLimit: 3,
+        generationProfile: 'schedule',
+    );
+
+    $method = new \ReflectionMethod(TaskAssistantService::class, 'maybeRemapScheduleToPrioritize');
+    $method->setAccessible(true);
+    $out = $method->invoke(
+        app(TaskAssistantService::class),
+        $thread,
+        $plan,
+        'plan my whole day later'
+    );
+
+    expect($out->flow)->toBe('prioritize_schedule')
+        ->and($out->reasonCodes)->toContain('schedule_promoted_prioritize_schedule_day_planning');
 });

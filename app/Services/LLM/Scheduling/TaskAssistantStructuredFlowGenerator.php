@@ -448,6 +448,12 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        $schedulingScope = (string) ($options['scheduling_scope'] ?? 'mixed');
+        if ($schedulingScope === 'tasks_only') {
+            $contextualSnapshot['events'] = [];
+            $contextualSnapshot['projects'] = [];
+        }
+
         if (! empty($context['recurring_requested'])) {
             $recurringOnly = array_values(array_filter(
                 $contextualSnapshot['tasks'] ?? [],

@@ -19,7 +19,7 @@ test('scheduler enforces monotonic placement order to avoid priority inversion',
 
     $gen = new TaskAssistantStructuredFlowGenerator(
         promptData: new TaskAssistantPromptData,
-        dbContextBuilder: new TaskAssistantScheduleDbContextBuilder($scheduleContextBuilder),
+        dbContextBuilder: app(TaskAssistantScheduleDbContextBuilder::class),
         scheduleContextBuilder: $scheduleContextBuilder,
         prioritizationService: new TaskPrioritizationService,
         hybridNarrative: new TaskAssistantHybridNarrativeService,
