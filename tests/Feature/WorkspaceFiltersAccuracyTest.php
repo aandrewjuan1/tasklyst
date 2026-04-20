@@ -226,3 +226,44 @@ test('non-completed status filters do not auto-enable completed visibility', fun
 
     expect($eventComponent->get('showCompleted'))->toBe('0');
 });
+
+test('workspace shows contextual toast when opened from dashboard doing filter redirect', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::withQueryParams([
+        'date' => now()->toDateString(),
+        'view' => 'list',
+        'type' => 'tasks',
+        'status' => 'doing',
+        'from_dashboard_filter' => 'doing',
+    ])
+        ->test('pages::workspace.index')
+        ->assertDispatched('toast', type: 'info', message: 'Showing Doing tasks.');
+});
+
+test('workspace shows contextual toast when opened from dashboard classes filter redirect', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::withQueryParams([
+        'date' => now()->toDateString(),
+        'view' => 'list',
+        'type' => 'classes',
+        'from_dashboard_filter' => 'classes',
+    ])
+        ->test('pages::workspace.index')
+        ->assertDispatched('toast', type: 'info', message: 'Showing Classes.');
+});
+
+test('workspace shows contextual toast when opened from dashboard recurring filter redirect', function (): void {
+    $this->actingAs($this->user);
+
+    Livewire::withQueryParams([
+        'date' => now()->toDateString(),
+        'view' => 'list',
+        'type' => 'tasks',
+        'recurring' => 'recurring',
+        'from_dashboard_filter' => 'recurring',
+    ])
+        ->test('pages::workspace.index')
+        ->assertDispatched('toast', type: 'info', message: 'Showing Recurring tasks.');
+});

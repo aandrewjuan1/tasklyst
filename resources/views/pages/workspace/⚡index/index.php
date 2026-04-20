@@ -421,6 +421,39 @@ class extends Component
         $this->syncFilterTagIdFromTagIds();
         $this->activeFocusSession = $this->getActiveFocusSession();
         $this->applyWorkspaceDeepLinkFocus();
+        $this->handleDashboardFilterToastOnLoad();
+    }
+
+    protected function handleDashboardFilterToastOnLoad(): void
+    {
+        $source = strtolower(trim((string) request()->query('from_dashboard_filter', '')));
+        if ($source === '') {
+            return;
+        }
+
+        $message = match ($source) {
+            'doing' => __('Showing Doing tasks.'),
+            'classes' => __('Showing Classes.'),
+            'recurring' => __('Showing Recurring tasks.'),
+            default => null,
+        };
+
+        if ($message === null) {
+            return;
+        }
+
+        $this->dispatch('toast', type: 'info', message: $message);
+
+        $this->js(<<<'JS'
+            (() => {
+                const url = new URL(window.location.href);
+                if (!url.searchParams.has('from_dashboard_filter')) {
+                    return;
+                }
+                url.searchParams.delete('from_dashboard_filter');
+                window.history.replaceState(window.history.state, '', url.toString());
+            })();
+        JS);
     }
 
     /**

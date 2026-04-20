@@ -13,12 +13,14 @@ use App\Models\CollaborationInvitation;
 use App\Models\Event;
 use App\Models\FocusSession;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use App\Services\LLM\Prioritization\TaskPrioritizationService;
 use App\Services\TaskService;
 use App\Services\UserAnalyticsService;
+use App\Services\SchoolClassService;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -48,6 +50,8 @@ class extends Component
     /** Ranked items loaded; one past display limit signals additional items exist. */
     private const URGENT_NOW_PREVIEW_LIMIT = 4;
 
+    private const URGENT_NOW_SOON_WINDOW_HOURS = 72;
+
     private const PROJECT_HEALTH_LIMIT = 5;
 
     private const COLLAB_ACTIVITY_LIMIT = 6;
@@ -59,9 +63,11 @@ class extends Component
     /** Rows shown in the No-date Backlog panel before “See all”. */
     private const NO_DATE_BACKLOG_DISPLAY_LIMIT = 3;
 
-    private const RECURRING_DUE_LIMIT = 7;
+    private const RECURRING_DUE_DISPLAY_LIMIT = 3;
 
     private const LLM_RECENT_THREADS_LIMIT = 5;
+
+    private const TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT = 3;
 
     #[Url(as: 'date')]
     public ?string $selectedDate = null;
@@ -84,6 +90,8 @@ class extends Component
 
     protected TaskService $taskService;
 
+    protected SchoolClassService $schoolClassService;
+
     protected AssistantCandidateProvider $assistantCandidateProvider;
 
     protected TaskPrioritizationService $taskPrioritizationService;
@@ -91,11 +99,13 @@ class extends Component
     public function boot(
         UserAnalyticsService $userAnalyticsService,
         TaskService $taskService,
+        SchoolClassService $schoolClassService,
         AssistantCandidateProvider $assistantCandidateProvider,
         TaskPrioritizationService $taskPrioritizationService
     ): void {
         $this->userAnalyticsService = $userAnalyticsService;
         $this->taskService = $taskService;
+        $this->schoolClassService = $schoolClassService;
         $this->assistantCandidateProvider = $assistantCandidateProvider;
         $this->taskPrioritizationService = $taskPrioritizationService;
     }
@@ -411,10 +421,149 @@ class extends Component
     }
 
     /**
+     * @return Collection<int, array{
+     *   id:int,
+     *   subject_name:string,
+     *   teacher_name:string|null,
+     *   starts_at_iso:string|null,
+     *   ends_at_iso:string|null,
+     *   time_label:string,
+     *   state:'now'|'next'|'later',
+     *   workspace_url:string
+     * }>
+     */
+    #[Computed]
+    public function dashboardTodaySchoolClasses(): Collection
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return collect();
+        }
+
+        $selectedDate = $this->getParsedSelectedDate()->copy();
+        $cacheWindowBucket = now()->format('YmdHi');
+
+        /** @var array<int, array{
+         *   id:int,
+         *   subject_name:string,
+         *   teacher_name:string|null,
+         *   starts_at_iso:string|null,
+         *   ends_at_iso:string|null,
+         *   time_label:string,
+         *   state:'now'|'next'|'later',
+         *   workspace_url:string
+         * }> $rows */
+        $rows = $this->rememberMetric(
+            key: sprintf('today-school-classes:%d:%s:%s', $userId, $selectedDate->toDateString(), $cacheWindowBucket),
+            ttlSeconds: 60,
+            callback: function () use ($userId, $selectedDate): array {
+                $startOfDay = $selectedDate->copy()->startOfDay();
+                $endOfDay = $selectedDate->copy()->endOfDay();
+
+                $allClasses = SchoolClass::query()
+                    ->forUser($userId)
+                    ->notArchived()
+                    ->with(['teacher', 'recurringSchoolClass'])
+                    ->orderBy('start_time')
+                    ->orderBy('subject_name')
+                    ->get();
+
+                $classesForDay = $this->schoolClassService->filterSchoolClassesForCalendarDay($allClasses, $startOfDay, $endOfDay);
+                $now = now();
+
+                $rows = $classesForDay
+                    ->map(function (SchoolClass $class) use ($selectedDate, $now): array {
+                        [$startsAt, $endsAt] = $this->resolveDashboardSchoolClassDateWindow($class, $selectedDate);
+                        $state = 'later';
+
+                        if ($startsAt !== null && $endsAt !== null && $now->between($startsAt, $endsAt)) {
+                            $state = 'now';
+                        }
+
+                        return [
+                            'id' => $class->id,
+                            'subject_name' => (string) $class->subject_name,
+                            'teacher_name' => $class->teacher?->name,
+                            'starts_at_iso' => $startsAt?->toIso8601String(),
+                            'ends_at_iso' => $endsAt?->toIso8601String(),
+                            'time_label' => $this->formatDashboardSchoolClassTimeLabel($startsAt, $endsAt),
+                            'state' => $state,
+                            'workspace_url' => $this->workspaceRouteForAgendaStyleFocus(
+                                $selectedDate->toDateString(),
+                                'school_class',
+                                $class->id
+                            ),
+                        ];
+                    })
+                    ->sortBy(fn (array $row): int => $row['starts_at_iso'] !== null
+                        ? \Carbon\Carbon::parse($row['starts_at_iso'])->getTimestamp()
+                        : PHP_INT_MAX)
+                    ->values();
+
+                $firstUpcomingClassId = $rows
+                    ->first(fn (array $row): bool => $row['state'] !== 'now'
+                        && $row['starts_at_iso'] !== null
+                        && \Carbon\Carbon::parse($row['starts_at_iso'])->isFuture())['id'] ?? null;
+
+                return $rows
+                    ->map(function (array $row) use ($firstUpcomingClassId): array {
+                        if ($row['state'] === 'later' && $firstUpcomingClassId !== null && $row['id'] === $firstUpcomingClassId) {
+                            $row['state'] = 'next';
+                        }
+
+                        return $row;
+                    })
+                    ->take(self::TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT)
+                    ->values()
+                    ->all();
+            }
+        );
+
+        return collect($rows);
+    }
+
+    #[Computed]
+    public function dashboardTodaySchoolClassesCount(): int
+    {
+        $userId = Auth::id();
+        if ($userId === null) {
+            return 0;
+        }
+
+        $selectedDate = $this->getParsedSelectedDate()->copy();
+        $cacheWindowBucket = now()->format('YmdHi');
+
+        return $this->rememberMetric(
+            key: sprintf('today-school-classes-count:%d:%s:%s', $userId, $selectedDate->toDateString(), $cacheWindowBucket),
+            ttlSeconds: 60,
+            callback: function () use ($userId, $selectedDate): int {
+                $startOfDay = $selectedDate->copy()->startOfDay();
+                $endOfDay = $selectedDate->copy()->endOfDay();
+
+                $allClasses = SchoolClass::query()
+                    ->forUser($userId)
+                    ->notArchived()
+                    ->with(['recurringSchoolClass'])
+                    ->orderBy('start_time')
+                    ->orderBy('subject_name')
+                    ->get();
+
+                return $this->schoolClassService->countSchoolClassesOnCalendarDay($allClasses, $startOfDay, $endOfDay);
+            }
+        );
+    }
+
+    #[Computed]
+    public function dashboardTodaySchoolClassesHasMore(): bool
+    {
+        return $this->dashboardTodaySchoolClassesCount > self::TODAY_SCHOOL_CLASSES_DISPLAY_LIMIT;
+    }
+
+    /**
      * @return EloquentCollection<int, Task>
      */
     #[Computed]
-    public function dashboardRecurringDueTasks(): EloquentCollection
+    public function dashboardRecurringDueTasksAll(): EloquentCollection
     {
         $userId = Auth::id();
         if ($userId === null) {
@@ -465,7 +614,6 @@ class extends Component
                     fn (Task $task): int => $task->end_datetime?->getTimestamp() ?? PHP_INT_MAX,
                     fn (Task $task): int => -$task->id,
                 ])
-                ->take(self::RECURRING_DUE_LIMIT)
                 ->values()
                 ->all()
         );
@@ -474,9 +622,26 @@ class extends Component
     }
 
     #[Computed]
+    public function dashboardRecurringDueTasks(): EloquentCollection
+    {
+        return new EloquentCollection(
+            $this->dashboardRecurringDueTasksAll
+                ->take(self::RECURRING_DUE_DISPLAY_LIMIT)
+                ->values()
+                ->all()
+        );
+    }
+
+    #[Computed]
     public function dashboardRecurringDueCount(): int
     {
-        return $this->dashboardRecurringDueTasks->count();
+        return $this->dashboardRecurringDueTasksAll->count();
+    }
+
+    #[Computed]
+    public function dashboardRecurringDueHasMore(): bool
+    {
+        return $this->dashboardRecurringDueCount > self::RECURRING_DUE_DISPLAY_LIMIT;
     }
 
     #[Computed]
@@ -685,17 +850,21 @@ class extends Component
             now()->addSeconds(45),
             fn () => $this->taskPrioritizationService->prioritizeFocus($snapshot, [])
         );
-        $taskCandidates = collect($ranked)
+        return collect($ranked)
             ->filter(fn (array $row): bool => ($row['type'] ?? null) === 'task')
-            ->values();
-        $fallbackCandidates = collect($ranked)
-            ->filter(fn (array $row): bool => ($row['type'] ?? null) !== 'task')
-            ->values();
-        $prioritizedForDashboard = $taskCandidates->isNotEmpty()
-            ? $taskCandidates
-            : $fallbackCandidates;
+            ->filter(function (array $item): bool {
+                $raw = is_array($item['raw'] ?? null) ? $item['raw'] : [];
+                $priority = is_string($raw['priority'] ?? null) ? (string) $raw['priority'] : null;
+                $endsAt = is_string($raw['ends_at'] ?? null) ? (string) $raw['ends_at'] : null;
+                $status = is_string($raw['status'] ?? null) ? (string) $raw['status'] : null;
 
-        return $prioritizedForDashboard
+                return $this->qualifiesForUrgentNow($priority, $endsAt, $status);
+            })
+            ->sortBy([
+                fn (array $item): int => $this->isUrgentNowCandidateOverdue($item) ? 0 : 1,
+                fn (array $item): int => -((int) ($item['score'] ?? 0)),
+                fn (array $item): int => -((int) ($item['id'] ?? 0)),
+            ])
             ->take(self::URGENT_NOW_PREVIEW_LIMIT)
             ->map(function (array $item): array {
                 $raw = is_array($item['raw'] ?? null) ? $item['raw'] : [];
@@ -712,7 +881,7 @@ class extends Component
                     'id' => $itemId,
                     'title' => (string) ($item['title'] ?? __('Untitled')),
                     'score' => (int) ($item['score'] ?? 0),
-                    'reasoning' => (string) ($item['reasoning'] ?? ''),
+                    'reasoning' => $this->resolveUrgentNowReasoning($priority, $endsAt, $status),
                     'priority' => $priority,
                     'complexity' => $complexity,
                     'ends_at' => $endsAt,
@@ -725,6 +894,139 @@ class extends Component
                 ];
             })
             ->values();
+    }
+
+    private function qualifiesForUrgentNow(?string $priority, ?string $endsAt, ?string $status): bool
+    {
+        $normalizedPriority = strtolower(trim((string) $priority));
+        $isHighOrUrgentPriority = in_array($normalizedPriority, ['high', 'urgent'], true);
+
+        if ($normalizedPriority === 'urgent' && $endsAt === null) {
+            return true;
+        }
+
+        if ($endsAt !== null) {
+            try {
+                $deadline = \Carbon\Carbon::parse($endsAt);
+
+                if ($deadline->isPast()) {
+                    return true;
+                }
+
+                if ($deadline->isToday()) {
+                    return true;
+                }
+
+                if ($isHighOrUrgentPriority && $this->isWithinUrgentSoonWindow($deadline)) {
+                    return true;
+                }
+
+                if ($status === TaskStatus::Doing->value && $isHighOrUrgentPriority && $this->isWithinUrgentSoonWindow($deadline)) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private function isWithinUrgentSoonWindow(\Carbon\CarbonInterface $deadline): bool
+    {
+        $now = now();
+
+        return $deadline->greaterThan($now) && $deadline->lessThanOrEqualTo($now->copy()->addHours(self::URGENT_NOW_SOON_WINDOW_HOURS));
+    }
+
+    private function isUrgentNowCandidateOverdue(array $item): bool
+    {
+        $raw = is_array($item['raw'] ?? null) ? $item['raw'] : [];
+        $endsAt = is_string($raw['ends_at'] ?? null) ? (string) $raw['ends_at'] : null;
+        if ($endsAt === null) {
+            return false;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($endsAt)->isPast();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function resolveUrgentNowReasoning(?string $priority, ?string $endsAt, ?string $status): string
+    {
+        $priorityLabel = $priority !== null ? \Illuminate\Support\Str::headline($priority) : null;
+
+        if ($endsAt !== null) {
+            try {
+                $deadline = \Carbon\Carbon::parse($endsAt);
+
+                if ($deadline->isPast()) {
+                    return __('Overdue since :time. Start with this first.', [
+                        'time' => $deadline->translatedFormat('M j · g:i A'),
+                    ]);
+                }
+
+                if ($deadline->isToday()) {
+                    if ($status === TaskStatus::Doing->value) {
+                        return __('In progress and due today at :time. Try to finish it today.', [
+                            'time' => $deadline->translatedFormat('g:i A'),
+                        ]);
+                    }
+
+                    return __('Due today at :time. Try to finish it today.', [
+                        'time' => $deadline->translatedFormat('g:i A'),
+                    ]);
+                }
+
+                if ($this->isWithinUrgentSoonWindow($deadline)) {
+                    $dueInPhrase = $deadline->diffForHumans(now(), [
+                        'syntax' => \Carbon\CarbonInterface::DIFF_RELATIVE_TO_NOW,
+                        'parts' => 2,
+                        'short' => false,
+                    ]);
+
+                    if ($status === TaskStatus::Doing->value && $priorityLabel !== null) {
+                        return __('In progress, due :when, and marked :priority priority.', [
+                            'when' => $dueInPhrase,
+                            'priority' => $priorityLabel,
+                        ]);
+                    }
+
+                    if ($priorityLabel !== null) {
+                        return __('Due :when and marked :priority priority.', [
+                            'when' => $dueInPhrase,
+                            'priority' => $priorityLabel,
+                        ]);
+                    }
+
+                    return __('Due :when. Keep this near the top of your list.', [
+                        'when' => $dueInPhrase,
+                    ]);
+                }
+            } catch (\Throwable) {
+                // Fallback to priority/status based copy below when date parsing fails.
+            }
+        }
+
+        if ($priority === 'urgent') {
+            return __('Marked Urgent priority with no due date. Give it a time block soon.');
+        }
+
+        if ($status === TaskStatus::Doing->value && $priorityLabel !== null) {
+            return __('In progress and marked :priority priority.', [
+                'priority' => $priorityLabel,
+            ]);
+        }
+
+        if ($priorityLabel !== null) {
+            return __('Marked :priority priority for your current focus list.', [
+                'priority' => $priorityLabel,
+            ]);
+        }
+
+        return __('Needs attention soon based on your current workload.');
     }
 
     /**
@@ -1187,6 +1489,42 @@ class extends Component
         }
 
         return 'normal';
+    }
+
+    /**
+     * @return array{0: CarbonInterface|null, 1: CarbonInterface|null}
+     */
+    private function resolveDashboardSchoolClassDateWindow(SchoolClass $class, CarbonInterface $selectedDate): array
+    {
+        $startsAt = null;
+        $endsAt = null;
+
+        if ($class->start_time !== null) {
+            $startsAt = $selectedDate->copy()->setTimeFromTimeString((string) $class->start_time);
+        } elseif ($class->start_datetime !== null) {
+            $startsAt = $class->start_datetime->copy();
+        }
+
+        if ($class->end_time !== null) {
+            $endsAt = $selectedDate->copy()->setTimeFromTimeString((string) $class->end_time);
+        } elseif ($class->end_datetime !== null) {
+            $endsAt = $class->end_datetime->copy();
+        }
+
+        if ($startsAt !== null && $endsAt !== null && $endsAt->lessThanOrEqualTo($startsAt)) {
+            $endsAt = $endsAt->addDay();
+        }
+
+        return [$startsAt, $endsAt];
+    }
+
+    private function formatDashboardSchoolClassTimeLabel(?CarbonInterface $startsAt, ?CarbonInterface $endsAt): string
+    {
+        if ($startsAt === null || $endsAt === null) {
+            return (string) __('No time');
+        }
+
+        return $startsAt->translatedFormat('g:i A').' - '.$endsAt->translatedFormat('g:i A');
     }
 
     /**

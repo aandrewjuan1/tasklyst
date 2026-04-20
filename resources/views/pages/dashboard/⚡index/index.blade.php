@@ -6,12 +6,15 @@
     $urgentNow = $this->urgentNow;
     $urgentNowDisplayed = $this->urgentNowDisplayed;
     $urgentNowHasMore = $this->urgentNowHasMore;
-    $recurringSummary = $this->dashboardRecurringSummary;
+    $recurringDueHasMore = $this->dashboardRecurringDueHasMore;
     $insightsOpen = $this->insightsOpen;
     $projectHealth = $this->projectHealth;
     $focusThroughput = $insightsOpen
         ? $this->focusThroughput
         : ['daily_focus_minutes' => 0, 'weekly_focus_minutes' => 0, 'completed_today' => 0, 'focus_per_completed_minutes' => 0];
+    $todaySchoolClasses = $this->dashboardTodaySchoolClasses;
+    $todaySchoolClassesCount = $this->dashboardTodaySchoolClassesCount;
+    $todaySchoolClassesHasMore = $this->dashboardTodaySchoolClassesHasMore;
     $topKpis = [
         [
             'key' => 'overdue',
@@ -30,14 +33,6 @@
             'icon_shell' => 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-200',
         ],
         [
-            'key' => 'doing',
-            'label' => __('Doing tasks'),
-            'value' => $this->dashboardDoingTasksCount,
-            'icon' => 'arrow-path',
-            'shell' => 'border-blue-200/55 ring-blue-500/10 dark:border-blue-900/40',
-            'icon_shell' => 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-200',
-        ],
-        [
             'key' => 'total',
             'label' => __('Total tasks'),
             'value' => $this->dashboardTotalTasksCount,
@@ -54,6 +49,14 @@
             'icon_shell' => 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200',
         ],
     ];
+
+    $schoolClassStatePill = static function (string $state): array {
+        return match ($state) {
+            'now' => ['label' => __('Now'), 'class' => 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200'],
+            'next' => ['label' => __('Next'), 'class' => 'bg-blue-100 text-blue-800 dark:bg-blue-950/50 dark:text-blue-200'],
+            default => ['label' => __('Later'), 'class' => 'bg-muted text-muted-foreground'],
+        };
+    };
 
     $riskBadgeClass = static function (string $risk): string {
         return match ($risk) {
@@ -177,7 +180,7 @@
                         @endauth
                     </div>
 
-                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                    <div class="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         @foreach ($topKpis as $kpi)
                             <div class="rounded-xl border bg-background px-3 py-2.5 shadow-sm ring-1 sm:px-3.5 sm:py-3 {{ $kpi['shell'] }}" data-testid="dashboard-kpi-{{ $kpi['key'] }}">
                                 <div class="flex items-center gap-2 sm:gap-2.5">
@@ -194,7 +197,7 @@
                     </div>
 
                     @auth
-                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
                             <div class="{{ $dashboardPanelShell['urgent'] }}">
                                 <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['urgent'] }}">
                                     <flux:icon name="bolt" class="size-4 text-red-600 dark:text-red-400" />
@@ -212,26 +215,37 @@
                                         @foreach ($urgentNowDisplayed as $row)
                                             <li class="px-4 py-3" data-testid="dashboard-row-urgent-item" data-urgency-level="{{ $row['urgency_level'] }}">
                                                 <a href="{{ $row['workspace_url'] }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
-                                                    <div class="min-w-0 space-y-1">
-                                                        <p class="truncate text-sm font-semibold text-foreground">{{ $row['title'] }}</p>
-                                                        <p class="text-xs text-muted-foreground">{{ $row['reasoning'] }}</p>
-                                                        <div class="flex flex-wrap gap-1.5 pt-0.5 text-[11px]">
-                                                            @if (! empty($row['ends_at']))
-                                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
-                                                                    {{ __('Due :date', ['date' => \Carbon\Carbon::parse($row['ends_at'])->translatedFormat('M j · H:i')]) }}
-                                                                </span>
-                                                            @endif
-                                                            @if (! empty($row['priority']))
-                                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
-                                                                    {{ __('Priority: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['priority'])]) }}
-                                                                </span>
-                                                            @endif
-                                                            @if (! empty($row['complexity']))
-                                                                <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
-                                                                    {{ __('Complexity: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['complexity'])]) }}
-                                                                </span>
-                                                            @endif
-                                                        </div>
+                                                    <p class="truncate text-sm font-semibold text-foreground">{{ $row['title'] }}</p>
+                                                    <p class="mt-1 text-xs text-muted-foreground">{{ $row['reasoning'] }}</p>
+                                                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                                                        @php
+                                                            $urgencyTone = match ((string) $row['urgency_level']) {
+                                                                'critical' => 'text-red-700 dark:text-red-300',
+                                                                'high' => 'text-amber-700 dark:text-amber-300',
+                                                                default => 'text-muted-foreground',
+                                                            };
+                                                        @endphp
+                                                        <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium {{ $urgencyTone }}">
+                                                            {{ __('Urgency: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['urgency_level'])]) }}
+                                                        </span>
+                                                        @if (! empty($row['ends_at']))
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Due: :date', ['date' => \Carbon\Carbon::parse($row['ends_at'])->translatedFormat('M j · H:i')]) }}
+                                                            </span>
+                                                        @endif
+                                                        @if (! empty($row['priority']))
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Priority: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['priority'])]) }}
+                                                            </span>
+                                                        @endif
+                                                        @if (! empty($row['complexity']))
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Complexity: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['complexity'])]) }}
+                                                            </span>
+                                                        @endif
+                                                        <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                            {{ __('Type: :value', ['value' => \Illuminate\Support\Str::headline((string) $row['type'])]) }}
+                                                        </span>
                                                     </div>
                                                 </a>
                                             </li>
@@ -330,10 +344,67 @@
                                     @if ($doingTasksHasMore)
                                         <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
                                             <a
-                                                href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list']) }}"
+                                                href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'status' => 'doing', 'from_dashboard_filter' => 'doing']) }}"
                                                 wire:navigate
                                                 class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
                                                 data-testid="dashboard-doing-see-all"
+                                            >
+                                                <span>{{ __('See all in Workspace') }}</span>
+                                                <flux:icon name="arrow-right" class="size-3.5" />
+                                            </a>
+                                        </div>
+                                    @endif
+                                @endif
+                            </div>
+
+                            <div class="{{ $dashboardPanelShell['default'] }}">
+                                <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
+                                    <flux:icon name="academic-cap" class="size-4 text-foreground/80" />
+                                    <span class="text-sm font-semibold text-foreground" data-testid="dashboard-section-today-classes-heading">
+                                        {{ __('Classes :when', ['when' => $selectedDayContextPhrase]) }}
+                                    </span>
+                                    <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-today-classes-count">
+                                        {{ $todaySchoolClassesCount }}
+                                    </span>
+                                </div>
+                                @if ($todaySchoolClasses->isEmpty())
+                                    <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No classes :when.', ['when' => $selectedDayContextPhrase]) }}</p>
+                                @else
+                                    <ul class="divide-y divide-border/60 dark:divide-zinc-800">
+                                        @foreach ($todaySchoolClasses as $schoolClassRow)
+                                            @php
+                                                $statePill = $schoolClassStatePill((string) $schoolClassRow['state']);
+                                            @endphp
+                                            <li class="px-4 py-3" data-testid="dashboard-row-school-class">
+                                                <a
+                                                    href="{{ $schoolClassRow['workspace_url'] }}"
+                                                    wire:navigate
+                                                    class="block rounded-md transition hover:bg-muted/40"
+                                                >
+                                                    <p class="min-w-0 truncate text-sm font-semibold text-foreground">
+                                                        {{ $schoolClassRow['subject_name'] }}
+                                                    </p>
+                                                    <p class="mt-1 text-xs text-muted-foreground">
+                                                        <span>{{ $schoolClassRow['time_label'] }}</span>
+                                                        <span class="text-muted-foreground/80"> · </span>
+                                                        <span>{{ $schoolClassRow['teacher_name'] ?: __('No teacher') }}</span>
+                                                    </p>
+                                                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                                                        <span class="inline-flex items-center rounded-full px-2 py-0.5 font-semibold {{ $statePill['class'] }}">
+                                                            {{ $statePill['label'] }}
+                                                        </span>
+                                                    </div>
+                                                </a>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                    @if ($todaySchoolClassesHasMore)
+                                        <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
+                                            <a
+                                                href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'classes', 'from_dashboard_filter' => 'classes']) }}"
+                                                wire:navigate
+                                                class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
+                                                data-testid="dashboard-today-classes-see-all"
                                             >
                                                 <span>{{ __('See all in Workspace') }}</span>
                                                 <flux:icon name="arrow-right" class="size-3.5" />
@@ -352,40 +423,53 @@
                                 <div class="flex items-center gap-2 px-4 py-3 {{ $dashboardPanelHeaderBorder['default'] }}">
                                     <flux:icon name="arrow-path" class="size-4 text-foreground/80" />
                                     <span class="min-w-0 flex-1 truncate text-sm font-semibold text-foreground" data-testid="dashboard-section-recurring-heading">{{ __('Repeating tasks :when', ['when' => $selectedDayContextPhrase]) }}</span>
-                                    <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-due-count">{{ $recurringSummary['due'] }}</span>
-                                </div>
-                                <div class="grid grid-cols-1 gap-2 border-b border-border/60 px-4 py-3 sm:grid-cols-2 dark:border-zinc-800">
-                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                        <p class="text-xs text-muted-foreground">{{ __('Due') }}</p>
-                                        <p class="text-base font-bold text-foreground" data-testid="dashboard-recurring-due-count-value">{{ $recurringSummary['due'] }}</p>
-                                    </div>
-                                    <div class="rounded-lg bg-muted/50 px-3 py-2">
-                                        <p class="text-xs text-muted-foreground">{{ __('Completed') }}</p>
-                                        <p class="text-base font-bold text-foreground" data-testid="dashboard-recurring-completed-count-value">{{ $recurringSummary['completed'] }}</p>
-                                    </div>
-                                </div>
-                                <div class="border-b border-border/60 px-4 py-2 dark:border-zinc-800">
-                                    <p class="text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-streak-days-value">
-                                        {{ __('Completion streak: :days day(s)', ['days' => $recurringSummary['streak_days']]) }}
-                                    </p>
+                                    <span class="ml-auto text-xs font-semibold text-muted-foreground" data-testid="dashboard-recurring-due-count">{{ $this->dashboardRecurringDueCount }}</span>
                                 </div>
                                 @if ($this->dashboardRecurringDueTasks->isEmpty())
-                                    <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No repeating tasks due :when.', ['when' => $selectedDayContextPhrase]) }}</p>
+                                    <p class="px-4 py-3 text-sm text-muted-foreground">{{ __('No repeating tasks right now.') }}</p>
                                 @else
-                                    <ul class="max-h-64 divide-y divide-border/60 overflow-y-auto dark:divide-zinc-800">
+                                    <ul class="divide-y divide-border/60 dark:divide-zinc-800">
                                         @foreach ($this->dashboardRecurringDueTasks as $task)
-                                            <li class="px-4 py-2.5" data-testid="dashboard-row-recurring-task">
+                                            <li class="px-4 py-3" data-testid="dashboard-row-recurring-task">
                                                 <a href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
                                                     <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
-                                                    <p class="text-xs text-muted-foreground">
-                                                        {{ __('Due: :time', ['time' => $task->end_datetime?->translatedFormat('H:i') ?? __('No time')]) }}
-                                                        ·
-                                                        {{ ucfirst($task->recurringTask?->recurrence_type?->value ?? __('Repeating')) }}
+                                                    <p class="mt-1 text-xs text-muted-foreground">
+                                                        <span>{{ __('Due: :time', ['time' => $task->end_datetime?->translatedFormat('M j · H:i') ?? __('No time')]) }}</span>
+                                                        <span class="text-muted-foreground/80"> · </span>
+                                                        <span>{{ $task->project?->name ?? __('No project') }}</span>
                                                     </p>
+                                                    <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                                                        <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                            {{ __('Recurrence: :value', ['value' => \Illuminate\Support\Str::headline((string) ($task->recurringTask?->recurrence_type?->value ?? __('Repeating')))]) }}
+                                                        </span>
+                                                        @if ($task->priority !== null)
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Priority: :value', ['value' => $task->priority->label()]) }}
+                                                            </span>
+                                                        @endif
+                                                        @if ($task->complexity !== null)
+                                                            <span class="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-0.5 font-medium text-foreground">
+                                                                {{ __('Complexity: :value', ['value' => $task->complexity->label()]) }}
+                                                            </span>
+                                                        @endif
+                                                    </div>
                                                 </a>
                                             </li>
                                         @endforeach
                                     </ul>
+                                    @if ($recurringDueHasMore)
+                                        <div class="border-t border-border/60 px-3 py-2 dark:border-zinc-800">
+                                            <a
+                                                href="{{ route('workspace', ['date' => $this->selectedDate, 'view' => 'list', 'type' => 'tasks', 'recurring' => 'recurring', 'from_dashboard_filter' => 'recurring']) }}"
+                                                wire:navigate
+                                                class="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 transition hover:text-blue-800 dark:text-blue-300 dark:hover:text-blue-200"
+                                                data-testid="dashboard-recurring-see-all"
+                                            >
+                                                <span>{{ __('See all in Workspace') }}</span>
+                                                <flux:icon name="arrow-right" class="size-3.5" />
+                                            </a>
+                                        </div>
+                                    @endif
                                 @endif
                             </div>
 
