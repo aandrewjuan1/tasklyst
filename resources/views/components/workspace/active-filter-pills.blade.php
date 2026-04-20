@@ -18,6 +18,7 @@
     $itemTypeLabels = [
         '' => __('All'),
         'tasks' => __('Tasks'),
+        'classes' => __('Classes'),
         'events' => __('Events'),
         'projects' => __('Projects'),
     ];
@@ -100,6 +101,7 @@
         'tasks' => 'lic-item-type-pill--task',
         'events' => 'lic-item-type-pill--event',
         'projects' => 'lic-item-type-pill--project',
+        'classes' => 'lic-item-type-pill--school-class',
         default => 'border-zinc-300/90 bg-zinc-100/90 text-zinc-800 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-100',
     };
 
@@ -352,6 +354,7 @@
                     'lic-item-type-pill--task': displayFilters.itemType === 'tasks',
                     'lic-item-type-pill--event': displayFilters.itemType === 'events',
                     'lic-item-type-pill--project': displayFilters.itemType === 'projects',
+                    'lic-item-type-pill--school-class': displayFilters.itemType === 'classes',
                     'border-zinc-300/90 bg-zinc-100/90 text-zinc-800 dark:border-zinc-600/80 dark:bg-zinc-800/85 dark:text-zinc-100': !displayFilters.itemType,
                 }"
             >

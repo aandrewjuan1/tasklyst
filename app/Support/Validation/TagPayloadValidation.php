@@ -2,6 +2,8 @@
 
 namespace App\Support\Validation;
 
+use App\Models\Tag;
+
 final class TagPayloadValidation
 {
     /**
@@ -22,7 +24,7 @@ final class TagPayloadValidation
     public static function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255', 'regex:/\S/'],
+            'name' => ['required', 'string', 'max:'.Tag::MAX_NAME_LENGTH, 'regex:/\S/'],
         ];
     }
 
@@ -35,7 +37,7 @@ final class TagPayloadValidation
     {
         return [
             'name.required' => __('Tag name is required.'),
-            'name.max' => __('Tag name cannot exceed 255 characters.'),
+            'name.max' => __('Tag name cannot exceed :max characters.', ['max' => Tag::MAX_NAME_LENGTH]),
             'name.regex' => __('Tag name cannot be empty.'),
         ];
     }

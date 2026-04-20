@@ -77,6 +77,7 @@
 <div class="space-y-4">
     <x-workspace.item-creation
         :tags="$tags"
+        :teachers="$teachers"
         :projects="$projects"
         :active-focus-session="$activeFocusSession"
         mode="kanban"

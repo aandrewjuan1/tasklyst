@@ -111,7 +111,7 @@
                                     {{ __('No results for ":query"', ['query' => $searchQueryDisplay]) }}
                                 </span>
                                 <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
-                                    {{ __('Try another search or add a task, event, or project.') }}
+                                    {{ __('Try another search or add a task, event, project, or class.') }}
                                 </span>
                             @elseif ($hasActiveFilters)
                                 <span class="block text-sm font-semibold leading-tight text-foreground">
@@ -122,10 +122,10 @@
                                 </span>
                             @else
                                 <span class="block text-sm font-semibold leading-tight text-foreground">
-                                    {{ __('No tasks, projects, or events for :date', ['date' => $emptyDateLabel]) }}
+                                    {{ __('No tasks, projects, events, or classes for :date', ['date' => $emptyDateLabel]) }}
                                 </span>
                                 <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">
-                                    {{ __('Add a task, project, or event for this day to get started') }}
+                                    {{ __('Add a task, project, event, or class for this day to get started') }}
                                 </span>
                             @endif
                         </span>
@@ -135,7 +135,7 @@
                             style="{{ $isListMode && $visibleItemsInitial <= 0 ? 'display: none' : '' }}"
                         >
                             <span class="block text-sm font-semibold leading-tight text-foreground">{{ __('Create something new') }}</span>
-                            <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap, then pick task, event, or project') }}</span>
+                            <span class="mt-0.5 block text-xs leading-snug text-muted-foreground">{{ __('Tap, then pick task, event, project, or class') }}</span>
                         </span>
                     </span>
                 </button>
@@ -144,7 +144,7 @@
                     x-show="itemTypePickerOpen"
                     x-cloak
                     x-transition.opacity.duration.100ms
-                    class="mt-2 grid grid-cols-3 gap-2 sm:gap-2.5"
+                    class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-2.5"
                     role="group"
                     aria-label="{{ __('Item type') }}"
                 >
@@ -161,6 +161,20 @@
                             aria-hidden="true"
                         />
                         <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Task') }}</span>
+                    </button>
+                    <button
+                        type="button"
+                        data-item-creation-safe
+                        class="{{ $typePickerBtnClass }} border-l-[3px] border-l-amber-500/60"
+                        @mousedown.prevent
+                        @click="beginItemCreation('schoolClass')"
+                    >
+                        <flux:icon
+                            name="book-open"
+                            class="size-7 text-amber-800 dark:text-amber-200"
+                            aria-hidden="true"
+                        />
+                        <span class="text-center text-[11px] font-semibold leading-tight text-foreground sm:text-xs">{{ __('Class') }}</span>
                     </button>
                     <button
                         type="button"
@@ -217,14 +231,14 @@
         >
             <form
                 class="min-w-0"
-                @submit.prevent="creationKind === 'project' ? submitProject() : (creationKind === 'task' ? submitTask() : submitEvent())"
+                @submit.prevent="creationKind === 'project' ? submitProject() : (creationKind === 'schoolClass' ? submitSchoolClass() : (creationKind === 'task' ? submitTask() : submitEvent()))"
             >
                 <div class="flex flex-col gap-2">
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                         <div class="min-w-0 flex-1">
                             <input
                                 type="text"
-                                x-show="creationKind !== 'project'"
+                                x-show="creationKind === 'task' || creationKind === 'event'"
                                 x-cloak
                                 x-model="formData.item.title"
                                 x-ref="taskTitle"
@@ -248,6 +262,19 @@
                                 class="w-full min-w-0 border-0 bg-transparent px-0 py-0.5 text-xl font-bold leading-tight text-foreground shadow-none ring-0 placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground/80 focus:border-0 focus:outline-none focus:ring-0 md:text-2xl md:placeholder:text-base"
                                 @keydown.enter.prevent="if (!isSubmitting && formData.project.name && formData.project.name.trim()) { submitProject(); }"
                             />
+                            <input
+                                type="text"
+                                x-show="creationKind === 'schoolClass'"
+                                x-cloak
+                                x-model="formData.schoolClass.subjectName"
+                                x-ref="schoolClassSubject"
+                                x-bind:disabled="isSubmitting"
+                                placeholder="{{ __('Enter subject name...') }}"
+                                autocomplete="off"
+                                aria-label="{{ __('Class subject') }}"
+                                class="w-full min-w-0 border-0 bg-transparent px-0 py-0.5 text-xl font-bold leading-tight text-foreground shadow-none ring-0 placeholder:text-sm placeholder:font-normal placeholder:text-muted-foreground/80 focus:border-0 focus:outline-none focus:ring-0 md:text-2xl md:placeholder:text-base"
+                                @keydown.enter.prevent="if (!isSubmitting && formData.schoolClass.subjectName && formData.schoolClass.subjectName.trim()) { submitSchoolClass(); }"
+                            />
                         </div>
                         <div class="flex shrink-0 flex-wrap items-center gap-1.5 sm:justify-end">
                             <flux:button
@@ -255,8 +282,8 @@
                                 variant="primary"
                                 icon="paper-airplane"
                                 class="shrink-0 rounded-full"
-                                x-bind:disabled="isSubmitting || (creationKind === 'project' ? (!formData.project.name || !formData.project.name.trim()) : (!formData.item.title || !formData.item.title.trim()))"
-                                @click="creationKind === 'project' ? submitProject() : (creationKind === 'task' ? submitTask() : submitEvent())"
+                                x-bind:disabled="isSubmitting || (creationKind === 'project' ? (!formData.project.name || !formData.project.name.trim()) : creationKind === 'schoolClass' ? !schoolClassCanSubmit() : (!formData.item.title || !formData.item.title.trim()))"
+                                @click="creationKind === 'project' ? submitProject() : (creationKind === 'schoolClass' ? submitSchoolClass() : (creationKind === 'task' ? submitTask() : submitEvent()))"
                             />
                         </div>
                     </div>
@@ -278,8 +305,13 @@
                                     <x-workspace.creation-project-fields />
                                 </div>
                             </template>
+                            <template x-if="creationKind === 'schoolClass'">
+                                <div class="contents">
+                                    <x-workspace.creation-school-class-fields />
+                                </div>
+                            </template>
 
-                            <div x-show="creationKind !== 'project'" x-cloak class="contents">
+                            <div x-show="creationKind !== 'project' && creationKind !== 'schoolClass'" x-cloak class="contents">
                                 @foreach ([['label' => __('Start'), 'model' => 'formData.item.startDatetime', 'datePickerLabel' => __('Start Date')], ['label' => __('End'), 'model' => 'formData.item.endDatetime', 'datePickerLabel' => __('End Date')]] as $dateField)
                                     <x-date-picker
                                         :triggerLabel="$dateField['label']"
@@ -301,7 +333,7 @@
 
                     <div
                         class="relative z-0 flex w-full flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[10px]"
-                        x-show="creationKind !== 'project'"
+                        x-show="creationKind !== 'project' && creationKind !== 'schoolClass'"
                         x-cloak
                     >
                         <x-workspace.tag-selection position="bottom" align="end" />
@@ -331,7 +363,7 @@
                     <div class="min-w-0 flex-1">
                         <p
                             class="truncate text-xl font-bold leading-tight md:text-2xl"
-                            x-text="creationKind === 'project' ? formData.project.name : formData.item.title"
+                            x-text="creationKind === 'project' ? formData.project.name : creationKind === 'schoolClass' ? formData.schoolClass.subjectName : formData.item.title"
                         ></p>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
@@ -407,14 +439,74 @@
                     <template x-if="creationKind === 'project'">
                         <div class="flex flex-wrap items-center gap-2"></div>
                     </template>
-                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                    <template x-if="creationKind === 'schoolClass'">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-semibold dark:border-white/10"
+                            >
+                                <flux:icon name="arrow-path" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Recurs') }}:</span>
+                                    <span class="uppercase" x-text="formData.schoolClass.scheduleMode === 'one_off'
+                                        ? '{{ __('One meeting') }}'
+                                        : (formData.schoolClass.recurrence?.type
+                                            ? String(formData.schoolClass.recurrence.type).replace('_', ' ')
+                                            : '{{ __('Not set') }}')"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-black/10 px-2.5 py-0.5 font-medium dark:border-white/10"
+                            >
+                                <flux:icon name="user" class="size-3" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Teacher') }}:</span>
+                                    <span class="max-w-[140px] truncate uppercase" x-text="formData.schoolClass.teacherName"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                x-show="formData.schoolClass.scheduleMode === 'one_off'"
+                            >
+                                <flux:icon name="calendar-days" class="size-3 shrink-0" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Meeting') }}:</span>
+                                    <span class="text-xs uppercase" x-text="formData.schoolClass.meetingDate || '{{ __('Not set') }}'"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                x-show="formData.schoolClass.scheduleMode === 'recurring'"
+                            >
+                                <flux:icon name="calendar-days" class="size-3 shrink-0" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Class starts') }}:</span>
+                                    <span class="text-xs uppercase" x-text="formData.schoolClass.scheduleStartDate || '{{ __('Not set') }}'"></span>
+                                </span>
+                            </span>
+                            <span
+                                class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground"
+                                x-show="formData.schoolClass.scheduleMode === 'recurring'"
+                            >
+                                <flux:icon name="calendar-days" class="size-3 shrink-0" />
+                                <span class="inline-flex items-baseline gap-1">
+                                    <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Class ends') }}:</span>
+                                    <span class="text-xs uppercase" x-text="formData.schoolClass.scheduleEndDate || '{{ __('Not set') }}'"></span>
+                                </span>
+                            </span>
+                            <span class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                                <flux:icon name="clock" class="size-3 shrink-0" />
+                                <span class="text-xs leading-tight" x-text="schoolClassLoadingScheduleLabel()"></span>
+                            </span>
+                        </div>
+                    </template>
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground" x-show="creationKind !== 'schoolClass'">
                         <flux:icon name="clock" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Start') }}:</span>
                             <span class="text-xs uppercase" x-text="(creationKind === 'project' ? formData.project.startDatetime : formData.item.startDatetime) ? formatDatetime(creationKind === 'project' ? formData.project.startDatetime : formData.item.startDatetime) : '{{ __('Not set') }}'"></span>
                         </span>
                     </span>
-                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground">
+                    <span class="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground" x-show="creationKind !== 'schoolClass'">
                         <flux:icon name="clock" class="size-3" />
                         <span class="inline-flex items-baseline gap-1">
                             <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70" x-text="creationKind === 'task' ? '{{ __('Due') }}:' : '{{ __('End') }}:'"></span>
@@ -422,7 +514,7 @@
                         </span>
                     </span>
                     <span
-                        x-show="creationKind !== 'project' && formData.item.projectId && projectNames[formData.item.projectId]"
+                        x-show="creationKind !== 'project' && creationKind !== 'schoolClass' && formData.item.projectId && projectNames[formData.item.projectId]"
                         class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-accent/10 px-2.5 py-0.5 font-medium text-accent-foreground/90 dark:border-white/10"
                     >
                         <flux:icon name="folder" class="size-3" />
@@ -432,7 +524,7 @@
                         </span>
                     </span>
                 </div>
-                <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[10px]" x-show="creationKind !== 'project'" x-cloak>
+                <div class="flex w-full shrink-0 flex-wrap items-center gap-2 border-t border-border/50 pt-2 text-[10px]" x-show="creationKind !== 'project' && creationKind !== 'schoolClass'" x-cloak>
                     <template x-for="tag in getSelectedTags()" :key="tag.id">
                         <span class="inline-flex items-center rounded-sm border border-black/10 bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground dark:border-white/10" x-text="tag.name"></span>
                     </template>

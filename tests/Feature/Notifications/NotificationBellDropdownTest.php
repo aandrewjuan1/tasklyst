@@ -8,6 +8,7 @@ use App\Models\Task;
 use App\Models\User;
 use App\Notifications\CollaborationInvitationReceivedNotification;
 use App\Support\NotificationBellState;
+use App\Support\WorkspaceAgendaFocusUrl;
 use Carbon\Carbon;
 use Livewire\Livewire;
 
@@ -287,8 +288,7 @@ test('resolveTargetUrl merges task id from entity when params omit task', functi
 
     $url = NotificationBellState::resolveTargetUrl($notification);
 
-    expect($url)->toContain('task='.$taskId)
-        ->and($url)->toContain('view=list');
+    expect($url)->toBe(WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus($today, 'task', $taskId));
 });
 
 test('workspaceFocusTargetFromNotificationData returns kind and id for merged workspace params', function (): void {
@@ -324,6 +324,24 @@ test('assistant schedule accept success notification opens workspace row from be
 
     $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
     expect($target)->toMatchArray(['kind' => 'task', 'id' => 123]);
+});
+
+test('school class notifications open workspace row from bell', function (): void {
+    $data = [
+        'type' => 'school_class_start_soon',
+        'route' => 'workspace',
+        'params' => [
+            'date' => now()->toDateString(),
+            'view' => 'list',
+            'type' => 'classes',
+            'school_class' => 456,
+        ],
+    ];
+
+    expect(NotificationBellState::notificationDataOpensWorkspaceRow($data))->toBeTrue();
+
+    $target = NotificationBellState::workspaceFocusTargetFromNotificationData($data);
+    expect($target)->toMatchArray(['kind' => 'schoolClass', 'id' => 456]);
 });
 
 test('markWorkspaceNotificationOpened does not mark read when not on workspace route', function (): void {

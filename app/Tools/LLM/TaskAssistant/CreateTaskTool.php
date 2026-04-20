@@ -26,6 +26,7 @@ class CreateTaskTool extends DelegatingTool
             ->withStringParameter('endDatetime', 'Optional ISO8601 end datetime', false)
             ->withNumberParameter('projectId', 'Optional project ID', false)
             ->withNumberParameter('eventId', 'Optional event ID', false)
+            ->withNumberParameter('schoolClassId', 'Optional school class ID', false)
             ->withStringParameter('tagIds', 'Optional JSON array of tag IDs e.g. [1,2,3]', false)
             ->withStringParameter('recurrence', 'Optional JSON recurrence object', false)
             ->withStringParameter('operation_token', 'Optional idempotency token', false)
@@ -46,6 +47,7 @@ class CreateTaskTool extends DelegatingTool
                     'priority' => $task->priority?->value ?? $task->priority,
                     'project_id' => $task->project_id,
                     'event_id' => $task->event_id,
+                    'school_class_id' => $task->school_class_id,
                     'start_datetime' => $task->start_datetime?->toIso8601String(),
                     'end_datetime' => $task->end_datetime?->toIso8601String(),
                 ],
@@ -83,6 +85,7 @@ class CreateTaskTool extends DelegatingTool
             'endDatetime' => isset($params['endDatetime']) ? $params['endDatetime'] : null,
             'projectId' => isset($params['projectId']) ? (int) $params['projectId'] : null,
             'eventId' => isset($params['eventId']) ? (int) $params['eventId'] : null,
+            'schoolClassId' => isset($params['schoolClassId']) ? (int) $params['schoolClassId'] : null,
             'tagIds' => $tagIds,
             'recurrence' => $recurrence,
         ];

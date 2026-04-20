@@ -19,6 +19,9 @@ final class NotificationBellState
 
     /**
      * Workspace URLs omit the legacy search query parameter so they match dashboard/calendar deep links and stay stable after Livewire URL sync.
+     *
+     * When the notification resolves to a task/event/project row, the URL matches {@see WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus}
+     * (agenda focus param, no "Show" type filter), same as the dashboard calendar agenda.
      */
     public static function resolveTargetUrl(DatabaseNotification $notification): string
     {
@@ -29,6 +32,21 @@ final class NotificationBellState
         if ($route === 'workspace') {
             $params = self::mergeWorkspaceDeepLinkQueryParams($data, $params);
             unset($params['q']);
+
+            $target = self::workspaceFocusTargetFromNotificationData($data);
+            if ($target !== null) {
+                $date = $params['date'] ?? null;
+                $dateString = is_string($date) && $date !== ''
+                    ? $date
+                    : now()->toDateString();
+                $urlKind = $target['kind'] === 'schoolClass' ? 'school_class' : $target['kind'];
+
+                return WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus(
+                    $dateString,
+                    $urlKind,
+                    $target['id'],
+                );
+            }
         }
 
         if ($route !== '' && Route::has($route)) {
@@ -52,15 +70,16 @@ final class NotificationBellState
         $hasTask = isset($out['task']) && (int) $out['task'] > 0;
         $hasEvent = isset($out['event']) && (int) $out['event'] > 0;
         $hasProject = isset($out['project']) && (int) $out['project'] > 0;
+        $hasSchoolClass = isset($out['school_class']) && (int) $out['school_class'] > 0;
 
-        if (! $hasTask && ! $hasEvent && ! $hasProject) {
+        if (! $hasTask && ! $hasEvent && ! $hasProject && ! $hasSchoolClass) {
             $entity = $data['entity'] ?? null;
             if (is_array($entity)) {
                 $kind = isset($entity['kind']) ? strtolower((string) $entity['kind']) : '';
                 $id = isset($entity['id']) ? (int) $entity['id'] : 0;
 
-                if ($id > 0 && in_array($kind, ['task', 'event', 'project'], true)) {
-                    unset($out['task'], $out['event'], $out['project']);
+                if ($id > 0 && in_array($kind, ['task', 'event', 'project', 'schoolclass', 'school_class'], true)) {
+                    unset($out['task'], $out['event'], $out['project'], $out['school_class']);
                     $out['view'] = 'list';
 
                     if ($kind === 'task') {
@@ -69,15 +88,18 @@ final class NotificationBellState
                     } elseif ($kind === 'event') {
                         $out['event'] = $id;
                         $out['type'] = $out['type'] ?? 'events';
-                    } else {
+                    } elseif ($kind === 'project') {
                         $out['project'] = $id;
                         $out['type'] = $out['type'] ?? 'projects';
+                    } else {
+                        $out['school_class'] = $id;
+                        $out['type'] = $out['type'] ?? 'classes';
                     }
                 }
             }
         }
 
-        if (isset($out['task']) || isset($out['event']) || isset($out['project'])) {
+        if (isset($out['task']) || isset($out['event']) || isset($out['project']) || isset($out['school_class'])) {
             $out['view'] = $out['view'] ?? 'list';
         }
 
@@ -88,7 +110,7 @@ final class NotificationBellState
      * Resolved task/event/project target for in-page workspace focus (bell, etc.).
      *
      * @param  array<string, mixed>  $data
-     * @return array{kind: 'task'|'event'|'project', id: int}|null
+     * @return array{kind: 'task'|'event'|'project'|'schoolClass', id: int}|null
      */
     public static function workspaceFocusTargetFromNotificationData(array $data): ?array
     {
@@ -113,6 +135,9 @@ final class NotificationBellState
         if (isset($merged['project']) && (int) $merged['project'] > 0) {
             return ['kind' => 'project', 'id' => (int) $merged['project']];
         }
+        if (isset($merged['school_class']) && (int) $merged['school_class'] > 0) {
+            return ['kind' => 'schoolClass', 'id' => (int) $merged['school_class']];
+        }
 
         return null;
     }
@@ -135,6 +160,10 @@ final class NotificationBellState
             'recurrence_anomaly',
             'focus_session_completed',
             'collaborator_activity',
+            'school_class_start_soon',
+            'school_class_now_live',
+            'school_class_ending_soon',
+            'school_class_missed',
             'collaboration_invite_accepted_for_owner',
             'collaboration_invite_declined_for_owner',
             'assistant_schedule_accept_success',
@@ -226,6 +255,8 @@ final class NotificationBellState
      *   created_at_human: string,
      *   click_opens_workspace: bool,
      *   click_behavior: 'calendar_feed_sync_completed'|null,
+     *   workspace_focus_kind?: 'task'|'event'|'project'|'schoolClass'|null,
+     *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
      * }
      */

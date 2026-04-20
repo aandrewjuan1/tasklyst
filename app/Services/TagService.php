@@ -6,6 +6,7 @@ use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 class TagService
 {
@@ -14,6 +15,8 @@ class TagService
      */
     public function createTag(User $user, array $attributes): Tag
     {
+        $attributes['name'] = $this->normalizeName($attributes['name'] ?? null);
+
         return DB::transaction(function () use ($user, $attributes): Tag {
             return Tag::query()->create([
                 ...$attributes,
@@ -28,6 +31,9 @@ class TagService
     public function updateTag(Tag $tag, array $attributes): Tag
     {
         unset($attributes['user_id']);
+        if (array_key_exists('name', $attributes)) {
+            $attributes['name'] = $this->normalizeName($attributes['name']);
+        }
 
         return DB::transaction(function () use ($tag, $attributes): Tag {
             $tag->fill($attributes);
@@ -61,6 +67,9 @@ class TagService
             if ($name === '') {
                 continue;
             }
+            if (mb_strlen($name) > Tag::MAX_NAME_LENGTH) {
+                continue;
+            }
 
             $existingTag = Tag::query()->forUser($user->id)->byName($name)->first();
             if ($existingTag !== null) {
@@ -82,5 +91,24 @@ class TagService
         }
 
         return array_values(array_unique($tagIds));
+    }
+
+    private function normalizeName(mixed $value): string
+    {
+        $name = trim((string) $value);
+
+        if ($name === '') {
+            throw ValidationException::withMessages([
+                'name' => __('Tag name is required.'),
+            ]);
+        }
+
+        if (mb_strlen($name) > Tag::MAX_NAME_LENGTH) {
+            throw ValidationException::withMessages([
+                'name' => __('Tag name cannot exceed :max characters.', ['max' => Tag::MAX_NAME_LENGTH]),
+            ]);
+        }
+
+        return $name;
     }
 }

@@ -4,6 +4,7 @@ use App\Models\Event;
 use App\Models\Tag;
 use App\Models\Task;
 use App\Models\User;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -38,6 +39,22 @@ test('create tag with whitespace only name does not create tag', function (): vo
 
     Livewire::test('pages::workspace.index')
         ->call('createTag', '   ');
+
+    expect(Tag::query()->where('user_id', $this->owner->id)->count())->toBe($countBefore);
+});
+
+test('create tag with overly long name shows validation toast and does not create tag', function (): void {
+    $this->actingAs($this->owner);
+    $countBefore = Tag::query()->where('user_id', $this->owner->id)->count();
+    $tooLongName = str_repeat('a', Tag::MAX_NAME_LENGTH + 1);
+
+    Livewire::test('pages::workspace.index')
+        ->call('createTag', $tooLongName)
+        ->assertDispatched(
+            'toast',
+            type: 'error',
+            message: __('Tag name cannot exceed :max characters.', ['max' => Tag::MAX_NAME_LENGTH]),
+        );
 
     expect(Tag::query()->where('user_id', $this->owner->id)->count())->toBe($countBefore);
 });
@@ -99,6 +116,20 @@ test('deleting a tag detaches it from owner event', function (): void {
 
     expect(Tag::query()->find($tag->id))->toBeNull()
         ->and($event->fresh()->tags()->whereKey($tag->id)->exists())->toBeFalse();
+});
+
+test('delete tag success toast truncates long tag names', function (): void {
+    $this->actingAs($this->owner);
+    $longName = str_repeat('a', 60);
+    $tag = Tag::factory()->for($this->owner)->create(['name' => $longName]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('deleteTag', $tag->id)
+        ->assertDispatched(
+            'toast',
+            type: 'success',
+            message: __('Tag ":name" deleted.', ['name' => Str::limit($longName, 32, '...')]),
+        );
 });
 
 test('tags computed returns only authenticated user tags', function (): void {

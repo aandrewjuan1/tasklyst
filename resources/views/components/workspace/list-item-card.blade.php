@@ -4,6 +4,7 @@
     'listFilterDate' => null,
     'filters' => [],
     'availableTags' => [],
+    'teachers' => [],
     'isOverdue' => false,
     'activeFocusSession' => null,
     'defaultWorkDurationMinutes' => 25,
@@ -49,6 +50,8 @@
         $listItemCardRootClass .= ' scroll-mt-28 lic-surface-event';
     } elseif ($kind === 'project' && ! $isKanbanLayout) {
         $listItemCardRootClass .= ' scroll-mt-28 lic-surface-project';
+    } elseif ($kind === 'schoolclass' && ! $isKanbanLayout) {
+        $listItemCardRootClass .= ' scroll-mt-28 lic-surface-school-class';
     } else {
         $listItemCardRootClass .= ($isKanbanLayout ? '' : ' scroll-mt-28').' lic-surface-zinc';
     }
@@ -81,7 +84,7 @@
     @recurring-revert="onRecurringRevert($event.detail)"
     @item-property-updated="onItemPropertyUpdated($event.detail)"
     @item-update-rollback="onItemUpdateRollback()"
-    @collaboration-self-left="hideFromList()"
+    @collaboration-self-left="hideFromList({ reason: 'access', showToast: true })"
     @workspace-item-property-updated.window="if ($event.detail?.kind === '{{ $kind }}' && String($event.detail.itemId) === String(itemId)) onItemPropertyUpdated($event.detail)"
     @workspace-item-visibility-updated.window="if ($event.detail?.kind === '{{ $kind }}' && String($event.detail.itemId) === String(itemId) && $event.detail.visible === false) hideFromList()"
     @focus-session-updated.window="onFocusSessionUpdated($event.detail?.session ?? $event.detail?.[0] ?? null)"
@@ -219,14 +222,22 @@
                     :initial-status="$effectiveStatus?->value ?? $item->status?->value"
                     :layout="$layout"
                 />
+            @elseif($kind === 'schoolclass')
+                <x-workspace.list-item-school-class
+                    :school-class="$item"
+                    :teachers="$teachers"
+                    :update-property-method="$updatePropertyMethod"
+                />
             @endif
         </div>
         </div>
 
-        @if(in_array($kind, ['project', 'event'], true))
+        @if(in_array($kind, ['project', 'event', 'schoolclass'], true))
             <x-workspace.subtasks :item="$item" :kind="$kind" />
         @endif
 
-        <x-workspace.comments :item="$item" :kind="$kind" :layout="$layout" :readonly="!$canEdit" />
+        @if(in_array($kind, ['task', 'project', 'event'], true))
+            <x-workspace.comments :item="$item" :kind="$kind" :layout="$layout" :readonly="!$canEdit" />
+        @endif
     </div>
 </div>

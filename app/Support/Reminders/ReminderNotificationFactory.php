@@ -17,6 +17,10 @@ use App\Notifications\FocusDriftWeeklyNotification;
 use App\Notifications\FocusSessionCompletedNotification;
 use App\Notifications\ProjectDeadlineRiskNotification;
 use App\Notifications\RecurrenceAnomalyNotification;
+use App\Notifications\SchoolClassEndingSoonNotification;
+use App\Notifications\SchoolClassMissedNotification;
+use App\Notifications\SchoolClassNowLiveNotification;
+use App\Notifications\SchoolClassStartSoonNotification;
 use App\Notifications\TaskDueSoonNotification;
 use App\Notifications\TaskOverdueNotification;
 use App\Notifications\TaskStalledNotification;
@@ -51,6 +55,44 @@ final class ReminderNotificationFactory
                 eventTitle: (string) ($payload['event_title'] ?? ''),
                 startAtIso: isset($payload['start_at']) ? (string) $payload['start_at'] : null,
                 offsetMinutes: isset($payload['offset_minutes']) ? (int) $payload['offset_minutes'] : null,
+            );
+        }
+
+        if ($type === ReminderType::SchoolClassStartSoon) {
+            return new SchoolClassStartSoonNotification(
+                schoolClassId: (int) ($payload['school_class_id'] ?? $reminder->remindable_id),
+                subjectName: (string) ($payload['subject_name'] ?? ''),
+                startsAtIso: isset($payload['starts_at']) ? (string) $payload['starts_at'] : null,
+                endsAtIso: isset($payload['ends_at']) ? (string) $payload['ends_at'] : null,
+                offsetMinutes: isset($payload['offset_minutes']) ? (int) $payload['offset_minutes'] : null,
+            );
+        }
+
+        if ($type === ReminderType::SchoolClassNowLive) {
+            return new SchoolClassNowLiveNotification(
+                schoolClassId: (int) ($payload['school_class_id'] ?? $reminder->remindable_id),
+                subjectName: (string) ($payload['subject_name'] ?? ''),
+                startsAtIso: isset($payload['starts_at']) ? (string) $payload['starts_at'] : null,
+                endsAtIso: isset($payload['ends_at']) ? (string) $payload['ends_at'] : null,
+            );
+        }
+
+        if ($type === ReminderType::SchoolClassEndingSoon) {
+            return new SchoolClassEndingSoonNotification(
+                schoolClassId: (int) ($payload['school_class_id'] ?? $reminder->remindable_id),
+                subjectName: (string) ($payload['subject_name'] ?? ''),
+                startsAtIso: isset($payload['starts_at']) ? (string) $payload['starts_at'] : null,
+                endsAtIso: isset($payload['ends_at']) ? (string) $payload['ends_at'] : null,
+                offsetMinutes: isset($payload['offset_minutes']) ? (int) $payload['offset_minutes'] : null,
+            );
+        }
+
+        if ($type === ReminderType::SchoolClassMissed) {
+            return new SchoolClassMissedNotification(
+                schoolClassId: (int) ($payload['school_class_id'] ?? $reminder->remindable_id),
+                subjectName: (string) ($payload['subject_name'] ?? ''),
+                startsAtIso: isset($payload['starts_at']) ? (string) $payload['starts_at'] : null,
+                endsAtIso: isset($payload['ends_at']) ? (string) $payload['ends_at'] : null,
             );
         }
 

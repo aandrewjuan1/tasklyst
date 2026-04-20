@@ -102,6 +102,19 @@ test('scope relevant for date includes tasks when date is within start and end r
     expect($tasks->contains('id', $task->id))->toBeTrue();
 });
 
+test('scope relevant for date includes task due on selected day when start is before that day', function (): void {
+    $timezone = (string) config('app.timezone', 'UTC');
+    $day = Carbon::parse('2025-02-10 00:00:00', $timezone)->startOfDay();
+    $task = Task::factory()->for($this->owner)->create([
+        'start_datetime' => Carbon::parse('2025-02-01 10:00:00', $timezone),
+        'end_datetime' => Carbon::parse('2025-02-10 15:00:00', $timezone),
+    ]);
+
+    $tasks = Task::query()->forUser($this->owner->id)->relevantForDate($day)->get();
+
+    expect($tasks->contains('id', $task->id))->toBeTrue();
+});
+
 test('scope overdue returns tasks with end_datetime before given date', function (): void {
     $pastDue = Task::factory()->for($this->owner)->create([
         'end_datetime' => Carbon::parse('2025-02-05'),
@@ -253,7 +266,8 @@ test('get property value for update returns correct value for enums and dates', 
 
 test('property to column maps project id and event id', function (): void {
     expect(Task::propertyToColumn('projectId'))->toBe('project_id')
-        ->and(Task::propertyToColumn('eventId'))->toBe('event_id');
+        ->and(Task::propertyToColumn('eventId'))->toBe('event_id')
+        ->and(Task::propertyToColumn('schoolClassId'))->toBe('school_class_id');
 });
 
 test('scope for project returns only tasks in that project', function (): void {

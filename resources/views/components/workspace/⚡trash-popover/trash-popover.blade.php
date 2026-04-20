@@ -4,6 +4,7 @@
         open: false,
         items: [],
         lastDeletedAt: null,
+        lastId: null,
         hasMore: false,
         loading: false,
         loadingMore: false,
@@ -90,11 +91,12 @@
         async restoreSelected() {
             const payload = this.getSelectedPayload();
             if (payload.length === 0 || this.restoringSelected) return;
-            const keysToRemove = new Set(payload.map((p) => p.kind + '-' + p.id));
             this.restoringSelected = true;
             try {
                 const result = await $wire.$call('restoreTrashItems', payload);
-                if (result && result.restored > 0) {
+                const restoredItems = Array.isArray(result?.restoredItems) ? result.restoredItems : [];
+                if (restoredItems.length > 0) {
+                    const keysToRemove = new Set(restoredItems.map((p) => p.kind + '-' + p.id));
                     this.items = this.items.filter((i) => !keysToRemove.has(this.itemKey(i)));
                 }
                 this.selectedIds = [];
@@ -115,9 +117,12 @@
             const payload = this.pendingForceDeletePayload;
             this.pendingForceDeletePayload = null;
             try {
-                await $wire.$call('forceDeleteTrashItems', payload);
-                const keysToRemove = new Set(payload.map((p) => p.kind + '-' + p.id));
-                this.items = this.items.filter((i) => !keysToRemove.has(this.itemKey(i)));
+                const result = await $wire.$call('forceDeleteTrashItems', payload);
+                const deletedItems = Array.isArray(result?.deletedItems) ? result.deletedItems : [];
+                if (deletedItems.length > 0) {
+                    const keysToRemove = new Set(deletedItems.map((p) => p.kind + '-' + p.id));
+                    this.items = this.items.filter((i) => !keysToRemove.has(this.itemKey(i)));
+                }
                 this.selectedIds = [];
                 this.selectionMode = false;
                 $flux.modal('delete-selected').close();
@@ -293,6 +298,7 @@
                 this.items = response?.items ?? [];
                 this.hasMore = Boolean(response?.hasMore);
                 this.lastDeletedAt = response?.lastDeletedAt ?? null;
+                this.lastId = response?.lastId ?? null;
             } catch (e) {
                 this.items = [];
                 this.hasMore = false;
@@ -306,20 +312,21 @@
         },
 
         async loadMore() {
-            if (this.loadingMore || !this.hasMore || this.lastDeletedAt == null) {
+            if (this.loadingMore || !this.hasMore || this.lastDeletedAt == null || this.lastId == null) {
                 return;
             }
 
             this.loadingMore = true;
 
             try {
-                const response = await $wire.$call('loadTrashItems', this.lastDeletedAt, 10);
+                const response = await $wire.$call('loadTrashItems', this.lastDeletedAt, 10, this.lastId);
                 const newItems = response?.items ?? [];
                 if (newItems.length) {
                     this.items.push(...newItems);
                 }
                 this.hasMore = Boolean(response?.hasMore);
                 this.lastDeletedAt = response?.lastDeletedAt ?? null;
+                this.lastId = response?.lastId ?? null;
             } catch (e) {
                 this.hasMore = false;
                 $wire.$dispatch('toast', { type: 'error', message: this.loadMoreErrorToast });
@@ -341,6 +348,7 @@
             task: @js(__('Task')),
             project: @js(__('Project')),
             event: @js(__('Event')),
+            schoolClass: @js(__('Class')),
         },
 
         kindLabel(kind) {
@@ -389,10 +397,13 @@
             if (this.deletingAll) return;
             this.deletingAll = true;
             try {
-                await $wire.$call('forceDeleteAllTrashItems');
-                this.items = [];
-                this.hasMore = false;
-                this.lastDeletedAt = null;
+                const result = await $wire.$call('forceDeleteAllTrashItems');
+                const deletedItems = Array.isArray(result?.deletedItems) ? result.deletedItems : [];
+                if (deletedItems.length > 0) {
+                    const keysToRemove = new Set(deletedItems.map((p) => p.kind + '-' + p.id));
+                    this.items = this.items.filter((i) => !keysToRemove.has(this.itemKey(i)));
+                }
+                await this.loadFirst();
                 $flux.modal('delete-all').close();
             } finally {
                 this.deletingAll = false;

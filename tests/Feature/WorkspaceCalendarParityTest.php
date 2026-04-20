@@ -6,6 +6,8 @@ use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Models\CalendarFeed;
 use App\Models\Event;
+use App\Models\RecurringSchoolClass;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use Carbon\Carbon;
@@ -167,6 +169,111 @@ test('selected day agenda lists overdue tasks in overdue section and not in due-
         ->assertSee('Past Due High Priority Task');
 });
 
+test('calendar month meta and agenda include school classes on the selected day', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 12:00:00'));
+
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Calendar Parity Class',
+        'start_datetime' => Carbon::parse('2026-04-09 09:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-09 10:30:00'),
+    ]);
+
+    $component = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->set('calendarViewYear', 2026)
+        ->set('calendarViewMonth', 4);
+
+    $meta = $component->get('calendarMonthMeta');
+    expect((int) ($meta['2026-04-09']['school_class_count'] ?? 0))->toBeGreaterThan(0);
+
+    $agenda = $component->get('selectedDayAgenda');
+    expect($agenda['summary']['classes'])->toBeGreaterThan(0);
+    expect(collect($agenda['schoolClasses'])->pluck('title')->all())->toContain('Calendar Parity Class');
+});
+
+test('dashboard selected day agenda school class urls use agenda_focus and omit type filter', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
+
+    $user = User::factory()->create();
+
+    $schoolClass = SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Dashboard School Class',
+        'start_datetime' => Carbon::parse('2026-04-09 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-09 11:30:00'),
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::dashboard.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $row = collect($agenda['schoolClasses'] ?? [])->firstWhere('title', 'Dashboard School Class');
+    expect($row)->not->toBeNull();
+    $url = $row['workspace_url'];
+    expect($url)->toContain('school_class='.$schoolClass->id)
+        ->and($url)->toContain('agenda_focus=1')
+        ->and($url)->toContain('view=list')
+        ->and($url)->not->toContain('type=');
+});
+
+test('workspace selected day agenda school class urls use type classes and school_class id', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
+
+    $user = User::factory()->create();
+
+    $schoolClass = SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Workspace Agenda Class',
+        'start_datetime' => Carbon::parse('2026-04-09 10:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-09 11:30:00'),
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $row = collect($agenda['schoolClasses'] ?? [])->firstWhere('title', 'Workspace Agenda Class');
+    expect($row)->not->toBeNull();
+    expect($row['workspace_url'])->toContain('school_class='.$schoolClass->id)
+        ->and($row['workspace_url'])->toContain('type=classes')
+        ->and($row['focus_kind'])->toBe('schoolClass')
+        ->and($row['focus_id'])->toBe($schoolClass->id);
+});
+
+test('dashboard selected day agenda workspace urls use agenda_focus and omit type filter', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
+
+    $user = User::factory()->create();
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Dashboard Agenda Task',
+        'priority' => TaskPriority::High,
+        'status' => TaskStatus::ToDo,
+        'source_type' => TaskSourceType::Manual->value,
+        'end_datetime' => Carbon::parse('2026-04-09 18:00:00'),
+        'completed_at' => null,
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::dashboard.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $dueRows = collect($agenda['dueDayTasks'] ?? []);
+    expect($dueRows)->not->toBeEmpty();
+    $url = $dueRows->first()['workspace_url'];
+    expect($url)->toContain('task='.$task->id)
+        ->and($url)->toContain('agenda_focus=1')
+        ->and($url)->toContain('view=list')
+        ->and($url)->not->toContain('type=');
+});
+
 test('selected day agenda workspace urls use id deep links not search query', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-04-09 15:00:00'));
 
@@ -242,4 +349,36 @@ test('selected day agenda times use 12-hour clock in the sidebar', function (): 
     expect($dueRows)->not->toBeEmpty();
     expect($dueRows->first()['time'])->toContain('8:53')->and($dueRows->first()['time'])->toContain('PM');
     expect($dueRows->first()['time_label'])->toBe(__('Due'));
+});
+
+test('selected day agenda school classes fallback to class hours when datetimes are missing', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 10:00:00'));
+
+    $user = User::factory()->create();
+
+    $schoolClass = SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Fallback Class Hours',
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'start_time' => '13:15:00',
+        'end_time' => '14:45:00',
+    ]);
+
+    RecurringSchoolClass::factory()->create([
+        'school_class_id' => $schoolClass->id,
+        'start_datetime' => Carbon::parse('2026-04-01 00:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-30 23:59:59'),
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $row = collect($agenda['schoolClasses'] ?? [])->firstWhere('title', 'Fallback Class Hours');
+    expect($row)->not->toBeNull();
+    expect($row['time'])->toContain('1:15')->and($row['time'])->toContain('PM')
+        ->and($row['time'])->toContain('2:45')->and($row['time'])->toContain('PM')
+        ->and($row['time'])->not->toBe(__('No time'));
 });

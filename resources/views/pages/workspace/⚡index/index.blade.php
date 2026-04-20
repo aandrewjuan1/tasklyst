@@ -1,15 +1,13 @@
 <section
     class="space-y-6"
-    x-data="{}"
+    x-data="{ focusNavigationLoading: false }"
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
+    @workspace-focus-navigation-loading-start.window="focusNavigationLoading = true"
+    @workspace-focus-navigation-loading-end.window="focusNavigationLoading = false"
 >
     {{--
-        Split targets: changing only selectedDate dims the list/kanban; heavier actions keep the full skeleton.
-
-        Full skeleton ($listHeavyLoadingTargets): search, view, filters, etc.
-
-        selectedDate alone: soft overlay (wire:loading on the list region).
+        List/kanban region: full skeleton for filter/search/view changes and for selectedDate changes.
 
         Intentionally omitted: loadMoreItems / getMoreItemsHtml (append-only),
         collaboration invite accept/decline (list remounts via workspaceItemsVersion without skeleton),
@@ -17,12 +15,13 @@
     --}}
     @php
         $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
-        $selectedDateLoadingTarget = 'selectedDate';
+        $selectedDateLoadingTarget = 'selectedDate,jumpCalendarToToday';
+        $listRegionLoadingTargets = $listHeavyLoadingTargets.','.$selectedDateLoadingTarget;
         $workspaceMobileSelectedLabel = \Illuminate\Support\Carbon::parse($this->selectedDate)->translatedFormat('D, M j, Y');
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
-    <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
+    <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
         <div class="order-2 min-w-0 space-y-6 overflow-visible lg:order-1">
             {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
@@ -63,8 +62,8 @@
                                 <input
                                     type="search"
                                     wire:model.live.debounce.300ms="searchQuery"
-                                    placeholder="{{ __('Search tasks, events, projects…') }}"
-                                    aria-label="{{ __('Search tasks, events, and projects') }}"
+                                    placeholder="{{ __('Search tasks, events, projects, classes…') }}"
+                                    aria-label="{{ __('Search tasks, events, projects, and classes') }}"
                                     autocomplete="off"
                                     class="h-10 min-h-10 min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-blue/30 dark:text-zinc-100 dark:placeholder:text-zinc-400 dark:focus:ring-brand-blue/40"
                                 />
@@ -160,16 +159,11 @@
 
             {{-- List/kanban region only: loading skeletons must not cover the nav strip above --}}
             <div class="relative min-w-0 w-full">
-            {{-- Real content: full skeleton only for heavy targets; selectedDate uses dim-only (see wrapper below) --}}
-            <div
-                class="w-full transition-[opacity] duration-200 ease-out"
-                wire:loading.class.delay.shorter="pointer-events-none opacity-40"
-                wire:target="{{ $selectedDateLoadingTarget }}"
-            >
             <div
                 wire:loading.delay.shorter.remove
-                wire:target="{{ $listHeavyLoadingTargets }}"
+                wire:target="{{ $listRegionLoadingTargets }}"
                 class="w-full"
+                x-show="!focusNavigationLoading"
             >
                 <div
                     id="workspace-list-panel"
@@ -192,6 +186,7 @@
                             :completed-entries="$this->completedListEntries()"
                             :projects="$this->projects"
                             :tags="$this->tags"
+                            :teachers="$this->teachers"
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
@@ -222,6 +217,7 @@
                             :overdue="$this->overdue"
                             :completed-entries="$this->completedListEntries()"
                             :tags="$this->tags"
+                            :teachers="$this->teachers"
                             :filters="$this->getFilters()"
                             :active-focus-session="$this->activeFocusSession"
                             :pomodoro-settings="$this->pomodoroSettings"
@@ -231,12 +227,11 @@
                     @endif
                 </div>
             </div>
-            </div>
 
-            {{-- Skeleton: heavy loading targets only (not selectedDate — that uses dim layer above) --}}
+            {{-- Skeleton: filters, search, view mode, and selected date --}}
             <div
                 wire:loading.delay.shorter.block
-                wire:target="{{ $listHeavyLoadingTargets }}"
+                wire:target="{{ $listRegionLoadingTargets }}"
                 class="hidden w-full"
                 role="status"
                 aria-busy="true"
@@ -289,12 +284,48 @@
                     </div>
                 </template>
             </div>
+
+            {{-- Skeleton: focus navigation from subtasks when target is not instantly focusable in current DOM --}}
+            <div
+                x-cloak
+                x-show="focusNavigationLoading"
+                class="w-full"
+                role="status"
+                aria-busy="true"
+                aria-live="polite"
+                aria-label="{{ __('Loading workspace') }}"
+            >
+                <span
+                    class="sr-only"
+                    x-text="$wire.viewMode === 'kanban' ? '{{ __('Loading workspace kanban...') }}' : '{{ __('Loading workspace list...') }}'"
+                ></span>
+
+                <template x-if="$wire.viewMode === 'list'">
+                    <div class="space-y-4">
+                        @for ($i = 0; $i < 8; $i++)
+                            <x-workspace.skeleton-list-item-card />
+                        @endfor
+                    </div>
+                </template>
+
+                <template x-if="$wire.viewMode === 'kanban'">
+                    <div class="grid min-h-[50vh] w-full min-w-0 gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
+                        @for ($col = 0; $col < 3; $col++)
+                            <x-workspace.skeleton-kanban-column>
+                                @for ($card = 0; $card < 6; $card++)
+                                    <x-workspace.skeleton-list-item-card compact />
+                                @endfor
+                            </x-workspace.skeleton-kanban-column>
+                        @endfor
+                    </div>
+                </template>
+            </div>
             </div>
         </div>
 
         {{-- Right Side: Calendar (20%) --}}
         <div class="order-1 hidden lg:order-2 lg:block lg:min-w-[260px]">
-            <div class="sticky top-6" data-focus-lock-viewport>
+            <div data-focus-lock-viewport>
                 <x-workspace.calendar
                     agenda-context="workspace"
                     :selected-date="$this->selectedDate"

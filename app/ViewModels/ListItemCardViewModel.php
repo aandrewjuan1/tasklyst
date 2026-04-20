@@ -9,10 +9,13 @@ use App\Enums\TaskStatus;
 use App\Models\FocusSession;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 
 class ListItemCardViewModel
 {
+    private const TITLE_MAX_LENGTH = 180;
+
     /** @var array<int, mixed> */
     public array $availableTags;
 
@@ -44,6 +47,7 @@ class ListItemCardViewModel
             'project' => $item->name,
             'event' => $item->title,
             'task' => $item->title,
+            'schoolclass' => $item->subject_name,
             default => '',
         };
 
@@ -51,6 +55,7 @@ class ListItemCardViewModel
             'project' => $item->description,
             'event' => $item->description,
             'task' => $item->description,
+            'schoolclass' => null,
             default => null,
         };
 
@@ -58,6 +63,7 @@ class ListItemCardViewModel
             'project' => __('Project'),
             'event' => __('Event'),
             'task' => __('Task'),
+            'schoolclass' => __('Class'),
             default => null,
         };
 
@@ -65,6 +71,7 @@ class ListItemCardViewModel
             'project' => 'deleteProject',
             'event' => 'deleteEvent',
             'task' => 'deleteTask',
+            'schoolclass' => 'deleteSchoolClass',
             default => null,
         };
 
@@ -72,18 +79,20 @@ class ListItemCardViewModel
             'project' => 'updateProjectProperty',
             'event' => 'updateEventProperty',
             'task' => 'updateTaskProperty',
+            'schoolclass' => 'updateSchoolClassProperty',
             default => null,
         };
 
         $owner = $item->user ?? null;
         $hasCollaborators = ($item->collaborators ?? collect())->count() > 0;
-        $currentUserIsOwner = auth()->id() && $owner && (int) auth()->id() === (int) $owner->id;
+        $currentUserId = Auth::id();
+        $currentUserIsOwner = $currentUserId !== null && $owner && (int) $currentUserId === (int) $owner->id;
         $showOwnerBadge = $hasCollaborators && ! $currentUserIsOwner && $owner;
-        $canEdit = auth()->user()?->can('update', $item) ?? false;
+        $canEdit = Auth::user()?->can('update', $item) ?? false;
         $canEditTags = $currentUserIsOwner && $canEdit;
         $canEditDates = $currentUserIsOwner && $canEdit;
         $canEditRecurrence = $currentUserIsOwner && $canEdit;
-        $canDelete = $currentUserIsOwner && $canEdit;
+        $canDelete = $currentUserIsOwner && ($kind === 'schoolclass' || $canEdit);
 
         $focusModeDefaultHint = $kind === 'task'
             ? __('Using :minutes min (default). Set duration on the task to customize.', ['minutes' => $this->defaultWorkDurationMinutes])
@@ -370,6 +379,7 @@ class ListItemCardViewModel
 
         $titleProperty = match ($kind) {
             'project' => 'name',
+            'schoolclass' => 'subjectName',
             default => 'title',
         };
 
@@ -391,10 +401,14 @@ class ListItemCardViewModel
             // Only show project/event pill when the parent exists and is not trashed (relationship excludes trashed)
             'showProjectPill' => $kind === 'task' && $item->project !== null,
             'showEventPill' => $kind === 'task' && $item->event !== null,
+            'showSchoolClassPill' => $kind === 'task' && $item->schoolClass !== null,
             'itemProjectId' => $kind === 'task' ? $item->project_id : null,
             'itemEventId' => $kind === 'task' ? $item->event_id : null,
+            'itemSchoolClassId' => $kind === 'task' ? $item->school_class_id : null,
             'itemProjectName' => $kind === 'task' ? ($item->project?->name ?? null) : null,
             'itemEventTitle' => $kind === 'task' ? ($item->event?->title ?? null) : null,
+            'itemSchoolClassSubject' => $kind === 'task' ? ($item->schoolClass?->subject_name ?? null) : null,
+            'itemSchoolClassTeacherName' => $kind === 'task' ? ($item->schoolClass?->teacher?->name ?? null) : null,
             'isRecurringTask' => $kind === 'task' && (bool) $item->recurringTask,
             'hasRecurringEvent' => $kind === 'event' && (bool) $item->recurringEvent,
             'showSkipOccurrence' => $data['showSkipOccurrence'],
@@ -410,6 +424,11 @@ class ListItemCardViewModel
             'skipOccurrenceErrorValidation' => __('Invalid request. Please try again.'),
             'recurrence' => $data['headerRecurrenceInitial'],
             'deleteErrorToast' => __('Couldn\'t move to trash. Please try again.'),
+            'visibilityToastDateMismatch' => __('Item moved out of this date view. Pick its date or switch search to all items.'),
+            'visibilityToastFilterMismatch' => __('Item no longer matches active filters. Clear or adjust filters to see it again.'),
+            'visibilityToastSearchMismatch' => __('Item no longer matches current search. Clear search or switch scope.'),
+            'visibilityToastViewMismatch' => __('Item no longer matches this view. Switch view or Show filters to see it again.'),
+            'visibilityToastAccessLost' => __('You no longer have access to this item.'),
             'isEditingTitle' => false,
             'editedTitle' => $data['title'],
             'titleSnapshot' => null,
@@ -418,7 +437,9 @@ class ListItemCardViewModel
             'savedViaEnter' => false,
             'updatePropertyMethod' => $data['updatePropertyMethod'],
             'titleProperty' => $titleProperty,
+            'titleMaxLength' => self::TITLE_MAX_LENGTH,
             'titleErrorToast' => __('Title cannot be empty.'),
+            'titleTooLongErrorToast' => __('Title must be :max characters or fewer.', ['max' => self::TITLE_MAX_LENGTH]),
             'titleUpdateErrorToast' => __('Something went wrong updating the title.'),
             'recurrenceUpdateErrorToast' => __('Something went wrong. Please try again.'),
             'descriptionUpdateErrorToast' => __("Couldn't save :property. Try again.", ['property' => __('Description')]),
@@ -453,6 +474,24 @@ class ListItemCardViewModel
             'taskStartDatetime' => $kind === 'task' ? ($data['startDatetimeInitial'] ?? null) : null,
             'taskEndDatetime' => $kind === 'task' ? ($data['endDatetimeInitial'] ?? null) : null,
             'eventStatus' => $kind === 'event' ? ($data['eventEffectiveStatus']?->value ?? null) : null,
+            'schoolClassTeacherName' => $kind === 'schoolclass' ? ($item->teacher?->name ?? null) : null,
+            'schoolClassStartDatetime' => $kind === 'schoolclass' ? ($item->start_datetime?->toIso8601String()) : null,
+            'schoolClassEndDatetime' => $kind === 'schoolclass'
+                ? (($item->recurringSchoolClass?->end_datetime ?? $item->end_datetime)?->toIso8601String())
+                : null,
+            'schoolClassRecurrence' => $kind === 'schoolclass'
+                ? ($item->recurringSchoolClass ? [
+                    'enabled' => true,
+                    'type' => $item->recurringSchoolClass->recurrence_type?->value,
+                    'interval' => $item->recurringSchoolClass->interval ?? 1,
+                    'daysOfWeek' => $item->recurringSchoolClass->days_of_week ? (json_decode($item->recurringSchoolClass->days_of_week, true) ?? []) : [],
+                ] : [
+                    'enabled' => false,
+                    'type' => null,
+                    'interval' => 1,
+                    'daysOfWeek' => [],
+                ])
+                : null,
             'sourceUrl' => $kind === 'task' ? ($item->source_url ?? null) : null,
             'hasTaskDurationTarget' => $hasTaskDurationTarget,
             'taskTargetDurationSeconds' => $taskTargetDurationSeconds,

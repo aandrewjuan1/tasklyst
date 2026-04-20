@@ -11,10 +11,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
 
 class Project extends Model
 {
     use HasFactory, SoftDeletes;
+
+    private const TOAST_TEXT_MAX_LENGTH = 80;
 
     protected static function boot(): void
     {
@@ -154,13 +157,13 @@ class Project extends Model
                         ->where(function (Builder $windowQuery) use ($startOfDay, $endOfDay): void {
                             $windowQuery
                                 ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
-                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay, $endOfDay): void {
+                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay): void {
                                     $rangeQuery
                                         ->where('start_datetime', '<=', $startOfDay)
-                                        ->where(function (Builder $endQuery) use ($endOfDay): void {
+                                        ->where(function (Builder $endQuery) use ($startOfDay): void {
                                             $endQuery
                                                 ->whereNull('end_datetime')
-                                                ->orWhere('end_datetime', '>=', $endOfDay);
+                                                ->orWhere('end_datetime', '>=', $startOfDay);
                                         });
                                 });
                         });
@@ -264,10 +267,8 @@ class Project extends Model
      */
     public static function toastPayload(string $action, bool $success, ?string $name = null): array
     {
-        $trimmedName = $name !== null ? trim($name) : null;
-        $hasName = $trimmedName !== null && $trimmedName !== '';
-
-        $quotedName = $hasName ? '"'.$trimmedName.'"' : null;
+        $quotedName = self::quoteToastText($name);
+        $hasName = $quotedName !== null;
 
         $type = $success ? 'success' : 'error';
 
@@ -373,12 +374,12 @@ class Project extends Model
 
     private static function toastProjectSuffix(?string $projectName): string
     {
-        $trimmed = $projectName !== null ? trim($projectName) : '';
-        if ($trimmed === '') {
+        $quotedName = self::quoteToastText($projectName);
+        if ($quotedName === null) {
             return '';
         }
 
-        return ' — '.__('Project').': '.'"'.$trimmed.'"';
+        return ' — '.__('Project').': '.$quotedName;
     }
 
     private static function propertyLabel(string $property): ?string
@@ -408,10 +409,30 @@ class Project extends Model
     private static function formatPropertyValue(string $property, mixed $value): ?string
     {
         return match ($property) {
-            'name', 'description' => is_string($value) ? '"'.trim($value).'"' : null,
+            'name', 'description' => is_string($value) ? self::quoteToastText($value) : null,
             'startDatetime', 'endDatetime' => self::formatDatetime($value),
             default => is_scalar($value) ? (string) $value : null,
         };
+    }
+
+    private static function toastTextExcerpt(?string $value): ?string
+    {
+        $trimmed = $value !== null ? trim($value) : '';
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return Str::limit($trimmed, self::TOAST_TEXT_MAX_LENGTH);
+    }
+
+    private static function quoteToastText(?string $value): ?string
+    {
+        $excerpt = self::toastTextExcerpt($value);
+        if ($excerpt === null) {
+            return null;
+        }
+
+        return '"'.$excerpt.'"';
     }
 
     private static function formatDatetime(mixed $value): ?string

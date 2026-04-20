@@ -59,6 +59,8 @@ function stopGlobalPreviousUnfinishedTickerIfIdle() {
 export function listItemCard(config) {
     return {
         ...config,
+        _lastVisibilityToastKey: null,
+        _lastVisibilityToastAtMs: 0,
         focusReady: false,
         focusCountdownText: '',
         nextSessionInfo: null, // Stores next session info from pomodoro completion
@@ -136,6 +138,12 @@ export function listItemCard(config) {
                     this.itemEventId = null;
                     this.itemEventTitle = null;
                 }
+                if (d.unboundSchoolClassId != null && Number(d.unboundSchoolClassId) === Number(this.itemSchoolClassId)) {
+                    this.showSchoolClassPill = false;
+                    this.itemSchoolClassId = null;
+                    this.itemSchoolClassSubject = null;
+                    this.itemSchoolClassTeacherName = null;
+                }
             };
             window.addEventListener('workspace-subtask-unbound', this._onSubtaskUnbound);
 
@@ -144,6 +152,7 @@ export function listItemCard(config) {
                 if (this.kind !== 'task' || d.taskId == null || Number(d.taskId) !== Number(this.itemId)) return;
                 const previousProjectId = this.itemProjectId != null ? this.itemProjectId : null;
                 const previousEventId = this.itemEventId != null ? this.itemEventId : null;
+                const previousSchoolClassId = this.itemSchoolClassId != null ? this.itemSchoolClassId : null;
                 if ('projectId' in d) {
                     this.showProjectPill = d.projectId != null;
                     this.itemProjectId = d.projectId ?? null;
@@ -153,6 +162,12 @@ export function listItemCard(config) {
                     this.showEventPill = d.eventId != null;
                     this.itemEventId = d.eventId ?? null;
                     this.itemEventTitle = d.eventTitle ?? null;
+                }
+                if ('schoolClassId' in d) {
+                    this.showSchoolClassPill = d.schoolClassId != null;
+                    this.itemSchoolClassId = d.schoolClassId ?? null;
+                    this.itemSchoolClassSubject = d.schoolClassSubject ?? null;
+                    this.itemSchoolClassTeacherName = d.schoolClassTeacherName ?? null;
                 }
                 if ('projectId' in d && previousProjectId != null && (d.projectId == null || d.projectId === undefined)) {
                     window.dispatchEvent(
@@ -178,8 +193,21 @@ export function listItemCard(config) {
                         })
                     );
                 }
+                if ('schoolClassId' in d && previousSchoolClassId != null && (d.schoolClassId == null || d.schoolClassId === undefined)) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-subtask-unbound', {
+                            detail: {
+                                taskId: this.itemId,
+                                unboundProjectId: null,
+                                unboundEventId: null,
+                                unboundSchoolClassId: previousSchoolClassId,
+                            },
+                            bubbles: true,
+                        })
+                    );
+                }
                 // Notify parent subtasks so they can add this task to their list (optimistic)
-                if (d.projectId != null || d.eventId != null) {
+                if (d.projectId != null || d.eventId != null || d.schoolClassId != null) {
                     window.dispatchEvent(
                         new CustomEvent('workspace-subtask-added', {
                             detail: {
@@ -188,6 +216,9 @@ export function listItemCard(config) {
                                 projectName: d.projectName ?? null,
                                 eventId: d.eventId ?? null,
                                 eventTitle: d.eventTitle ?? null,
+                                schoolClassId: d.schoolClassId ?? null,
+                                schoolClassSubject: d.schoolClassSubject ?? null,
+                                schoolClassTeacherName: d.schoolClassTeacherName ?? null,
                                 title: this.editedTitle ?? '',
                                 statusLabel: this.taskStatusLabel ?? '',
                                 statusClass: this.taskStatusClass ?? 'bg-muted text-muted-foreground',
@@ -234,8 +265,31 @@ export function listItemCard(config) {
                     this.itemEventTitle = null;
                 }
             };
+            this._onSchoolClassTrashed = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.schoolClassId == null) return;
+                if (Number(d.schoolClassId) === Number(this.itemSchoolClassId)) {
+                    this.showSchoolClassPill = false;
+                    this.itemSchoolClassId = null;
+                    this.itemSchoolClassSubject = null;
+                    this.itemSchoolClassTeacherName = null;
+                }
+            };
+            this._onSchoolClassMetaUpdated = (e) => {
+                const d = e.detail || {};
+                if (this.kind !== 'task' || d.schoolClassId == null) return;
+                if (Number(d.schoolClassId) !== Number(this.itemSchoolClassId)) return;
+                if (d.subjectName !== undefined) {
+                    this.itemSchoolClassSubject = d.subjectName ?? null;
+                }
+                if (d.teacherName !== undefined) {
+                    this.itemSchoolClassTeacherName = d.teacherName ?? null;
+                }
+            };
             window.addEventListener('workspace-project-trashed', this._onProjectTrashed);
             window.addEventListener('workspace-event-trashed', this._onEventTrashed);
+            window.addEventListener('workspace-school-class-trashed', this._onSchoolClassTrashed);
+            window.addEventListener('workspace-school-class-meta-updated', this._onSchoolClassMetaUpdated);
         },
         /** Focus first focusable element in the modal (a11y). */
         focusFirstInModal() {
@@ -647,10 +701,53 @@ export function listItemCard(config) {
         async stopFocus() {
             return this._focus.stopFocus(this);
         },
-        hideFromList() {
+        dedupeVisibilityToast(reason) {
+            const key = `${this.kind}:${this.itemId}:${reason}`;
+            const nowMs = Date.now();
+            if (this._lastVisibilityToastKey === key && nowMs - Number(this._lastVisibilityToastAtMs ?? 0) < 1200) {
+                return true;
+            }
+            this._lastVisibilityToastKey = key;
+            this._lastVisibilityToastAtMs = nowMs;
+            return false;
+        },
+        visibilityToastMessageForReason(reason) {
+            if (reason === 'date') {
+                return this.visibilityToastDateMismatch;
+            }
+            if (reason === 'search') {
+                return this.visibilityToastSearchMismatch;
+            }
+            if (reason === 'filter') {
+                return this.visibilityToastFilterMismatch;
+            }
+            if (reason === 'view') {
+                return this.visibilityToastViewMismatch;
+            }
+            if (reason === 'access') {
+                return this.visibilityToastAccessLost;
+            }
+            return this.visibilityToastFilterMismatch;
+        },
+        emitVisibilityToast(reason) {
+            if (!reason) {
+                return;
+            }
+            if (this.dedupeVisibilityToast(reason)) {
+                return;
+            }
+            const message = this.visibilityToastMessageForReason(reason);
+            if (!message) {
+                return;
+            }
+            this.$wire.$dispatch('toast', { type: 'info', message });
+        },
+        hideFromList(options = {}) {
             if (this.hideCard) {
                 return;
             }
+            const reason = options?.reason ?? null;
+            const showToast = options?.showToast === true;
             // If this card had focus, clear global focus state so blur styling is removed
             if (this.focusReady || this.isFocused) {
                 this.stopFocusTicker();
@@ -660,6 +757,9 @@ export function listItemCard(config) {
                 this.dispatchFocusSessionUpdated(null);
             }
             this.hideCard = true;
+            if (showToast) {
+                this.emitVisibilityToast(reason);
+            }
             this.$dispatch('list-item-hidden', { fromOverdue: this.isOverdue });
             if (this.kind === 'task' && this.itemId != null) {
                 window.dispatchEvent(
@@ -689,7 +789,7 @@ export function listItemCard(config) {
             const { property, value, startDatetime: detailStart, endDatetime: detailEnd } = detail;
             // Never hide task card when user marks task as done (match default no-filter behaviour)
             if (this.kind === 'task' && property === 'status' && value === 'done') {
-                return false;
+                return null;
             }
             const f = this.filters ?? {};
 
@@ -698,52 +798,58 @@ export function listItemCard(config) {
                 const end = detailEnd ?? null;
                 if (this.kind === 'task') {
                     if (this.isOverdue) {
-                        return false;
+                        return null;
                     }
                     if (this.isStillOverdue(start, end)) {
-                        return false;
+                        return null;
                     }
-                    return !this.isTaskStillRelevantForList(start, end);
+                    return !this.isTaskStillRelevantForList(start, end) ? 'date' : null;
                 }
                 if (this.kind === 'event') {
                     if (this.isOverdue) {
-                        return false;
+                        return null;
                     }
                     if (this.isStillOverdue(start, end)) {
-                        return false;
+                        return null;
                     }
-                    return !this.isEventStillRelevantForList(start, end);
+                    return !this.isEventStillRelevantForList(start, end) ? 'date' : null;
                 }
                 if (this.kind === 'project') {
-                    return !this.isProjectStillRelevantForList(start, end);
+                    return !this.isProjectStillRelevantForList(start, end) ? 'date' : null;
+                }
+            }
+
+            if (f?.hasActiveSearch) {
+                if (property === 'title' || property === 'description' || property === 'subjectName' || property === 'teacherName') {
+                    return 'search';
                 }
             }
 
             if (!f?.hasActiveFilters) {
-                return false;
+                return null;
             }
 
             if (this.kind === 'task') {
-                if (f.taskPriority && property === 'priority' && value !== f.taskPriority) return true;
+                if (f.taskPriority && property === 'priority' && value !== f.taskPriority) return 'filter';
                 // Never hide when user marks task as done; keep card visible like default (no filter) behaviour
-                if (f.taskStatus && property === 'status' && value !== f.taskStatus && value !== 'done') return true;
-                if (f.taskComplexity && property === 'complexity' && value !== f.taskComplexity) return true;
+                if (f.taskStatus && property === 'status' && value !== f.taskStatus && value !== 'done') return 'filter';
+                if (f.taskComplexity && property === 'complexity' && value !== f.taskComplexity) return 'filter';
             }
 
             if (this.kind === 'event') {
-                if (f.eventStatus && property === 'status' && value !== f.eventStatus) return true;
+                if (f.eventStatus && property === 'status' && value !== f.eventStatus) return 'filter';
             }
 
             if (f.tagIds?.length && property === 'tagIds') {
                 const ids = Array.isArray(value) ? value : [];
                 const hasMatch = ids.some((id) => f.tagIds.includes(Number(id)) || f.tagIds.includes(String(id)));
-                if (!hasMatch) return true;
+                if (!hasMatch) return 'filter';
             }
 
-            if (f.recurring === 'recurring' && property === 'recurrence' && !value?.enabled) return true;
-            if (f.recurring === 'oneTime' && property === 'recurrence' && value?.enabled) return true;
+            if (f.recurring === 'recurring' && property === 'recurrence' && !value?.enabled) return 'filter';
+            if (f.recurring === 'oneTime' && property === 'recurrence' && value?.enabled) return 'filter';
 
-            return false;
+            return null;
         },
         rollbackDeleteItem(snapshot, wasOverdue) {
             this.hideCard = snapshot.hideCard;
@@ -755,7 +861,7 @@ export function listItemCard(config) {
             this.$dispatch('list-item-shown', { fromOverdue: wasOverdue });
             window.dispatchEvent(
                 new CustomEvent('workspace-item-trashed-rollback', {
-                    detail: { kind: this.kind, id: this.itemId },
+                    detail: { kind: this.kind === 'schoolclass' ? 'schoolClass' : this.kind, id: this.itemId },
                     bubbles: true,
                 })
             );
@@ -764,6 +870,7 @@ export function listItemCard(config) {
             if (!this.canDelete || this.deletingInProgress || this.hideCard || !this.deleteMethod || this.itemId == null) return;
 
             const wasOverdue = this.isOverdue;
+            const trashKind = this.kind === 'schoolclass' ? 'schoolClass' : this.kind;
 
             // PHASE 1: Snapshot BEFORE any changes
             const snapshot = {
@@ -776,7 +883,7 @@ export function listItemCard(config) {
 
             try {
                 // PHASE 2: Optimistic UI update - hide card immediately
-                this.hideFromList();
+                this.hideFromList({ showToast: false });
                 if (this.kind === 'task' && this.itemId != null) {
                     window.dispatchEvent(
                         new CustomEvent('workspace-subtask-trashed', {
@@ -801,11 +908,19 @@ export function listItemCard(config) {
                         })
                     );
                 }
+                if (this.kind === 'schoolclass' && this.itemId != null) {
+                    window.dispatchEvent(
+                        new CustomEvent('workspace-school-class-trashed', {
+                            detail: { schoolClassId: this.itemId },
+                            bubbles: true,
+                        })
+                    );
+                }
                 // Notify trash popover so it can add the item to its list (optimistic)
                 window.dispatchEvent(
                     new CustomEvent('workspace-item-trashed', {
                         detail: {
-                            kind: this.kind,
+                            kind: trashKind,
                             id: this.itemId,
                             title: this.editedTitle ?? '',
                             deleted_at_display: 'Just now',
@@ -852,7 +967,7 @@ export function listItemCard(config) {
 
             try {
                 // PHASE 2: Optimistic UI update - hide card immediately
-                this.hideFromList();
+                this.hideFromList({ showToast: false });
                 // PHASE 3: Call server asynchronously
                 const method =
                     this.kind === 'event' ? 'skipRecurringEventOccurrence' : 'skipRecurringTaskOccurrence';
@@ -929,6 +1044,22 @@ export function listItemCard(config) {
                 this.cancelEditingTitle();
                 return;
             }
+            const titleMaxLength = Number(this.titleMaxLength ?? 180);
+            if (trimmedTitle.length > titleMaxLength) {
+                this.$wire.$dispatch('toast', {
+                    type: 'error',
+                    message: this.titleTooLongErrorToast ?? `Title must be ${titleMaxLength} characters or fewer.`,
+                });
+                this.$nextTick(() => {
+                    const input = this.$refs.titleInput;
+                    if (input) {
+                        input.focus();
+                        const length = input.value.length;
+                        input.setSelectionRange(length, length);
+                    }
+                });
+                return;
+            }
 
             const snapshot = this.titleSnapshot;
             const originalTrimmed = (snapshot ?? '').toString().trim();
@@ -977,6 +1108,14 @@ export function listItemCard(config) {
                         window.dispatchEvent(
                             new CustomEvent('workspace-event-title-updated', {
                                 detail: { eventId: this.itemId, title: trimmedTitle },
+                                bubbles: true,
+                            })
+                        );
+                    }
+                    if (this.kind === 'schoolclass' && this.itemId != null) {
+                        window.dispatchEvent(
+                            new CustomEvent('workspace-school-class-meta-updated', {
+                                detail: { schoolClassId: this.itemId, subjectName: trimmedTitle },
                                 bubbles: true,
                             })
                         );
@@ -1158,9 +1297,10 @@ export function listItemCard(config) {
             if (detail.itemId != null && Number(detail.itemId) !== Number(this.itemId)) {
                 return;
             }
-            if (this.shouldHideAfterPropertyUpdate(detail)) {
+            const hideReason = this.shouldHideAfterPropertyUpdate(detail);
+            if (hideReason) {
                 this.dateChangeHidingCard = true;
-                this.hideFromList();
+                this.hideFromList({ reason: hideReason, showToast: true });
             } else {
                 this.dateChangeHidingCard = false;
                 const d = detail;
@@ -1180,6 +1320,25 @@ export function listItemCard(config) {
                  if (d && d.property === 'title' && this.kind === 'task') {
                      this.editedTitle = d.value ?? '';
                  }
+                if (this.kind === 'schoolclass' && d && d.property) {
+                    if (d.property === 'subjectName') {
+                        this.editedTitle = d.value ?? '';
+                    }
+                    if (d.property === 'teacherName') {
+                        this.schoolClassTeacherName = d.value ?? '';
+                    }
+                    if (d.property === 'startDatetime') {
+                        this.schoolClassStartDatetime = d.value ?? null;
+                    }
+                    if (d.property === 'endDatetime') {
+                        this.schoolClassEndDatetime = d.value ?? null;
+                    }
+                    if (d.property === 'recurrence' && d.value !== undefined) {
+                        this.schoolClassRecurrence = typeof d.value === 'object' && d.value !== null
+                            ? JSON.parse(JSON.stringify(d.value))
+                            : d.value;
+                    }
+                }
                  if (d && d.property === 'description' && this.kind === 'task') {
                      this.editedDescription = d.value ?? '';
                  }
@@ -1250,6 +1409,12 @@ export function listItemCard(config) {
             }
             if (this._onEventTrashed) {
                 window.removeEventListener('workspace-event-trashed', this._onEventTrashed);
+            }
+            if (this._onSchoolClassTrashed) {
+                window.removeEventListener('workspace-school-class-trashed', this._onSchoolClassTrashed);
+            }
+            if (this._onSchoolClassMetaUpdated) {
+                window.removeEventListener('workspace-school-class-meta-updated', this._onSchoolClassMetaUpdated);
             }
             if (this.itemId != null && window.Alpine?.store) {
                 const store = window.Alpine.store('listItemCards');

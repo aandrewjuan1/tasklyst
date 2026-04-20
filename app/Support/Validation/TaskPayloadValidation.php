@@ -6,6 +6,7 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\Tag;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
@@ -29,6 +30,7 @@ final class TaskPayloadValidation
             'endDatetime' => null,
             'projectId' => null,
             'eventId' => null,
+            'schoolClassId' => null,
             'tagIds' => [],
             'pendingTagNames' => [],
             'recurrence' => [
@@ -61,6 +63,7 @@ final class TaskPayloadValidation
 
             'taskPayload.projectId' => ['nullable', 'integer', 'exists:projects,id'],
             'taskPayload.eventId' => ['nullable', 'integer', 'exists:events,id'],
+            'taskPayload.schoolClassId' => ['nullable', 'integer', 'exists:school_classes,id'],
             'taskPayload.tagIds' => ['array'],
             'taskPayload.tagIds.*' => [
                 'integer',
@@ -72,7 +75,7 @@ final class TaskPayloadValidation
                 }),
             ],
             'taskPayload.pendingTagNames' => ['array'],
-            'taskPayload.pendingTagNames.*' => ['string', 'max:255', 'regex:/\S/'],
+            'taskPayload.pendingTagNames.*' => ['string', 'max:'.Tag::MAX_NAME_LENGTH, 'regex:/\S/'],
 
             'taskPayload.recurrence' => ['array'],
             'taskPayload.recurrence.enabled' => ['boolean'],
@@ -101,6 +104,7 @@ final class TaskPayloadValidation
             'endDatetime',
             'projectId',
             'eventId',
+            'schoolClassId',
             'tagIds',
             'recurrence',
         ];
@@ -142,6 +146,7 @@ final class TaskPayloadValidation
             ],
             'projectId' => ['value' => ['nullable', 'integer', 'exists:projects,id']],
             'eventId' => ['value' => ['nullable', 'integer', 'exists:events,id']],
+            'schoolClassId' => ['value' => ['nullable', 'integer', 'exists:school_classes,id']],
             default => [],
         };
 

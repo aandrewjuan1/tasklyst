@@ -1,330 +1,41 @@
+@php
+    if (! isset($importPastChoices)) {
+        /** @var list<int|string> $rawChoices */
+        $rawChoices = config('calendar_feeds.allowed_import_past_months', [1, 3, 6]);
+        $importPastChoices = array_values(array_map(static fn (mixed $v): int => (int) $v, $rawChoices));
+    }
+    if (! isset($importPastMonths)) {
+        $user = auth()->user();
+        $importPastMonths = $user instanceof \App\Models\User
+            ? $user->resolvedCalendarImportPastMonths()
+            : (int) config('calendar_feeds.default_import_past_months');
+    }
+    if (! isset($importPastMonthLabels)) {
+        $importPastMonthLabels = [];
+        foreach ($importPastChoices as $m) {
+            $importPastMonthLabels[(string) $m] = $m === 1
+                ? __('1 month')
+                : __(':count months', ['count' => $m]);
+        }
+    }
+    if (! isset($alpineBootstrap)) {
+        $alpineBootstrap = [
+            'importPastMonths' => (int) $importPastMonths,
+            'importPastMonthsSaved' => (int) $importPastMonths,
+            'importPastChoices' => $importPastChoices,
+            'importPastMonthLabels' => $importPastMonthLabels,
+            'strings' => [
+                'pleaseEnterBrightspaceUrl' => __('Please enter your Brightspace calendar URL.'),
+                'useBrightspaceSubscribeUrl' => __('Please use a Brightspace calendar link that starts with https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics'),
+                'connectingCalendar' => __('Connecting your calendar…'),
+                'couldNotConnectFeed' => __('Couldn’t connect the calendar feed. Try again.'),
+            ],
+        ];
+    }
+@endphp
 <div
     wire:ignore
-    x-data="{
-        open: false,
-        placementVertical: 'bottom',
-        placementHorizontal: 'end',
-        panelHeightEst: 320,
-        panelWidthEst: 320,
-        panelPlacementClassesValue: 'absolute top-full right-0 mt-1',
-
-        feedUrl: '',
-        feedName: '',
-        connecting: false,
-        inlineError: '',
-
-        feedHealth: [],
-        loadingFeedHealth: false,
-        lastFeedHealthLoadedAt: 0,
-        feedHealthRefreshWindowMs: 30000,
-        syncingIds: new Set(),
-        disconnectingIds: new Set(),
-        editingFeedId: null,
-        editingFeedName: '',
-        editingFeedNameSnapshot: '',
-        savingFeedName: false,
-        savedFeedNameViaEnter: false,
-        justCanceledFeedName: false,
-
-        init() {
-            this.ensureFeedHealthLoaded();
-        },
-
-        statusClass(status) {
-            if (status === 'fresh') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200';
-            if (status === 'stale') return 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200';
-            if (status === 'critical') return 'bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-200';
-            if (status === 'sync_off') return 'bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200';
-            return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
-        },
-
-        async ensureFeedHealthLoaded(force = false) {
-            const nowMs = Date.now();
-            const isFresh = this.lastFeedHealthLoadedAt > 0
-                && (nowMs - this.lastFeedHealthLoadedAt) < this.feedHealthRefreshWindowMs;
-
-            if (!force && isFresh) {
-                return;
-            }
-            if (!force && this.feedHealth && this.feedHealth.length > 0) {
-                return;
-            }
-            if (this.loadingFeedHealth) {
-                return;
-            }
-
-            this.loadingFeedHealth = true;
-            try {
-                const result = await $wire.$call('loadCalendarFeedHealth');
-                this.feedHealth = Array.isArray(result) ? result : [];
-                this.lastFeedHealthLoadedAt = Date.now();
-            } catch (error) {
-                this.feedHealth = [];
-            } finally {
-                this.loadingFeedHealth = false;
-            }
-        },
-
-        toggle() {
-            if (this.open) {
-                return this.close(this.$refs.button);
-            }
-
-            const vh = window.innerHeight;
-            const vw = window.innerWidth;
-
-            if (vw <= 480) {
-                this.placementVertical = 'bottom';
-                this.placementHorizontal = 'center';
-                this.panelPlacementClassesValue = 'fixed inset-x-3 bottom-4 max-h-[min(70vh,22rem)]';
-                this.open = true;
-                this.$dispatch('dropdown-opened');
-                this.$nextTick(() => this.$refs.urlInput && this.$refs.urlInput.focus());
-
-                return;
-            }
-
-            const rect = this.$refs.button.getBoundingClientRect();
-            const contentLeft = vw < 768 ? 16 : 320;
-            const effectivePanelWidth = Math.min(this.panelWidthEst, vw - 32);
-            const spaceBelow = vh - rect.bottom;
-            const spaceAbove = rect.top;
-
-            this.placementVertical = (spaceBelow >= this.panelHeightEst || spaceBelow >= spaceAbove) ? 'bottom' : 'top';
-
-            const endFits = rect.right <= vw && rect.right - effectivePanelWidth >= contentLeft;
-            const startFits = rect.left >= contentLeft && rect.left + effectivePanelWidth <= vw;
-
-            if (rect.left < contentLeft) {
-                this.placementHorizontal = 'start';
-            } else if (endFits) {
-                this.placementHorizontal = 'end';
-            } else if (startFits) {
-                this.placementHorizontal = 'start';
-            } else {
-                this.placementHorizontal = rect.right > vw ? 'start' : 'end';
-            }
-
-            const v = this.placementVertical;
-            const h = this.placementHorizontal;
-            if (v === 'top' && h === 'end') {
-                this.panelPlacementClassesValue = 'absolute bottom-full right-0 mb-1';
-            } else if (v === 'top' && h === 'start') {
-                this.panelPlacementClassesValue = 'absolute bottom-full left-0 mb-1';
-            } else if (v === 'bottom' && h === 'end') {
-                this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
-            } else if (v === 'bottom' && h === 'start') {
-                this.panelPlacementClassesValue = 'absolute top-full left-0 mt-1';
-            } else {
-                this.panelPlacementClassesValue = 'absolute top-full right-0 mt-1';
-            }
-
-            this.open = true;
-            this.$dispatch('dropdown-opened');
-            this.$nextTick(() => this.$refs.urlInput && this.$refs.urlInput.focus());
-        },
-
-        close(focusAfter) {
-            if (!this.open) return;
-
-            this.open = false;
-            setTimeout(() => this.$dispatch('dropdown-closed'), 50);
-            focusAfter && focusAfter.focus && focusAfter.focus();
-        },
-
-        async connectFeed() {
-            if (this.connecting) return;
-
-            const url = (this.feedUrl || '').trim();
-            const name = (this.feedName || '').trim();
-            const brightspacePattern = /^https:\/\/eac\.brightspace\.com\/d2l\/le\/calendar\/feed\/user\/feed\.ics(\?.+)?$/;
-
-            this.inlineError = '';
-
-            if (!url) {
-                this.inlineError = @js(__('Please enter your Brightspace calendar URL.'));
-                this.$refs.urlInput && this.$refs.urlInput.focus();
-                return;
-            }
-
-            if (!brightspacePattern.test(url)) {
-                this.inlineError = @js(__('Please use a Brightspace calendar link that starts with https://eac.brightspace.com/d2l/le/calendar/feed/user/feed.ics'));
-                this.$refs.urlInput && this.$refs.urlInput.focus();
-                return;
-            }
-
-            this.connecting = true;
-
-            $wire.$dispatch('toast', {
-                type: 'info',
-                message: @js(__('Connecting your calendar…')),
-                skipDedupe: true,
-            });
-
-            try {
-                await $wire.$call('connectCalendarFeed', {
-                    feedUrl: url,
-                    name: name || null,
-                });
-
-                this.feedUrl = '';
-                this.feedName = '';
-                this.inlineError = '';
-
-                await this.ensureFeedHealthLoaded(true);
-                this.$dispatch('calendar-feed-updated');
-            } catch (error) {
-                this.inlineError = error?.message || @js(__('Couldn’t connect the calendar feed. Try again.'));
-            } finally {
-                this.connecting = false;
-            }
-        },
-
-        async syncFeed(id) {
-            if (!id) return;
-            this.syncingIds = this.syncingIds || new Set();
-            if (this.syncingIds.has(id)) return;
-
-            this.syncingIds.add(id);
-            const previousFeedHealth = Array.isArray(this.feedHealth)
-                ? this.feedHealth.map((feed) => ({ ...feed }))
-                : [];
-
-            $wire.$dispatch('toast', {
-                type: 'info',
-                message: @js(__('Syncing calendar…')),
-                skipDedupe: true,
-            });
-
-            try {
-                await $wire.$call('syncCalendarFeed', Number(id));
-                await this.ensureFeedHealthLoaded(true);
-                this.$dispatch('calendar-feed-updated');
-            } catch (error) {
-                this.feedHealth = previousFeedHealth;
-            } finally {
-                this.syncingIds.delete(id);
-            }
-        },
-
-        async disconnectFeed(id) {
-            if (!id) return;
-            this.disconnectingIds = this.disconnectingIds || new Set();
-            if (this.disconnectingIds.has(id)) return;
-
-            this.disconnectingIds.add(id);
-            const previousFeedHealth = Array.isArray(this.feedHealth)
-                ? this.feedHealth.map((feed) => ({ ...feed }))
-                : [];
-
-            // Optimistic remove for instant UI feedback.
-            this.feedHealth = (this.feedHealth || []).filter((feed) => Number(feed.id) !== Number(id));
-
-            try {
-                await $wire.$call('disconnectCalendarFeed', Number(id));
-                await this.ensureFeedHealthLoaded(true);
-                this.$dispatch('calendar-feed-updated');
-            } catch (error) {
-                this.feedHealth = previousFeedHealth;
-            } finally {
-                this.disconnectingIds.delete(id);
-            }
-        },
-
-        startEditingFeedName(feed) {
-            if (!feed || this.savingFeedName) {
-                return;
-            }
-
-            this.editingFeedId = Number(feed.id);
-            this.editingFeedNameSnapshot = String(feed.name || '');
-            this.editingFeedName = this.editingFeedNameSnapshot;
-            this.savedFeedNameViaEnter = false;
-            this.justCanceledFeedName = false;
-
-            this.$nextTick(() => {
-                const input = this.$refs?.feedNameInput;
-                if (input && input.focus) {
-                    input.focus();
-                    const len = input.value?.length ?? 0;
-                    if (input.setSelectionRange) {
-                        input.setSelectionRange(len, len);
-                    }
-                }
-            });
-        },
-
-        cancelEditingFeedName() {
-            this.justCanceledFeedName = true;
-            this.savedFeedNameViaEnter = false;
-            this.editingFeedName = this.editingFeedNameSnapshot;
-            this.editingFeedId = null;
-
-            setTimeout(() => {
-                this.justCanceledFeedName = false;
-            }, 100);
-        },
-
-        async saveEditingFeedName(feed) {
-            if (!feed || this.savingFeedName || this.justCanceledFeedName) {
-                return;
-            }
-
-            const trimmedName = String(this.editingFeedName || '').trim();
-            const previousName = String(this.editingFeedNameSnapshot || '').trim();
-
-            if (trimmedName === '') {
-                this.cancelEditingFeedName();
-                return;
-            }
-
-            if (trimmedName === previousName) {
-                this.editingFeedId = null;
-                return;
-            }
-
-            const feedId = Number(feed.id);
-            const previousFeedHealth = Array.isArray(this.feedHealth)
-                ? this.feedHealth.map((row) => ({ ...row }))
-                : [];
-
-            this.savingFeedName = true;
-            try {
-                // Optimistic update for immediate visual feedback.
-                this.feedHealth = (this.feedHealth || []).map((row) => (
-                    Number(row.id) === feedId ? { ...row, name: trimmedName } : row
-                ));
-
-                const ok = await $wire.$call('updateCalendarFeedName', feedId, trimmedName);
-                if (!ok) {
-                    this.feedHealth = previousFeedHealth;
-                } else {
-                    this.editingFeedId = null;
-                    this.$dispatch('calendar-feed-updated');
-                }
-            } catch (error) {
-                this.feedHealth = previousFeedHealth;
-            } finally {
-                this.savingFeedName = false;
-                if (this.savedFeedNameViaEnter) {
-                    setTimeout(() => {
-                        this.savedFeedNameViaEnter = false;
-                    }, 100);
-                }
-            }
-        },
-
-        handleFeedNameEnter(feed) {
-            this.savedFeedNameViaEnter = true;
-            this.saveEditingFeedName(feed);
-        },
-
-        handleFeedNameBlur(feed) {
-            if (!this.savedFeedNameViaEnter && !this.justCanceledFeedName) {
-                this.saveEditingFeedName(feed);
-            }
-        },
-    }"
+    x-data="calendarFeedsPopover(@js($alpineBootstrap))"
     @keydown.escape.prevent.stop="close($refs.button)"
     @focusin.window="($refs.panel && !$refs.panel.contains($event.target)) && close($refs.button)"
     @calendar-feed-connected.window="ensureFeedHealthLoaded(true)"
@@ -451,6 +162,9 @@
                                 <span>{{ __('Last sync: ') }}</span><span x-text="feed.last_synced_human"></span>
                             </p>
                             <p>
+                                <span>{{ __('Import lookback: ') }}</span><span x-text="importPastSavedLabel()"></span>
+                            </p>
+                            <p>
                                 <span>{{ __('Updated 24h: ') }}</span><span x-text="feed.updated_last_24h"></span>
                                 <span> · </span>
                                 <span>{{ __('Total imported: ') }}</span><span x-text="feed.total_imported"></span>
@@ -539,6 +253,41 @@
                     </div>
 
                     <div class="flex flex-col gap-3 px-3 py-3 text-[11px]">
+                        <div class="space-y-2 border-b border-brand-blue/15 pb-3 dark:border-brand-blue/15">
+                            <span class="block text-[11px] font-medium text-muted-foreground" id="calendar-import-past-months-label">
+                                {{ __('How far back to import') }}
+                            </span>
+                            <div
+                                class="flex gap-1 rounded-md border border-border/60 bg-muted/25 p-0.5 dark:border-white/10 dark:bg-white/5"
+                                role="group"
+                                aria-labelledby="calendar-import-past-months-label"
+                            >
+                                @foreach ($importPastChoices as $m)
+                                    <button
+                                        type="button"
+                                        class="min-w-0 flex-1 rounded px-1.5 py-1 text-[10px] font-semibold leading-tight transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/45 disabled:opacity-50"
+                                        :class="Number(importPastMonths) === {{ (int) $m }}
+                                            ? 'bg-brand-blue text-white shadow-sm dark:bg-brand-blue'
+                                            : 'text-muted-foreground hover:bg-background/90 hover:text-foreground'"
+                                        :disabled="importPastMonthsSaving || connecting"
+                                        @click="pickImportPastMonths({{ (int) $m }})"
+                                    >
+                                        @if ($m === 1)
+                                            {{ __('1 mo') }}
+                                        @elseif ($m === 3)
+                                            {{ __('3 mo') }}
+                                        @elseif ($m === 6)
+                                            {{ __('6 mo') }}
+                                        @else
+                                            {{ trans_choice(':count mo|:count mos', $m, ['count' => $m]) }}
+                                        @endif
+                                    </button>
+                                @endforeach
+                            </div>
+                            <p class="text-[10px] leading-relaxed text-muted-foreground/80">
+                                {{ __('Events that ended before this window are not imported. Future events are still limited to about one year ahead. After changing this, use “Sync again” on each feed to apply.') }}
+                            </p>
+                        </div>
                         <div class="space-y-2">
                             <div class="space-y-1">
                                 <label class="block text-[11px] font-medium text-muted-foreground">{{ __('Feed URL') }}</label>

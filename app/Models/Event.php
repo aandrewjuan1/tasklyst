@@ -14,10 +14,13 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class Event extends Model
 {
     use HasFactory, SoftDeletes;
+
+    private const TOAST_TEXT_MAX_LENGTH = 80;
 
     /**
      * Build a friendly toast payload for Event CRUD actions.
@@ -26,10 +29,8 @@ class Event extends Model
      */
     public static function toastPayload(string $action, bool $success, ?string $title = null): array
     {
-        $trimmedTitle = $title !== null ? trim($title) : null;
-        $hasTitle = $trimmedTitle !== null && $trimmedTitle !== '';
-
-        $quotedTitle = $hasTitle ? '“'.$trimmedTitle.'”' : null;
+        $quotedTitle = self::quoteCurlyToastText($title);
+        $hasTitle = $quotedTitle !== null;
 
         $type = $success ? 'success' : 'error';
 
@@ -121,10 +122,9 @@ class Event extends Model
         if ($property === 'tagIds') {
             $fromCount = is_array($fromValue) ? count($fromValue) : 0;
             $toCount = is_array($toValue) ? count($toValue) : 0;
-            $trimmedTitle = $eventTitle !== null ? trim($eventTitle) : '';
-            $quotedTitle = $trimmedTitle !== '' ? '"'.$trimmedTitle.'"' : null;
-            $quotedTag = $addedTagName !== null && $addedTagName !== '' ? '"'.trim($addedTagName).'"' : null;
-            $quotedRemovedTag = $removedTagName !== null && $removedTagName !== '' ? '"'.trim($removedTagName).'"' : null;
+            $quotedTitle = self::quoteStraightToastText($eventTitle);
+            $quotedTag = self::quoteStraightToastText($addedTagName);
+            $quotedRemovedTag = self::quoteStraightToastText($removedTagName);
 
             $message = match (true) {
                 $toCount > $fromCount => match (true) {
@@ -170,12 +170,12 @@ class Event extends Model
 
     private static function toastEventSuffix(?string $eventTitle): string
     {
-        $trimmed = $eventTitle !== null ? trim($eventTitle) : '';
-        if ($trimmed === '') {
+        $quotedTitle = self::quoteCurlyToastText($eventTitle);
+        if ($quotedTitle === null) {
             return '';
         }
 
-        return ' — '.__('Event').': '.'“'.$trimmed.'”';
+        return ' — '.__('Event').': '.$quotedTitle;
     }
 
     private static function propertyLabel(string $property): ?string
@@ -213,15 +213,45 @@ class Event extends Model
     private static function formatPropertyValue(string $property, mixed $value): ?string
     {
         return match ($property) {
-            'title' => is_string($value) ? '“'.trim($value).'”' : null,
+            'title' => is_string($value) ? self::quoteCurlyToastText($value) : null,
             'status' => self::enumLabel(EventStatus::class, $value),
             'startDatetime', 'endDatetime' => self::formatDatetime($value),
             'tagIds' => self::formatTagCount($value),
             'allDay' => self::formatAllDay($value),
             'recurrence' => self::formatRecurrence($value),
-            'description' => is_string($value) ? '"'.trim($value).'"' : null,
+            'description' => is_string($value) ? self::quoteStraightToastText($value) : null,
             default => is_scalar($value) ? (string) $value : null,
         };
+    }
+
+    private static function toastTextExcerpt(?string $value): ?string
+    {
+        $trimmed = $value !== null ? trim($value) : '';
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return Str::limit($trimmed, self::TOAST_TEXT_MAX_LENGTH);
+    }
+
+    private static function quoteCurlyToastText(?string $value): ?string
+    {
+        $excerpt = self::toastTextExcerpt($value);
+        if ($excerpt === null) {
+            return null;
+        }
+
+        return '“'.$excerpt.'”';
+    }
+
+    private static function quoteStraightToastText(?string $value): ?string
+    {
+        $excerpt = self::toastTextExcerpt($value);
+        if ($excerpt === null) {
+            return null;
+        }
+
+        return '"'.$excerpt.'"';
     }
 
     /**
@@ -506,13 +536,13 @@ class Event extends Model
                         ->where(function (Builder $windowQuery) use ($startOfDay, $endOfDay): void {
                             $windowQuery
                                 ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
-                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay, $endOfDay): void {
+                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay): void {
                                     $rangeQuery
                                         ->where('start_datetime', '<=', $startOfDay)
-                                        ->where(function (Builder $endQuery) use ($endOfDay): void {
+                                        ->where(function (Builder $endQuery) use ($startOfDay): void {
                                             $endQuery
                                                 ->whereNull('end_datetime')
-                                                ->orWhere('end_datetime', '>=', $endOfDay);
+                                                ->orWhere('end_datetime', '>=', $startOfDay);
                                         });
                                 });
                         });

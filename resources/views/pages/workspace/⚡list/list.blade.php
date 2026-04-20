@@ -35,6 +35,7 @@
 
     <x-workspace.item-creation
         :tags="$tags"
+        :teachers="$teachers"
         :projects="$projects"
         :active-focus-session="$activeFocusSession"
         mode="list"
@@ -111,17 +112,15 @@
             <div x-show="visibleItemCount > 0" class="space-y-4">
                 <div class="space-y-3" id="workspace-list-items-inner">
                     @foreach ($items as $entry)
-                        <x-workspace.list-item-card
-                            :kind="$entry['kind']"
-                            :item="$entry['item']"
+                        <x-workspace.list-item-entry
+                            :entry="$entry"
                             :list-filter-date="$entry['isOverdue'] ? null : $selectedDate"
                             :filters="$filters"
-                            :available-tags="$tags"
-                            :is-overdue="$entry['isOverdue']"
+                            :tags="$tags"
+                            :teachers="$teachers"
                             :active-focus-session="$activeFocusSession ?? null"
                             :default-work-duration-minutes="$defaultWorkDurationMinutes"
                             :pomodoro-settings="$this->pomodoroSettings"
-                            wire:key="{{ $entry['kind'] }}-{{ $entry['item']->id }}"
                         />
                     @endforeach
                 </div>
@@ -150,17 +149,17 @@
                     </div>
                     <div class="space-y-3">
                         @foreach ($completedItems as $entry)
-                            <x-workspace.list-item-card
-                                :kind="$entry['kind']"
-                                :item="$entry['item']"
+                            <x-workspace.list-item-entry
+                                :entry="$entry"
                                 :list-filter-date="$selectedDate"
                                 :filters="$filters"
-                                :available-tags="$tags"
-                                :is-overdue="false"
+                                :tags="$tags"
+                                :teachers="$teachers"
                                 :active-focus-session="$activeFocusSession ?? null"
                                 :default-work-duration-minutes="$defaultWorkDurationMinutes"
                                 :pomodoro-settings="$this->pomodoroSettings"
-                                wire:key="completed-{{ $entry['kind'] }}-{{ $entry['item']->id }}"
+                                key-prefix="completed"
+                                :completed-strip="true"
                             />
                         @endforeach
                     </div>

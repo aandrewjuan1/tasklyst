@@ -4,7 +4,9 @@ namespace App\Support;
 
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 
@@ -18,6 +20,7 @@ final class WorkspaceListAggregator
      * @param  Collection<int, Project>  $projects
      * @param  Collection<int, Event>  $events
      * @param  Collection<int, Task>  $tasks
+     * @param  Collection<int, SchoolClass>  $schoolClasses
      * @return Collection<int, array{kind: string, item: Model, isOverdue: bool}>
      */
     public static function mergeOrderAndDedupe(
@@ -25,6 +28,7 @@ final class WorkspaceListAggregator
         Collection $projects,
         Collection $events,
         Collection $tasks,
+        Collection $schoolClasses,
     ): Collection {
         $overdueItems = $overdue->map(fn (array $entry): array => array_merge($entry, ['isOverdue' => true]));
 
@@ -41,6 +45,11 @@ final class WorkspaceListAggregator
             ]))
             ->merge($tasks->map(fn (Task $item): array => [
                 'kind' => 'task',
+                'item' => $item,
+                'isOverdue' => self::modelEndIsPast($item),
+            ]))
+            ->merge($schoolClasses->map(fn (SchoolClass $item): array => [
+                'kind' => 'schoolClass',
                 'item' => $item,
                 'isOverdue' => self::modelEndIsPast($item),
             ]));
@@ -76,11 +85,26 @@ final class WorkspaceListAggregator
         return collect([...$overdueStrip, ...$dayStrip])->values();
     }
 
-    private static function modelEndIsPast(Project|Event|Task $model): bool
+    private static function modelEndIsPast(Project|Event|Task|SchoolClass $model): bool
     {
-        $end = $model->end_datetime;
+        $end = self::effectiveEndForWorkspaceList($model);
 
         return $end !== null && $end->isPast();
+    }
+
+    private static function effectiveEndForWorkspaceList(Model $model): ?CarbonInterface
+    {
+        if ($model instanceof SchoolClass) {
+            if ($model->relationLoaded('recurringSchoolClass') && $model->recurringSchoolClass?->end_datetime !== null) {
+                return $model->recurringSchoolClass->end_datetime;
+            }
+        }
+
+        if ($model instanceof Project || $model instanceof Event || $model instanceof Task || $model instanceof SchoolClass) {
+            return $model->end_datetime;
+        }
+
+        return null;
     }
 
     /**
@@ -89,8 +113,8 @@ final class WorkspaceListAggregator
      */
     private static function compareOverdueEntries(array $a, array $b): int
     {
-        $ea = $a['item']->end_datetime?->getTimestamp() ?? PHP_INT_MAX;
-        $eb = $b['item']->end_datetime?->getTimestamp() ?? PHP_INT_MAX;
+        $ea = self::effectiveEndForWorkspaceList($a['item'])?->getTimestamp() ?? PHP_INT_MAX;
+        $eb = self::effectiveEndForWorkspaceList($b['item'])?->getTimestamp() ?? PHP_INT_MAX;
 
         if ($ea !== $eb) {
             return $ea <=> $eb;
@@ -132,6 +156,7 @@ final class WorkspaceListAggregator
             'task' => self::taskDaySortTimestamp($item),
             'event' => self::eventDaySortTimestamp($item),
             'project' => self::projectDaySortTimestamp($item),
+            'schoolClass' => self::schoolClassDaySortTimestamp($item),
             default => PHP_INT_MAX,
         };
     }
@@ -165,6 +190,20 @@ final class WorkspaceListAggregator
         }
 
         $dt = $item->start_datetime ?? $item->end_datetime;
+
+        return $dt !== null ? $dt->getTimestamp() : PHP_INT_MAX;
+    }
+
+    private static function schoolClassDaySortTimestamp(Model $item): int
+    {
+        if (! $item instanceof SchoolClass) {
+            return PHP_INT_MAX;
+        }
+
+        $dt = $item->start_datetime ?? $item->end_datetime;
+        if ($dt === null && $item->start_time !== null) {
+            $dt = now()->setTimeFromTimeString((string) $item->start_time);
+        }
 
         return $dt !== null ? $dt->getTimestamp() : PHP_INT_MAX;
     }

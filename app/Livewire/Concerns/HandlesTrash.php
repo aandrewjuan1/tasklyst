@@ -4,6 +4,7 @@ namespace App\Livewire\Concerns;
 
 use App\Models\Event;
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -33,35 +34,40 @@ trait HandlesTrash
      *
      * @var array<string>
      */
-    private const TRASH_KINDS = ['task', 'project', 'event'];
+    private const TRASH_KINDS = ['task', 'project', 'event', 'schoolClass'];
 
     /**
-     * Load a page of trashed items (tasks, projects, events) for the authenticated user.
+     * Load a page of trashed items (tasks, projects, events, school classes) for the authenticated user.
      * Merged and sorted by deleted_at descending. Use lastDeletedAt as cursor for next page.
      *
-     * @return array{items: array<int, array{kind: string, id: int, title: string, deleted_at: string, deleted_at_display: string}>, hasMore: bool, lastDeletedAt: string|null}
+     * @return array{items: array<int, array{kind: string, id: int, title: string, deleted_at: string, deleted_at_display: string}>, hasMore: bool, lastDeletedAt: string|null, lastId: int|null}
      */
     #[Renderless]
-    public function loadTrashItems(?string $afterDeletedAt = null, int $limit = 10): array
+    public function loadTrashItems(?string $afterDeletedAt = null, int $limit = 10, ?int $afterId = null): array
     {
         $user = $this->requireAuth(__('You must be logged in to view trash.'));
         if ($user === null) {
-            return ['items' => [], 'hasMore' => false, 'lastDeletedAt' => null];
+            return ['items' => [], 'hasMore' => false, 'lastDeletedAt' => null, 'lastId' => null];
         }
 
         $limit = max(1, min($limit, 50));
         $pageSize = self::TRASH_PAGE_SIZE;
         $take = min($limit, $pageSize);
 
-        $tasks = $this->fetchTrashedTasks($user->id, $afterDeletedAt, $pageSize);
-        $projects = $this->fetchTrashedProjects($user->id, $afterDeletedAt, $pageSize);
-        $events = $this->fetchTrashedEvents($user->id, $afterDeletedAt, $pageSize);
+        $tasks = $this->fetchTrashedTasks($user->id, $afterDeletedAt, $afterId, $pageSize);
+        $projects = $this->fetchTrashedProjects($user->id, $afterDeletedAt, $afterId, $pageSize);
+        $events = $this->fetchTrashedEvents($user->id, $afterDeletedAt, $afterId, $pageSize);
+        $schoolClasses = $this->fetchTrashedSchoolClasses($user->id, $afterDeletedAt, $afterId, $pageSize);
 
         $merged = collect()
             ->merge($tasks)
             ->merge($projects)
             ->merge($events)
-            ->sortByDesc('deleted_at')
+            ->merge($schoolClasses)
+            ->sortBy([
+                ['deleted_at', 'desc'],
+                ['id', 'desc'],
+            ])
             ->values();
 
         $items = $merged->take($take)->map(function (array $row): array {
@@ -77,11 +83,13 @@ trait HandlesTrash
         $hasMore = $merged->count() > $take;
         $last = $merged->get($take - 1);
         $lastDeletedAt = $last ? $last['deleted_at'] : null;
+        $lastId = $last ? (int) $last['id'] : null;
 
         return [
             'items' => $items,
             'hasMore' => $hasMore,
             'lastDeletedAt' => $lastDeletedAt,
+            'lastId' => $lastId,
         ];
     }
 
@@ -117,6 +125,7 @@ trait HandlesTrash
             'task' => 'restoreTaskAction',
             'project' => 'restoreProjectAction',
             'event' => 'restoreEventAction',
+            'schoolClass' => 'restoreSchoolClassAction',
             default => null,
         };
 
@@ -164,7 +173,7 @@ trait HandlesTrash
             return false;
         }
 
-        $model = $this->resolveTrashedModel($kind, $id, $user->id, false);
+        $model = $this->resolveTrashedModel($kind, $id, $user->id, true);
         if ($model === null) {
             $this->dispatch('toast', type: 'error', message: __('Item not found.'));
 
@@ -185,6 +194,7 @@ trait HandlesTrash
             'task' => 'forceDeleteTaskAction',
             'project' => 'forceDeleteProjectAction',
             'event' => 'forceDeleteEventAction',
+            'schoolClass' => 'forceDeleteSchoolClassAction',
             default => null,
         };
 
@@ -223,23 +233,24 @@ trait HandlesTrash
      * Restore multiple trashed items. Each entry must have 'kind' and 'id'.
      *
      * @param  array<int, array{kind: string, id: int|string}>  $items
-     * @return array{restored: int, failed: int}
+     * @return array{restored: int, failed: int, restoredItems: array<int, array{kind: string, id: int}>}
      */
     #[Async]
     public function restoreTrashItems(array $items): array
     {
         $user = $this->requireAuth(__('You must be logged in to restore items.'));
         if ($user === null) {
-            return ['restored' => 0, 'failed' => 0];
+            return ['restored' => 0, 'failed' => 0, 'restoredItems' => []];
         }
 
         $normalized = $this->normalizeTrashBatchItems($items);
         if ($normalized === []) {
-            return ['restored' => 0, 'failed' => 0];
+            return ['restored' => 0, 'failed' => 0, 'restoredItems' => []];
         }
 
         $restored = 0;
         $failed = 0;
+        $restoredItems = [];
 
         foreach ($normalized as ['kind' => $kind, 'id' => $id]) {
             $model = $this->resolveTrashedModel($kind, (int) $id, $user->id, true);
@@ -263,6 +274,7 @@ trait HandlesTrash
                 'task' => 'restoreTaskAction',
                 'project' => 'restoreProjectAction',
                 'event' => 'restoreEventAction',
+                'schoolClass' => 'restoreSchoolClassAction',
                 default => null,
             };
             if ($actionMethod === null || ! property_exists($this, $actionMethod)) {
@@ -274,6 +286,7 @@ trait HandlesTrash
             try {
                 if ($this->{$actionMethod}->execute($model, $user)) {
                     $restored++;
+                    $restoredItems[] = ['kind' => $kind, 'id' => (int) $id];
                 } else {
                     $failed++;
                 }
@@ -294,14 +307,14 @@ trait HandlesTrash
             $this->afterTrashRestored();
         }
 
-        return ['restored' => $restored, 'failed' => $failed];
+        return ['restored' => $restored, 'failed' => $failed, 'restoredItems' => $restoredItems];
     }
 
     /**
      * Permanently delete multiple trashed items. Each entry must have 'kind' and 'id'.
      *
      * @param  array<int, array{kind: string, id: int|string}>  $items
-     * @return array{deleted: int, failed: int}
+     * @return array{deleted: int, failed: int, deletedItems: array<int, array{kind: string, id: int}>}
      */
     #[Async]
     #[Renderless]
@@ -309,12 +322,12 @@ trait HandlesTrash
     {
         $user = $this->requireAuth(__('You must be logged in to permanently delete items.'));
         if ($user === null) {
-            return ['deleted' => 0, 'failed' => 0];
+            return ['deleted' => 0, 'failed' => 0, 'deletedItems' => []];
         }
 
         $normalized = $this->normalizeTrashBatchItems($items);
         if ($normalized === []) {
-            return ['deleted' => 0, 'failed' => 0];
+            return ['deleted' => 0, 'failed' => 0, 'deletedItems' => []];
         }
 
         $result = $this->executeForceDeleteTrashItems($normalized, $user);
@@ -326,7 +339,7 @@ trait HandlesTrash
     /**
      * Permanently delete all trashed items for the authenticated user (up to a cap).
      *
-     * @return array{deleted: int, failed: int}
+     * @return array{deleted: int, failed: int, deletedItems: array<int, array{kind: string, id: int}>}
      */
     #[Async]
     #[Renderless]
@@ -334,7 +347,7 @@ trait HandlesTrash
     {
         $user = $this->requireAuth(__('You must be logged in to permanently delete items.'));
         if ($user === null) {
-            return ['deleted' => 0, 'failed' => 0];
+            return ['deleted' => 0, 'failed' => 0, 'deletedItems' => []];
         }
 
         $items = $this->fetchAllTrashedItemIds($user->id, self::TRASH_DELETE_ALL_MAX);
@@ -351,15 +364,16 @@ trait HandlesTrash
      * Execute force-delete for a list of items. No toast.
      *
      * @param  array<int, array{kind: string, id: int}>  $items
-     * @return array{deleted: int, failed: int}
+     * @return array{deleted: int, failed: int, deletedItems: array<int, array{kind: string, id: int}>}
      */
     private function executeForceDeleteTrashItems(array $items, User $user): array
     {
         $deleted = 0;
         $failed = 0;
+        $deletedItems = [];
 
         foreach ($items as ['kind' => $kind, 'id' => $id]) {
-            $model = $this->resolveTrashedModel($kind, (int) $id, $user->id, false);
+            $model = $this->resolveTrashedModel($kind, (int) $id, $user->id, true);
             if ($model === null) {
                 $failed++;
 
@@ -380,6 +394,7 @@ trait HandlesTrash
                 'task' => 'forceDeleteTaskAction',
                 'project' => 'forceDeleteProjectAction',
                 'event' => 'forceDeleteEventAction',
+                'schoolClass' => 'forceDeleteSchoolClassAction',
                 default => null,
             };
             if ($actionMethod === null || ! property_exists($this, $actionMethod)) {
@@ -391,6 +406,7 @@ trait HandlesTrash
             try {
                 if ($this->{$actionMethod}->execute($model, $user)) {
                     $deleted++;
+                    $deletedItems[] = ['kind' => $kind, 'id' => (int) $id];
                 } else {
                     $failed++;
                 }
@@ -405,7 +421,7 @@ trait HandlesTrash
             }
         }
 
-        return ['deleted' => $deleted, 'failed' => $failed];
+        return ['deleted' => $deleted, 'failed' => $failed, 'deletedItems' => $deletedItems];
     }
 
     /**
@@ -472,7 +488,7 @@ trait HandlesTrash
      */
     private function fetchAllTrashedItemIds(int $userId, int $max = self::TRASH_DELETE_ALL_MAX): array
     {
-        $perKind = (int) ceil($max / 3);
+        $perKind = (int) ceil($max / 4);
         $tasks = Task::query()
             ->onlyTrashed()
             ->forUser($userId)
@@ -494,23 +510,39 @@ trait HandlesTrash
             ->pluck('id')
             ->map(fn (int $id): array => ['kind' => 'event', 'id' => $id])
             ->all();
+        $schoolClasses = SchoolClass::query()
+            ->onlyTrashed()
+            ->forUser($userId)
+            ->limit($perKind)
+            ->pluck('id')
+            ->map(fn (int $id): array => ['kind' => 'schoolClass', 'id' => $id])
+            ->all();
 
-        return collect($tasks)->merge($projects)->merge($events)->take($max)->values()->all();
+        return collect($tasks)->merge($projects)->merge($events)->merge($schoolClasses)->take($max)->values()->all();
     }
 
     /**
      * @return Collection<int, array{kind: string, id: int, title: string, deleted_at: string, deleted_at_display: string}>
      */
-    private function fetchTrashedTasks(int $userId, ?string $afterDeletedAt, int $limit): Collection
+    private function fetchTrashedTasks(int $userId, ?string $afterDeletedAt, ?int $afterId, int $limit): Collection
     {
         $query = Task::query()
             ->onlyTrashed()
             ->forUser($userId)
             ->orderByDesc('deleted_at')
+            ->orderByDesc('id')
             ->limit($limit);
 
         if ($afterDeletedAt !== null && $afterDeletedAt !== '') {
-            $query->where('deleted_at', '<', $afterDeletedAt);
+            $query->where(function ($cursorQuery) use ($afterDeletedAt, $afterId): void {
+                $cursorQuery->where('deleted_at', '<', $afterDeletedAt);
+                if ($afterId !== null) {
+                    $cursorQuery->orWhere(function ($tieQuery) use ($afterDeletedAt, $afterId): void {
+                        $tieQuery->where('deleted_at', '=', $afterDeletedAt)
+                            ->where('id', '<', $afterId);
+                    });
+                }
+            });
         }
 
         return $query->get()->map(fn (Task $task): array => [
@@ -525,16 +557,25 @@ trait HandlesTrash
     /**
      * @return Collection<int, array{kind: string, id: int, title: string, deleted_at: string, deleted_at_display: string}>
      */
-    private function fetchTrashedProjects(int $userId, ?string $afterDeletedAt, int $limit): Collection
+    private function fetchTrashedProjects(int $userId, ?string $afterDeletedAt, ?int $afterId, int $limit): Collection
     {
         $query = Project::query()
             ->onlyTrashed()
             ->forUser($userId)
             ->orderByDesc('deleted_at')
+            ->orderByDesc('id')
             ->limit($limit);
 
         if ($afterDeletedAt !== null && $afterDeletedAt !== '') {
-            $query->where('deleted_at', '<', $afterDeletedAt);
+            $query->where(function ($cursorQuery) use ($afterDeletedAt, $afterId): void {
+                $cursorQuery->where('deleted_at', '<', $afterDeletedAt);
+                if ($afterId !== null) {
+                    $cursorQuery->orWhere(function ($tieQuery) use ($afterDeletedAt, $afterId): void {
+                        $tieQuery->where('deleted_at', '=', $afterDeletedAt)
+                            ->where('id', '<', $afterId);
+                    });
+                }
+            });
         }
 
         return $query->get()->map(fn (Project $project): array => [
@@ -549,16 +590,25 @@ trait HandlesTrash
     /**
      * @return Collection<int, array{kind: string, id: int, title: string, deleted_at: string, deleted_at_display: string}>
      */
-    private function fetchTrashedEvents(int $userId, ?string $afterDeletedAt, int $limit): Collection
+    private function fetchTrashedEvents(int $userId, ?string $afterDeletedAt, ?int $afterId, int $limit): Collection
     {
         $query = Event::query()
             ->onlyTrashed()
             ->forUser($userId)
             ->orderByDesc('deleted_at')
+            ->orderByDesc('id')
             ->limit($limit);
 
         if ($afterDeletedAt !== null && $afterDeletedAt !== '') {
-            $query->where('deleted_at', '<', $afterDeletedAt);
+            $query->where(function ($cursorQuery) use ($afterDeletedAt, $afterId): void {
+                $cursorQuery->where('deleted_at', '<', $afterDeletedAt);
+                if ($afterId !== null) {
+                    $cursorQuery->orWhere(function ($tieQuery) use ($afterDeletedAt, $afterId): void {
+                        $tieQuery->where('deleted_at', '=', $afterDeletedAt)
+                            ->where('id', '<', $afterId);
+                    });
+                }
+            });
         }
 
         return $query->get()->map(fn (Event $event): array => [
@@ -571,30 +621,61 @@ trait HandlesTrash
     }
 
     /**
-     * Resolve a trashed (or with-trashed) model by kind and id for the user.
-     * $onlyTrashed true = restore (must be trashed), false = force delete (can be trashed or not).
+     * @return Collection<int, array{kind: string, id: int, title: string, deleted_at: string, deleted_at_display: string}>
      */
-    private function resolveTrashedModel(string $kind, int $id, int $userId, bool $onlyTrashed): Task|Project|Event|null
+    private function fetchTrashedSchoolClasses(int $userId, ?string $afterDeletedAt, ?int $afterId, int $limit): Collection
+    {
+        $query = SchoolClass::query()
+            ->onlyTrashed()
+            ->forUser($userId)
+            ->orderByDesc('deleted_at')
+            ->orderByDesc('id')
+            ->limit($limit);
+
+        if ($afterDeletedAt !== null && $afterDeletedAt !== '') {
+            $query->where(function ($cursorQuery) use ($afterDeletedAt, $afterId): void {
+                $cursorQuery->where('deleted_at', '<', $afterDeletedAt);
+                if ($afterId !== null) {
+                    $cursorQuery->orWhere(function ($tieQuery) use ($afterDeletedAt, $afterId): void {
+                        $tieQuery->where('deleted_at', '=', $afterDeletedAt)
+                            ->where('id', '<', $afterId);
+                    });
+                }
+            });
+        }
+
+        return $query->get()->map(fn (SchoolClass $schoolClass): array => [
+            'kind' => 'schoolClass',
+            'id' => $schoolClass->id,
+            'title' => $schoolClass->subject_name,
+            'deleted_at' => $schoolClass->deleted_at?->toIso8601String() ?? '',
+            'deleted_at_display' => $schoolClass->deleted_at?->translatedFormat('M j, Y g:i A') ?? '',
+        ]);
+    }
+
+    /**
+     * Resolve a trashed model by kind and id for the user.
+     */
+    private function resolveTrashedModel(string $kind, int $id, int $userId, bool $onlyTrashed): Task|Project|Event|SchoolClass|null
     {
         if (! in_array($kind, self::TRASH_KINDS, true)) {
             return null;
         }
 
+        if (! $onlyTrashed) {
+            return null;
+        }
+
         return match ($kind) {
-            'task' => $onlyTrashed
-                ? Task::query()->onlyTrashed()->forUser($userId)->find($id)
-                : Task::query()->withTrashed()->forUser($userId)->find($id),
-            'project' => $onlyTrashed
-                ? Project::query()->onlyTrashed()->forUser($userId)->find($id)
-                : Project::query()->withTrashed()->forUser($userId)->find($id),
-            'event' => $onlyTrashed
-                ? Event::query()->onlyTrashed()->forUser($userId)->find($id)
-                : Event::query()->withTrashed()->forUser($userId)->find($id),
+            'task' => Task::query()->onlyTrashed()->forUser($userId)->find($id),
+            'project' => Project::query()->onlyTrashed()->forUser($userId)->find($id),
+            'event' => Event::query()->onlyTrashed()->forUser($userId)->find($id),
+            'schoolClass' => SchoolClass::query()->onlyTrashed()->forUser($userId)->find($id),
             default => null,
         };
     }
 
-    private function authorizeTrashAction(Task|Project|Event $model, string $ability): bool
+    private function authorizeTrashAction(Task|Project|Event|SchoolClass $model, string $ability): bool
     {
         try {
             $this->authorize($ability, $model);
@@ -613,6 +694,7 @@ trait HandlesTrash
             'task' => __('Restored the task. Logged focus time is unchanged.'),
             'project' => __('Restored the project.'),
             'event' => __('Restored the event.'),
+            'schoolClass' => __('Restored the class.'),
             default => __('Restored the item.'),
         };
     }
@@ -623,6 +705,7 @@ trait HandlesTrash
             'task' => __('Couldn’t restore the task. Try again.'),
             'project' => __('Couldn’t restore the project. Try again.'),
             'event' => __('Couldn’t restore the event. Try again.'),
+            'schoolClass' => __('Couldn’t restore the class. Try again.'),
             default => __('Couldn’t restore the item. Try again.'),
         };
     }
@@ -633,6 +716,7 @@ trait HandlesTrash
             'task' => __('Permanently deleted the task.'),
             'project' => __('Permanently deleted the project.'),
             'event' => __('Permanently deleted the event.'),
+            'schoolClass' => __('Permanently deleted the class.'),
             default => __('Permanently deleted the item.'),
         };
     }
@@ -643,6 +727,7 @@ trait HandlesTrash
             'task' => __('Couldn’t permanently delete the task. Try again.'),
             'project' => __('Couldn’t permanently delete the project. Try again.'),
             'event' => __('Couldn’t permanently delete the event. Try again.'),
+            'schoolClass' => __('Couldn’t permanently delete the class. Try again.'),
             default => __('Couldn’t permanently delete the item. Try again.'),
         };
     }

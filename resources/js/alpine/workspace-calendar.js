@@ -257,6 +257,7 @@ export function workspaceCalendar(config) {
                     conflict_count: 0,
                     recurring_count: 0,
                     all_day_count: 0,
+                    school_class_count: 0,
                 };
             }
 
@@ -270,6 +271,7 @@ export function workspaceCalendar(config) {
                     conflict_count: 0,
                     recurring_count: 0,
                     all_day_count: 0,
+                    school_class_count: 0,
                 }
             );
         },

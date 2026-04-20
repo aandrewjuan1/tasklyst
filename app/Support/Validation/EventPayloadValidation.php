@@ -4,6 +4,7 @@ namespace App\Support\Validation;
 
 use App\Enums\EventRecurrenceType;
 use App\Enums\EventStatus;
+use App\Models\Tag;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
@@ -61,7 +62,7 @@ final class EventPayloadValidation
                 }),
             ],
             'eventPayload.pendingTagNames' => ['array'],
-            'eventPayload.pendingTagNames.*' => ['string', 'max:255', 'regex:/\S/'],
+            'eventPayload.pendingTagNames.*' => ['string', 'max:'.Tag::MAX_NAME_LENGTH, 'regex:/\S/'],
 
             'eventPayload.recurrence' => ['array'],
             'eventPayload.recurrence.enabled' => ['boolean'],

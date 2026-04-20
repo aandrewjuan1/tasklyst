@@ -1,6 +1,7 @@
 <?php
 
 use App\DataTransferObjects\Tag\CreateTagDto;
+use App\Models\Tag;
 use App\Models\User;
 use App\Support\Validation\TagPayloadValidation;
 use Illuminate\Support\Facades\Validator;
@@ -34,9 +35,9 @@ test('tag name regex fails for whitespace only', function (): void {
     expect($validator->fails())->toBeTrue();
 });
 
-test('tag name max length 255 fails', function (): void {
+test('tag name max length fails', function (): void {
     $payload = array_replace_recursive(TagPayloadValidation::defaults(), [
-        'name' => str_repeat('a', 256),
+        'name' => str_repeat('a', Tag::MAX_NAME_LENGTH + 1),
     ]);
 
     $validator = Validator::make($payload, TagPayloadValidation::rules());

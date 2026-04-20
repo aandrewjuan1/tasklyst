@@ -79,7 +79,7 @@ test('workspace list view shows empty hint on item creation when there are no it
         ->assertSee('data-test="workspace-item-creation"', false)
         ->assertSee('data-test="workspace-item-creation-empty"', false)
         ->assertSee(
-            __('No tasks, projects, or events for :date', ['date' => __('today')]),
+            __('No tasks, projects, events, or classes for :date', ['date' => __('today')]),
             false
         );
 });
@@ -467,4 +467,12 @@ test('workspace scheduled focus shows human-readable duration labels', function 
         ->assertSuccessful()
         ->assertSee('4 hours')
         ->assertDontSee('240 mins');
+});
+
+test('workspace list region skeleton loading targets include selected date', function (): void {
+    $this->actingAs($this->user);
+
+    $html = Livewire::test('pages::workspace.index')->html();
+
+    expect($html)->toMatch('/wire:target="[^"]*selectedDate[^"]*"/');
 });

@@ -1,81 +1,95 @@
 <?php
 
-use App\Models\Tag;
-use App\Models\Task;
-use App\Models\User;
-use App\Models\Event;
-use App\Models\Project;
-use App\Enums\TaskStatus;
-use App\Enums\EventStatus;
-use Carbon\CarbonImmutable;
-use Illuminate\Support\Str;
-use App\Enums\AssistantSchedulePlanItemStatus;
-use App\Models\AssistantSchedulePlanItem;
-use App\Models\CalendarFeed;
-use Livewire\Component;
-use App\Enums\TaskSourceType;
-use App\Services\TagService;
-use Livewire\Attributes\Url;
-use App\Services\TaskService;
-use App\Services\EventService;
-use Livewire\Attributes\Async;
-use Livewire\Attributes\On;
-use Livewire\Attributes\Title;
-use App\Services\ProjectService;
-use Livewire\Attributes\Computed;
-use Illuminate\Support\Collection;
-use App\Actions\Tag\CreateTagAction;
-use App\Actions\Tag\DeleteTagAction;
-use Illuminate\Support\Facades\Auth;
-use App\Actions\Task\CreateTaskAction;
-use App\Actions\Task\DeleteTaskAction;
-use App\Livewire\Concerns\HandlesTags;
-use App\Livewire\Concerns\HandlesTasks;
-use App\Actions\Event\CreateEventAction;
-use App\Actions\Event\DeleteEventAction;
-use App\Livewire\Concerns\HandlesEvents;
-use App\Livewire\Concerns\HandlesComments;
-use App\Livewire\Concerns\HandlesProjects;
-use App\Livewire\Concerns\HandlesFiltering;
+use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
+use App\Actions\Collaboration\CreateCollaborationInvitationAction;
+use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
+use App\Actions\Collaboration\DeleteCollaborationAction;
+use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
 use App\Actions\Comment\CreateCommentAction;
 use App\Actions\Comment\DeleteCommentAction;
 use App\Actions\Comment\UpdateCommentAction;
-use App\Actions\Project\CreateProjectAction;
-use App\Actions\Project\DeleteProjectAction;
-use App\Actions\Task\UpdateTaskPropertyAction;
-use App\Livewire\Concerns\HandlesActivityLogs;
-use App\Actions\Task\CreateTaskExceptionAction;
-use App\Actions\Task\DeleteTaskExceptionAction;
-use App\Livewire\Concerns\HandlesCalendarFeeds;
-use App\Livewire\Concerns\HandlesWorkspaceCalendar;
-use App\Livewire\Concerns\HandlesFocusSessions;
-use App\Actions\Event\UpdateEventPropertyAction;
-use App\Livewire\Concerns\HandlesCollaborations;
+use App\Actions\Event\CreateEventAction;
 use App\Actions\Event\CreateEventExceptionAction;
+use App\Actions\Event\DeleteEventAction;
 use App\Actions\Event\DeleteEventExceptionAction;
-use App\Livewire\Concerns\HandlesPomodoroSettings;
-use App\Actions\Project\UpdateProjectPropertyAction;
-use App\Actions\FocusSession\PauseFocusSessionAction;
-use App\Actions\FocusSession\StartFocusSessionAction;
-use App\Actions\FocusSession\ResumeFocusSessionAction;
-use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
+use App\Actions\Event\UpdateEventPropertyAction;
 use App\Actions\FocusSession\AbandonFocusSessionAction;
-use App\Actions\Pomodoro\CompletePomodoroSessionAction;
-use App\Actions\Collaboration\DeleteCollaborationAction;
 use App\Actions\FocusSession\CompleteFocusSessionAction;
 use App\Actions\FocusSession\GetActiveFocusSessionAction;
-use App\Actions\Pomodoro\GetPomodoroSequenceNumberAction;
-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use App\Actions\FocusSession\PauseFocusSessionAction;
+use App\Actions\FocusSession\ResumeFocusSessionAction;
+use App\Actions\FocusSession\StartFocusSessionAction;
+use App\Actions\Pomodoro\CompletePomodoroSessionAction;
 use App\Actions\Pomodoro\GetNextPomodoroSessionTypeAction;
 use App\Actions\Pomodoro\GetOrCreatePomodoroSettingsAction;
-use App\Actions\Collaboration\AcceptCollaborationInvitationAction;
-use App\Actions\Collaboration\CreateCollaborationInvitationAction;
-use App\Actions\Collaboration\UpdateCollaborationPermissionAction;
-use App\Actions\Collaboration\DeclineCollaborationInvitationAction;
+use App\Actions\Pomodoro\GetPomodoroSequenceNumberAction;
+use App\Actions\Pomodoro\UpdatePomodoroSettingsAction;
+use App\Actions\Project\CreateProjectAction;
+use App\Actions\Project\DeleteProjectAction;
+use App\Actions\Project\UpdateProjectPropertyAction;
+use App\Actions\SchoolClass\CreateSchoolClassAction;
+use App\Actions\SchoolClass\DeleteSchoolClassAction;
+use App\Actions\SchoolClass\ForceDeleteSchoolClassAction;
+use App\Actions\SchoolClass\RestoreSchoolClassAction;
+use App\Actions\SchoolClass\UpdateSchoolClassPropertyAction;
+use App\Actions\Tag\CreateTagAction;
+use App\Actions\Tag\DeleteTagAction;
+use App\Actions\Teacher\CreateTeacherAction;
+use App\Actions\Teacher\DeleteTeacherAction;
+use App\Actions\Teacher\UpdateTeacherAction;
+use App\Actions\Task\CreateTaskAction;
+use App\Actions\Task\CreateTaskExceptionAction;
+use App\Actions\Task\DeleteTaskAction;
+use App\Actions\Task\DeleteTaskExceptionAction;
+use App\Actions\Task\UpdateTaskPropertyAction;
+use App\Actions\Workspace\AlignWorkspaceForScheduledPlanItemAction;
+use App\Enums\AssistantSchedulePlanItemStatus;
+use App\Enums\EventStatus;
+use App\Enums\TaskSourceType;
+use App\Enums\TaskStatus;
+use App\Livewire\Concerns\HandlesActivityLogs;
+use App\Livewire\Concerns\HandlesCalendarFeeds;
+use App\Livewire\Concerns\HandlesCollaborations;
+use App\Livewire\Concerns\HandlesComments;
+use App\Livewire\Concerns\HandlesEvents;
+use App\Livewire\Concerns\HandlesFiltering;
+use App\Livewire\Concerns\HandlesFocusSessions;
+use App\Livewire\Concerns\HandlesPomodoroSettings;
+use App\Livewire\Concerns\HandlesProjects;
+use App\Livewire\Concerns\HandlesSchoolClasses;
+use App\Livewire\Concerns\HandlesTags;
+use App\Livewire\Concerns\HandlesTeachers;
+use App\Livewire\Concerns\HandlesTasks;
+use App\Livewire\Concerns\HandlesWorkspaceCalendar;
+use App\Models\AssistantSchedulePlanItem;
+use App\Models\CalendarFeed;
+use App\Models\Event;
+use App\Models\Project;
+use App\Models\SchoolClass;
+use App\Models\Tag;
+use App\Models\Task;
+use App\Models\Teacher;
+use App\Models\User;
+use App\Services\EventService;
+use App\Services\ProjectService;
+use App\Services\SchoolClassService;
+use App\Services\TagService;
+use App\Services\TeacherService;
+use App\Services\TaskService;
+use App\Support\WorkspaceListAggregator;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Model;
-use App\Actions\Workspace\AlignWorkspaceForScheduledPlanItemAction;
-use App\Support\WorkspaceListAggregator;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
+use Livewire\Attributes\Async;
+use Livewire\Attributes\Computed;
+use Livewire\Attributes\On;
+use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
+use Livewire\Component;
 
 new
 #[Title('Workspace')]
@@ -83,17 +97,19 @@ class extends Component
 {
     use AuthorizesRequests;
     use HandlesActivityLogs;
+    use HandlesCalendarFeeds;
     use HandlesCollaborations;
     use HandlesComments;
-    use HandlesCalendarFeeds;
-    use HandlesWorkspaceCalendar;
     use HandlesEvents;
     use HandlesFiltering;
     use HandlesFocusSessions;
     use HandlesPomodoroSettings;
     use HandlesProjects;
+    use HandlesSchoolClasses;
     use HandlesTags;
+    use HandlesTeachers;
     use HandlesTasks;
+    use HandlesWorkspaceCalendar;
 
     private const FEED_HEALTH_LIMIT = 5;
 
@@ -111,6 +127,9 @@ class extends Component
 
     #[Url(as: 'project')]
     public ?int $focusProjectId = null;
+
+    #[Url(as: 'school_class')]
+    public ?int $focusSchoolClassId = null;
 
     /**
      * Global item pagination for the workspace list (across tasks, events, projects).
@@ -163,19 +182,37 @@ class extends Component
 
     protected EventService $eventService;
 
+    protected SchoolClassService $schoolClassService;
+
     protected TagService $tagService;
+
+    protected TeacherService $teacherService;
 
     protected CreateEventAction $createEventAction;
 
     protected CreateProjectAction $createProjectAction;
 
+    protected CreateSchoolClassAction $createSchoolClassAction;
+
+    protected DeleteSchoolClassAction $deleteSchoolClassAction;
+
+    protected RestoreSchoolClassAction $restoreSchoolClassAction;
+
+    protected ForceDeleteSchoolClassAction $forceDeleteSchoolClassAction;
+
+    protected UpdateSchoolClassPropertyAction $updateSchoolClassPropertyAction;
+
     protected CreateTagAction $createTagAction;
+
+    protected CreateTeacherAction $createTeacherAction;
 
     protected CreateTaskAction $createTaskAction;
 
     protected DeleteEventAction $deleteEventAction;
 
     protected DeleteTagAction $deleteTagAction;
+
+    protected DeleteTeacherAction $deleteTeacherAction;
 
     protected DeleteProjectAction $deleteProjectAction;
 
@@ -186,6 +223,8 @@ class extends Component
     protected UpdateProjectPropertyAction $updateProjectPropertyAction;
 
     protected UpdateTaskPropertyAction $updateTaskPropertyAction;
+
+    protected UpdateTeacherAction $updateTeacherAction;
 
     protected CreateTaskExceptionAction $createTaskExceptionAction;
 
@@ -252,18 +291,28 @@ class extends Component
         TaskService $taskService,
         ProjectService $projectService,
         EventService $eventService,
+        SchoolClassService $schoolClassService,
         TagService $tagService,
+        TeacherService $teacherService,
         CreateEventAction $createEventAction,
         CreateProjectAction $createProjectAction,
+        CreateSchoolClassAction $createSchoolClassAction,
+        DeleteSchoolClassAction $deleteSchoolClassAction,
+        RestoreSchoolClassAction $restoreSchoolClassAction,
+        ForceDeleteSchoolClassAction $forceDeleteSchoolClassAction,
+        UpdateSchoolClassPropertyAction $updateSchoolClassPropertyAction,
         CreateTagAction $createTagAction,
+        CreateTeacherAction $createTeacherAction,
         CreateTaskAction $createTaskAction,
         DeleteEventAction $deleteEventAction,
         DeleteProjectAction $deleteProjectAction,
         DeleteTagAction $deleteTagAction,
+        DeleteTeacherAction $deleteTeacherAction,
         DeleteTaskAction $deleteTaskAction,
         UpdateEventPropertyAction $updateEventPropertyAction,
         UpdateProjectPropertyAction $updateProjectPropertyAction,
         UpdateTaskPropertyAction $updateTaskPropertyAction,
+        UpdateTeacherAction $updateTeacherAction,
         CreateTaskExceptionAction $createTaskExceptionAction,
         DeleteTaskExceptionAction $deleteTaskExceptionAction,
         CreateEventExceptionAction $createEventExceptionAction,
@@ -291,18 +340,28 @@ class extends Component
         $this->taskService = $taskService;
         $this->projectService = $projectService;
         $this->eventService = $eventService;
+        $this->schoolClassService = $schoolClassService;
         $this->tagService = $tagService;
+        $this->teacherService = $teacherService;
         $this->createEventAction = $createEventAction;
         $this->createProjectAction = $createProjectAction;
+        $this->createSchoolClassAction = $createSchoolClassAction;
+        $this->deleteSchoolClassAction = $deleteSchoolClassAction;
+        $this->restoreSchoolClassAction = $restoreSchoolClassAction;
+        $this->forceDeleteSchoolClassAction = $forceDeleteSchoolClassAction;
+        $this->updateSchoolClassPropertyAction = $updateSchoolClassPropertyAction;
         $this->createTagAction = $createTagAction;
+        $this->createTeacherAction = $createTeacherAction;
         $this->createTaskAction = $createTaskAction;
         $this->deleteEventAction = $deleteEventAction;
         $this->deleteProjectAction = $deleteProjectAction;
         $this->deleteTagAction = $deleteTagAction;
+        $this->deleteTeacherAction = $deleteTeacherAction;
         $this->deleteTaskAction = $deleteTaskAction;
         $this->updateEventPropertyAction = $updateEventPropertyAction;
         $this->updateProjectPropertyAction = $updateProjectPropertyAction;
         $this->updateTaskPropertyAction = $updateTaskPropertyAction;
+        $this->updateTeacherAction = $updateTeacherAction;
         $this->createTaskExceptionAction = $createTaskExceptionAction;
         $this->deleteTaskExceptionAction = $deleteTaskExceptionAction;
         $this->createEventExceptionAction = $createEventExceptionAction;
@@ -349,7 +408,9 @@ class extends Component
             $this->authorize('viewAny', Task::class);
             $this->authorize('viewAny', Event::class);
             $this->authorize('viewAny', Project::class);
+            $this->authorize('viewAny', SchoolClass::class);
             $this->authorize('viewAny', Tag::class);
+            $this->authorize('viewAny', Teacher::class);
         }
         if ($this->selectedDate === null || $this->selectedDate === '' || strtotime($this->selectedDate) === false) {
             $this->selectedDate = now()->toDateString();
@@ -360,33 +421,121 @@ class extends Component
         $this->syncFilterTagIdFromTagIds();
         $this->activeFocusSession = $this->getActiveFocusSession();
         $this->applyWorkspaceDeepLinkFocus();
+        $this->handleDashboardFilterToastOnLoad();
+    }
+
+    protected function handleDashboardFilterToastOnLoad(): void
+    {
+        $source = strtolower(trim((string) request()->query('from_dashboard_filter', '')));
+        if ($source === '') {
+            return;
+        }
+
+        $message = match ($source) {
+            'doing' => __('Showing Doing tasks.'),
+            'classes' => __('Showing Classes.'),
+            'recurring' => __('Showing Recurring tasks.'),
+            default => null,
+        };
+
+        if ($message === null) {
+            return;
+        }
+
+        $this->dispatch('toast', type: 'info', message: $message);
+
+        $this->js(<<<'JS'
+            (() => {
+                const url = new URL(window.location.href);
+                if (!url.searchParams.has('from_dashboard_filter')) {
+                    return;
+                }
+                url.searchParams.delete('from_dashboard_filter');
+                window.history.replaceState(window.history.state, '', url.toString());
+            })();
+        JS);
     }
 
     /**
      * Focus a task or event from the sidebar calendar agenda without merging stale query-string focus ids.
+     * Does not set the "Show" item-type filter (unlike URL deep links). If the row is not in the merged list
+     * under the current date and filters, aligns the workspace date to the item when possible and clears
+     * filters (same idea as {@see focusFromScheduledPlanItem}), then expands pagination so the row can load.
      */
     public function focusCalendarAgendaItem(string $kind, int $id, bool $expandPagination = true): void
     {
-        if ($id < 1 || ! in_array($kind, ['task', 'event', 'project'], true)) {
+        if ($id < 1 || ! in_array($kind, ['task', 'event', 'project', 'schoolClass'], true)) {
             return;
         }
 
         $this->focusTaskId = null;
         $this->focusEventId = null;
         $this->focusProjectId = null;
+        $this->focusSchoolClassId = null;
 
-        if ($kind === 'task') {
+        $seedTaskVisibilityInKanban = $kind === 'task' && $this->viewMode === 'kanban';
+        if ($seedTaskVisibilityInKanban) {
+            // In kanban, keep existing behavior: allow immediate in-board focus resolution
+            // without clearing pinned filters when the card can already be found.
             $this->focusTaskId = $id;
-        } elseif ($kind === 'event') {
-            $this->focusEventId = $id;
-        } else {
-            $this->focusProjectId = $id;
         }
 
         $this->preserveCurrentViewModeForFocus = true;
 
         try {
-            $this->applyWorkspaceDeepLinkFocus(false, $expandPagination);
+            $model = match ($kind) {
+                'task' => $this->resolveDeepLinkModel(Task::class, $id),
+                'event' => $this->resolveDeepLinkModel(Event::class, $id),
+                'project' => $this->resolveDeepLinkModel(Project::class, $id),
+                default => $this->resolveDeepLinkModel(SchoolClass::class, $id),
+            };
+
+            if ($model === null) {
+                return;
+            }
+
+            $didExpand = false;
+
+            if ($expandPagination) {
+                $didExpand = $this->expandPaginationUntilFocusItemVisible($kind, $id);
+            }
+
+            if ($expandPagination && ! $didExpand) {
+                $anchorDate = $this->resolveWorkspaceAnchorDateStringForModel($kind, $model);
+                $currentDate = $this->getParsedSelectedDate()->toDateString();
+
+                if ($anchorDate !== null && $anchorDate !== $currentDate) {
+                    $this->selectedDate = $anchorDate;
+                    $this->parsedSelectedDate = null;
+                    $this->dispatch('toast', type: 'info', message: __('Switched to :date for this item.', [
+                        'date' => \Carbon\Carbon::parse($anchorDate)->translatedFormat('l, F j, Y'),
+                    ]));
+                }
+
+                $this->clearAllFilters();
+                // Refresh computed list sources before the retry so we do not reuse stale
+                // in-request collections that were built under the previous filter/date state.
+                $this->clearPaginatedWorkspaceListCaches();
+                unset($this->overdue);
+                $this->expandPaginationUntilFocusItemVisible($kind, $id);
+            }
+
+            if ($kind === 'task') {
+                $this->focusTaskId = $id;
+            } elseif ($kind === 'event') {
+                $this->focusEventId = $id;
+            } elseif ($kind === 'project') {
+                $this->focusProjectId = $id;
+            } else {
+                $this->focusSchoolClassId = $id;
+            }
+
+            $this->applyWorkspaceDeepLinkFocus(
+                mergeQuery: false,
+                expandPagination: false,
+                applyItemTypeToFilters: false,
+                clearSearch: false,
+            );
         } finally {
             $this->preserveCurrentViewModeForFocus = false;
         }
@@ -398,6 +547,7 @@ class extends Component
         $this->focusTaskId = null;
         $this->focusEventId = null;
         $this->focusProjectId = null;
+        $this->focusSchoolClassId = null;
     }
 
     #[On('workspace-bell-focus-item')]
@@ -567,6 +717,7 @@ class extends Component
             $this->projects,
             $this->events,
             $this->tasks,
+            $this->schoolClassesForWorkspaceList,
         );
     }
 
@@ -582,7 +733,56 @@ class extends Component
             $this->completedProjects,
             $this->completedEvents,
             $this->completedTasks,
+            collect(),
         );
+    }
+
+    protected function dispatchWorkspaceVisibilityToastForCreatedItem(string $kind, Model $model): void
+    {
+        if (! in_array($kind, ['task', 'event', 'project', 'schoolClass'], true)) {
+            return;
+        }
+
+        if ($this->viewMode === 'kanban' && $kind !== 'task') {
+            $this->dispatch('toast', type: 'info', message: __('Item no longer matches this view. Switch view or Show filters to see it again.'));
+
+            return;
+        }
+
+        $this->clearPaginatedWorkspaceListCaches();
+        unset($this->overdue);
+
+        $itemId = (int) $model->getKey();
+        $isVisible = $this->getAllListEntries()->contains(
+            fn (array $entry): bool => ($entry['kind'] ?? null) === $kind
+                && (int) ($entry['item']->id ?? 0) === $itemId
+        );
+
+        if ($isVisible) {
+            return;
+        }
+
+        $filters = $this->getFilters();
+        $reason = 'filter';
+        $searchScope = (string) ($filters['searchScope'] ?? 'selected_date');
+        if ($searchScope !== 'all_items') {
+            $anchorDate = $this->resolveWorkspaceAnchorDateStringForModel($kind, $model);
+            if ($anchorDate !== null && $anchorDate !== $this->getParsedSelectedDate()->toDateString()) {
+                $reason = 'date';
+            }
+        }
+
+        if (($filters['hasActiveSearch'] ?? false) === true) {
+            $reason = 'search';
+        }
+
+        $message = match ($reason) {
+            'date' => __('Item moved out of this date view. Pick its date or switch search to all items.'),
+            'search' => __('Item no longer matches current search. Clear search or switch scope.'),
+            default => __('Item no longer matches active filters. Clear or adjust filters to see it again.'),
+        };
+
+        $this->dispatch('toast', type: 'info', message: $message);
     }
 
     /**
@@ -1013,13 +1213,22 @@ class extends Component
             .trans_choice(':count minute|:count minutes', $remainingMinutes, ['count' => $remainingMinutes]);
     }
 
-    protected function applyWorkspaceDeepLinkFocus(bool $mergeQuery = true, bool $expandPagination = true): void
-    {
+    protected function applyWorkspaceDeepLinkFocus(
+        bool $mergeQuery = true,
+        bool $expandPagination = true,
+        bool $applyItemTypeToFilters = true,
+        bool $clearSearch = true,
+    ): void {
         if ($mergeQuery) {
             $this->mergeWorkspaceFocusFromRequestQuery();
         }
 
-        if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null) {
+        if (request()->query($this->agendaWorkspaceFocusQueryParam()) === '1') {
+            $applyItemTypeToFilters = false;
+            $clearSearch = false;
+        }
+
+        if ($this->focusTaskId === null && $this->focusEventId === null && $this->focusProjectId === null && $this->focusSchoolClassId === null) {
             return;
         }
 
@@ -1027,6 +1236,7 @@ class extends Component
             $this->focusTaskId = null;
             $this->focusEventId = null;
             $this->focusProjectId = null;
+            $this->focusSchoolClassId = null;
 
             return;
         }
@@ -1034,13 +1244,14 @@ class extends Component
         if ($this->focusTaskId !== null) {
             $this->focusEventId = null;
             $this->focusProjectId = null;
+            $this->focusSchoolClassId = null;
             $task = $this->resolveDeepLinkModel(Task::class, $this->focusTaskId);
             if (! $task instanceof Task) {
                 $this->focusTaskId = null;
 
                 return;
             }
-            $this->applyDeepLinkListShell('tasks');
+            $this->applyDeepLinkListShell('tasks', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('task', $task->id);
             }
@@ -1050,13 +1261,14 @@ class extends Component
 
         if ($this->focusEventId !== null) {
             $this->focusProjectId = null;
+            $this->focusSchoolClassId = null;
             $event = $this->resolveDeepLinkModel(Event::class, $this->focusEventId);
             if (! $event instanceof Event) {
                 $this->focusEventId = null;
 
                 return;
             }
-            $this->applyDeepLinkListShell('events');
+            $this->applyDeepLinkListShell('events', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('event', $event->id);
             }
@@ -1065,15 +1277,31 @@ class extends Component
         }
 
         if ($this->focusProjectId !== null) {
+            $this->focusSchoolClassId = null;
             $project = $this->resolveDeepLinkModel(Project::class, $this->focusProjectId);
             if (! $project instanceof Project) {
                 $this->focusProjectId = null;
 
                 return;
             }
-            $this->applyDeepLinkListShell('projects');
+            $this->applyDeepLinkListShell('projects', $applyItemTypeToFilters, $clearSearch);
             if ($expandPagination) {
                 $this->expandPaginationUntilFocusItemVisible('project', $project->id);
+            }
+
+            return;
+        }
+
+        if ($this->focusSchoolClassId !== null) {
+            $schoolClass = $this->resolveDeepLinkModel(SchoolClass::class, $this->focusSchoolClassId);
+            if (! $schoolClass instanceof SchoolClass) {
+                $this->focusSchoolClassId = null;
+
+                return;
+            }
+            $this->applyDeepLinkListShell('classes', $applyItemTypeToFilters, $clearSearch);
+            if ($expandPagination) {
+                $this->expandPaginationUntilFocusItemVisible('schoolClass', $schoolClass->id);
             }
         }
     }
@@ -1106,15 +1334,80 @@ class extends Component
         return $model;
     }
 
-    protected function applyDeepLinkListShell(string $filterItemType): void
-    {
+    /**
+     * @param  'tasks'|'events'|'projects'|'classes'  $filterItemType
+     */
+    protected function applyDeepLinkListShell(
+        string $filterItemType,
+        bool $applyItemTypeToFilters = true,
+        bool $clearSearch = true,
+    ): void {
         if (! $this->preserveCurrentViewModeForFocus) {
             $this->viewMode = 'list';
         }
-        $this->searchQuery = null;
-        $this->filterItemType = $filterItemType;
+        if ($clearSearch) {
+            $this->searchQuery = null;
+        }
+        if ($applyItemTypeToFilters) {
+            $this->filterItemType = $filterItemType;
+        }
         $this->listContextProjectId = null;
         $this->listContextEventId = null;
+    }
+
+    /**
+     * Calendar date to jump to when aligning the workspace so an agenda item can appear in the list
+     * (due date for tasks; start date for events and projects when present).
+     */
+    protected function resolveWorkspaceAnchorDateStringForModel(string $kind, Model $model): ?string
+    {
+        $timezone = (string) config('app.timezone', 'UTC');
+
+        if ($kind === 'task' && $model instanceof Task) {
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        if ($kind === 'event' && $model instanceof Event) {
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        if ($kind === 'project' && $model instanceof Project) {
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        if ($kind === 'schoolClass' && $model instanceof SchoolClass) {
+            if ($model->start_datetime !== null) {
+                return $model->start_datetime->copy()->timezone($timezone)->toDateString();
+            }
+            if ($model->end_datetime !== null) {
+                return $model->end_datetime->copy()->timezone($timezone)->toDateString();
+            }
+
+            return null;
+        }
+
+        return null;
     }
 
     /**
@@ -1128,6 +1421,7 @@ class extends Component
                 $this->focusTaskId = $tid;
                 $this->focusEventId = null;
                 $this->focusProjectId = null;
+                $this->focusSchoolClassId = null;
             }
 
             return;
@@ -1139,6 +1433,7 @@ class extends Component
                 $this->focusEventId = $eid;
                 $this->focusTaskId = null;
                 $this->focusProjectId = null;
+                $this->focusSchoolClassId = null;
             }
 
             return;
@@ -1150,6 +1445,19 @@ class extends Component
                 $this->focusProjectId = $pid;
                 $this->focusTaskId = null;
                 $this->focusEventId = null;
+                $this->focusSchoolClassId = null;
+            }
+
+            return;
+        }
+
+        if (request()->query->has('school_class')) {
+            $sid = (int) request()->query('school_class', 0);
+            if ($sid > 0) {
+                $this->focusSchoolClassId = $sid;
+                $this->focusTaskId = null;
+                $this->focusEventId = null;
+                $this->focusProjectId = null;
             }
         }
     }
@@ -1160,7 +1468,18 @@ class extends Component
      */
     protected function clearPaginatedWorkspaceListCaches(): void
     {
-        unset($this->tasks, $this->events, $this->projects);
+        unset($this->tasks, $this->events, $this->projects, $this->schoolClassesForSelectedDate, $this->schoolClassesForWorkspaceList);
+    }
+
+    /**
+     * True when the merged list has more rows than {@see $itemsPage} × {@see $itemsPerPage} can show (e.g. school classes only).
+     */
+    protected function hasMoreWorkspaceMergedListEntries(): bool
+    {
+        $allItems = $this->getAllListEntries();
+        $effectiveItemsPerPage = max(1, $this->itemsPerPage);
+
+        return $allItems->count() > ($this->itemsPage * $effectiveItemsPerPage);
     }
 
     /**
@@ -1186,7 +1505,7 @@ class extends Component
                 return true;
             }
 
-            if (! $this->hasMoreTasks && ! $this->hasMoreEvents && ! $this->hasMoreProjects) {
+            if (! $this->hasMoreTasks && ! $this->hasMoreEvents && ! $this->hasMoreProjects && ! $this->hasMoreWorkspaceMergedListEntries()) {
                 break;
             }
 
@@ -1231,8 +1550,8 @@ class extends Component
 
         $overdueAsOf = now();
 
-        // Early return: Skip overdue queries if filtered to projects only
-        if ($filterItemType === 'projects') {
+        // Early return: Skip overdue queries if filtered to projects/classes only
+        if ($filterItemType === 'projects' || $filterItemType === 'classes') {
             return collect();
         }
 

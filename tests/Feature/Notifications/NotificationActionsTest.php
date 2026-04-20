@@ -8,6 +8,7 @@ use App\Events\UserNotificationCreated;
 use App\Http\Middleware\ValidateWorkOSSession;
 use App\Models\DatabaseNotification;
 use App\Models\User;
+use App\Support\WorkspaceAgendaFocusUrl;
 use Illuminate\Support\Facades\Event;
 
 beforeEach(function (): void {
@@ -352,6 +353,35 @@ test('prepare open redirect opens workspace for newly actionable task-stalled no
 
     $url = app(PrepareNotificationOpenRedirectForUserAction::class)->execute($user, $notification->id);
 
-    expect($url)->toBe(route('workspace', ['date' => $today, 'type' => 'tasks', 'task' => 77, 'view' => 'list']))
+    expect($url)->toBe(WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus($today, 'task', 77))
+        ->and($notification->fresh()->read_at)->not->toBeNull();
+});
+
+test('prepare open redirect opens workspace for school class reminders', function (): void {
+    $user = User::factory()->create();
+    $today = now()->toDateString();
+
+    $notification = DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'type' => 'school_class_start_soon',
+            'title' => 'Class starts soon',
+            'message' => '',
+            'route' => 'workspace',
+            'params' => [
+                'date' => $today,
+                'type' => 'classes',
+                'school_class' => 88,
+            ],
+        ],
+        'read_at' => null,
+    ]);
+
+    $url = app(PrepareNotificationOpenRedirectForUserAction::class)->execute($user, $notification->id);
+
+    expect($url)->toBe(WorkspaceAgendaFocusUrl::workspaceRouteForAgendaStyleFocus($today, 'school_class', 88))
         ->and($notification->fresh()->read_at)->not->toBeNull();
 });

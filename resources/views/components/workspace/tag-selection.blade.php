@@ -277,6 +277,7 @@
                     placeholder="{{ __('Create tag...') }}"
                     size="sm"
                     class="flex-1"
+                    maxlength="{{ \App\Models\Tag::MAX_NAME_LENGTH }}"
                     @keydown.enter.prevent="!creatingTag && newTagName?.trim() && $dispatch('tag-create-request', { tagName: newTagName })"
                 />
                 <button

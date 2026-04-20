@@ -21,6 +21,15 @@ return [
         60,
     ],
 
+    'school_class_start_soon_offsets_minutes' => [
+        15,
+        60,
+    ],
+
+    'school_class_ending_soon_offsets_minutes' => [
+        10,
+    ],
+
     'daily_due_summary_hour' => 7,
     'task_stalled_hours' => 72,
     'project_deadline_risk_days' => 7,

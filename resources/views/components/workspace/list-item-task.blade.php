@@ -103,17 +103,10 @@
     $canEditDates = $currentUserIsOwner && $canEdit;
     $canEditTags = $currentUserIsOwner && $canEdit;
 
-    $subjectDisplay = trim((string) ($item->subject_name ?? ''));
-    $teacherDisplay = trim((string) ($item->teacher_name ?? ''));
-    $showCourseContextPill = $subjectDisplay !== '' || $teacherDisplay !== '';
     $hasTaskTags = $item->tags->isNotEmpty();
     $hasProjectParent = (bool) ($item->project_id && $item->project);
     $hasEventParent = (bool) ($item->event_id && $item->event);
-    $courseContextTooltip = collect([$subjectDisplay, $teacherDisplay])
-        ->filter(fn (string $v): bool => $v !== '')
-        ->implode(' · ');
-    $courseContextPillCompactLine = \App\Support\CourseContextPillFormatter::compactLine($subjectDisplay, $teacherDisplay)
-        ?? '';
+    $hasSchoolClassParent = (bool) ($item->school_class_id && $item->schoolClass);
 
     // Server-render the initial task-progress bar state to avoid Alpine init flicker.
     // Alpine takes over after hydration via `taskFocus*` getters.
@@ -902,20 +895,6 @@
                 </span>
             @endif
 
-            @if($showCourseContextPill)
-                <flux:tooltip content="{{ $courseContextTooltip }}" position="top" align="start">
-                    <span
-                        tabindex="0"
-                        class="inline-flex max-w-[min(100%,12rem)] cursor-default items-center gap-1 rounded-full border border-border/60 bg-muted px-2 py-1 font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                        <flux:icon name="book-open" class="size-3 shrink-0" />
-                        <span class="min-w-0 truncate text-[10px] font-semibold uppercase leading-tight">
-                            {{ $courseContextPillCompactLine }}
-                        </span>
-                    </span>
-                </flux:tooltip>
-            @endif
-
         </div>
     @endif
 
@@ -1140,7 +1119,7 @@
                         <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                             {{ __('Duration') }}:
                         </span>
-                        <span class="uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
+                        <span class="font-bold uppercase" x-text="formatDurationLabel(duration)">{{ $durationInitialLabel }}</span>
                     </span>
                     <flux:icon name="chevron-down" class="size-3 focus-hide-chevron" />
                 </button>
@@ -1232,7 +1211,7 @@
                     <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
                         {{ __('Duration') }}:
                     </span>
-                    <span class="uppercase">
+                    <span class="font-bold uppercase">
                         {{ $durationInitialLabel }}
                     </span>
                 </span>
@@ -1351,20 +1330,6 @@
 
 @unless($useKanbanCompact)
 <div class="flex flex-wrap items-center gap-2">
-    @if($showCourseContextPill)
-        <flux:tooltip content="{{ $courseContextTooltip }}" position="top" align="start">
-            <span
-                tabindex="0"
-                class="inline-flex cursor-default items-start gap-1.5 rounded-full border border-border/60 bg-muted px-2.5 py-0.5 font-medium text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-                <flux:icon name="book-open" class="size-3 shrink-0 mt-0.5" />
-                <span class="max-w-[220px] truncate text-[10px] font-semibold uppercase leading-tight">
-                    {{ $courseContextPillCompactLine }}
-                </span>
-            </span>
-        </flux:tooltip>
-    @endif
-
     @unless(($layout ?? 'list') === 'kanban')
     @if($canEdit)
         @if(! (($embedInFocusModal ?? false) && ! $hasProjectParent))
@@ -1426,6 +1391,43 @@
                 </span>
             </x-workspace.event-parent-popover>
         @endif
+
+        @if(! (($embedInFocusModal ?? false) && ! $hasSchoolClassParent))
+            <x-workspace.school-class-parent-popover
+                :task-id="$item->id"
+                :current-school-class-id="$item->school_class_id"
+                :current-school-class-subject="$item->schoolClass?->subject_name"
+                :current-school-class-teacher-name="$item->schoolClass?->teacher?->name"
+            >
+                <span
+                    x-show="kind === 'task'"
+                    class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-800 dark:border-white/10 dark:text-amber-200"
+                >
+                    <flux:icon name="book-open" class="size-3" />
+                    <span
+                        class="inline-flex items-baseline gap-1"
+                        style="{{ ($item->school_class_id && $item->schoolClass) ? '' : 'display: none;' }}"
+                        x-show="showSchoolClassPill"
+                    >
+                        <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ __('Class') }}:</span>
+                        <span class="truncate max-w-[120px] uppercase" x-text="itemSchoolClassSubject ?? ''">{{ $item->schoolClass?->subject_name ?? '' }}</span>
+                        <span
+                            x-show="itemSchoolClassTeacherName"
+                            x-cloak
+                            class="truncate max-w-[120px] uppercase opacity-70"
+                            x-text="'· ' + (itemSchoolClassTeacherName ?? '')"
+                        ></span>
+                    </span>
+                    <span
+                        class="inline-flex items-baseline gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-70"
+                        style="{{ ($item->school_class_id && $item->schoolClass) ? 'display: none;' : '' }}"
+                        x-show="!showSchoolClassPill"
+                    >
+                        {{ __('Put in class') }}
+                    </span>
+                </span>
+            </x-workspace.school-class-parent-popover>
+        @endif
     @else
         <span
             x-show="kind === 'task' && showProjectPill"
@@ -1452,6 +1454,26 @@
                     {{ __('Event') }}:
                 </span>
                 <span class="truncate max-w-[120px] uppercase">{{ $item->event?->title ?? '' }}</span>
+            </span>
+        </span>
+
+        <span
+            x-show="kind === 'task' && showSchoolClassPill"
+            x-cloak
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-800 dark:border-white/10 dark:text-amber-200"
+        >
+            <flux:icon name="book-open" class="size-3" />
+            <span class="inline-flex items-baseline gap-1">
+                <span class="text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {{ __('Class') }}:
+                </span>
+                <span class="truncate max-w-[120px] uppercase" x-text="itemSchoolClassSubject ?? ''">{{ $item->schoolClass?->subject_name ?? '' }}</span>
+                <span
+                    x-show="itemSchoolClassTeacherName"
+                    x-cloak
+                    class="truncate max-w-[120px] uppercase opacity-70"
+                    x-text="'· ' + (itemSchoolClassTeacherName ?? '')"
+                ></span>
             </span>
         </span>
     @endif

@@ -97,6 +97,19 @@ test('scope active for date includes projects when date is within start and end 
     expect($projects->contains('id', $project->id))->toBeTrue();
 });
 
+test('scope active for date includes project ending on selected day when start is before that day', function (): void {
+    $timezone = (string) config('app.timezone', 'UTC');
+    $day = Carbon::parse('2025-02-10 00:00:00', $timezone)->startOfDay();
+    $project = Project::factory()->for($this->owner)->create([
+        'start_datetime' => Carbon::parse('2025-02-01 10:00:00', $timezone),
+        'end_datetime' => Carbon::parse('2025-02-10 15:00:00', $timezone),
+    ]);
+
+    $projects = Project::query()->forUser($this->owner->id)->activeForDate($day)->get();
+
+    expect($projects->contains('id', $project->id))->toBeTrue();
+});
+
 test('scope overdue returns projects with end_datetime before given date', function (): void {
     $pastEnd = Project::factory()->for($this->owner)->create([
         'end_datetime' => Carbon::parse('2025-02-05'),

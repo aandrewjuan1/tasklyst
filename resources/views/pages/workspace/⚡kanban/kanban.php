@@ -23,6 +23,8 @@ new class extends Component
 
     public Collection $tags;
 
+    public Collection $teachers;
+
     /**
      * @var Collection<int, array{kind: string, item: mixed, isOverdue: bool}>
      */

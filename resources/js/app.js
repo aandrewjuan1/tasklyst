@@ -5,6 +5,8 @@ import { kanbanBoard } from './alpine/kanban-board.js';
 import { dashboardAnalyticsCharts } from './alpine/dashboard-analytics-charts.js';
 import { consumeWorkspaceFocusQueryParams, initWorkspaceDeepLinkFocus, runWorkspaceFocusFromUrl, runWorkspaceFocusToTarget, workspaceCalendarTryInstantFocus } from './alpine/workspace-focus.js';
 import { initWorkspaceCalendarTodayButtonSync } from './lib/workspace-calendar-today-button.js';
+import { makeSchoolClassTime } from './alpine/school-class-time.js';
+import { calendarFeedsPopover } from './alpine/calendar-feeds-popover.js';
 
 // ECharts is lazy-loaded from dashboard-analytics-charts.js (dynamic import) to keep the main bundle smaller.
 
@@ -16,6 +18,9 @@ document.addEventListener('livewire:init', () => {
     window.Alpine.data('workspaceCalendar', workspaceCalendar);
     window.Alpine.data('kanbanBoard', kanbanBoard);
     window.Alpine.data('dashboardAnalyticsCharts', dashboardAnalyticsCharts);
+    window.Alpine.data('schoolClassTimeStart', () => makeSchoolClassTime('start'));
+    window.Alpine.data('schoolClassTimeEnd', () => makeSchoolClassTime('end'));
+    window.Alpine.data('calendarFeedsPopover', (initial) => calendarFeedsPopover(initial));
     window.runWorkspaceFocusFromUrl = runWorkspaceFocusFromUrl;
     window.runWorkspaceFocusToTarget = runWorkspaceFocusToTarget;
     window.workspaceCalendarTryInstantFocus = workspaceCalendarTryInstantFocus;

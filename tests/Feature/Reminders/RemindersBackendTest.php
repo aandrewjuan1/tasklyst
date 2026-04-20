@@ -17,6 +17,7 @@ use App\Services\EventService;
 use App\Services\FocusSessionService;
 use App\Services\Reminders\ReminderDispatcherService;
 use App\Services\Reminders\ReminderInsightsSchedulerService;
+use App\Services\SchoolClassService;
 use App\Services\TaskService;
 use App\Tools\LLM\TaskAssistant\DelegatingTool;
 use Illuminate\Contracts\Notifications\Dispatcher as NotificationDispatcher;
@@ -259,6 +260,55 @@ test('event create and update schedule start-soon reminders correctly', function
         ->and($cancelledAfterUpdate)->toBeGreaterThanOrEqual(2)
         ->and($scheduledAts)->toContain($newStartAt->copy()->subMinutes(15)->timestamp)
         ->and($scheduledAts)->toContain($newStartAt->copy()->subMinutes(60)->timestamp);
+});
+
+test('school class create schedules start-soon, now-live, ending-soon, and missed reminders', function (): void {
+    /** @var SchoolClassService $service */
+    $service = app(SchoolClassService::class);
+
+    $classDate = now()->addDay()->startOfDay();
+
+    $schoolClass = $service->createSchoolClass($this->user, [
+        'subject_name' => 'Physics 101',
+        'teacher_name' => 'Ms Newton',
+        'start_time' => '09:00:00',
+        'end_time' => '10:00:00',
+        'start_datetime' => $classDate->copy()->setTime(9, 0),
+        'end_datetime' => $classDate->copy()->setTime(10, 0),
+    ]);
+
+    $startSoon = Reminder::query()
+        ->where('remindable_type', $schoolClass->getMorphClass())
+        ->where('remindable_id', $schoolClass->id)
+        ->where('type', ReminderType::SchoolClassStartSoon->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->get();
+
+    $nowLive = Reminder::query()
+        ->where('remindable_type', $schoolClass->getMorphClass())
+        ->where('remindable_id', $schoolClass->id)
+        ->where('type', ReminderType::SchoolClassNowLive->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    $endingSoon = Reminder::query()
+        ->where('remindable_type', $schoolClass->getMorphClass())
+        ->where('remindable_id', $schoolClass->id)
+        ->where('type', ReminderType::SchoolClassEndingSoon->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    $missed = Reminder::query()
+        ->where('remindable_type', $schoolClass->getMorphClass())
+        ->where('remindable_id', $schoolClass->id)
+        ->where('type', ReminderType::SchoolClassMissed->value)
+        ->where('status', ReminderStatus::Pending->value)
+        ->count();
+
+    expect($startSoon)->toHaveCount(2)
+        ->and($nowLive)->toBe(1)
+        ->and($endingSoon)->toBe(1)
+        ->and($missed)->toBe(1);
 });
 
 test('dispatchDueForRemindable only processes reminders for that remindable', function (): void {

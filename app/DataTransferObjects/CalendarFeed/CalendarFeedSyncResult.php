@@ -23,6 +23,10 @@ final readonly class CalendarFeedSyncResult
             return 'success';
         }
 
+        if ($this->status === CalendarFeedSyncStatus::Queued) {
+            return 'info';
+        }
+
         if ($this->status === CalendarFeedSyncStatus::SyncDisabled) {
             return 'warning';
         }
@@ -42,6 +46,7 @@ final readonly class CalendarFeedSyncResult
     {
         return match ($this->status) {
             CalendarFeedSyncStatus::SyncDisabled => __('Sync is turned off for this calendar feed. Turn sync on and try again.'),
+            CalendarFeedSyncStatus::Queued => __('Your calendar sync is running in the background. You’ll get an inbox update when it finishes.'),
             CalendarFeedSyncStatus::HttpFailed => $this->messageForHttpFailure($forConnect),
             CalendarFeedSyncStatus::EmptyBody => $this->messageForEmptyBody($forConnect),
             CalendarFeedSyncStatus::Exception => $forConnect

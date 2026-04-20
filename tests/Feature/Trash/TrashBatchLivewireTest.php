@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\Project;
+use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
 use Livewire\Livewire;
@@ -66,6 +67,19 @@ test('authenticated forceDeleteTrashItems permanently deletes one trashed task',
     expect(Task::withTrashed()->find($taskId))->toBeNull();
 });
 
+test('authenticated forceDeleteTrashItem does not delete an active item', function (): void {
+    $this->actingAs($this->owner);
+    $task = Task::factory()->for($this->owner)->create(['title' => 'Still active']);
+
+    $result = Livewire::test('workspace.trash-popover')
+        ->call('forceDeleteTrashItem', 'task', $task->id);
+
+    $result->assertReturned(false);
+
+    expect(Task::query()->find($task->id))->not->toBeNull()
+        ->and($task->fresh()?->trashed())->toBeFalse();
+});
+
 test('restoreTrashItems restores multiple trashed tasks', function (): void {
     $this->actingAs($this->owner);
     $t1 = Task::factory()->for($this->owner)->create();
@@ -98,6 +112,35 @@ test('restoreTrashItems with mixed kinds restores task and project', function ()
 
     expect($task->refresh()->trashed())->toBeFalse()
         ->and($project->refresh()->trashed())->toBeFalse();
+});
+
+test('restoreTrashItems restores trashed school class', function (): void {
+    $this->actingAs($this->owner);
+    $schoolClass = SchoolClass::factory()->for($this->owner)->create([
+        'subject_name' => 'Physics',
+    ]);
+    $schoolClass->delete();
+    expect($schoolClass->refresh()->trashed())->toBeTrue();
+
+    Livewire::test('workspace.trash-popover')
+        ->call('restoreTrashItems', [['kind' => 'schoolClass', 'id' => $schoolClass->id]]);
+
+    expect($schoolClass->refresh()->trashed())->toBeFalse();
+});
+
+test('forceDeleteTrashItems permanently deletes trashed school class', function (): void {
+    $this->actingAs($this->owner);
+    $schoolClass = SchoolClass::factory()->for($this->owner)->create([
+        'subject_name' => 'Chemistry',
+    ]);
+    $schoolClassId = $schoolClass->id;
+    $schoolClass->delete();
+    expect(SchoolClass::withTrashed()->find($schoolClassId))->not->toBeNull();
+
+    Livewire::test('workspace.trash-popover')
+        ->call('forceDeleteTrashItems', [['kind' => 'schoolClass', 'id' => $schoolClassId]]);
+
+    expect(SchoolClass::withTrashed()->find($schoolClassId))->toBeNull();
 });
 
 test('restoreTrashItems ignores invalid kind and deduplicates', function (): void {

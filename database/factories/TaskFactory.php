@@ -24,6 +24,7 @@ class TaskFactory extends Factory
             'user_id' => User::factory(),
             'project_id' => null,
             'event_id' => null,
+            'school_class_id' => null,
             'title' => $this->faker->sentence(4),
             'description' => $this->faker->optional()->sentence(),
             'status' => $this->faker->randomElement(TaskStatus::cases()),

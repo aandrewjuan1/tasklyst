@@ -10,6 +10,8 @@
     'itemId' => null,
     'readonly' => false,
     'compact' => false,
+    /** School class item creation: trigger matches schedule chip style ("One meeting" + optional date); parent uses named group `group/sc` + `data-schedule-mode`. */
+    'schoolClassMeetingDay' => false,
 ])
 
 @php
@@ -40,6 +42,7 @@
         : (string) $triggerLabel;
 
     $compact = filter_var($compact, FILTER_VALIDATE_BOOLEAN);
+    $schoolClassMeetingDay = filter_var($schoolClassMeetingDay, FILTER_VALIDATE_BOOLEAN);
     $datePickerTriggerAriaLabelBase = (string) $label;
 @endphp
 
@@ -104,6 +107,10 @@
         valueChangedDebounceTimer: null,
         effectiveOverdue: @js($initialEffectiveOverdue),
         baseTriggerLabel: @js((string) $triggerLabel),
+
+        get disabled() {
+            return Boolean(this.readonly);
+        },
 
         init() {
             this.applyInitialValue();
@@ -544,45 +551,77 @@
     data-task-creation-safe
     {{ $attributes }}
 >
-    <button
-        x-ref="button"
-        type="button"
-        @click="toggle()"
-        aria-haspopup="true"
-        :aria-expanded="open"
-        :aria-controls="$id('date-picker-dropdown')"
-        :aria-readonly="readonly"
-        @if($compact)
-            :aria-label="@js($datePickerTriggerAriaLabelBase) + ': ' + formatDisplayValue(currentValue)"
-        @endif
-        @class([
-            'date-picker-trigger inline-flex items-center rounded-full border border-border/60 bg-muted font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out',
-            'gap-1 px-2 py-1' => $compact,
-            'gap-1.5 px-2.5 py-0.5' => ! $compact,
-        ])
-        :class="[
-            { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
-            readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer'
-        ]"
-        data-task-creation-safe
-    >
-        <span class="date-picker-trigger-icon inline-flex">
-            <flux:icon name="clock" class="size-3" />
-        </span>
-        @if(! $compact)
-            <span class="inline-flex items-baseline gap-1">
-                <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
-                </span>
-                <span class="date-picker-trigger-value text-xs uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+    @if ($schoolClassMeetingDay)
+        <button
+            x-ref="button"
+            type="button"
+            @click="toggle()"
+            aria-haspopup="true"
+            :aria-expanded="open"
+            :aria-controls="$id('date-picker-dropdown')"
+            :aria-readonly="readonly"
+            class="inline-flex items-center gap-1.5 rounded-full border border-black/10 bg-muted px-2.5 py-0.5 font-semibold text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out dark:border-white/10 group-data-[schedule-mode=one_off]/sc:bg-amber-800/10 group-data-[schedule-mode=one_off]/sc:text-amber-800"
+            :class="[
+                { 'pointer-events-none shadow-md scale-[1.02]': open },
+                readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer',
+                currentValue && !readonly ? 'bg-amber-800/10 text-amber-800' : '',
+            ]"
+            data-task-creation-safe
+        >
+            <flux:icon name="calendar" class="size-3 shrink-0" />
+            <span class="inline-flex min-w-0 items-baseline gap-1">
+                <span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-70">{{ $triggerLabel }}:</span>
+                <span
+                    class="min-w-0 max-w-[min(100%,12rem)] truncate text-xs font-semibold uppercase leading-tight tabular-nums sm:max-w-[16rem]"
+                    :class="currentValue ? 'text-amber-800' : 'text-muted-foreground'"
+                    x-text="currentValue ? formatDisplayValue(currentValue) : @js(__('Not set'))"
+                >{{ $initialDisplayText !== $notSetLabel ? $initialDisplayText : '' }}</span>
             </span>
-        @else
-            <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
-        @endif
-        @if(!$readonly)
-            <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
-        @endif
-    </button>
+            @if (! $readonly)
+                <flux:icon name="chevron-down" class="size-3 shrink-0 opacity-80" />
+            @endif
+        </button>
+    @else
+        <button
+            x-ref="button"
+            type="button"
+            @click="toggle()"
+            aria-haspopup="true"
+            :aria-expanded="open"
+            :aria-controls="$id('date-picker-dropdown')"
+            :aria-readonly="readonly"
+            @if ($compact)
+                :aria-label="@js($datePickerTriggerAriaLabelBase) + ': ' + formatDisplayValue(currentValue)"
+            @endif
+            @class([
+                'date-picker-trigger inline-flex items-center rounded-full border border-border/60 bg-muted font-medium text-muted-foreground transition-[box-shadow,transform] duration-150 ease-out',
+                'gap-1 px-2 py-1' => $compact,
+                'gap-1.5 px-2.5 py-0.5' => ! $compact,
+            ])
+            :class="[
+                { 'pointer-events-none': open, 'shadow-md scale-[1.02]': open },
+                readonly ? 'cursor-default pointer-events-none opacity-90' : 'cursor-pointer',
+            ]"
+            data-task-creation-safe
+        >
+            <span class="date-picker-trigger-icon inline-flex">
+                <flux:icon name="clock" class="size-3" />
+            </span>
+            @if (! $compact)
+                <span class="inline-flex items-baseline gap-1">
+                    <span class="date-picker-trigger-label text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                        <span x-text="triggerLabelText">{{ $initialTriggerLabelText }}</span>:
+                    </span>
+                    <span class="date-picker-trigger-value text-xs font-bold uppercase" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+                </span>
+            @else
+                <span class="date-picker-trigger-value max-w-[9rem] truncate text-left text-[11px] font-semibold tabular-nums text-muted-foreground sm:max-w-[11rem]" x-text="formatDisplayValue(currentValue)">{{ $initialDisplayText }}</span>
+            @endif
+            @if (! $readonly)
+                <flux:icon name="chevron-down" class="size-3 shrink-0 focus-hide-chevron" />
+            @endif
+        </button>
+    @endif
 
     <div
         x-ref="panel"
@@ -682,49 +721,7 @@
                             Time
                         </span>
 
-                        <div class="flex items-center gap-2">
-                            <input
-                                type="number"
-                                min="1"
-                                max="12"
-                                x-model="hour"
-                                @change="updateTime()"
-                                placeholder="12"
-                                class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-brand-light-blue dark:focus:ring-brand-light-blue"
-                            />
-                            <span class="pb-1 text-sm text-zinc-400 dark:text-zinc-500">:</span>
-                            <input
-                                type="number"
-                                min="0"
-                                max="59"
-                                x-model="minute"
-                                @change="updateTime()"
-                                placeholder="00"
-                                class="h-8 w-12 rounded-lg border border-zinc-200 bg-zinc-50 px-1 text-center text-xs text-zinc-900 shadow-sm outline-none ring-0 focus:border-brand-blue focus:bg-white focus:ring-1 focus:ring-brand-blue dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:border-brand-light-blue dark:focus:ring-brand-light-blue"
-                            />
-                            <div class="inline-flex overflow-hidden rounded-full border border-zinc-200 bg-zinc-50 text-[11px] shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
-                                <button
-                                    type="button"
-                                    class="px-2 py-1 transition-colors"
-                                    :class="ampm === 'AM'
-                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
-                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
-                                    @click.prevent.stop="ampm = 'AM'; updateTime()"
-                                >
-                                    AM
-                                </button>
-                                <button
-                                    type="button"
-                                    class="px-2 py-1 transition-colors"
-                                    :class="ampm === 'PM'
-                                        ? 'bg-brand-blue text-white dark:bg-brand-blue'
-                                        : 'text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800'"
-                                    @click.prevent.stop="ampm = 'PM'; updateTime()"
-                                >
-                                    PM
-                                </button>
-                            </div>
-                        </div>
+                        @include('components.partials.time-12h-controls')
                     </div>
                 </div>
             </div>

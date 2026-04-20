@@ -77,13 +77,21 @@ class SyncCalendarFeedsCommand extends Command
         $this->line(sprintf('Syncing feed #%d (%s)...', $feed->id, $feed->name ?? 'Brightspace'));
 
         try {
-            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: false);
+            $result = $this->syncCalendarFeedAction->execute($feed, notifyUserOnSuccess: false, queue: false);
 
             if ($result->status === CalendarFeedSyncStatus::Completed) {
                 $this->info($result->toastMessage(false));
-            } else {
-                $this->warn($result->toastMessage(false));
+
+                return;
             }
+
+            if ($result->status === CalendarFeedSyncStatus::Queued) {
+                $this->warn('Sync was queued instead of running inline; check queue configuration for calendar:sync-feeds.');
+
+                return;
+            }
+
+            $this->warn($result->toastMessage(false));
         } catch (\Throwable $e) {
             Log::error('Failed to sync calendar feed from console command.', [
                 'feed_id' => $feed->id,

@@ -3,6 +3,7 @@
 use App\Models\Tag;
 use App\Models\User;
 use App\Services\TagService;
+use Illuminate\Validation\ValidationException;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -101,3 +102,9 @@ test('resolveTagIdsFromPayload ignores empty pending names', function (): void {
     expect($ids)->toEqual([]);
     expect(Tag::query()->forUser($this->user->id)->count())->toBe(0);
 });
+
+test('create tag rejects names longer than max length', function (): void {
+    $this->service->createTag($this->user, [
+        'name' => str_repeat('a', Tag::MAX_NAME_LENGTH + 1),
+    ]);
+})->throws(ValidationException::class);

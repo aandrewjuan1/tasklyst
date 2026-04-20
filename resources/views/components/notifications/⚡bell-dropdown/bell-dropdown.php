@@ -38,7 +38,7 @@ new class extends Component
      *   created_at_human: string,
      *   click_opens_workspace: bool,
      *   click_behavior?: 'calendar_feed_sync_completed'|null,
-     *   workspace_focus_kind?: 'task'|'event'|'project'|null,
+     *   workspace_focus_kind?: 'task'|'event'|'project'|'schoolClass'|null,
      *   workspace_focus_id?: int|null,
      *   collaboration_invite?: array<string, mixed>
      * }>

@@ -9,13 +9,22 @@
         messages: {
             taskEndBeforeStart: @js(__('End date must be the same as or after the start date.')),
             taskEndTooSoon: @js(__('End time must be at least :minutes minutes after the start time.', ['minutes' => ':minutes'])),
+            schoolClassEndBeforeStart: @js(__('End time must be after the start time.')),
+            schoolClassNeedScheduleDates: @js(__('Choose schedule start and end dates.')),
+            schoolClassNeedMeetingDate: @js(__('Choose the meeting date.')),
+            schoolClassNeedWeekdays: @js(__('Select at least one weekday for a weekly class.')),
             tagAlreadyExists: @js(__('Tag already exists.')),
+            tagTooLong: @js(__('Tag name cannot exceed :max characters.', ['max' => \App\Models\Tag::MAX_NAME_LENGTH])),
             tagError: @js(__('Something went wrong. Please try again.')),
+            teacherAlreadyExists: @js(__('Teacher already exists.')),
+            teacherTooLong: @js(__('Teacher name cannot exceed :max characters.', ['max' => \App\Models\Teacher::MAX_NAME_LENGTH])),
+            teacherError: @js(__('Something went wrong. Please try again.')),
         },
         errors: {
             dateRange: null,
         },
         tags: @js($tags),
+        teachers: @js($teachers),
         projectNames: @js($projects->pluck('name', 'id')->toArray()),
         init() {
             this.$watch('showItemCreation', (value) => {
@@ -51,9 +60,32 @@
                 startDatetime: null,
                 endDatetime: null,
             },
+            schoolClass: {
+                scheduleMode: 'recurring',
+                subjectName: '',
+                teacherId: null,
+                teacherName: '',
+                scheduleStartDate: null,
+                scheduleEndDate: null,
+                meetingDate: null,
+                startTime: null,
+                endTime: null,
+                recurrence: {
+                    enabled: true,
+                    type: 'weekly',
+                    interval: 1,
+                    daysOfWeek: [],
+                },
+            },
         },
+        taskDraftTitle: '',
+        eventDraftTitle: '',
         validateDateRange() {
             this.errors.dateRange = null;
+
+            if (this.creationKind === 'schoolClass') {
+                return this.validateSchoolClassSchedule();
+            }
 
             const dates = this.creationKind === 'project'
                 ? { start: this.formData.project.startDatetime, end: this.formData.project.endDatetime }
@@ -93,9 +125,110 @@
 
             return true;
         },
+        validateSchoolClassSchedule() {
+            const sc = this.formData.schoolClass;
+            if (!sc.startTime || !sc.endTime) {
+                return true;
+            }
+            if (sc.startTime >= sc.endTime) {
+                this.errors.dateRange = this.messages.schoolClassEndBeforeStart;
+
+                return false;
+            }
+            if (sc.scheduleMode === 'recurring') {
+                if (sc.scheduleStartDate && sc.scheduleEndDate) {
+                    const a = new Date(sc.scheduleStartDate);
+                    const b = new Date(sc.scheduleEndDate);
+                    if (!Number.isNaN(a.getTime()) && !Number.isNaN(b.getTime()) && b.getTime() < a.getTime()) {
+                        this.errors.dateRange = this.messages.taskEndBeforeStart;
+
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        },
+        schoolClassCanSubmit() {
+            const sc = this.formData.schoolClass;
+            if (!sc?.subjectName?.trim() || !String(sc.teacherName || '').trim() || !sc.startTime || !sc.endTime) {
+                return false;
+            }
+            if (sc.scheduleMode === 'recurring') {
+                if (sc.recurrence?.enabled !== true || !sc.recurrence?.type) {
+                    return false;
+                }
+                const t = sc.recurrence?.type;
+                const dow = sc.recurrence?.daysOfWeek;
+                if (t === 'weekly' && (!Array.isArray(dow) || dow.length === 0)) {
+                    return false;
+                }
+            } else if (sc.scheduleMode === 'one_off' && !sc.meetingDate) {
+                return false;
+            }
+
+            return true;
+        },
+        schoolClassLoadingScheduleLabel() {
+            const sc = this.formData.schoolClass;
+            if (sc.scheduleMode === 'one_off') {
+                return sc.meetingDate
+                    ? `${sc.meetingDate} · ${sc.startTime ?? ''}–${sc.endTime ?? ''}`
+                    : '{{ __('Not set') }}';
+            }
+
+            return sc.scheduleStartDate && sc.scheduleEndDate
+                ? `${sc.scheduleStartDate} → ${sc.scheduleEndDate} · ${sc.startTime ?? ''}–${sc.endTime ?? ''}`
+                : '{{ __('Not set') }}';
+        },
+        clearSchoolClassMeetingDateForRecurringChoice() {
+            if (!this.formData?.schoolClass) {
+                return;
+            }
+            this.formData.schoolClass.meetingDate = null;
+            window.dispatchEvent(
+                new CustomEvent('date-picker-value', {
+                    bubbles: true,
+                    detail: { path: 'formData.schoolClass.meetingDate', value: null },
+                }),
+            );
+        },
+        clearSchoolClassRecurrenceForOneOffChoice() {
+            if (!this.formData?.schoolClass) {
+                return;
+            }
+
+            this.formData.schoolClass.recurrence = { enabled: false, type: null, interval: 1, daysOfWeek: [] };
+
+            window.dispatchEvent(
+                new CustomEvent('recurring-value', {
+                    bubbles: true,
+                    detail: { path: 'formData.schoolClass.recurrence', value: this.formData.schoolClass.recurrence },
+                }),
+            );
+        },
+        onDatePickerUpdated(event) {
+            const d = event?.detail || {};
+            const path = d.path;
+            const value = d.value;
+
+            this.setFormDataByPath(path, value);
+
+            if (this.creationKind !== 'schoolClass' || path !== 'formData.schoolClass.meetingDate') {
+                return;
+            }
+
+            if (value) {
+                this.formData.schoolClass.scheduleMode = 'one_off';
+                this.clearSchoolClassRecurrenceForOneOffChoice();
+            }
+        },
         creationCardSurfaceClass() {
             if (this.creationKind === 'project') {
                 return 'lic-surface-project';
+            }
+            if (this.creationKind === 'schoolClass') {
+                return 'lic-surface-school-class';
             }
             if (this.creationKind === 'event') {
                 return 'lic-surface-event';
@@ -113,6 +246,8 @@
         resetForm() {
             // Common fields for both tasks and events
             this.formData.item.title = '';
+            this.taskDraftTitle = '';
+            this.eventDraftTitle = '';
             this.formData.item.startDatetime = null;
             this.formData.item.endDatetime = null;
             this.formData.item.tagIds = [];
@@ -123,6 +258,9 @@
                 daysOfWeek: [],
             };
             this.newTagName = '';
+            this.newTeacherName = '';
+            this.teacherPopoverOpen = false;
+            this.classHoursPopoverOpen = false;
             this.errors.dateRange = null;
 
             // Kind-specific fields
@@ -143,6 +281,24 @@
                 this.formData.project.startDatetime = null;
                 this.formData.project.endDatetime = null;
             }
+
+            this.formData.schoolClass = {
+                scheduleMode: 'recurring',
+                subjectName: '',
+                teacherId: null,
+                teacherName: '',
+                scheduleStartDate: null,
+                scheduleEndDate: null,
+                meetingDate: null,
+                startTime: null,
+                endTime: null,
+                recurrence: {
+                    enabled: true,
+                    type: 'weekly',
+                    interval: 1,
+                    daysOfWeek: [],
+                },
+            };
         },
         scheduleFocusCreationTitle() {
             const resolveInput = (root) => {
@@ -190,7 +346,9 @@
                 const root =
                     this.creationKind === 'project'
                         ? this.$refs.projectName
-                        : this.$refs.taskTitle;
+                        : this.creationKind === 'schoolClass'
+                            ? this.$refs.schoolClassSubject
+                            : this.$refs.taskTitle;
                 let input = resolveInput(root);
 
                 if (
@@ -252,12 +410,22 @@
         },
         beginItemCreation(kind) {
             this.itemTypePickerOpen = false;
+            const isSwitchingKind = this.creationKind !== kind;
+
+            if (isSwitchingKind) {
+                if (this.creationKind === 'task') {
+                    this.taskDraftTitle = this.formData.item.title;
+                } else if (this.creationKind === 'event') {
+                    this.eventDraftTitle = this.formData.item.title;
+                }
+            }
 
             const isToggleClose =
                 this.showItemCreation &&
                 ((kind === 'task' && this.creationKind === 'task') ||
                     (kind === 'event' && this.creationKind === 'event') ||
-                    (kind === 'project' && this.creationKind === 'project'));
+                    (kind === 'project' && this.creationKind === 'project') ||
+                    (kind === 'schoolClass' && this.creationKind === 'schoolClass'));
 
             if (isToggleClose) {
                 this.showItemCreation = false;
@@ -267,12 +435,15 @@
 
             if (kind === 'task') {
                 this.creationKind = 'task';
-                this.formData.item.status = 'to_do';
-                this.formData.item.priority = 'medium';
-                this.formData.item.complexity = 'moderate';
-                this.formData.item.duration = null;
-                this.formData.item.allDay = false;
-                this.formData.item.projectId = null;
+                if (isSwitchingKind) {
+                    this.formData.item.title = this.taskDraftTitle || '';
+                    this.formData.item.status = 'to_do';
+                    this.formData.item.priority = 'medium';
+                    this.formData.item.complexity = 'moderate';
+                    this.formData.item.duration = null;
+                    this.formData.item.allDay = false;
+                    this.formData.item.projectId = null;
+                }
                 this.showItemCreation = true;
 
                 return;
@@ -280,8 +451,11 @@
 
             if (kind === 'event') {
                 this.creationKind = 'event';
-                this.formData.item.status = 'scheduled';
-                this.formData.item.allDay = false;
+                if (isSwitchingKind) {
+                    this.formData.item.title = this.eventDraftTitle || '';
+                    this.formData.item.status = 'scheduled';
+                    this.formData.item.allDay = false;
+                }
                 this.showItemCreation = true;
 
                 return;
@@ -289,10 +463,13 @@
 
             if (kind === 'project') {
                 this.creationKind = 'project';
-                this.formData.project.name = '';
-                this.formData.project.description = null;
-                this.formData.project.startDatetime = null;
-                this.formData.project.endDatetime = null;
+                this.showItemCreation = true;
+
+                return;
+            }
+
+            if (kind === 'schoolClass') {
+                this.creationKind = 'schoolClass';
                 this.showItemCreation = true;
             }
         },
@@ -341,9 +518,242 @@
                 .filter(tag => selectedIds.some(id => String(id) === String(tag.id)))
                 .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         },
+        mergedSchoolClassTeachers() {
+            const available = Array.isArray(this.teachers) ? [...this.teachers] : [];
+            const tid = this.formData?.schoolClass?.teacherId;
+            const tname = String(this.formData?.schoolClass?.teacherName || '').trim();
+            const merged = [...available].filter(t => t && t.id != null && String(t.name || '').trim() !== '');
+
+            if (tid != null && tname !== '') {
+                const hasId = merged.some(t => String(t.id) === String(tid));
+                if (!hasId) {
+                    merged.push({ id: tid, name: tname });
+                }
+            }
+
+            const byId = new Map();
+            for (const t of merged) {
+                const key = String(t.id);
+                if (!byId.has(key)) {
+                    byId.set(key, { id: t.id, name: String(t.name || '').trim() });
+                }
+            }
+
+            return Array.from(byId.values()).sort((a, b) =>
+                String(a.name || '').localeCompare(String(b.name || '')),
+            );
+        },
+        isSchoolClassTeacherSelected(teacherId) {
+            const selected = this.formData?.schoolClass?.teacherId;
+            if (selected == null || teacherId == null) {
+                return false;
+            }
+
+            return String(selected) === String(teacherId);
+        },
+        schoolClassTeacherTriggerLabel() {
+            const name = String(this.formData?.schoolClass?.teacherName || '').trim();
+
+            return name || '';
+        },
+        teacherPopoverOpen: false,
+        teacherDeleteMode: false,
+        teacherPopoverPlacementVertical: 'bottom',
+        teacherPopoverPlacementHorizontal: 'end',
+        teacherPopoverPanelHeightEst: 240,
+        teacherPopoverPanelWidthEst: 260,
+        toggleTeacherDeleteMode() {
+            this.teacherDeleteMode = !this.teacherDeleteMode;
+        },
+        toggleTeacherPopover() {
+            if (this.teacherPopoverOpen) {
+                return this.closeTeacherPopover(this.$refs.teacherSelectionTrigger);
+            }
+
+            this.$refs.teacherSelectionTrigger?.focus();
+
+            const rect =
+                this.$refs.teacherSelectionTrigger?.getBoundingClientRect() ?? {
+                    bottom: 0,
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                };
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const contentLeft = 320;
+            const hEst = this.teacherPopoverPanelHeightEst;
+            const wEst = this.teacherPopoverPanelWidthEst;
+
+            if (rect.bottom + hEst > vh && rect.top > hEst) {
+                this.teacherPopoverPlacementVertical = 'top';
+            } else {
+                this.teacherPopoverPlacementVertical = 'bottom';
+            }
+            const endFits = rect.right <= vw && rect.right - wEst >= contentLeft;
+            const startFits = rect.left >= contentLeft && rect.left + wEst <= vw;
+            if (rect.left < contentLeft) {
+                this.teacherPopoverPlacementHorizontal = 'start';
+            } else if (endFits) {
+                this.teacherPopoverPlacementHorizontal = 'end';
+            } else if (startFits) {
+                this.teacherPopoverPlacementHorizontal = 'start';
+            } else {
+                this.teacherPopoverPlacementHorizontal = rect.right > vw ? 'start' : 'end';
+            }
+
+            this.teacherPopoverOpen = true;
+            this.$dispatch('dropdown-opened');
+        },
+        closeTeacherPopover(focusAfter) {
+            if (!this.teacherPopoverOpen) {
+                return;
+            }
+
+            this.teacherPopoverOpen = false;
+            this.teacherDeleteMode = false;
+            const leaveMs = 50;
+            setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
+
+            focusAfter && focusAfter.focus();
+        },
+        teacherPopoverPanelClasses() {
+            const v = this.teacherPopoverPlacementVertical;
+            const h = this.teacherPopoverPlacementHorizontal;
+            if (v === 'top' && h === 'end') {
+                return 'bottom-full right-0 mb-1';
+            }
+            if (v === 'top' && h === 'start') {
+                return 'bottom-full left-0 mb-1';
+            }
+            if (v === 'bottom' && h === 'end') {
+                return 'top-full right-0 mt-1';
+            }
+            if (v === 'bottom' && h === 'start') {
+                return 'top-full left-0 mt-1';
+            }
+            return 'top-full right-0 mt-1';
+        },
+        classHoursPopoverOpen: false,
+        classHoursPopoverPlacementVertical: 'bottom',
+        classHoursPopoverPlacementHorizontal: 'end',
+        classHoursPopoverPanelHeightEst: 200,
+        classHoursPopoverPanelWidthEst: 288,
+        schoolClassHoursTriggerSummary() {
+            const sc = this.formData?.schoolClass;
+            if (!sc?.startTime || !sc?.endTime) {
+                return '';
+            }
+            const to12h = (hm) => {
+                const m = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(String(hm).trim());
+                if (!m) {
+                    return '';
+                }
+                let h = parseInt(m[1], 10);
+                const min = m[2];
+                const pm = h >= 12;
+                if (h > 12) {
+                    h -= 12;
+                }
+                if (h === 0) {
+                    h = 12;
+                }
+
+                return `${h}:${min} ${pm ? 'PM' : 'AM'}`;
+            };
+            const a = to12h(sc.startTime);
+            const b = to12h(sc.endTime);
+            if (!a || !b) {
+                return '';
+            }
+
+            return `${a} – ${b}`;
+        },
+        toggleClassHoursPopover() {
+            if (this.classHoursPopoverOpen) {
+                return this.closeClassHoursPopover(this.$refs.classHoursTrigger);
+            }
+
+            this.$refs.classHoursTrigger?.focus();
+
+            const rect =
+                this.$refs.classHoursTrigger?.getBoundingClientRect() ?? {
+                    bottom: 0,
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                };
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const contentLeft = 320;
+            const hEst = this.classHoursPopoverPanelHeightEst;
+            const wEst = this.classHoursPopoverPanelWidthEst;
+
+            if (rect.bottom + hEst > vh && rect.top > hEst) {
+                this.classHoursPopoverPlacementVertical = 'top';
+            } else {
+                this.classHoursPopoverPlacementVertical = 'bottom';
+            }
+            const endFits = rect.right <= vw && rect.right - wEst >= contentLeft;
+            const startFits = rect.left >= contentLeft && rect.left + wEst <= vw;
+            if (rect.left < contentLeft) {
+                this.classHoursPopoverPlacementHorizontal = 'start';
+            } else if (endFits) {
+                this.classHoursPopoverPlacementHorizontal = 'end';
+            } else if (startFits) {
+                this.classHoursPopoverPlacementHorizontal = 'start';
+            } else {
+                this.classHoursPopoverPlacementHorizontal = rect.right > vw ? 'start' : 'end';
+            }
+
+            this.classHoursPopoverOpen = true;
+            this.$dispatch('dropdown-opened');
+        },
+        closeClassHoursPopover(focusAfter) {
+            if (!this.classHoursPopoverOpen) {
+                return;
+            }
+
+            this.classHoursPopoverOpen = false;
+            const leaveMs = 50;
+            setTimeout(() => this.$dispatch('dropdown-closed'), leaveMs);
+
+            focusAfter && focusAfter.focus();
+        },
+        classHoursPopoverPanelClasses() {
+            const v = this.classHoursPopoverPlacementVertical;
+            const h = this.classHoursPopoverPlacementHorizontal;
+            if (v === 'top' && h === 'end') {
+                return 'bottom-full right-0 mb-1';
+            }
+            if (v === 'top' && h === 'start') {
+                return 'bottom-full left-0 mb-1';
+            }
+            if (v === 'bottom' && h === 'end') {
+                return 'top-full right-0 mt-1';
+            }
+            if (v === 'bottom' && h === 'start') {
+                return 'top-full left-0 mt-1';
+            }
+            return 'top-full right-0 mt-1';
+        },
+        selectSchoolClassTeacher(teacher) {
+            if (!teacher || teacher.id == null) {
+                return;
+            }
+            if (!this.formData?.schoolClass) {
+                return;
+            }
+            this.formData.schoolClass.teacherId = teacher.id;
+            this.formData.schoolClass.teacherName = String(teacher.name || '').trim();
+            this.closeTeacherPopover(this.$refs.teacherSelectionTrigger);
+        },
         newTagName: '',
         creatingTag: false,
         deletingTagIds: new Set(),
+        newTeacherName: '',
+        creatingTeacher: false,
+        deletingTeacherIds: new Set(),
         workspaceWire() {
             // This component is rendered inside nested Livewire children (List/Kanban),
             // but the mutation methods live on the parent workspace Index component.
@@ -421,6 +831,13 @@
             if (!tagName || this.creatingTag) {
                 return;
             }
+            if (tagName.length > {{ \App\Models\Tag::MAX_NAME_LENGTH }}) {
+                $wire.dispatch('toast', {
+                    type: 'error',
+                    message: this.messages?.tagTooLong || 'Tag name is too long.',
+                });
+                return;
+            }
 
             this.newTagName = '';
 
@@ -476,6 +893,121 @@
                 $wire.dispatch('toast', { type: 'error', message: this.messages.tagError });
             } finally {
                 this.creatingTag = false;
+            }
+        },
+        async createTeacherOptimistic(teacherNameFromEvent) {
+            const teacherName =
+                teacherNameFromEvent != null && teacherNameFromEvent !== ''
+                    ? String(teacherNameFromEvent).trim()
+                    : (this.newTeacherName || '').trim();
+            if (!teacherName || this.creatingTeacher) {
+                return;
+            }
+            if (teacherName.length > {{ \App\Models\Teacher::MAX_NAME_LENGTH }}) {
+                $wire.dispatch('toast', {
+                    type: 'error',
+                    message: this.messages?.teacherTooLong || 'Teacher name is too long.',
+                });
+                return;
+            }
+
+            this.newTeacherName = '';
+
+            const nameLower = teacherName.toLowerCase();
+            const existingTeacher = this.teachers?.find(t => (t.name || '').trim().toLowerCase() === nameLower);
+            if (existingTeacher && !String(existingTeacher.id).startsWith('temp-')) {
+                this.formData.schoolClass.teacherId = existingTeacher.id;
+                this.formData.schoolClass.teacherName = String(existingTeacher.name || '').trim();
+                $wire.dispatch('toast', {
+                    type: 'info',
+                    message: this.messages?.teacherAlreadyExists || 'Teacher already exists.',
+                });
+
+                return;
+            }
+
+            const tempId = `temp-${Date.now()}`;
+            const teachersBackup = this.teachers ? [...this.teachers] : [];
+            const schoolClassBackup = {
+                teacherId: this.formData.schoolClass.teacherId,
+                teacherName: this.formData.schoolClass.teacherName,
+            };
+            const newTeacherNameBackup = teacherName;
+
+            try {
+                if (!this.teachers) {
+                    this.teachers = [];
+                }
+                this.teachers.push({ id: tempId, name: teacherName });
+                this.teachers.sort((a, b) => a.name.localeCompare(b.name));
+
+                this.formData.schoolClass.teacherId = tempId;
+                this.formData.schoolClass.teacherName = teacherName;
+
+                this.creatingTeacher = true;
+
+                const promise = this.workspaceWire().$call('createTeacher', teacherName);
+                await promise;
+            } catch (error) {
+                this.teachers = teachersBackup;
+                this.formData.schoolClass.teacherId = schoolClassBackup.teacherId;
+                this.formData.schoolClass.teacherName = schoolClassBackup.teacherName;
+                this.newTeacherName = newTeacherNameBackup;
+
+                $wire.dispatch('toast', { type: 'error', message: this.messages.teacherError });
+            } finally {
+                this.creatingTeacher = false;
+            }
+        },
+        async deleteTeacherOptimistic(teacher) {
+            if (this.deletingTeacherIds?.has(teacher.id)) {
+                return;
+            }
+
+            const isTempTeacher = String(teacher.id).startsWith('temp-');
+
+            const snapshot = { ...teacher };
+            const teachersBackup = this.teachers ? [...this.teachers] : [];
+            const teacherIndex = this.teachers?.findIndex(t => String(t.id) === String(teacher.id)) ?? -1;
+            const schoolClassBackup = {
+                teacherId: this.formData.schoolClass.teacherId,
+                teacherName: this.formData.schoolClass.teacherName,
+            };
+
+            try {
+                this.deletingTeacherIds = this.deletingTeacherIds || new Set();
+                this.deletingTeacherIds.add(teacher.id);
+
+                if (this.teachers && teacherIndex !== -1) {
+                    this.teachers = this.teachers.filter(t => String(t.id) !== String(teacher.id));
+                }
+
+                const wasSelected = String(this.formData.schoolClass.teacherId) === String(teacher.id);
+                if (wasSelected) {
+                    this.formData.schoolClass.teacherId = null;
+                    this.formData.schoolClass.teacherName = '';
+                }
+
+                if (isTempTeacher) {
+                    return;
+                }
+
+                const promise = this.workspaceWire().$call('deleteTeacher', Number(teacher.id));
+                await promise;
+            } catch (error) {
+                if (teacherIndex !== -1 && this.teachers) {
+                    this.teachers.splice(teacherIndex, 0, snapshot);
+                    this.teachers.sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                if (String(schoolClassBackup.teacherId) === String(teacher.id)) {
+                    this.formData.schoolClass.teacherId = schoolClassBackup.teacherId;
+                    this.formData.schoolClass.teacherName = schoolClassBackup.teacherName;
+                }
+
+                $wire.dispatch('toast', { type: 'error', message: this.messages.teacherError });
+            } finally {
+                this.deletingTeacherIds?.delete(teacher.id);
             }
         },
         submitTask() {
@@ -609,6 +1141,84 @@
             const minLoadingMs = 150;
 
             this.workspaceWire().$call('createProject', payload)
+                .finally(() => {
+                    const elapsed = Date.now() - this.loadingStartedAt;
+                    const remaining = Math.max(0, minLoadingMs - elapsed);
+                    setTimeout(() => {
+                        this.showItemLoading = false;
+                        this.isSubmitting = false;
+                    }, remaining);
+                });
+        },
+        submitSchoolClass() {
+            if (this.isSubmitting) {
+                return;
+            }
+
+            if (!this.formData.schoolClass.subjectName || !this.formData.schoolClass.subjectName.trim()) {
+                return;
+            }
+
+            if (!this.formData.schoolClass.teacherName || !String(this.formData.schoolClass.teacherName).trim()) {
+                return;
+            }
+
+            const sc = this.formData.schoolClass;
+            if (sc.scheduleMode === 'recurring') {
+                if (sc.recurrence?.enabled !== true || !sc.recurrence?.type) {
+                    this.errors.dateRange = this.messages.schoolClassNeedRecurrenceType;
+
+                    return;
+                }
+
+                const t = sc.recurrence?.type;
+                const dow = sc.recurrence?.daysOfWeek;
+                if (t === 'weekly' && (!Array.isArray(dow) || dow.length === 0)) {
+                    this.errors.dateRange = this.messages.schoolClassNeedWeekdays;
+
+                    return;
+                }
+            } else if (sc.scheduleMode === 'one_off' && !sc.meetingDate) {
+                this.errors.dateRange = this.messages.schoolClassNeedMeetingDate;
+
+                return;
+            }
+
+            if (!sc.startTime || !sc.endTime) {
+                return;
+            }
+
+            if (!this.validateDateRange()) {
+                return;
+            }
+
+            this.isSubmitting = true;
+            this.formData.schoolClass.subjectName = this.formData.schoolClass.subjectName.trim();
+            this.formData.schoolClass.teacherName = String(this.formData.schoolClass.teacherName).trim();
+
+            this.showItemCreation = false;
+            this.showItemLoading = true;
+            this.loadingStartedAt = Date.now();
+
+            const recurrencePayload =
+                sc.scheduleMode === 'one_off'
+                    ? { enabled: false, type: null, interval: 1, daysOfWeek: [] }
+                    : JSON.parse(JSON.stringify(sc.recurrence));
+
+            const payload = {
+                scheduleMode: sc.scheduleMode,
+                subjectName: sc.subjectName,
+                teacherName: sc.teacherName,
+                scheduleStartDate: sc.scheduleStartDate,
+                scheduleEndDate: sc.scheduleEndDate,
+                meetingDate: sc.meetingDate,
+                startTime: sc.startTime,
+                endTime: sc.endTime,
+                recurrence: recurrencePayload,
+            };
+            const minLoadingMs = 150;
+
+            this.workspaceWire().$call('createSchoolClass', payload)
                 .finally(() => {
                     const elapsed = Date.now() - this.loadingStartedAt;
                     const remaining = Math.max(0, minLoadingMs - elapsed);
@@ -823,5 +1433,51 @@
                 if (selectedIndex !== -1) {
                     this.formData.item.tagIds.splice(selectedIndex, 1);
                 }
+            }
+        },
+        onTeacherCreated(event) {
+            const { id, name } = event.detail;
+
+            const nameLower = (name || '').toLowerCase();
+            const tempTeacher = this.teachers?.find(
+                t =>
+                    (t.name || '').toLowerCase() === nameLower && String(t.id).startsWith('temp-'),
+            );
+            if (tempTeacher) {
+                const tempId = tempTeacher.id;
+                const tempTeacherIndex = this.teachers.findIndex(t => t.id === tempId);
+                if (tempTeacherIndex !== -1) {
+                    this.teachers[tempTeacherIndex] = { id, name };
+                }
+
+                if (String(this.formData?.schoolClass?.teacherId) === String(tempId)) {
+                    this.formData.schoolClass.teacherId = id;
+                    this.formData.schoolClass.teacherName = String(name || '').trim();
+                }
+
+                this.teachers = this.teachers.filter(
+                    (t, idx, arr) => arr.findIndex(x => String(x.id) === String(t.id)) === idx,
+                );
+                this.teachers.sort((a, b) => a.name.localeCompare(b.name));
+            } else {
+                if (this.teachers && !this.teachers.find(t => String(t.id) === String(id))) {
+                    this.teachers.push({ id, name });
+                    this.teachers.sort((a, b) => a.name.localeCompare(b.name));
+                }
+            }
+        },
+        onTeacherDeleted(event) {
+            const { id } = event.detail;
+
+            if (this.teachers) {
+                const idx = this.teachers.findIndex(t => String(t.id) === String(id));
+                if (idx !== -1) {
+                    this.teachers.splice(idx, 1);
+                }
+            }
+
+            if (String(this.formData?.schoolClass?.teacherId) === String(id)) {
+                this.formData.schoolClass.teacherId = null;
+                this.formData.schoolClass.teacherName = '';
             }
         },

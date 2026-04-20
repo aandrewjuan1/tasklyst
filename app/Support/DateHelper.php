@@ -27,4 +27,22 @@ class DateHelper
             return null;
         }
     }
+
+    /**
+     * Parse a required datetime value (after validation guarantees presence).
+     *
+     * @throws \InvalidArgumentException
+     */
+    public static function parseRequired(mixed $value): Carbon
+    {
+        if ($value === null || $value === '') {
+            throw new \InvalidArgumentException('Datetime value is required.');
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::parse($value);
+        }
+
+        return Carbon::parse((string) $value);
+    }
 }

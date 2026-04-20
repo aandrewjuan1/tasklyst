@@ -17,10 +17,13 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Relations\MorphToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class Task extends Model
 {
     use HasFactory, SoftDeletes;
+
+    private const TOAST_TEXT_MAX_LENGTH = 80;
 
     /**
      * Build a friendly toast payload for Task CRUD actions.
@@ -29,10 +32,8 @@ class Task extends Model
      */
     public static function toastPayload(string $action, bool $success, ?string $title = null): array
     {
-        $trimmedTitle = $title !== null ? trim($title) : null;
-        $hasTitle = $trimmedTitle !== null && $trimmedTitle !== '';
-
-        $quotedTitle = $hasTitle ? '“'.$trimmedTitle.'”' : null;
+        $quotedTitle = self::quoteCurlyToastText($title);
+        $hasTitle = $quotedTitle !== null;
 
         $type = $success ? 'success' : 'error';
 
@@ -124,10 +125,9 @@ class Task extends Model
         if ($property === 'tagIds') {
             $fromCount = is_array($fromValue) ? count($fromValue) : 0;
             $toCount = is_array($toValue) ? count($toValue) : 0;
-            $trimmedTitle = $taskTitle !== null ? trim($taskTitle) : '';
-            $quotedTitle = $trimmedTitle !== '' ? '"'.$trimmedTitle.'"' : null;
-            $quotedTag = $addedTagName !== null && $addedTagName !== '' ? '"'.trim($addedTagName).'"' : null;
-            $quotedRemovedTag = $removedTagName !== null && $removedTagName !== '' ? '"'.trim($removedTagName).'"' : null;
+            $quotedTitle = self::quoteStraightToastText($taskTitle);
+            $quotedTag = self::quoteStraightToastText($addedTagName);
+            $quotedRemovedTag = self::quoteStraightToastText($removedTagName);
 
             $message = match (true) {
                 $toCount > $fromCount => match (true) {
@@ -173,12 +173,12 @@ class Task extends Model
 
     private static function toastTaskSuffix(?string $taskTitle): string
     {
-        $trimmed = $taskTitle !== null ? trim($taskTitle) : '';
-        if ($trimmed === '') {
+        $quotedTitle = self::quoteCurlyToastText($taskTitle);
+        if ($quotedTitle === null) {
             return '';
         }
 
-        return ' — '.__('Task').': '.'“'.$trimmed.'”';
+        return ' — '.__('Task').': '.$quotedTitle;
     }
 
     private static function propertyLabel(string $property): ?string
@@ -220,7 +220,7 @@ class Task extends Model
     private static function formatPropertyValue(string $property, mixed $value): ?string
     {
         return match ($property) {
-            'title' => is_string($value) ? '“'.trim($value).'”' : null,
+            'title' => is_string($value) ? self::quoteCurlyToastText($value) : null,
             'status' => self::enumLabel(TaskStatus::class, $value),
             'priority' => self::enumLabel(TaskPriority::class, $value),
             'complexity' => self::enumLabel(TaskComplexity::class, $value),
@@ -228,9 +228,39 @@ class Task extends Model
             'startDatetime', 'endDatetime' => self::formatDatetime($value),
             'tagIds' => self::formatTagCount($value),
             'recurrence' => self::formatRecurrence($value),
-            'description' => is_string($value) ? '"'.trim($value).'"' : null,
+            'description' => is_string($value) ? self::quoteStraightToastText($value) : null,
             default => is_scalar($value) ? (string) $value : null,
         };
+    }
+
+    private static function toastTextExcerpt(?string $value): ?string
+    {
+        $trimmed = $value !== null ? trim($value) : '';
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return Str::limit($trimmed, self::TOAST_TEXT_MAX_LENGTH);
+    }
+
+    private static function quoteCurlyToastText(?string $value): ?string
+    {
+        $excerpt = self::toastTextExcerpt($value);
+        if ($excerpt === null) {
+            return null;
+        }
+
+        return '“'.$excerpt.'”';
+    }
+
+    private static function quoteStraightToastText(?string $value): ?string
+    {
+        $excerpt = self::toastTextExcerpt($value);
+        if ($excerpt === null) {
+            return null;
+        }
+
+        return '"'.$excerpt.'"';
     }
 
     /**
@@ -392,6 +422,7 @@ class Task extends Model
         'end_datetime',
         'project_id',
         'event_id',
+        'school_class_id',
         'calendar_feed_id',
         'completed_at',
     ];
@@ -423,6 +454,28 @@ class Task extends Model
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
+    }
+
+    public function schoolClass(): BelongsTo
+    {
+        return $this->belongsTo(SchoolClass::class);
+    }
+
+    /**
+     * Effective teacher label: from the school class when linked, otherwise the task's own teacher_name (e.g. calendar import).
+     */
+    public function resolvedTeacherName(): ?string
+    {
+        if ($this->school_class_id !== null) {
+            $this->loadMissing('schoolClass.teacher');
+            $name = $this->schoolClass?->teacher?->name;
+
+            return ($name !== null && $name !== '') ? $name : null;
+        }
+
+        $direct = trim((string) ($this->teacher_name ?? ''));
+
+        return $direct !== '' ? $direct : null;
     }
 
     public function calendarFeed(): BelongsTo
@@ -528,6 +581,7 @@ class Task extends Model
             'endDatetime' => 'end_datetime',
             'projectId' => 'project_id',
             'eventId' => 'event_id',
+            'schoolClassId' => 'school_class_id',
             default => $property,
         };
     }
@@ -547,6 +601,7 @@ class Task extends Model
             'end_datetime' => $this->end_datetime,
             'project_id' => $this->project_id,
             'event_id' => $this->event_id,
+            'school_class_id' => $this->school_class_id,
             default => $this->{$column},
         };
     }
@@ -612,6 +667,16 @@ class Task extends Model
         return $query->where('event_id', $eventId);
     }
 
+    /**
+     * Tasks that belong to the given school class.
+     */
+    public function scopeForSchoolClass(Builder $query, SchoolClass|int $schoolClass): Builder
+    {
+        $schoolClassId = $schoolClass instanceof SchoolClass ? $schoolClass->id : $schoolClass;
+
+        return $query->where('school_class_id', $schoolClassId);
+    }
+
     public function scopeFromFeed(Builder $query): Builder
     {
         return $query->whereNotNull('source_type');
@@ -667,13 +732,13 @@ class Task extends Model
                         ->where(function (Builder $windowQuery) use ($startOfDay, $endOfDay): void {
                             $windowQuery
                                 ->whereBetween('start_datetime', [$startOfDay, $endOfDay])
-                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay, $endOfDay): void {
+                                ->orWhere(function (Builder $rangeQuery) use ($startOfDay): void {
                                     $rangeQuery
                                         ->where('start_datetime', '<=', $startOfDay)
-                                        ->where(function (Builder $endQuery) use ($endOfDay): void {
+                                        ->where(function (Builder $endQuery) use ($startOfDay): void {
                                             $endQuery
                                                 ->whereNull('end_datetime')
-                                                ->orWhere('end_datetime', '>=', $endOfDay);
+                                                ->orWhere('end_datetime', '>=', $startOfDay);
                                         });
                                 });
                         });
