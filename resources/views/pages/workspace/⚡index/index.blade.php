@@ -1,8 +1,10 @@
 <section
     class="space-y-6"
-    x-data="{}"
+    x-data="{ focusNavigationLoading: false }"
     x-init="Alpine.store('focusSession', Alpine.store('focusSession') ?? { session: @js($this->activeFocusSession), focusReady: false })"
     @focus-session-updated.window="Alpine.store('focusSession', { ...Alpine.store('focusSession'), session: $event.detail?.session ?? $event.detail?.[0] ?? null, focusReady: false })"
+    @workspace-focus-navigation-loading-start.window="focusNavigationLoading = true"
+    @workspace-focus-navigation-loading-end.window="focusNavigationLoading = false"
 >
     {{--
         List/kanban region: full skeleton for filter/search/view changes and for selectedDate changes.
@@ -13,7 +15,7 @@
     --}}
     @php
         $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
-        $selectedDateLoadingTarget = 'selectedDate';
+        $selectedDateLoadingTarget = 'selectedDate,jumpCalendarToToday';
         $listRegionLoadingTargets = $listHeavyLoadingTargets.','.$selectedDateLoadingTarget;
         $workspaceMobileSelectedLabel = \Illuminate\Support\Carbon::parse($this->selectedDate)->translatedFormat('D, M j, Y');
     @endphp
@@ -161,6 +163,7 @@
                 wire:loading.delay.shorter.remove
                 wire:target="{{ $listRegionLoadingTargets }}"
                 class="w-full"
+                x-show="!focusNavigationLoading"
             >
                 <div
                     id="workspace-list-panel"
@@ -278,6 +281,42 @@
                                 </template>
                             </x-workspace.skeleton-kanban-column>
                         </template>
+                    </div>
+                </template>
+            </div>
+
+            {{-- Skeleton: focus navigation from subtasks when target is not instantly focusable in current DOM --}}
+            <div
+                x-cloak
+                x-show="focusNavigationLoading"
+                class="w-full"
+                role="status"
+                aria-busy="true"
+                aria-live="polite"
+                aria-label="{{ __('Loading workspace') }}"
+            >
+                <span
+                    class="sr-only"
+                    x-text="$wire.viewMode === 'kanban' ? '{{ __('Loading workspace kanban...') }}' : '{{ __('Loading workspace list...') }}'"
+                ></span>
+
+                <template x-if="$wire.viewMode === 'list'">
+                    <div class="space-y-4">
+                        @for ($i = 0; $i < 8; $i++)
+                            <x-workspace.skeleton-list-item-card />
+                        @endfor
+                    </div>
+                </template>
+
+                <template x-if="$wire.viewMode === 'kanban'">
+                    <div class="grid min-h-[50vh] w-full min-w-0 gap-3 sm:gap-4 md:grid-cols-3" style="min-width: min-content;">
+                        @for ($col = 0; $col < 3; $col++)
+                            <x-workspace.skeleton-kanban-column>
+                                @for ($card = 0; $card < 6; $card++)
+                                    <x-workspace.skeleton-list-item-card compact />
+                                @endfor
+                            </x-workspace.skeleton-kanban-column>
+                        @endfor
                     </div>
                 </template>
             </div>

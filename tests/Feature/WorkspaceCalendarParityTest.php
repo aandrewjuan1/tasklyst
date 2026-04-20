@@ -6,6 +6,7 @@ use App\Enums\TaskSourceType;
 use App\Enums\TaskStatus;
 use App\Models\CalendarFeed;
 use App\Models\Event;
+use App\Models\RecurringSchoolClass;
 use App\Models\SchoolClass;
 use App\Models\Task;
 use App\Models\User;
@@ -348,4 +349,36 @@ test('selected day agenda times use 12-hour clock in the sidebar', function (): 
     expect($dueRows)->not->toBeEmpty();
     expect($dueRows->first()['time'])->toContain('8:53')->and($dueRows->first()['time'])->toContain('PM');
     expect($dueRows->first()['time_label'])->toBe(__('Due'));
+});
+
+test('selected day agenda school classes fallback to class hours when datetimes are missing', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-04-09 10:00:00'));
+
+    $user = User::factory()->create();
+
+    $schoolClass = SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Fallback Class Hours',
+        'start_datetime' => null,
+        'end_datetime' => null,
+        'start_time' => '13:15:00',
+        'end_time' => '14:45:00',
+    ]);
+
+    RecurringSchoolClass::factory()->create([
+        'school_class_id' => $schoolClass->id,
+        'start_datetime' => Carbon::parse('2026-04-01 00:00:00'),
+        'end_datetime' => Carbon::parse('2026-04-30 23:59:59'),
+    ]);
+
+    $this->actingAs($user);
+
+    $agenda = Livewire::test('pages::workspace.index')
+        ->set('selectedDate', '2026-04-09')
+        ->get('selectedDayAgenda');
+
+    $row = collect($agenda['schoolClasses'] ?? [])->firstWhere('title', 'Fallback Class Hours');
+    expect($row)->not->toBeNull();
+    expect($row['time'])->toContain('1:15')->and($row['time'])->toContain('PM')
+        ->and($row['time'])->toContain('2:45')->and($row['time'])->toContain('PM')
+        ->and($row['time'])->not->toBe(__('No time'));
 });

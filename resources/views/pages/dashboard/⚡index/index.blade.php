@@ -99,6 +99,7 @@
         'default' => 'border-b border-border/60 dark:border-zinc-800',
         'urgent' => 'border-b border-red-200/45 dark:border-red-900/45',
     ];
+    $dashboardItemLinkHoverClass = 'block rounded-md border border-transparent px-2 py-1 -mx-2 -my-1 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.01] hover:border-border/80 hover:bg-muted/70 dark:hover:border-zinc-700/90 dark:hover:bg-zinc-800/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/35';
 @endphp
 
 <section class="space-y-6">
@@ -214,7 +215,7 @@
                                     <ul class="divide-y divide-border/60 dark:divide-zinc-800">
                                         @foreach ($urgentNowDisplayed as $row)
                                             <li class="px-4 py-3" data-testid="dashboard-row-urgent-item" data-urgency-level="{{ $row['urgency_level'] }}">
-                                                <a href="{{ $row['workspace_url'] }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                <a href="{{ $row['workspace_url'] }}" wire:navigate class="{{ $dashboardItemLinkHoverClass }}">
                                                     <p class="truncate text-sm font-semibold text-foreground">{{ $row['title'] }}</p>
                                                     <p class="mt-1 text-xs text-muted-foreground">{{ $row['reasoning'] }}</p>
                                                     <div class="mt-1 flex flex-wrap gap-1.5 text-[11px]">
@@ -291,7 +292,7 @@
                                                 <a
                                                     href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}"
                                                     wire:navigate
-                                                    class="block rounded-md transition hover:bg-muted/40"
+                                                    class="{{ $dashboardItemLinkHoverClass }}"
                                                 >
                                                     <p class="truncate text-sm font-semibold text-foreground">
                                                         {{ $task->title ?: __('Untitled') }}
@@ -379,7 +380,7 @@
                                                 <a
                                                     href="{{ $schoolClassRow['workspace_url'] }}"
                                                     wire:navigate
-                                                    class="block rounded-md transition hover:bg-muted/40"
+                                                    class="{{ $dashboardItemLinkHoverClass }}"
                                                 >
                                                     <p class="min-w-0 truncate text-sm font-semibold text-foreground">
                                                         {{ $schoolClassRow['subject_name'] }}
@@ -431,7 +432,7 @@
                                     <ul class="divide-y divide-border/60 dark:divide-zinc-800">
                                         @foreach ($this->dashboardRecurringDueTasks as $task)
                                             <li class="px-4 py-3" data-testid="dashboard-row-recurring-task">
-                                                <a href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}" wire:navigate class="block rounded-md transition hover:bg-muted/40">
+                                                <a href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}" wire:navigate class="{{ $dashboardItemLinkHoverClass }}">
                                                     <p class="truncate text-sm font-semibold text-foreground">{{ $task->title }}</p>
                                                     <p class="mt-1 text-xs text-muted-foreground">
                                                         <span>{{ __('Due: :time', ['time' => $task->end_datetime?->translatedFormat('M j · H:i') ?? __('No time')]) }}</span>
@@ -491,7 +492,7 @@
                                                 <a
                                                     href="{{ $this->workspaceRouteForAgendaStyleFocus($this->selectedDate, 'task', $task->id) }}"
                                                     wire:navigate
-                                                    class="block rounded-md transition hover:bg-muted/40"
+                                                    class="{{ $dashboardItemLinkHoverClass }}"
                                                 >
                                                     <p class="truncate text-sm font-semibold text-foreground">
                                                         {{ $task->title ?: __('Untitled') }}

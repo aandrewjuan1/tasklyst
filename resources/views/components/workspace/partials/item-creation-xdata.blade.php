@@ -78,6 +78,8 @@
                 },
             },
         },
+        taskDraftTitle: '',
+        eventDraftTitle: '',
         validateDateRange() {
             this.errors.dateRange = null;
 
@@ -244,6 +246,8 @@
         resetForm() {
             // Common fields for both tasks and events
             this.formData.item.title = '';
+            this.taskDraftTitle = '';
+            this.eventDraftTitle = '';
             this.formData.item.startDatetime = null;
             this.formData.item.endDatetime = null;
             this.formData.item.tagIds = [];
@@ -406,6 +410,15 @@
         },
         beginItemCreation(kind) {
             this.itemTypePickerOpen = false;
+            const isSwitchingKind = this.creationKind !== kind;
+
+            if (isSwitchingKind) {
+                if (this.creationKind === 'task') {
+                    this.taskDraftTitle = this.formData.item.title;
+                } else if (this.creationKind === 'event') {
+                    this.eventDraftTitle = this.formData.item.title;
+                }
+            }
 
             const isToggleClose =
                 this.showItemCreation &&
@@ -422,12 +435,15 @@
 
             if (kind === 'task') {
                 this.creationKind = 'task';
-                this.formData.item.status = 'to_do';
-                this.formData.item.priority = 'medium';
-                this.formData.item.complexity = 'moderate';
-                this.formData.item.duration = null;
-                this.formData.item.allDay = false;
-                this.formData.item.projectId = null;
+                if (isSwitchingKind) {
+                    this.formData.item.title = this.taskDraftTitle || '';
+                    this.formData.item.status = 'to_do';
+                    this.formData.item.priority = 'medium';
+                    this.formData.item.complexity = 'moderate';
+                    this.formData.item.duration = null;
+                    this.formData.item.allDay = false;
+                    this.formData.item.projectId = null;
+                }
                 this.showItemCreation = true;
 
                 return;
@@ -435,8 +451,11 @@
 
             if (kind === 'event') {
                 this.creationKind = 'event';
-                this.formData.item.status = 'scheduled';
-                this.formData.item.allDay = false;
+                if (isSwitchingKind) {
+                    this.formData.item.title = this.eventDraftTitle || '';
+                    this.formData.item.status = 'scheduled';
+                    this.formData.item.allDay = false;
+                }
                 this.showItemCreation = true;
 
                 return;

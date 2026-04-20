@@ -473,24 +473,21 @@ class extends Component
         $this->focusProjectId = null;
         $this->focusSchoolClassId = null;
 
-        if ($kind === 'task') {
+        $seedTaskVisibilityInKanban = $kind === 'task' && $this->viewMode === 'kanban';
+        if ($seedTaskVisibilityInKanban) {
+            // In kanban, keep existing behavior: allow immediate in-board focus resolution
+            // without clearing pinned filters when the card can already be found.
             $this->focusTaskId = $id;
-        } elseif ($kind === 'event') {
-            $this->focusEventId = $id;
-        } elseif ($kind === 'project') {
-            $this->focusProjectId = $id;
-        } else {
-            $this->focusSchoolClassId = $id;
         }
 
         $this->preserveCurrentViewModeForFocus = true;
 
         try {
             $model = match ($kind) {
-                'task' => $this->resolveDeepLinkModel(Task::class, $this->focusTaskId ?? 0),
-                'event' => $this->resolveDeepLinkModel(Event::class, $this->focusEventId ?? 0),
-                'project' => $this->resolveDeepLinkModel(Project::class, $this->focusProjectId ?? 0),
-                default => $this->resolveDeepLinkModel(SchoolClass::class, $this->focusSchoolClassId ?? 0),
+                'task' => $this->resolveDeepLinkModel(Task::class, $id),
+                'event' => $this->resolveDeepLinkModel(Event::class, $id),
+                'project' => $this->resolveDeepLinkModel(Project::class, $id),
+                default => $this->resolveDeepLinkModel(SchoolClass::class, $id),
             };
 
             if ($model === null) {
@@ -509,13 +506,28 @@ class extends Component
 
                 if ($anchorDate !== null && $anchorDate !== $currentDate) {
                     $this->selectedDate = $anchorDate;
+                    $this->parsedSelectedDate = null;
                     $this->dispatch('toast', type: 'info', message: __('Switched to :date for this item.', [
                         'date' => \Carbon\Carbon::parse($anchorDate)->translatedFormat('l, F j, Y'),
                     ]));
                 }
 
                 $this->clearAllFilters();
+                // Refresh computed list sources before the retry so we do not reuse stale
+                // in-request collections that were built under the previous filter/date state.
+                $this->clearPaginatedWorkspaceListCaches();
+                unset($this->overdue);
                 $this->expandPaginationUntilFocusItemVisible($kind, $id);
+            }
+
+            if ($kind === 'task') {
+                $this->focusTaskId = $id;
+            } elseif ($kind === 'event') {
+                $this->focusEventId = $id;
+            } elseif ($kind === 'project') {
+                $this->focusProjectId = $id;
+            } else {
+                $this->focusSchoolClassId = $id;
             }
 
             $this->applyWorkspaceDeepLinkFocus(

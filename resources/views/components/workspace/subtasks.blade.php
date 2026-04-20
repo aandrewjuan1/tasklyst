@@ -5,6 +5,7 @@
 
 @php
     use App\Enums\TaskStatus;
+    use App\Enums\TaskPriority;
 
     $parentProperty = match ($kind) {
         'project' => 'projectId',
@@ -24,15 +25,26 @@
         TaskStatus::Doing->value => 'bg-blue-800/10 text-blue-800 dark:bg-blue-300/20 dark:text-blue-300',
         TaskStatus::Done->value => 'bg-green-800/10 text-green-800 dark:bg-green-300/20 dark:text-green-300',
     ];
+    $priorityClassMap = [
+        TaskPriority::Low->value => 'bg-sky-800/10 text-sky-800 dark:bg-sky-300/20 dark:text-sky-300',
+        TaskPriority::Medium->value => 'bg-yellow-800/10 text-yellow-800 dark:bg-yellow-300/20 dark:text-yellow-300',
+        TaskPriority::High->value => 'bg-orange-800/10 text-orange-800 dark:bg-orange-300/20 dark:text-orange-300',
+        TaskPriority::Urgent->value => 'bg-red-800/10 text-red-800 dark:bg-red-300/20 dark:text-red-300',
+    ];
 
-    $tasksForAlpine = $tasks->map(function (\App\Models\Task $task) use ($statusClassMap): array {
+    $tasksForAlpine = $tasks->map(function (\App\Models\Task $task) use ($statusClassMap, $priorityClassMap): array {
         $statusValue = $task->status?->value ?? '';
+        $priorityValue = $task->priority?->value ?? '';
 
         return [
             'id' => $task->id,
             'title' => $task->title,
             'statusLabel' => $task->status?->label() ?? '',
             'statusClass' => $statusClassMap[$statusValue] ?? 'bg-muted text-muted-foreground',
+            'dueLabel' => $task->end_datetime?->translatedFormat('M j · H:i'),
+            'priorityLabel' => $task->priority?->label(),
+            'priorityClass' => $priorityClassMap[$priorityValue] ?? 'bg-muted text-muted-foreground',
+            'durationLabel' => $task->duration ? \App\Models\Task::formatDuration($task->duration) : null,
         ];
     })->values()->all();
 @endphp
@@ -66,6 +78,10 @@
                 title: detail.title ?? '',
                 statusLabel: detail.statusLabel ?? '',
                 statusClass: detail.statusClass ?? this.defaultStatusClass,
+                dueLabel: detail.dueLabel ?? null,
+                priorityLabel: detail.priorityLabel ?? null,
+                priorityClass: detail.priorityClass ?? 'bg-muted text-muted-foreground',
+                durationLabel: detail.durationLabel ?? null,
             }];
         },
         onTaskParentSet(detail) {
@@ -99,12 +115,27 @@
                     : t
             );
         },
-        focusTask(task) {
+        async focusTask(task) {
             if (!task || task.id == null) return;
             if (this.removingTaskIds?.has(task.id)) return;
             const instant = typeof window.workspaceCalendarTryInstantFocus === 'function'
                 && window.workspaceCalendarTryInstantFocus('task', task.id);
-            $wire.$parent.$call('focusCalendarAgendaItem', 'task', task.id, !instant);
+            const shouldShowLoadingSkeleton = !instant;
+            if (shouldShowLoadingSkeleton) {
+                window.dispatchEvent(new CustomEvent('workspace-focus-navigation-loading-start', { bubbles: true }));
+            }
+            try {
+                await $wire.$parent.$call('focusCalendarAgendaItem', 'task', task.id, !instant);
+                if (!instant && typeof window.runWorkspaceFocusToTarget === 'function') {
+                    requestAnimationFrame(() => {
+                        setTimeout(() => window.runWorkspaceFocusToTarget('task', task.id), 0);
+                    });
+                }
+            } finally {
+                if (shouldShowLoadingSkeleton) {
+                    window.dispatchEvent(new CustomEvent('workspace-focus-navigation-loading-end', { bubbles: true }));
+                }
+            }
         },
         async removeFromParent(task) {
             if (this.removingTaskIds.has(task.id)) return;
@@ -185,10 +216,10 @@
         <ul class="divide-y divide-border/30">
             <template x-for="task in tasks" :key="task.id">
                 <li
-                    class="flex items-center gap-2 rounded-sm px-2.5 py-1.5 first:pt-0 last:pb-0 transition-colors duration-150"
+                    class="flex items-center gap-2 rounded-sm border border-transparent px-2.5 py-1.5 first:pt-0 last:pb-0 transition-all duration-200 ease-out"
                     :class="removingTaskIds?.has(task.id)
                         ? 'cursor-not-allowed opacity-60'
-                        : 'cursor-pointer hover:bg-foreground/5 focus-within:bg-foreground/5'"
+                        : 'cursor-pointer hover:-translate-y-0.5 hover:scale-[1.01] hover:border-border/70 hover:bg-muted/70 focus-within:-translate-y-0.5 focus-within:scale-[1.01] focus-within:border-border/70 focus-within:bg-muted/70 dark:hover:border-zinc-700/90 dark:hover:bg-zinc-800/80 dark:focus-within:border-zinc-700/90 dark:focus-within:bg-zinc-800/80'"
                     role="button"
                     tabindex="0"
                     @click="focusTask(task)"
@@ -198,14 +229,45 @@
                     :aria-label="`{{ __('Focus task') }}: ${task.title ?? ''}`"
                 >
                     <span class="size-1.5 shrink-0 rounded-full bg-primary/50" aria-hidden="true"></span>
-                    <span class="min-w-0 flex-1 truncate text-[11px] text-foreground/90" :title="task.title" x-text="task.title"></span>
-                    <span
-                        x-show="task.statusLabel"
-                        x-cloak
-                        class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
-                        :class="task.statusClass"
-                        x-text="task.statusLabel"
-                    ></span>
+                    <div class="min-w-0 flex-1">
+                        <span class="block truncate text-xs font-semibold text-foreground" :title="task.title" x-text="task.title"></span>
+                        <div
+                            x-show="task.statusLabel || task.dueLabel || task.priorityLabel || task.durationLabel"
+                            x-cloak
+                            class="mt-0.5 flex min-w-0 flex-wrap items-center gap-1 text-[10px] text-muted-foreground"
+                        >
+                            <span
+                                x-show="task.statusLabel"
+                                x-cloak
+                                class="inline-flex items-center rounded-full border border-black/10 px-1.5 py-0.5 dark:border-white/10"
+                                :class="task.statusClass"
+                            >
+                                <flux:icon name="check-circle" class="mr-1 size-2.5 opacity-70" />
+                                <span class="font-medium">{{ __('Status') }}:</span>
+                                <span class="ml-0.5" x-text="task.statusLabel"></span>
+                            </span>
+                            <span x-show="task.dueLabel" x-cloak class="inline-flex items-center rounded-full border border-border/60 bg-muted/45 px-1.5 py-0.5">
+                                <flux:icon name="calendar" class="mr-1 size-2.5 opacity-70" />
+                                <span class="font-medium">{{ __('Due') }}:</span>
+                                <span class="ml-0.5" x-text="task.dueLabel"></span>
+                            </span>
+                            <span
+                                x-show="task.priorityLabel"
+                                x-cloak
+                                class="inline-flex items-center rounded-full border border-black/10 px-1.5 py-0.5 dark:border-white/10"
+                                :class="task.priorityClass"
+                            >
+                                <flux:icon name="flag" class="mr-1 size-2.5 opacity-70" />
+                                <span class="font-medium">{{ __('Priority') }}:</span>
+                                <span class="ml-0.5" x-text="task.priorityLabel"></span>
+                            </span>
+                            <span x-show="task.durationLabel" x-cloak class="inline-flex items-center rounded-full border border-border/60 bg-muted/45 px-1.5 py-0.5">
+                                <flux:icon name="clock" class="mr-1 size-2.5 opacity-70" />
+                                <span class="font-medium">{{ __('Duration') }}:</span>
+                                <span class="ml-0.5 tabular-nums" x-text="task.durationLabel"></span>
+                            </span>
+                        </div>
+                    </div>
                     <button
                         type="button"
                         class="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:opacity-50 dark:hover:text-red-400"

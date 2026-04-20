@@ -169,6 +169,58 @@ test('focusCalendarAgendaItem list view clears filters without forcing item type
         ->assertSet('viewMode', 'list');
 });
 
+test('focusCalendarAgendaItem list view clears classes filter, switches date, and renders focused task row', function (): void {
+    $user = User::factory()->create();
+    $today = now()->startOfDay();
+    $taskDate = $today->copy()->addDays(3);
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Class Subtask Focus Target',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => $taskDate->copy()->setTime(10, 0),
+        'end_datetime' => $taskDate->copy()->setTime(11, 0),
+        'completed_at' => null,
+    ]);
+
+    SchoolClass::factory()->for($user)->create([
+        'subject_name' => 'Focused Class',
+        'start_datetime' => $today->copy()->setTime(8, 0),
+        'end_datetime' => $today->copy()->setTime(9, 0),
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $today->toDateString())
+        ->set('viewMode', 'list')
+        ->set('filterItemType', 'classes')
+        ->call('focusCalendarAgendaItem', 'task', $task->id)
+        ->assertSet('selectedDate', $taskDate->toDateString())
+        ->assertSet('filterItemType', null)
+        ->assertSee('id="workspace-item-task-'.$task->id.'"', false);
+});
+
+test('focusCalendarAgendaItem switches selected date for cross-date task focus without filters', function (): void {
+    $user = User::factory()->create();
+    $today = now()->startOfDay();
+    $taskDate = $today->copy()->addDay();
+
+    $task = Task::factory()->for($user)->create([
+        'title' => 'Cross Date Focus Task',
+        'status' => TaskStatus::ToDo,
+        'start_datetime' => $taskDate->copy()->setTime(9, 0),
+        'end_datetime' => $taskDate->copy()->setTime(10, 0),
+        'completed_at' => null,
+    ]);
+
+    Livewire::actingAs($user)
+        ->test('pages::workspace.index')
+        ->set('selectedDate', $today->toDateString())
+        ->set('viewMode', 'list')
+        ->call('focusCalendarAgendaItem', 'task', $task->id)
+        ->assertSet('selectedDate', $taskDate->toDateString())
+        ->assertSee('id="workspace-item-task-'.$task->id.'"', false);
+});
+
 test('focusCalendarAgendaItem keeps kanban view when focusing a task from in-page calendar', function (): void {
     $user = User::factory()->create();
     $task = Task::factory()->for($user)->create([

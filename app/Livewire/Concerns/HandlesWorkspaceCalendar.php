@@ -435,6 +435,28 @@ trait HandlesWorkspaceCalendar
         return $this->formatCalendarAgendaClock($start).' - '.$this->formatCalendarAgendaClock($end);
     }
 
+    private function formatCalendarAgendaSchoolClassTimeRange(SchoolClass $class, CarbonInterface $selectedDate): string
+    {
+        if ($class->start_datetime !== null && $class->end_datetime !== null) {
+            return $this->formatCalendarAgendaTimeRange($class->start_datetime, $class->end_datetime);
+        }
+
+        if (filled($class->start_time)) {
+            try {
+                $start = $selectedDate->copy()->setTimeFromTimeString((string) $class->start_time);
+                $end = filled($class->end_time)
+                    ? $selectedDate->copy()->setTimeFromTimeString((string) $class->end_time)
+                    : null;
+
+                return $this->formatCalendarAgendaTimeRange($start, $end);
+            } catch (\Throwable) {
+                // Fall through to the UX fallback for malformed legacy time values.
+            }
+        }
+
+        return __('No time');
+    }
+
     /**
      * @return array{
      *   date:string,
@@ -682,9 +704,7 @@ trait HandlesWorkspaceCalendar
                     'id' => $class->id,
                     'title' => (string) $class->subject_name,
                     'time_label' => __('Class'),
-                    'time' => $class->start_datetime !== null && $class->end_datetime !== null
-                        ? $this->formatCalendarAgendaTimeRange($class->start_datetime, $class->end_datetime)
-                        : __('No time'),
+                    'time' => $this->formatCalendarAgendaSchoolClassTimeRange($class, $selectedDate),
                     'focus_kind' => $link['focus_kind'],
                     'focus_id' => $link['focus_id'],
                     'workspace_url' => $link['workspace_url'],
