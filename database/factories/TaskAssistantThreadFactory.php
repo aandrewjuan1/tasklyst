@@ -19,7 +19,6 @@ class TaskAssistantThreadFactory extends Factory
     {
         return [
             'user_id' => User::factory(),
-            'title' => $this->faker->optional()->sentence(),
             'metadata' => [],
         ];
     }

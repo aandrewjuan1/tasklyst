@@ -13,7 +13,6 @@ class TaskAssistantThread extends Model
 
     protected $fillable = [
         'user_id',
-        'title',
         'metadata',
     ];
 

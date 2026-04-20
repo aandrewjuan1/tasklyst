@@ -702,6 +702,9 @@ test('greeting is routed to general_guidance and persists structured metadata', 
     $assistantMessage->refresh();
 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.initial_flow'))->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.final_flow'))->toBe('general_guidance');
+    expect(data_get($assistantMessage->metadata, 'routing_trace.rewrites'))->toBeArray();
     expect(trim((string) $assistantMessage->content))->not->toBe('');
 
     Log::shouldHaveReceived('info')->withArgs(function (string $message, array $context) use ($thread, $assistantMessage): bool {

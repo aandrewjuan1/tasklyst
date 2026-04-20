@@ -2,6 +2,7 @@
 
 use App\Enums\AssistantSchedulePlanItemStatus;
 use App\Enums\MessageRole;
+use App\Actions\Assistant\AcceptScheduleProposalsAction;
 use App\Jobs\BroadcastTaskAssistantStreamJob;
 use App\Models\AssistantSchedulePlan;
 use App\Models\AssistantSchedulePlanItem;
@@ -16,6 +17,7 @@ use App\Services\LLM\Scheduling\ScheduleDraftMetadataNormalizer;
 use App\Services\ProjectService;
 use App\Services\TaskService;
 use App\Services\LLM\TaskAssistant\TaskAssistantQuickChipResolver;
+use App\Support\LLM\SchedulableProposalPolicy;
 use App\Services\UserNotificationBroadcastService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
@@ -89,7 +91,6 @@ new class extends Component
             $this->thread = $existingEmptyThread;
         } else {
             $this->thread = $user->taskAssistantThreads()->create([
-                'title' => null,
                 'metadata' => [],
             ]);
         }
@@ -412,7 +413,6 @@ new class extends Component
 
         if (! $this->thread) {
             $this->thread = $user->taskAssistantThreads()->create([
-                'title' => null,
                 'metadata' => [],
             ]);
         }
@@ -479,73 +479,25 @@ new class extends Component
      */
     public function acceptAllScheduleProposals(int $assistantMessageId): void
     {
-        if (! $this->thread) {
+        $user = Auth::user();
+        if (! $this->thread || ! $user) {
             return;
         }
 
-        if ($this->latestAssistantMessageId === null || $assistantMessageId !== $this->latestAssistantMessageId) {
-            return;
-        }
-
-        /** @var TaskAssistantMessage|null $message */
-        $message = $this->thread->messages()
-            ->where('id', $assistantMessageId)
-            ->where('role', MessageRole::Assistant)
-            ->first();
-
-        if (! $message) {
-            return;
-        }
-
-        $resolved = $this->resolveScheduleProposalsBucket($message);
-        if ($resolved === null) {
-            return;
-        }
-
-        [$fullPath, $count] = $resolved;
-        $pendingSchedulableCount = 0;
-        $acceptedCount = 0;
-        $failedCount = 0;
-        $acceptedProposals = [];
-
-        for ($index = 0; $index < $count; $index++) {
-            $message->refresh();
-            $proposal = $this->proposalAtIndex($message, $fullPath, $index);
-            if ($proposal === null || ! $this->isSchedulablePendingProposal($proposal)) {
-                continue;
-            }
-            $pendingSchedulableCount++;
-
-            try {
-                $this->applyScheduleProposal($proposal);
-                $message->refresh();
-                $this->setProposalStatus($message, $fullPath, $index, 'accepted');
-                $acceptedCount++;
-                $acceptedProposals[] = $proposal;
-            } catch (\Throwable $e) {
-                Log::warning('task-assistant.proposal.accept_all_failed', [
-                    'layer' => 'ui',
-                    'message_id' => $assistantMessageId,
-                    'proposal_index' => $index,
-                    'proposal_id' => $proposal['proposal_id'] ?? null,
-                    'error' => $e->getMessage(),
-                ]);
-                $message->refresh();
-                $this->setProposalStatus($message, $fullPath, $index, 'failed');
-                $failedCount++;
-
-                break;
-            }
-        }
+        $result = app(AcceptScheduleProposalsAction::class)->execute(
+            thread: $this->thread,
+            user: $user,
+            assistantMessageId: $assistantMessageId,
+            latestAssistantMessageId: $this->latestAssistantMessageId,
+        );
 
         $this->refreshMessages();
 
-        $isFullSuccess = $pendingSchedulableCount > 0
-            && $acceptedCount === $pendingSchedulableCount
-            && $failedCount === 0;
-        if (! $isFullSuccess) {
+        if (! ($result['is_full_success'] ?? false)) {
             return;
         }
+
+        $acceptedCount = (int) ($result['accepted_count'] ?? 0);
 
         $toastMessage = trans_choice(
             'Accepted :count proposal.|Accepted :count proposals.',
@@ -553,21 +505,12 @@ new class extends Component
             ['count' => $acceptedCount]
         );
         $this->dispatch('toast', type: 'success', message: $toastMessage);
-
-        $user = Auth::user();
-        if ($user) {
-            $this->persistAcceptedSchedulePlan(
-                user: $user,
-                assistantMessage: $message,
-                acceptedProposals: $acceptedProposals,
-            );
-            $user->notify(new AssistantScheduleAcceptedNotification(
-                threadId: (int) $this->thread->id,
-                assistantMessageId: $assistantMessageId,
-                acceptedCount: $acceptedCount,
-            ));
-            app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
-        }
+        $user->notify(new AssistantScheduleAcceptedNotification(
+            threadId: (int) $this->thread->id,
+            assistantMessageId: $assistantMessageId,
+            acceptedCount: $acceptedCount,
+        ));
+        app(UserNotificationBroadcastService::class)->broadcastInboxUpdated($user);
 
         $this->dispatch('assistant-schedule-plan-updated');
     }
@@ -983,30 +926,7 @@ new class extends Component
      */
     private function isSchedulablePendingProposal(array $proposal): bool
     {
-        if (($proposal['status'] ?? 'pending') !== 'pending') {
-            return false;
-        }
-        if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
-            return false;
-        }
-        $payload = $proposal['apply_payload'] ?? null;
-        if (is_array($payload) && $payload !== []) {
-            return true;
-        }
-
-        $entityType = (string) ($proposal['entity_type'] ?? '');
-        $entityId = (int) ($proposal['entity_id'] ?? 0);
-        $start = (string) ($proposal['start_datetime'] ?? '');
-        $end = (string) ($proposal['end_datetime'] ?? '');
-
-        if ($entityType === 'task' && $entityId > 0 && $start !== '') {
-            return true;
-        }
-        if ($entityType === 'event' && $entityId > 0 && $start !== '' && $end !== '') {
-            return true;
-        }
-
-        return $entityType === 'project' && $entityId > 0 && $start !== '';
+        return SchedulableProposalPolicy::isPendingSchedulable($proposal);
     }
 
     private function setProposalStatus(TaskAssistantMessage $message, string $path, int $index, string $status): void

@@ -20,6 +20,12 @@ final class TaskAssistantStreamingBroadcaster
      */
     public function streamFinalAssistantJson(int $userId, TaskAssistantMessage $assistantMessage, array $envelope, ?int $chunkSize = null): void
     {
+        if ($this->alreadyStreamed($assistantMessage)) {
+            broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
+
+            return;
+        }
+
         if ($this->isMessageStopped($assistantMessage)) {
             broadcast(new TaskAssistantStreamEnd($userId, $assistantMessage->id));
 
@@ -156,5 +162,20 @@ final class TaskAssistantStreamingBroadcaster
         data_set($metadata, 'stream.phase', $phase);
         data_set($metadata, 'stream.phase_at', now()->toIso8601String());
         $assistantMessage->update(['metadata' => $metadata]);
+    }
+
+    private function alreadyStreamed(TaskAssistantMessage $assistantMessage): bool
+    {
+        $fresh = TaskAssistantMessage::query()
+            ->whereKey($assistantMessage->id)
+            ->where('role', \App\Enums\MessageRole::Assistant)
+            ->first();
+
+        if (! $fresh) {
+            return false;
+        }
+
+        return (bool) data_get($fresh->metadata, 'streamed', false)
+            && is_array(data_get($fresh->metadata, 'structured'));
     }
 }

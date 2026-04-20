@@ -8,13 +8,14 @@ use App\Models\Task;
 use App\Models\TaskAssistantMessage;
 use App\Models\TaskAssistantThread;
 use App\Models\User;
+use App\Services\LLM\Prioritization\AssistantCandidateProvider;
 use Illuminate\Support\Facades\Log;
 
 final class TaskAssistantFlowExecutionEngine
 {
     public function __construct(
         private readonly TaskAssistantResponseProcessor $responseProcessor,
-        private readonly TaskAssistantSnapshotService $snapshotService,
+        private readonly AssistantCandidateProvider $candidateProvider,
     ) {}
 
     /**
@@ -261,12 +262,26 @@ final class TaskAssistantFlowExecutionEngine
     private function buildSnapshotForFlow(string $flow, User $user, array $payload): array
     {
         if ($flow !== 'daily_schedule') {
-            return $this->snapshotService->buildForUser($user);
+            return $this->candidateProvider->candidatesForUser(
+                user: $user,
+                taskLimit: 20,
+                eventHoursAhead: 168,
+                eventHoursBack: 24,
+                eventLimit: 30,
+                projectLimit: 20,
+            );
         }
 
         $proposals = is_array($payload['proposals'] ?? null) ? $payload['proposals'] : [];
         if ($proposals === []) {
-            return $this->snapshotService->buildForUser($user);
+            return $this->candidateProvider->candidatesForUser(
+                user: $user,
+                taskLimit: 20,
+                eventHoursAhead: 168,
+                eventHoursBack: 24,
+                eventLimit: 30,
+                projectLimit: 20,
+            );
         }
 
         $taskIds = [];
