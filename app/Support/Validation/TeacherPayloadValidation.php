@@ -2,6 +2,8 @@
 
 namespace App\Support\Validation;
 
+use App\Models\Teacher;
+
 final class TeacherPayloadValidation
 {
     /**
@@ -22,7 +24,7 @@ final class TeacherPayloadValidation
     public static function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255', 'regex:/\S/'],
+            'name' => ['required', 'string', 'max:'.Teacher::MAX_NAME_LENGTH, 'regex:/\S/'],
         ];
     }
 
@@ -35,7 +37,7 @@ final class TeacherPayloadValidation
     {
         return [
             'name.required' => __('Teacher name is required.'),
-            'name.max' => __('Teacher name cannot exceed 255 characters.'),
+            'name.max' => __('Teacher name cannot exceed :max characters.', ['max' => Teacher::MAX_NAME_LENGTH]),
             'name.regex' => __('Teacher name cannot be empty.'),
         ];
     }

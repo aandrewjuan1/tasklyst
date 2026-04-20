@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Renderless;
 
@@ -114,7 +115,9 @@ trait HandlesTags
 
         $this->dispatch('tag-deleted', id: $tagId);
         if (! $silentToasts) {
-            $this->dispatch('toast', type: 'success', message: __('Tag ":name" deleted.', ['name' => $tag->name]));
+            $this->dispatch('toast', type: 'success', message: __('Tag ":name" deleted.', [
+                'name' => Str::limit($tag->name, 32, '...'),
+            ]));
         }
         $this->dispatch('$refresh');
     }

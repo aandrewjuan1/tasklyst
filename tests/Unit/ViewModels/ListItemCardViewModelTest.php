@@ -86,7 +86,7 @@ it('produces alpineConfig with expected keys and no callables for a task', funct
 
     expect($config)->toHaveKeys([
         'kind', 'itemId', 'canEdit', 'canDelete', 'deleteMethod', 'updatePropertyMethod',
-        'editedTitle', 'recurrence', 'activeFocusSession', 'defaultWorkDurationMinutes', 'taskDurationMinutes',
+        'editedTitle', 'titleMaxLength', 'recurrence', 'activeFocusSession', 'defaultWorkDurationMinutes', 'taskDurationMinutes',
         'taskStatusOptions', 'taskPriority', 'taskComplexity', 'taskStartDatetime', 'taskEndDatetime',
         'focusModeType', 'focusModeTypes', 'focusModeComingSoonToast',
         'hasTaskDurationTarget', 'taskTargetDurationSeconds', 'taskFocusSpentSeconds', 'taskFocusRemainingSeconds', 'taskFocusProgressPercent',
@@ -101,6 +101,24 @@ it('produces alpineConfig with expected keys and no callables for a task', funct
     foreach ($config as $value) {
         expect($value)->not->toBeInstanceOf(\Closure::class);
     }
+});
+
+it('provides a shared title max length rule for frontend validation', function () {
+    $this->actingAs($this->user);
+
+    $config = (new ListItemCardViewModel(
+        kind: 'task',
+        item: $this->task,
+        listFilterDate: null,
+        filters: [],
+        availableTags: [],
+        isOverdue: false,
+        activeFocusSession: null,
+        defaultWorkDurationMinutes: 25,
+    ))->alpineConfig();
+
+    expect($config['titleMaxLength'])->toBe(180)
+        ->and($config['titleTooLongErrorToast'])->toContain('180');
 });
 
 it('accepts collection for availableTags and normalizes to array', function () {

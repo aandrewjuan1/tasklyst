@@ -2,6 +2,7 @@
 
 use App\DataTransferObjects\Teacher\CreateTeacherDto;
 use App\DataTransferObjects\Teacher\UpdateTeacherDto;
+use App\Models\Teacher;
 use App\Support\Validation\TeacherPayloadValidation;
 use Illuminate\Support\Facades\Validator;
 
@@ -30,9 +31,9 @@ test('teacher name regex fails for whitespace only', function (): void {
     expect($validator->fails())->toBeTrue();
 });
 
-test('teacher name max length 255 fails', function (): void {
+test('teacher name max length fails', function (): void {
     $payload = array_replace_recursive(TeacherPayloadValidation::defaults(), [
-        'name' => str_repeat('a', 256),
+        'name' => str_repeat('a', Teacher::MAX_NAME_LENGTH + 1),
     ]);
 
     $validator = Validator::make($payload, TeacherPayloadValidation::rules());

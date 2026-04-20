@@ -14,8 +14,10 @@
             schoolClassNeedMeetingDate: @js(__('Choose the meeting date.')),
             schoolClassNeedWeekdays: @js(__('Select at least one weekday for a weekly class.')),
             tagAlreadyExists: @js(__('Tag already exists.')),
+            tagTooLong: @js(__('Tag name cannot exceed :max characters.', ['max' => \App\Models\Tag::MAX_NAME_LENGTH])),
             tagError: @js(__('Something went wrong. Please try again.')),
             teacherAlreadyExists: @js(__('Teacher already exists.')),
+            teacherTooLong: @js(__('Teacher name cannot exceed :max characters.', ['max' => \App\Models\Teacher::MAX_NAME_LENGTH])),
             teacherError: @js(__('Something went wrong. Please try again.')),
         },
         errors: {
@@ -810,6 +812,13 @@
             if (!tagName || this.creatingTag) {
                 return;
             }
+            if (tagName.length > {{ \App\Models\Tag::MAX_NAME_LENGTH }}) {
+                $wire.dispatch('toast', {
+                    type: 'error',
+                    message: this.messages?.tagTooLong || 'Tag name is too long.',
+                });
+                return;
+            }
 
             this.newTagName = '';
 
@@ -873,6 +882,13 @@
                     ? String(teacherNameFromEvent).trim()
                     : (this.newTeacherName || '').trim();
             if (!teacherName || this.creatingTeacher) {
+                return;
+            }
+            if (teacherName.length > {{ \App\Models\Teacher::MAX_NAME_LENGTH }}) {
+                $wire.dispatch('toast', {
+                    type: 'error',
+                    message: this.messages?.teacherTooLong || 'Teacher name is too long.',
+                });
                 return;
             }
 

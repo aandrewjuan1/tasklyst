@@ -42,10 +42,10 @@
             <div
                 x-show="isEditingTitle"
                 x-cloak
-                class="relative inline-block min-w-full"
+                class="relative block min-w-0 w-full max-w-full overflow-hidden"
             >
                 <span
-                    class="invisible inline-block whitespace-pre px-1 py-0.5 {{ $cardTitleEditClass }}"
+                    class="invisible block w-full max-w-full truncate px-1 py-0.5 {{ $cardTitleEditClass }}"
                     aria-hidden="true"
                     x-text="editedTitle || '\u00A0'"
                 ></span>
@@ -56,8 +56,9 @@
                     @keydown.escape="cancelEditingTitle()"
                     @blur="handleBlur()"
                     wire:ignore
-                    class="absolute inset-0 w-full min-w-0 {{ $cardTitleEditClass }} rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
+                    class="absolute inset-0 w-full max-w-full min-w-0 {{ $cardTitleEditClass }} rounded-md bg-muted/20 px-1 py-0.5 -mx-1 -my-0.5 transition focus:bg-background/70 focus:outline-none dark:bg-muted/10"
                     type="text"
+                    :maxlength="titleMaxLength"
                 />
             </div>
 

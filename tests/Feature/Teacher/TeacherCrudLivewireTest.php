@@ -3,6 +3,7 @@
 use App\Models\SchoolClass;
 use App\Models\Teacher;
 use App\Models\User;
+use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
@@ -27,6 +28,22 @@ test('create teacher with empty name does not create teacher', function (): void
 
     Livewire::test('pages::workspace.index')
         ->call('createTeacher', '');
+
+    expect(Teacher::query()->where('user_id', $this->owner->id)->count())->toBe($countBefore);
+});
+
+test('create teacher with overly long name shows validation toast and does not create teacher', function (): void {
+    $this->actingAs($this->owner);
+    $countBefore = Teacher::query()->where('user_id', $this->owner->id)->count();
+    $tooLongName = str_repeat('a', Teacher::MAX_NAME_LENGTH + 1);
+
+    Livewire::test('pages::workspace.index')
+        ->call('createTeacher', $tooLongName)
+        ->assertDispatched(
+            'toast',
+            type: 'error',
+            message: __('Teacher name cannot exceed :max characters.', ['max' => Teacher::MAX_NAME_LENGTH]),
+        );
 
     expect(Teacher::query()->where('user_id', $this->owner->id)->count())->toBe($countBefore);
 });
@@ -58,6 +75,25 @@ test('delete teacher unassigns school classes when teacher is referenced', funct
 
     expect(Teacher::find($teacher->id))->toBeNull()
         ->and($class->fresh()->teacher_id)->toBeNull();
+});
+
+test('delete teacher success toast truncates long teacher names', function (): void {
+    $this->actingAs($this->owner);
+    $longName = str_repeat('a', 90);
+    $teacher = Teacher::factory()->for($this->owner)->create(['name' => $longName]);
+    $class = SchoolClass::factory()->for($this->owner)->create(['teacher_id' => $teacher->id]);
+
+    Livewire::test('pages::workspace.index')
+        ->call('deleteTeacher', $teacher->id)
+        ->assertDispatched('teacher-deleted', id: $teacher->id, affectedClassCount: 1)
+        ->assertDispatched(
+            'toast',
+            type: 'success',
+            message: __('Teacher ":name" deleted and removed from :count class.', [
+                'name' => Str::limit($longName, 32, '...'),
+                'count' => 1,
+            ]),
+        );
 });
 
 test('delete teacher with non existent id does not throw', function (): void {

@@ -11,6 +11,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Renderless;
 
@@ -178,10 +179,11 @@ trait HandlesTeachers
             $this->syncSchoolClassesAfterTeacherDeleted($teacherId);
         }
         if (! $silentToasts) {
+            $limitedTeacherName = Str::limit($teacher->name, 32, '...');
             $this->dispatch('toast', type: 'success', message: trans_choice(
                 'Teacher ":name" deleted and removed from :count class.|Teacher ":name" deleted and removed from :count classes.',
                 $result['affectedClassCount'],
-                ['name' => $teacher->name, 'count' => $result['affectedClassCount']]
+                ['name' => $limitedTeacherName, 'count' => $result['affectedClassCount']]
             ));
         }
         $this->dispatch('$refresh');

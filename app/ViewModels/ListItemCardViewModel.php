@@ -14,6 +14,8 @@ use Illuminate\Support\Str;
 
 class ListItemCardViewModel
 {
+    private const TITLE_MAX_LENGTH = 180;
+
     /** @var array<int, mixed> */
     public array $availableTags;
 
@@ -430,7 +432,9 @@ class ListItemCardViewModel
             'savedViaEnter' => false,
             'updatePropertyMethod' => $data['updatePropertyMethod'],
             'titleProperty' => $titleProperty,
+            'titleMaxLength' => self::TITLE_MAX_LENGTH,
             'titleErrorToast' => __('Title cannot be empty.'),
+            'titleTooLongErrorToast' => __('Title must be :max characters or fewer.', ['max' => self::TITLE_MAX_LENGTH]),
             'titleUpdateErrorToast' => __('Something went wrong updating the title.'),
             'recurrenceUpdateErrorToast' => __('Something went wrong. Please try again.'),
             'descriptionUpdateErrorToast' => __("Couldn't save :property. Try again.", ['property' => __('Description')]),

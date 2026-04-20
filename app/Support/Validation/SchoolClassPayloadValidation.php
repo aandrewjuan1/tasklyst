@@ -3,6 +3,7 @@
 namespace App\Support\Validation;
 
 use App\Enums\TaskRecurrenceType;
+use App\Models\Teacher;
 use Illuminate\Validation\Rule;
 
 final class SchoolClassPayloadValidation
@@ -39,7 +40,7 @@ final class SchoolClassPayloadValidation
             'schoolClassPayload' => ['required', 'array'],
             'schoolClassPayload.scheduleMode' => ['required', Rule::in(['recurring', 'one_off'])],
             'schoolClassPayload.subjectName' => ['required', 'string', 'max:255', 'regex:/\S/'],
-            'schoolClassPayload.teacherName' => ['required', 'string', 'max:255', 'regex:/\S/'],
+            'schoolClassPayload.teacherName' => ['required', 'string', 'max:'.Teacher::MAX_NAME_LENGTH, 'regex:/\S/'],
             'schoolClassPayload.scheduleStartDate' => ['nullable', 'date'],
             'schoolClassPayload.scheduleEndDate' => ['nullable', 'date', 'after_or_equal:schoolClassPayload.scheduleStartDate'],
             'schoolClassPayload.meetingDate' => ['nullable', 'required_if:schoolClassPayload.scheduleMode,one_off', 'date'],
@@ -77,7 +78,7 @@ final class SchoolClassPayloadValidation
     {
         return match ($property) {
             'subjectName' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
-            'teacherName' => ['value' => ['required', 'string', 'max:255', 'regex:/\S/']],
+            'teacherName' => ['value' => ['required', 'string', 'max:'.Teacher::MAX_NAME_LENGTH, 'regex:/\S/']],
             'startTime' => ['value' => ['required', 'string']],
             'endTime' => ['value' => ['required', 'string']],
             'startDatetime' => ['value' => ['nullable', 'date']],

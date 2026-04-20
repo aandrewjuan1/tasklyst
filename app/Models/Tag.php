@@ -12,6 +12,8 @@ class Tag extends Model
 {
     use HasFactory;
 
+    public const MAX_NAME_LENGTH = 50;
+
     protected $fillable = [
         'name',
         'user_id',

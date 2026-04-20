@@ -11,11 +11,14 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class SchoolClass extends Model
 {
     /** @use HasFactory<\Database\Factories\SchoolClassFactory> */
     use HasFactory, SoftDeletes;
+
+    private const TOAST_TEXT_MAX_LENGTH = 80;
 
     protected $fillable = [
         'user_id',
@@ -119,10 +122,8 @@ class SchoolClass extends Model
      */
     public static function toastPayload(string $action, bool $success, ?string $subjectName = null): array
     {
-        $trimmedSubject = $subjectName !== null ? trim($subjectName) : null;
-        $hasSubject = $trimmedSubject !== null && $trimmedSubject !== '';
-
-        $quotedSubject = $hasSubject ? '"'.$trimmedSubject.'"' : null;
+        $quotedSubject = self::quoteToastText($subjectName);
+        $hasSubject = $quotedSubject !== null;
 
         $type = $success ? 'success' : 'error';
 
@@ -228,12 +229,12 @@ class SchoolClass extends Model
 
     private static function toastSchoolClassSuffix(?string $subjectName): string
     {
-        $trimmed = $subjectName !== null ? trim($subjectName) : '';
-        if ($trimmed === '') {
+        $quotedSubject = self::quoteToastText($subjectName);
+        if ($quotedSubject === null) {
             return '';
         }
 
-        return ' — '.__('School class').': '.'"'.$trimmed.'"';
+        return ' — '.__('School class').': '.$quotedSubject;
     }
 
     private static function propertyLabel(string $property): ?string
@@ -265,11 +266,31 @@ class SchoolClass extends Model
     private static function formatPropertyValue(string $property, mixed $value): ?string
     {
         return match ($property) {
-            'subjectName', 'teacherName' => is_string($value) ? '"'.trim($value).'"' : null,
+            'subjectName', 'teacherName' => is_string($value) ? self::quoteToastText($value) : null,
             'startTime', 'endTime' => self::formatTime($value),
             'startDatetime', 'endDatetime' => self::formatDatetime($value),
             default => is_scalar($value) ? (string) $value : null,
         };
+    }
+
+    private static function toastTextExcerpt(?string $value): ?string
+    {
+        $trimmed = $value !== null ? trim($value) : '';
+        if ($trimmed === '') {
+            return null;
+        }
+
+        return Str::limit($trimmed, self::TOAST_TEXT_MAX_LENGTH);
+    }
+
+    private static function quoteToastText(?string $value): ?string
+    {
+        $excerpt = self::toastTextExcerpt($value);
+        if ($excerpt === null) {
+            return null;
+        }
+
+        return '"'.$excerpt.'"';
     }
 
     private static function formatDatetime(mixed $value): ?string

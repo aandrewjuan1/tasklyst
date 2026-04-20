@@ -5,6 +5,7 @@ use App\Models\SchoolClass;
 use App\Models\Teacher;
 use App\Models\User;
 use App\Services\TeacherService;
+use Illuminate\Validation\ValidationException;
 
 beforeEach(function (): void {
     $this->user = User::factory()->create();
@@ -63,3 +64,9 @@ test('delete teacher unassigns school classes and deletes teacher when reference
         ->and(Teacher::find($teacher->id))->toBeNull()
         ->and($class->fresh()->teacher_id)->toBeNull();
 });
+
+test('create teacher rejects names longer than max length', function (): void {
+    $this->service->createTeacher($this->user, [
+        'name' => str_repeat('a', Teacher::MAX_NAME_LENGTH + 1),
+    ]);
+})->throws(ValidationException::class);

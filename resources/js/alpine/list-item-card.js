@@ -990,6 +990,22 @@ export function listItemCard(config) {
                 this.cancelEditingTitle();
                 return;
             }
+            const titleMaxLength = Number(this.titleMaxLength ?? 180);
+            if (trimmedTitle.length > titleMaxLength) {
+                this.$wire.$dispatch('toast', {
+                    type: 'error',
+                    message: this.titleTooLongErrorToast ?? `Title must be ${titleMaxLength} characters or fewer.`,
+                });
+                this.$nextTick(() => {
+                    const input = this.$refs.titleInput;
+                    if (input) {
+                        input.focus();
+                        const length = input.value.length;
+                        input.setSelectionRange(length, length);
+                    }
+                });
+                return;
+            }
 
             const snapshot = this.titleSnapshot;
             const originalTrimmed = (snapshot ?? '').toString().trim();

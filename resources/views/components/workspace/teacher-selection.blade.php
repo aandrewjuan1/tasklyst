@@ -78,6 +78,7 @@
                     placeholder="{{ __('Create teacher…') }}"
                     size="sm"
                     class="min-w-0 flex-1"
+                    maxlength="{{ \App\Models\Teacher::MAX_NAME_LENGTH }}"
                     @keydown.enter.prevent="!creatingTeacher && newTeacherName?.trim() && $dispatch('teacher-create-request', { teacherName: newTeacherName })"
                 />
                 <button

@@ -6,6 +6,7 @@ use App\Enums\TaskComplexity;
 use App\Enums\TaskPriority;
 use App\Enums\TaskRecurrenceType;
 use App\Enums\TaskStatus;
+use App\Models\Tag;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
@@ -74,7 +75,7 @@ final class TaskPayloadValidation
                 }),
             ],
             'taskPayload.pendingTagNames' => ['array'],
-            'taskPayload.pendingTagNames.*' => ['string', 'max:255', 'regex:/\S/'],
+            'taskPayload.pendingTagNames.*' => ['string', 'max:'.Tag::MAX_NAME_LENGTH, 'regex:/\S/'],
 
             'taskPayload.recurrence' => ['array'],
             'taskPayload.recurrence.enabled' => ['boolean'],

@@ -13,6 +13,8 @@ class Teacher extends Model
     /** @use HasFactory<\Database\Factories\TeacherFactory> */
     use HasFactory;
 
+    public const MAX_NAME_LENGTH = 80;
+
     protected $fillable = [
         'user_id',
         'name',
