@@ -25,6 +25,8 @@ class User extends Authenticatable
         'email',
         'workos_id',
         'avatar',
+        'timezone',
+        'schedule_preferences',
     ];
 
     /**
@@ -73,6 +75,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'calendar_import_past_months' => 'integer',
+            'schedule_preferences' => 'array',
         ];
     }
 

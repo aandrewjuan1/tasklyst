@@ -45,7 +45,7 @@ final class TaskAssistantScheduleContextBuilder
         $extracted = $this->constraintsExtractor->extract($userMessage);
         $normalized = $this->buildScheduleContext($userMessage, $extracted);
 
-        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezone = (string) ($snapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $todayStr = (string) ($snapshot['today'] ?? now($timezone)->format('Y-m-d'));
         $nowRaw = is_string($snapshot['now'] ?? null) ? trim((string) $snapshot['now']) : '';
         if ($nowRaw !== '') {
@@ -59,7 +59,12 @@ final class TaskAssistantScheduleContextBuilder
         }
         $normalized['schedule_horizon'] = $this->horizonResolver->resolve($userMessage, $timezone, $now);
 
-        $intent = $this->intentInterpreter->interpret($userMessage, $timezone, $now);
+        $intent = $this->intentInterpreter->interpret(
+            $userMessage,
+            $timezone,
+            $now,
+            $this->resolveDayBoundsFromSnapshot($snapshot)
+        );
         $intentReasonCodes = is_array($intent['reason_codes'] ?? null) ? $intent['reason_codes'] : [];
         $horizonResolved = is_array($normalized['schedule_horizon'] ?? null) ? $normalized['schedule_horizon'] : [];
         $normalized['schedule_horizon'] = $this->maybeWidenSmartDefaultHorizon(
@@ -296,5 +301,27 @@ final class TaskAssistantScheduleContextBuilder
         return str_starts_with($label, 'explicit_date_')
             || str_starts_with($label, 'relative_days_')
             || str_starts_with($label, 'qualified_weekday_');
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array{start?: string, end?: string}
+     */
+    private function resolveDayBoundsFromSnapshot(array $snapshot): array
+    {
+        $preferences = is_array($snapshot['schedule_preferences'] ?? null)
+            ? $snapshot['schedule_preferences']
+            : [];
+        $dayBounds = is_array($preferences['day_bounds'] ?? null)
+            ? $preferences['day_bounds']
+            : [];
+
+        $start = is_string($dayBounds['start'] ?? null) ? trim((string) $dayBounds['start']) : '';
+        $end = is_string($dayBounds['end'] ?? null) ? trim((string) $dayBounds['end']) : '';
+
+        return array_filter([
+            'start' => $start !== '' ? $start : null,
+            'end' => $end !== '' ? $end : null,
+        ], static fn (mixed $value): bool => $value !== null);
     }
 }

@@ -353,9 +353,39 @@ new class extends Component
                         ? $listingFollowupChips
                         : (is_array($structuredChips) ? $structuredChips : []))));
 
-        return array_values(array_filter(
+        $trimmed = array_values(array_filter(
             array_map(static fn (mixed $chip): string => trim((string) $chip), is_array($nextOptionChips) ? $nextOptionChips : []),
             static fn (string $chip): bool => $chip !== ''
+        ));
+
+        return $this->filterContinueStyleQuickChips($trimmed);
+    }
+
+    /**
+     * @param  array<int, string>  $chips
+     * @return array<int, string>
+     */
+    public function filterContinueStyleQuickChips(array $chips): array
+    {
+        return array_values(array_filter(
+            $chips,
+            static function (string $chip): bool {
+                $t = mb_strtolower(trim($chip));
+                if ($t === '') {
+                    return false;
+                }
+                if (preg_match('/^continue\\b/u', $t) === 1) {
+                    return false;
+                }
+                if (preg_match('/\\bcontinue\\b.*\\b(draft|pending\\s+schedule)\\b/u', $t) === 1) {
+                    return false;
+                }
+                if (str_contains($t, 'continue with this draft')) {
+                    return false;
+                }
+
+                return true;
+            }
         ));
     }
 
@@ -1058,12 +1088,14 @@ new class extends Component
             return;
         }
 
-        $this->emptyStateQuickChips = app(TaskAssistantQuickChipResolver::class)
-            ->resolveForEmptyState(
-                user: $user,
-                thread: $this->thread,
-                limit: 4,
-            );
+        $this->emptyStateQuickChips = $this->filterContinueStyleQuickChips(
+            app(TaskAssistantQuickChipResolver::class)
+                ->resolveForEmptyState(
+                    user: $user,
+                    thread: $this->thread,
+                    limit: 4,
+                )
+        );
     }
 
     private function cancelPreviousActiveAssistantRuns(): void

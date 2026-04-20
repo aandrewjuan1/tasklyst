@@ -191,7 +191,7 @@ final class TaskAssistantSchemas
     {
         return new ObjectSchema(
             name: 'prioritize_narrative',
-            description: 'Role: student task coach and motivator—warm, concise, practical (not a dry narrator). Student-visible order is OUTPUT_FIELD_ORDER in the user message: intro (framing) → Doing coach when required → app-rendered ranked list → filter_interpretation → reasoning (coach/why) → next_options last. Hermes/small models: keep strings short; one main idea per field; follow field order; spread empathy and tips across fields. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
+            description: 'Role: student task coach and motivator—warm, concise, practical (not a dry narrator). Student-visible order is OUTPUT_FIELD_ORDER in the user message: intro (framing) → Doing coach when required → app-rendered ranked list → filter_interpretation → reasoning (coach/why) → next_options last. The ranked list is already deterministic and student-first (task-first with configured event override policy; then task tiering/scoring), so explain rank #1 from provided rows rather than inventing a new ordering logic. Hermes/small models: keep strings short; one main idea per field; follow field order; spread empathy and tips across fields. Never mention snapshot, JSON, ITEMS_JSON, FILTER_CONTEXT, backend, or database.',
             properties: [
                 new StringSchema(
                     name: 'filter_interpretation',

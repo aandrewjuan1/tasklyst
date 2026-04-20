@@ -165,6 +165,7 @@
                                 $prioritizeChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', []);
                                 $guidanceChips = data_get($message->metadata, 'general_guidance.next_options_chip_texts', []);
                                 $scheduleChips = data_get($message->metadata, 'schedule.next_options_chip_texts', []);
+                                $listingFollowupChips = data_get($message->metadata, 'listing_followup.next_options_chip_texts', []);
                                 $structuredChips = data_get($message->metadata, 'structured.data.next_options_chip_texts', []);
                                 $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
                                     ? $prioritizeChips
@@ -172,7 +173,9 @@
                                         ? $guidanceChips
                                         : (is_array($scheduleChips) && count($scheduleChips) > 0
                                             ? $scheduleChips
-                                            : (is_array($structuredChips) ? $structuredChips : [])));
+                                            : (is_array($listingFollowupChips) && count($listingFollowupChips) > 0
+                                                ? $listingFollowupChips
+                                                : (is_array($structuredChips) ? $structuredChips : []))));
                                 if (! is_array($nextOptionChips)) {
                                     $nextOptionChips = [];
                                 }
@@ -180,6 +183,7 @@
                                     array_map(static fn (mixed $chip): string => trim((string) $chip), $nextOptionChips),
                                     static fn (string $chip): bool => $chip !== ''
                                 ));
+                                $nextOptionChips = $this->filterContinueStyleQuickChips($nextOptionChips);
                                 $isLatestAssistant = $latestAssistantMessageId !== null && $message->id === $latestAssistantMessageId;
                                 $chipsDismissed = (bool) ($dismissedNextOptionChipsByMessage[$message->id] ?? false);
                             @endphp

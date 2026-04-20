@@ -41,7 +41,7 @@ final class TaskAssistantScheduleDbContextBuilder
         string $userMessageContent,
         array $options = [],
     ): array {
-        $timezone = (string) config('app.timezone', 'UTC');
+        $timezone = $this->resolveUserTimezone($user);
         $now = CarbonImmutable::now($timezone);
         $today = $now->toDateString();
 
@@ -52,6 +52,7 @@ final class TaskAssistantScheduleDbContextBuilder
                 'timezone' => $timezone,
                 'today' => $today,
                 'now' => $now->toIso8601String(),
+                'schedule_preferences' => is_array($user->schedule_preferences) ? $user->schedule_preferences : [],
                 'refinement_anchor_date' => is_string($options['refinement_anchor_date'] ?? null)
                     ? (string) $options['refinement_anchor_date']
                     : null,
@@ -78,6 +79,7 @@ final class TaskAssistantScheduleDbContextBuilder
             rangeStart: $windowStart->copy()->startOfDay(),
             rangeEnd: $windowEnd->copy()->endOfDay(),
             bufferMinutes: $classBufferMinutes,
+            timezone: $timezone,
         );
 
         $scheduleTargetSkips = [];
@@ -105,12 +107,29 @@ final class TaskAssistantScheduleDbContextBuilder
             'school_class_buffer_minutes' => $classBufferMinutes,
             'projects' => $projects,
             'schedule_target_skips' => $scheduleTargetSkips,
+            'schedule_preferences' => is_array($user->schedule_preferences) ? $user->schedule_preferences : [],
         ];
 
         return [
             'context' => $context,
             'snapshot' => $snapshot,
         ];
+    }
+
+    private function resolveUserTimezone(User $user): string
+    {
+        $candidate = trim((string) ($user->timezone ?? ''));
+        if ($candidate !== '') {
+            try {
+                new \DateTimeZone($candidate);
+
+                return $candidate;
+            } catch (\Throwable) {
+                // Fall back to app timezone when user timezone is invalid.
+            }
+        }
+
+        return (string) config('app.timezone', 'Asia/Manila');
     }
 
     /**
@@ -147,7 +166,7 @@ final class TaskAssistantScheduleDbContextBuilder
      */
     private function resolveHorizonStart(mixed $horizon, string $today, string $timezone): CarbonImmutable
     {
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
 
         if (is_array($horizon)
             && isset($horizon['start_date'])
@@ -162,7 +181,7 @@ final class TaskAssistantScheduleDbContextBuilder
 
     private function resolveHorizonEnd(mixed $horizon, CarbonImmutable $windowStart, string $timezone): CarbonImmutable
     {
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
 
         if (is_array($horizon)
             && isset($horizon['end_date'])
@@ -318,7 +337,7 @@ final class TaskAssistantScheduleDbContextBuilder
 
         foreach ($missingIds as $mid) {
             $task = $fetched->get($mid);
-            if ($task === null) {
+            if (! $task instanceof Task) {
                 $skips[] = [
                     'entity_type' => 'task',
                     'entity_id' => $mid,

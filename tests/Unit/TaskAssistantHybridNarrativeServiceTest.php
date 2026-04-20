@@ -2039,7 +2039,7 @@ test('refinePrioritizeListing does not use connection fallbacks when the model r
     );
 
     expect($result['framing'])->toContain('Found 1 task');
-    expect($result['reasoning'])->toContain('same urgency rules');
+    expect($result['reasoning'])->toContain('same student-first ranking policy');
     expect($result['reasoning'])->not->toContain('Impossible 5h study block');
 });
 

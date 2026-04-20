@@ -244,6 +244,62 @@ test('prioritize_schedule schedules tasks only (events present)', function (): v
     expect($entityTypes)->toEqual(['task']);
 });
 
+test('prioritize_schedule schedules the top student-first task selection', function (): void {
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'Here is a focused schedule for your top task.',
+                'reasoning' => 'This keeps your strongest study priority in your next open block.',
+                'confirmation' => 'Do these times work for you?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    $tomorrow = CarbonImmutable::now($timezone)->addDay();
+
+    $academic = Task::factory()->for($user)->create([
+        'title' => 'Study calculus chapter 5',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'start_datetime' => null,
+        'end_datetime' => $tomorrow->setTime(18, 0),
+        'duration' => 50,
+    ]);
+
+    Task::factory()->for($user)->create([
+        'title' => 'Clean desk drawer',
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::Medium,
+        'start_datetime' => null,
+        'end_datetime' => $tomorrow->setTime(18, 0),
+        'duration' => 50,
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule my top 1 task for tomorrow',
+    ]);
+
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $proposals = $assistantMessage->metadata['schedule']['proposals'] ?? [];
+
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize_schedule');
+    expect($proposals)->toBeArray();
+    expect(count($proposals))->toBeGreaterThan(0);
+    expect((string) ($proposals[0]['entity_type'] ?? ''))->toBe('task');
+    expect((int) ($proposals[0]['entity_id'] ?? 0))->toBe($academic->id);
+});
+
 test('edit-like turn after pending schedule draft rewrites prioritize intent to schedule refinement', function (): void {
     config([
         'task-assistant.intent.use_llm' => false,
@@ -1300,7 +1356,7 @@ test('explicit requested date no-fit requires confirmation instead of silent day
 
     $buildFallback = new ReflectionMethod(TaskAssistantService::class, 'buildScheduleFallbackConfirmationData');
     $buildFallback->setAccessible(true);
-    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'actually schedule them for april 20');
+    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'actually schedule them for april 20', $plan);
 
     expect($converted['confirmation_required'] ?? null)->toBeTrue();
     expect($converted['awaiting_user_decision'] ?? null)->toBeTrue();
@@ -1322,6 +1378,19 @@ test('fallback confirmation narrative does not claim explicit top-N for generic 
 
     $thread = TaskAssistantThread::factory()->create(['user_id' => User::factory()->create()->id]);
     $service = app(TaskAssistantService::class);
+
+    $planForTopN = new \App\Services\LLM\TaskAssistant\ExecutionPlan(
+        flow: 'schedule',
+        confidence: 0.9,
+        clarificationNeeded: false,
+        clarificationQuestion: null,
+        reasonCodes: [],
+        constraints: [],
+        targetEntities: [],
+        timeWindowHint: null,
+        countLimit: 3,
+        generationProfile: 'schedule',
+    );
 
     $scheduleData = [
         'proposals' => [[
@@ -1368,7 +1437,7 @@ test('fallback confirmation narrative does not claim explicit top-N for generic 
     $buildFallback = new ReflectionMethod(TaskAssistantService::class, 'buildScheduleFallbackConfirmationData');
     $buildFallback->setAccessible(true);
 
-    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'Create a plan for today');
+    $converted = $buildFallback->invoke($service, $scheduleData, $thread, 'Create a plan for today', $planForTopN);
 
     expect($converted['confirmation_context']['requested_count_source'] ?? null)->toBe('system_default');
     expect((string) ($converted['framing'] ?? ''))->not->toContain('you asked for top 3');

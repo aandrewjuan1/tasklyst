@@ -23,10 +23,10 @@ final class SchedulingIntentInterpreter
      *   reason_codes: list<string>
      * }
      */
-    public function interpret(string $userMessage, string $timezone, CarbonImmutable $now): array
+    public function interpret(string $userMessage, string $timezone, CarbonImmutable $now, array $dayBounds = []): array
     {
         $lower = mb_strtolower($userMessage);
-        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'UTC');
+        $tz = $timezone !== '' ? $timezone : (string) config('app.timezone', 'Asia/Manila');
         $localNow = $now->setTimezone($tz);
 
         $hasLater = preg_match('/\blater\b/u', $lower) === 1;
@@ -39,8 +39,8 @@ final class SchedulingIntentInterpreter
         $reasonCodes = [];
 
         // Default day bounds (product decision): 08:00–22:00.
-        $defaultStart = '08:00';
-        $defaultEnd = '22:00';
+        $defaultStart = $this->normalizeClockString((string) ($dayBounds['start'] ?? '')) ?? '08:00';
+        $defaultEnd = $this->normalizeClockString((string) ($dayBounds['end'] ?? '')) ?? '22:00';
 
         $explicitWindow = $this->resolveExplicitNaturalWindow($lower, $defaultStart, $defaultEnd);
         if ($explicitWindow !== null) {
@@ -377,5 +377,19 @@ final class SchedulingIntentInterpreter
         }
 
         return sprintf('%02d:%02d', $hour24, $minute);
+    }
+
+    private function normalizeClockString(string $raw): ?string
+    {
+        $value = trim($raw);
+        if ($value === '') {
+            return null;
+        }
+
+        if (preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', $value, $matches) !== 1) {
+            return null;
+        }
+
+        return sprintf('%02d:%02d', (int) $matches[1], (int) $matches[2]);
     }
 }

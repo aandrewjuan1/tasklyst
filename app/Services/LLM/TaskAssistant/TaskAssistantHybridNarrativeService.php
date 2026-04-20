@@ -316,6 +316,10 @@ final class TaskAssistantHybridNarrativeService
         $horizonHint = TaskAssistantScheduleNarrativeSanitizer::horizonContextLineForPrompt(
             is_array($promptData['schedule_horizon'] ?? null) ? $promptData['schedule_horizon'] : null
         );
+        $scheduleSource = trim((string) ($promptData['schedule_source'] ?? 'schedule'));
+        $scheduleSelectionHint = $scheduleSource === 'prioritize_schedule'
+            ? ' Selection context: these rows were selected from the student-first prioritized tasks (task-first with configured event override, then task tiers/scoring). Keep your explanation aligned with this deterministic selection; do not claim a different ranking rule.'
+            : '';
 
         $digestBlock = '';
         $trimDigest = $placementDigestJson !== null ? trim($placementDigestJson) : '';
@@ -353,7 +357,7 @@ final class TaskAssistantHybridNarrativeService
         $messages = $historyMessages->values();
         $messages->push(new UserMessage($userMessageContent));
         $messages->push(new UserMessage(
-            'The planned schedule is fixed and correct. The student will see each row with exact start, end, and duration immediately after your framing.'.$horizonHint."\n\n".
+            'The planned schedule is fixed and correct. The student will see each row with exact start, end, and duration immediately after your framing.'.$horizonHint.$scheduleSelectionHint."\n\n".
             'PLACEMENT_FACTS (must respect; do not contradict): schedule_row_count='.$blockCount.'; unplaced_candidate_count='.$unplacedCountForPrompt.'. The UI shows exactly schedule_row_count time blocks with concrete start/end. Do not imply more tasks received scheduled start/end times than schedule_row_count. If unplaced_candidate_count>0, say plainly that some requested items did not get a slot in this pass (another day or a wider window may help)—do not claim every item was placed.'."\n\n".
             'Return JSON only: framing, reasoning, confirmation. Voice: warm, concise coach.'."\n".
             '- framing: 1–2 short sentences. First sentence: acknowledge their request in your own words (time intent like evening, or scope like how many tasks)—paraphrase; do not paste a long quote of the user. Use the same calendar day as the CONTEXT sentence above for when these blocks land (if CONTEXT says tomorrow, say tomorrow—do not describe the blocks as "today" unless CONTEXT says today). Second sentence (optional): brief hand-off to the schedule rows without repeating exact clock times or durations (the app shows those next).'."\n".
@@ -1691,7 +1695,7 @@ TXT;
 
         $variantInstruction = $emptyRankedSlice
             ? 'PRIORITIZE_VARIANT: '.$prioritizeVariant.'. ITEMS_JSON is empty: there are zero ranked rows in this slice (non-Doing tasks may be absent or filtered out).'
-            : 'PRIORITIZE_VARIANT: '.$prioritizeVariant.'. Rows are urgency-ranked. framing is intro only (see OUTPUT_FIELD_ORDER). When LISTED_ITEM_COUNT >= 1, put why row #1 is first in reasoning (before next_options), not in framing.';
+            : 'PRIORITIZE_VARIANT: '.$prioritizeVariant.'. Rows are already deterministically ranked by the student-first prioritization policy (task-first with configured event override window, then task tiers and scoring). framing is intro only (see OUTPUT_FIELD_ORDER). When LISTED_ITEM_COUNT >= 1, put why row #1 is first in reasoning (before next_options), not in framing.';
 
         $coachContextBlock = TaskAssistantPrioritizeOutputDefaults::buildPrioritizeNarrativeCoachContextBlock(
             $items,
@@ -2332,10 +2336,10 @@ TXT;
             return $reasoning;
         }
 
-        // If reasoning includes generic but meaningful grounding words (e.g. "urgency rules"),
+        // If reasoning includes generic but meaningful grounding words tied to ranking policy,
         // do not override it.
         $hasMeaningfulGrounding = (bool) preg_match(
-            '/\b(urgency|priority|due|deadline|time[-\s]?sensitive)\b/iu',
+            '/\b(student[-\s]?first|task[-\s]?first|non[-\s]?recurring|recurring|academic|priority|due|deadline|time[-\s]?sensitive)\b/iu',
             $textLower
         );
         if ($hasMeaningfulGrounding) {

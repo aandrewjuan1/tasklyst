@@ -25,7 +25,6 @@ final class TaskAssistantQuickChipResolver
         $conversationState = is_array(data_get($thread?->metadata, 'conversation_state'))
             ? data_get($thread?->metadata, 'conversation_state')
             : [];
-        $pendingFallback = is_array(data_get($conversationState, 'pending_schedule_fallback'));
         $lastSourceFlow = (string) data_get($conversationState, 'last_listing.source_flow', '');
 
         $candidates = $this->baseCandidates();
@@ -66,10 +65,6 @@ final class TaskAssistantQuickChipResolver
                 $score += 70;
             }
 
-            if ($intent === 'resume_pending_plan' && $pendingFallback) {
-                $score += 180;
-            }
-
             if ($intent === 'schedule_most_important' && $lastSourceFlow === 'prioritize') {
                 $score += 40;
             }
@@ -101,7 +96,7 @@ final class TaskAssistantQuickChipResolver
                 continue;
             }
 
-            $label = trim($this->resolveCandidateLabel($candidate, $bucket));
+            $label = trim($this->resolveCandidateLabel($candidate));
             if ($label === '' || in_array($label, $labels, true)) {
                 continue;
             }
@@ -119,13 +114,8 @@ final class TaskAssistantQuickChipResolver
     /**
      * @param  array{intent?: string, label?: string, score?: int}  $candidate
      */
-    private function resolveCandidateLabel(array $candidate, string $bucket): string
+    private function resolveCandidateLabel(array $candidate): string
     {
-        $intent = (string) ($candidate['intent'] ?? '');
-        if ($intent === 'resume_pending_plan' && in_array($bucket, ['evening', 'late_night'], true)) {
-            return (string) __('Plan my day for tomorrow');
-        }
-
         return (string) ($candidate['label'] ?? '');
     }
 
@@ -189,7 +179,7 @@ final class TaskAssistantQuickChipResolver
     private function baseCandidates(): array
     {
         return [
-            ['intent' => 'resume_pending_plan', 'label' => __('Continue my pending schedule draft'), 'score' => 20],
+            ['intent' => 'focus_summary', 'label' => __('What should I focus on today'), 'score' => 22],
             ['intent' => 'plan_today', 'label' => __('Create a plan for today'), 'score' => 50],
             ['intent' => 'plan_tomorrow', 'label' => __('Create a plan for tomorrow'), 'score' => 50],
             ['intent' => 'plan_next_week', 'label' => __('Create a plan for next week'), 'score' => 45],

@@ -23,7 +23,7 @@ test('resolver anchors morning chips with plan today and returns four chips', fu
     CarbonImmutable::setTestNow();
 });
 
-test('resolver includes both evening chips and respects pending fallback context', function (): void {
+test('resolver includes both evening chips when pending schedule fallback exists', function (): void {
     $timezone = (string) config('app.timezone', 'UTC');
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-20 20:45:00', $timezone));
 
@@ -50,10 +50,10 @@ test('resolver includes both evening chips and respects pending fallback context
 
     expect($chips)->toHaveCount(4);
     expect($chips)->toContain('Create a plan for tomorrow');
-    expect($chips)->toContain('Plan my day for tomorrow');
     expect($chips)->toContain('Schedule top 1 for later');
     expect($chips)->not->toContain('Create a plan for today');
-    expect($chips[0] ?? null)->toBe('Plan my day for tomorrow');
+    expect($chips)->not->toContain('Continue my pending schedule draft');
+    expect($chips[0] ?? null)->toBe('Create a plan for tomorrow');
 
     CarbonImmutable::setTestNow();
 });

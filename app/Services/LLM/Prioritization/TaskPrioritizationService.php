@@ -12,9 +12,7 @@ final class TaskPrioritizationService
 {
     private const TASK_DOING_BOOST = 75;
 
-    private const EVENT_ONGOING_BOOST = 50;
-
-    private const TIME_CRITICAL_EVENT_MINUTES = 60;
+    private const DEFAULT_TIME_CRITICAL_EVENT_MINUTES = 45;
 
     /**
      * Build one ranked list of "focus candidates" across tasks, events, and projects.
@@ -69,7 +67,12 @@ final class TaskPrioritizationService
         \DateTimeImmutable $now
     ): array {
         if ($preference === 'mixed') {
-            return [$taskRanked, $eventRanked, $projectRanked];
+            $globalTaskDominance = (bool) config('task-assistant.prioritization.student_first_global_task_dominance', true);
+            if (! $globalTaskDominance) {
+                return [$taskRanked, $eventRanked, $projectRanked];
+            }
+
+            return [$taskRanked, $this->filterTimeCriticalEvents($eventRanked, $now), []];
         }
 
         $criticalEvents = $this->filterTimeCriticalEvents($eventRanked, $now);
@@ -91,30 +94,55 @@ final class TaskPrioritizationService
     private function filterTimeCriticalEvents(array $events, \DateTimeImmutable $now): array
     {
         $out = [];
+        $overrideWindowMinutes = (int) config(
+            'task-assistant.prioritization.event_override_window_minutes',
+            self::DEFAULT_TIME_CRITICAL_EVENT_MINUTES
+        );
 
         foreach ($events as $event) {
             if (! is_array($event)) {
                 continue;
             }
 
-            $startsAt = $event['starts_at'] ?? null;
-            if (! is_string($startsAt) || trim($startsAt) === '') {
-                continue;
-            }
-
-            try {
-                $start = new \DateTimeImmutable($startsAt);
-            } catch (\Throwable) {
-                continue;
-            }
-
-            $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
-            if ($minutesUntil <= self::TIME_CRITICAL_EVENT_MINUTES) {
+            if ($this->isEventOngoingOrStartingSoon($event, $now, $overrideWindowMinutes)) {
                 $out[] = $event;
             }
         }
 
         return $out;
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function isEventOngoingOrStartingSoon(array $event, \DateTimeImmutable $now, int $windowMinutes): bool
+    {
+        $startsAt = $event['starts_at'] ?? null;
+        if (! is_string($startsAt) || trim($startsAt) === '') {
+            return false;
+        }
+
+        try {
+            $start = new \DateTimeImmutable($startsAt);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        $endsAt = $event['ends_at'] ?? null;
+        if (is_string($endsAt) && trim($endsAt) !== '') {
+            try {
+                $end = new \DateTimeImmutable($endsAt);
+                if ($start <= $now && $end >= $now) {
+                    return true;
+                }
+            } catch (\Throwable) {
+                // Ignore invalid ends_at and continue with starts_at based checks.
+            }
+        }
+
+        $minutesUntil = (int) floor(($start->getTimestamp() - $now->getTimestamp()) / 60);
+
+        return $minutesUntil >= 0 && $minutesUntil <= max(0, $windowMinutes);
     }
 
     /**
@@ -159,6 +187,7 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => $deadlineScore + $priorityScore + $durationScore,
+                'student_focus_tier_score' => (int) ($task['student_focus_tier_score'] ?? 0),
                 'deadline_score' => $deadlineScore,
                 'priority_score' => $priorityScore,
                 'duration_score' => $durationScore,
@@ -181,6 +210,7 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => (int) ($event['score'] ?? 0),
+                'student_focus_tier_score' => 0,
                 'deadline_score' => (int) ($event['deadline_score'] ?? ($event['score'] ?? 0)),
                 'priority_score' => (int) ($event['priority_score'] ?? 0),
                 'duration_score' => (int) ($event['duration_score'] ?? 0),
@@ -203,6 +233,7 @@ final class TaskPrioritizationService
                 'id' => $id,
                 'title' => $title,
                 'score' => (int) ($project['score'] ?? 0),
+                'student_focus_tier_score' => 0,
                 'deadline_score' => (int) ($project['deadline_score'] ?? ($project['score'] ?? 0)),
                 'priority_score' => (int) ($project['priority_score'] ?? 0),
                 'duration_score' => (int) ($project['duration_score'] ?? 0),
@@ -223,6 +254,12 @@ final class TaskPrioritizationService
     private function sortAndStripCandidates(array $candidates): array
     {
         usort($candidates, function (array $a, array $b): int {
+            $aTier = (int) ($a['student_focus_tier_score'] ?? 0);
+            $bTier = (int) ($b['student_focus_tier_score'] ?? 0);
+            if ($aTier !== $bTier) {
+                return $bTier <=> $aTier;
+            }
+
             $aDeadline = (int) ($a['deadline_score'] ?? 0);
             $bDeadline = (int) ($b['deadline_score'] ?? 0);
             if ($aDeadline !== $bDeadline) {
@@ -258,23 +295,10 @@ final class TaskPrioritizationService
 
         // Strip helper fields so the return shape matches callers.
         return array_map(function (array $c): array {
-            unset($c['deadline_score'], $c['priority_score'], $c['duration_score'], $c['deadline_epoch'], $c['duration_minutes']);
+            unset($c['student_focus_tier_score'], $c['deadline_score'], $c['priority_score'], $c['duration_score'], $c['deadline_epoch'], $c['duration_minutes']);
 
             return $c;
         }, $candidates);
-    }
-
-    /**
-     * @return array{0: array<int, array<string, mixed>>, 1: array<int, array<string, mixed>>, 2: array<int, array<string, mixed>>}
-     */
-    private function applyEntityTypePreference(array $tasks, array $events, array $projects, string $preference): array
-    {
-        return match ($preference) {
-            'task' => [$tasks, [], []],
-            'event' => [[], $events, []],
-            'project' => [[], [], $projects],
-            default => [$tasks, $events, $projects],
-        };
     }
 
     private function normalizeEntityTypePreference(mixed $value): string
@@ -384,6 +408,12 @@ final class TaskPrioritizationService
         // The last call (`sortBy('duration_minutes')`) currently overrides earlier
         // sorts, which can cause short-duration tasks to win over more urgent/deadline-heavy ones.
         usort($scored, function (array $a, array $b): int {
+            $aTier = (int) ($a['student_focus_tier_score'] ?? 0);
+            $bTier = (int) ($b['student_focus_tier_score'] ?? 0);
+            if ($aTier !== $bTier) {
+                return $bTier <=> $aTier;
+            }
+
             $aDeadline = (int) ($a['deadline_score'] ?? 0);
             $bDeadline = (int) ($b['deadline_score'] ?? 0);
             if ($aDeadline !== $bDeadline) {
@@ -425,6 +455,10 @@ final class TaskPrioritizationService
     private function prioritizeEvents(array $events, \DateTimeImmutable $now, array $context = []): array
     {
         $collection = collect($events);
+        $overrideWindowMinutes = (int) config(
+            'task-assistant.prioritization.event_override_window_minutes',
+            self::DEFAULT_TIME_CRITICAL_EVENT_MINUTES
+        );
 
         if (! empty($context['time_constraint']) && $context['time_constraint'] === 'today') {
             $collection = $collection->filter(function (array $event) use ($now): bool {
@@ -443,7 +477,7 @@ final class TaskPrioritizationService
         }
 
         return $collection
-            ->map(function (array $event) use ($now): array {
+            ->map(function (array $event) use ($now, $overrideWindowMinutes): array {
                 $reasoning = 'Upcoming event';
 
                 $startsAt = $event['starts_at'] ?? null;
@@ -478,10 +512,10 @@ final class TaskPrioritizationService
                                 // Event already started (treat as very urgent).
                                 $deadlineScore = 980;
                                 $reasoning = 'Event already started';
-                            } elseif ($minutesUntil <= 60) {
+                            } elseif ($minutesUntil <= max(0, $overrideWindowMinutes)) {
                                 // Near-term events can outrank many same-day tasks.
                                 $deadlineScore = 950;
-                                $reasoning = 'Event starts within 1 hour';
+                                $reasoning = sprintf('Event starts within %d minutes', max(0, $overrideWindowMinutes));
                             } elseif ($start->format('Y-m-d') === $now->format('Y-m-d')) {
                                 // Still today, but not imminent: should not automatically beat due-today tasks.
                                 $deadlineScore = 850;
@@ -620,10 +654,10 @@ final class TaskPrioritizationService
      * @param  array<string, mixed>  $context  Optional context filters
      * @return array<string, mixed>|null
      */
-    public function getTopTask(array $tasks, string $today, array $context = []): ?array
+    public function getTopTask(array $tasks, array $context = []): ?array
     {
         $timezone = config('app.timezone', 'UTC');
-        $now = CarbonImmutable::createFromFormat('Y-m-d', $today, $timezone)->startOfDay();
+        $now = CarbonImmutable::now($timezone);
         $prioritized = $this->prioritizeTasks($tasks, $now, $context);
 
         if (empty($prioritized)) {
@@ -855,6 +889,7 @@ final class TaskPrioritizationService
      */
     private function calculateTaskScore(array $task, \DateTimeImmutable $now): array
     {
+        $task['student_focus_tier_score'] = $this->calculateStudentFocusTierScore($task);
         $task['deadline_score'] = $this->calculateDeadlineScore($task, $now);
         if (($task['deadline_score'] ?? 0) > 0 && ($task['status'] ?? null) === TaskStatus::Doing->value) {
             // Momentum boost, but kept small so it cannot override urgency buckets.
@@ -864,6 +899,59 @@ final class TaskPrioritizationService
         $task['duration_score'] = $this->calculateDurationScore($task);
 
         return $task;
+    }
+
+    /**
+     * Tier order (higher is better):
+     * 4: non-recurring + school/study
+     * 3: non-recurring + non-school
+     * 2: recurring + school/study
+     * 1: recurring + non-school
+     */
+    private function calculateStudentFocusTierScore(array $task): int
+    {
+        $isRecurring = ! empty($task['is_recurring']);
+        $isAcademic = $this->taskAppearsSchoolStudyRelated($task);
+
+        if (! $isRecurring && $isAcademic) {
+            return (int) config('task-assistant.prioritization.student_focus_tier.non_recurring_academic', 400);
+        }
+
+        if (! $isRecurring) {
+            return (int) config('task-assistant.prioritization.student_focus_tier.non_recurring_general', 300);
+        }
+
+        if ($isAcademic) {
+            return (int) config('task-assistant.prioritization.student_focus_tier.recurring_academic', 200);
+        }
+
+        return (int) config('task-assistant.prioritization.student_focus_tier.recurring_general', 100);
+    }
+
+    /**
+     * Broad academic relevance for global student-first ordering.
+     *
+     * @param  array<string, mixed>  $task
+     */
+    private function taskAppearsSchoolStudyRelated(array $task): bool
+    {
+        if ($this->taskMatchesSchoolAcademicContext($task)) {
+            return true;
+        }
+
+        if (! empty($task['school_class_id'])) {
+            return true;
+        }
+
+        $title = strtolower((string) ($task['title'] ?? ''));
+        if (
+            $title !== ''
+            && preg_match('/\b(study|studying|revision|revise|thesis|essay|exam|quiz|midterm|finals?|module|lesson|coursework|classwork)\b/i', $title) === 1
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

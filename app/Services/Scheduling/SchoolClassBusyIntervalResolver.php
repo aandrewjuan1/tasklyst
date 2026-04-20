@@ -26,13 +26,14 @@ final class SchoolClassBusyIntervalResolver
         CarbonImmutable $rangeStart,
         CarbonImmutable $rangeEnd,
         int $bufferMinutes = 0,
+        ?string $timezone = null,
     ): array {
         if ($rangeEnd->lessThanOrEqualTo($rangeStart)) {
             return [];
         }
 
         $buffer = max(0, $bufferMinutes);
-        $timezone = new \DateTimeZone((string) config('app.timezone', 'UTC'));
+        $timezone = new \DateTimeZone((string) ($timezone ?: config('app.timezone', 'Asia/Manila')));
 
         $classes = SchoolClass::query()
             ->forUser($user->id)

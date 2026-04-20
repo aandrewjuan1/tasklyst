@@ -793,7 +793,7 @@ final class TaskAssistantMessageFormatter
                 if ($hasCountLimit) {
                     $parts[] = 'I scheduled only up to the maximum number of items for this step.';
                 }
-                $parts[] = 'One or more segments did not fit before the planning horizon; you can ask for a wider window or fewer items.';
+                $parts[] = 'One or more segments did not fit in the selected schedule window; you can ask for a wider window or fewer items.';
             }
         }
 

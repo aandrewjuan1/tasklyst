@@ -23,6 +23,8 @@ final class TaskAssistantStructuredFlowGenerator
         private readonly TaskAssistantScheduleContextBuilder $scheduleContextBuilder,
         private readonly TaskPrioritizationService $prioritizationService,
         private readonly TaskAssistantHybridNarrativeService $hybridNarrative,
+        private readonly TaskAssistantWindowPlacementService $windowPlacementService,
+        private readonly ScheduleConfirmationSignalsBuilder $confirmationSignalsBuilder,
     ) {}
 
     /**
@@ -82,11 +84,21 @@ final class TaskAssistantStructuredFlowGenerator
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
         $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
+        $promptData['schedule_source'] = is_string($options['schedule_source'] ?? null)
+            ? (string) $options['schedule_source']
+            : 'schedule';
         $countLimit = max(1, min((int) ($options['count_limit'] ?? 10), 10));
 
         [$proposals, $placementDigest] = $this->generateProposalsChunkedSpill($contextualSnapshot, $context, $countLimit, $options);
+        $placementDigest = $this->confirmationSignalsBuilder->enrich(
+            $contextualSnapshot,
+            $context,
+            $placementDigest,
+            $proposals,
+            $options
+        );
         $promptData['placement_digest'] = $placementDigest;
-        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
         $items = $this->buildScheduleItemsFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
@@ -180,6 +192,66 @@ final class TaskAssistantStructuredFlowGenerator
     }
 
     /**
+     * Resolve top-N task entities using the same improved scheduler snapshot/context pipeline.
+     *
+     * @param  array<int, array<string, mixed>>  $explicitTaskTargets
+     * @return list<array{entity_type: 'task', entity_id: int, title: string, position: int}>
+     */
+    public function resolvePrioritizeScheduleTaskTargets(
+        TaskAssistantThread $thread,
+        string $userMessageContent,
+        array $explicitTaskTargets,
+        int $countLimit,
+    ): array {
+        $limit = max(1, $countLimit);
+        if ($explicitTaskTargets !== []) {
+            return array_values(array_map(
+                static function (array $entity, int $index): array {
+                    $title = trim((string) ($entity['title'] ?? 'Untitled'));
+
+                    return [
+                        'entity_type' => 'task',
+                        'entity_id' => (int) ($entity['entity_id'] ?? 0),
+                        'title' => $title !== '' ? $title : 'Untitled',
+                        'position' => $index,
+                    ];
+                },
+                array_slice($explicitTaskTargets, 0, $limit),
+                array_keys(array_slice($explicitTaskTargets, 0, $limit))
+            ));
+        }
+
+        $built = $this->dbContextBuilder->buildForUser(
+            $thread->user,
+            $userMessageContent,
+            ['schedule_user_id' => $thread->user_id]
+        );
+        $context = is_array($built['context'] ?? null) ? $built['context'] : [];
+        $snapshot = is_array($built['snapshot'] ?? null) ? $built['snapshot'] : [];
+        $ranked = $this->prioritizationService->prioritizeFocus($snapshot, $context);
+        $rankedTasks = array_values(array_filter($ranked, static function (mixed $candidate): bool {
+            return is_array($candidate)
+                && (string) ($candidate['type'] ?? '') === 'task'
+                && (int) ($candidate['id'] ?? 0) > 0;
+        }));
+
+        return array_values(array_map(
+            static function (array $candidate, int $index): array {
+                $title = trim((string) ($candidate['title'] ?? 'Untitled'));
+
+                return [
+                    'entity_type' => 'task',
+                    'entity_id' => (int) ($candidate['id'] ?? 0),
+                    'title' => $title !== '' ? $title : 'Untitled',
+                    'position' => $index,
+                ];
+            },
+            array_slice($rankedTasks, 0, $limit),
+            array_keys(array_slice($rankedTasks, 0, $limit))
+        ));
+    }
+
+    /**
      * Build schedule payload + narrative from server-owned proposals (e.g. multiturn refinement).
      *
      * @param  Collection<int, mixed>  $historyMessages
@@ -213,14 +285,24 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        $proposals = $this->regenerateApplyPayloadsForProposals($proposals);
+        $digestForPrompt = $this->confirmationSignalsBuilder->enrich(
+            $contextualSnapshot,
+            $context,
+            $digestForPrompt,
+            $proposals,
+            []
+        );
+
         $promptData = $this->promptData->forUser($user);
         $promptData['snapshot'] = $contextualSnapshot;
         $promptData['user_context'] = $context;
         $promptData['schedule_horizon'] = $contextualSnapshot['schedule_horizon'] ?? $context['schedule_horizon'] ?? null;
+        $promptData['schedule_source'] = is_string($context['schedule_source'] ?? null)
+            ? (string) $context['schedule_source']
+            : 'schedule';
         $promptData['placement_digest'] = $digestForPrompt;
-
-        $proposals = $this->regenerateApplyPayloadsForProposals($proposals);
-        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        $timezoneName = (string) ($contextualSnapshot['timezone'] ?? config('app.timezone', 'Asia/Manila'));
         $blocks = $this->buildLegacyBlocksFromProposals($proposals, $timezoneName);
         $items = $this->buildScheduleItemsFromProposals($proposals);
         $deterministicSummary = $this->buildDeterministicSummary($context, $contextualSnapshot);
@@ -229,7 +311,9 @@ final class TaskAssistantStructuredFlowGenerator
         $isEmptyPlacement = $this->isScheduleEmptyPlacement($proposals);
         $schedulableProposalCount = $this->countSchedulableProposals($proposals);
 
-        $digestForNarrative = ($digestJsonNorm !== '{}' && $digestJsonNorm !== '[]') ? $digestJsonNorm : null;
+        $digestForNarrative = ($digestForPrompt !== [])
+            ? (json_encode($digestForPrompt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null)
+            : null;
 
         $narrative = $this->hybridNarrative->refineDailySchedule(
             $historyMessages,
@@ -528,6 +612,11 @@ final class TaskAssistantStructuredFlowGenerator
             }
         }
 
+        $anchorAdjusted = $this->resolveClassAwareAnchorWindow($contextualSnapshot, $context);
+        if (is_array($anchorAdjusted) && isset($anchorAdjusted['start'], $anchorAdjusted['end'])) {
+            $contextualSnapshot['time_window'] = $anchorAdjusted;
+        }
+
         $horizon = $context['schedule_horizon'] ?? null;
         if (is_array($horizon) && isset($horizon['start_date'], $horizon['end_date'])) {
             $contextualSnapshot['schedule_horizon'] = $horizon;
@@ -537,6 +626,76 @@ final class TaskAssistantStructuredFlowGenerator
         }
 
         return $contextualSnapshot;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $context
+     * @return array{start: string, end: string}|null
+     */
+    private function resolveClassAwareAnchorWindow(array $snapshot, array $context): ?array
+    {
+        $reasonCodes = is_array($context['schedule_intent_reason_codes'] ?? null)
+            ? $context['schedule_intent_reason_codes']
+            : [];
+        $hasClassAnchor = false;
+        foreach ($reasonCodes as $code) {
+            if (! is_string($code)) {
+                continue;
+            }
+            if (str_contains($code, 'after_anchor_class') || str_contains($code, 'after_anchor_school')) {
+                $hasClassAnchor = true;
+                break;
+            }
+        }
+
+        if (! $hasClassAnchor) {
+            return null;
+        }
+
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $targetDay = is_string($horizon['start_date'] ?? null)
+            ? (string) $horizon['start_date']
+            : (string) ($snapshot['today'] ?? '');
+        if ($targetDay === '') {
+            return null;
+        }
+
+        $intervals = is_array($snapshot['school_class_busy_intervals'] ?? null)
+            ? $snapshot['school_class_busy_intervals']
+            : [];
+        $latestEnd = null;
+        foreach ($intervals as $interval) {
+            if (! is_array($interval) || ! is_string($interval['end'] ?? null)) {
+                continue;
+            }
+            try {
+                $end = new \DateTimeImmutable((string) $interval['end']);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            if ($end->format('Y-m-d') !== $targetDay) {
+                continue;
+            }
+
+            if (! $latestEnd instanceof \DateTimeImmutable || $end > $latestEnd) {
+                $latestEnd = $end;
+            }
+        }
+
+        if (! $latestEnd instanceof \DateTimeImmutable) {
+            return null;
+        }
+
+        $currentWindow = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
+        $fallbackEnd = is_string($currentWindow['end'] ?? null) ? (string) $currentWindow['end'] : '22:00';
+        $start = $latestEnd->format('H:i');
+        if ($start >= $fallbackEnd) {
+            $start = $fallbackEnd;
+        }
+
+        return ['start' => $start, 'end' => $fallbackEnd];
     }
 
     /**
@@ -580,7 +739,7 @@ final class TaskAssistantStructuredFlowGenerator
 
         foreach ($missing as $mid) {
             $task = $fetched->get($mid);
-            if ($task === null) {
+            if (! $task instanceof Task) {
                 $skips[] = [
                     'entity_type' => 'task',
                     'entity_id' => $mid,
@@ -639,7 +798,7 @@ final class TaskAssistantStructuredFlowGenerator
      */
     private function generateProposalsChunkedSpillCore(array $snapshot, array $context, int $countLimit, ?array $unitsOverride, array $scheduleOptions = []): array
     {
-        $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC')));
+        $timezone = new \DateTimeZone((string) ($snapshot['timezone'] ?? config('app.timezone', 'Asia/Manila')));
         $adaptiveAttempted = (bool) ($context['_adaptive_fallback_attempted'] ?? false);
         $requestedCount = $this->resolveRequestedCount($countLimit, $scheduleOptions);
         $requestedCountSource = $this->resolveRequestedCountSource($scheduleOptions);
@@ -831,7 +990,13 @@ final class TaskAssistantStructuredFlowGenerator
                     : 0;
                 $requiredMinutes = $blockMinutes + $gapMinutes;
 
-                $fitted = $this->findFirstFittingWindow($freeWindows, $requiredMinutes);
+                $fitted = $this->windowPlacementService->selectBestFittingWindow(
+                    windows: $freeWindows,
+                    requiredMinutes: $requiredMinutes,
+                    unit: $unit,
+                    snapshot: $snapshot,
+                    minStartAt: $lastPlacedStartAt,
+                );
                 if ($fitted === null) {
                     continue;
                 }
@@ -1863,6 +2028,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'title' => (string) ($candidate['title'] ?? 'Task'),
                     'score' => (int) ($candidate['score'] ?? 0),
                     'minutes' => $mins,
+                    'complexity' => is_string($candidate['complexity'] ?? null) ? (string) $candidate['complexity'] : null,
                     'candidate_order' => $order,
                     'priority_rank' => (int) ($candidate['priority_rank'] ?? ($order + 1)),
                 ];
@@ -2082,16 +2248,7 @@ final class TaskAssistantStructuredFlowGenerator
             ];
         }
 
-        // Built-in lunch break (product default): 12:00–13:00 local time.
-        // Represented as a busy range so it naturally subtracts from free windows.
-        $lunchStart = new \DateTimeImmutable($dayStart->format('Y-m-d').' 12:00:00', $timezone);
-        $lunchEnd = new \DateTimeImmutable($dayStart->format('Y-m-d').' 13:00:00', $timezone);
-        if ($lunchEnd > $lunchStart && $lunchEnd > $dayStart && $lunchStart < $dayEnd) {
-            $ranges[] = [
-                'start' => $lunchStart < $dayStart ? $dayStart : $lunchStart,
-                'end' => $lunchEnd > $dayEnd ? $dayEnd : $lunchEnd,
-            ];
-        }
+        $this->appendLunchBusyRange($ranges, $snapshot, $dayStart, $dayEnd, $timezone);
 
         $eventSource = $snapshot['events_for_busy'] ?? $snapshot['events'] ?? [];
         foreach ($eventSource as $event) {
@@ -2100,8 +2257,14 @@ final class TaskAssistantStructuredFlowGenerator
             }
 
             $start = $this->safeDateTime($event['starts_at'] ?? null, $timezone);
-            $end = $this->safeDateTime($event['ends_at'] ?? null, $timezone);
+            $end = $this->resolveEventEnd($event, $start, $dayStart, $dayEnd, $timezone);
             if ($start === null || $end === null || $end <= $start) {
+                Log::debug('task-assistant.schedule.skipped_invalid_busy_event', [
+                    'event_id' => $event['id'] ?? null,
+                    'starts_at' => $event['starts_at'] ?? null,
+                    'ends_at' => $event['ends_at'] ?? null,
+                ]);
+
                 continue;
             }
 
@@ -2187,6 +2350,7 @@ final class TaskAssistantStructuredFlowGenerator
                     'entity_id' => $id,
                     'title' => $title,
                     'duration_minutes' => $this->resolveCandidateDurationMinutes($raw),
+                    'complexity' => is_string($raw['complexity'] ?? null) ? (string) $raw['complexity'] : null,
                     'score' => $score,
                     'priority_rank' => $priorityRank,
                 ];
@@ -2326,6 +2490,79 @@ final class TaskAssistantStructuredFlowGenerator
             return new \DateTimeImmutable($value, $timezone);
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $event
+     */
+    private function resolveEventEnd(
+        array $event,
+        ?\DateTimeImmutable $start,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd,
+        \DateTimeZone $timezone
+    ): ?\DateTimeImmutable {
+        if (! $start instanceof \DateTimeImmutable) {
+            return null;
+        }
+
+        $explicitEnd = $this->safeDateTime($event['ends_at'] ?? null, $timezone);
+        if ($explicitEnd instanceof \DateTimeImmutable) {
+            return $explicitEnd;
+        }
+
+        $isAllDay = (bool) ($event['all_day'] ?? false);
+        if ($isAllDay) {
+            return $dayEnd;
+        }
+
+        $fallbackMinutes = max(15, (int) config('task-assistant.schedule.event_fallback_duration_minutes', 60));
+
+        return $start->modify("+{$fallbackMinutes} minutes");
+    }
+
+    /**
+     * @param  array<int, array{start: \DateTimeImmutable, end: \DateTimeImmutable}>  $ranges
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function appendLunchBusyRange(
+        array &$ranges,
+        array $snapshot,
+        \DateTimeImmutable $dayStart,
+        \DateTimeImmutable $dayEnd,
+        \DateTimeZone $timezone
+    ): void {
+        $lunchConfig = config('task-assistant.schedule.lunch_block', []);
+        $enabled = (bool) ($lunchConfig['enabled'] ?? true);
+        $start = is_string($lunchConfig['start'] ?? null) ? (string) $lunchConfig['start'] : '12:00';
+        $end = is_string($lunchConfig['end'] ?? null) ? (string) $lunchConfig['end'] : '13:00';
+
+        $preferences = is_array($snapshot['schedule_preferences'] ?? null)
+            ? $snapshot['schedule_preferences']
+            : [];
+        $prefLunch = is_array($preferences['lunch_block'] ?? null) ? $preferences['lunch_block'] : null;
+        if (is_array($prefLunch)) {
+            $enabled = (bool) ($prefLunch['enabled'] ?? $enabled);
+            $start = is_string($prefLunch['start'] ?? null) ? (string) $prefLunch['start'] : $start;
+            $end = is_string($prefLunch['end'] ?? null) ? (string) $prefLunch['end'] : $end;
+        }
+
+        if (! $enabled) {
+            return;
+        }
+
+        $lunchStart = $this->safeDateTime($dayStart->format('Y-m-d').' '.$start.':00', $timezone);
+        $lunchEnd = $this->safeDateTime($dayStart->format('Y-m-d').' '.$end.':00', $timezone);
+        if (! $lunchStart instanceof \DateTimeImmutable || ! $lunchEnd instanceof \DateTimeImmutable || $lunchEnd <= $lunchStart) {
+            return;
+        }
+
+        if ($lunchEnd > $dayStart && $lunchStart < $dayEnd) {
+            $ranges[] = [
+                'start' => $lunchStart < $dayStart ? $dayStart : $lunchStart,
+                'end' => $lunchEnd > $dayEnd ? $dayEnd : $lunchEnd,
+            ];
         }
     }
 

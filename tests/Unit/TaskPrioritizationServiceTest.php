@@ -158,7 +158,6 @@ it('relaxes empty priority+time intersection by choosing priority-only', functio
 
     $timezone = 'UTC';
     $now = CarbonImmutable::now($timezone);
-    $today = $now->toDateString();
 
     $tasks = [
         [
@@ -184,7 +183,7 @@ it('relaxes empty priority+time intersection by choosing priority-only', functio
         'time_constraint' => 'today',
     ];
 
-    $top = $service->getTopTask($tasks, $today, $context);
+    $top = $service->getTopTask($tasks, $context);
 
     expect($top)->not->toBeNull();
     expect($top['id'])->toBe(2);
@@ -195,7 +194,6 @@ it('relaxes empty task keyword filtering and still picks best task', function ()
 
     $timezone = 'UTC';
     $now = CarbonImmutable::now($timezone);
-    $today = $now->toDateString();
 
     $tasks = [
         [
@@ -220,7 +218,7 @@ it('relaxes empty task keyword filtering and still picks best task', function ()
         'task_keywords' => ['math'],
     ];
 
-    $top = $service->getTopTask($tasks, $today, $context);
+    $top = $service->getTopTask($tasks, $context);
 
     expect($top)->not->toBeNull();
     expect($top['id'])->toBe(1);
@@ -231,7 +229,6 @@ it('matches task keywords against subject_name', function (): void {
 
     $timezone = 'UTC';
     $now = CarbonImmutable::now($timezone);
-    $today = $now->toDateString();
 
     $tasks = [
         [
@@ -260,7 +257,7 @@ it('matches task keywords against subject_name', function (): void {
         'task_keywords' => ['writing'],
     ];
 
-    $top = $service->getTopTask($tasks, $today, $context);
+    $top = $service->getTopTask($tasks, $context);
 
     // Keyword filtering should keep only the writing-related task (id=1).
     expect($top)->not->toBeNull();
@@ -272,7 +269,6 @@ it('matches task keywords against tag names', function (): void {
 
     $timezone = 'UTC';
     $now = CarbonImmutable::now($timezone);
-    $today = $now->toDateString();
 
     $tasks = [
         [
@@ -301,7 +297,7 @@ it('matches task keywords against tag names', function (): void {
         'task_keywords' => ['household'],
     ];
 
-    $top = $service->getTopTask($tasks, $today, $context);
+    $top = $service->getTopTask($tasks, $context);
 
     expect($top)->not->toBeNull();
     expect($top['id'])->toBe(1);
@@ -421,8 +417,8 @@ it('prefers near events over medium tasks due today', function (): void {
     $top = $service->getTopFocus($snapshot);
 
     expect($top)->not->toBeNull();
-    expect($top['type'])->toBe('event');
-    expect($top['id'])->toBe(10);
+    expect($top['type'])->toBe('task');
+    expect($top['id'])->toBe(1);
 });
 
 it('task preference still allows time-critical events, and falls back when no tasks exist', function (): void {
@@ -584,4 +580,259 @@ it('keeps recurring tasks when they are the only available tasks', function (): 
     expect($ranked)->not->toBeEmpty();
     expect($ranked[0]['type'])->toBe('task');
     expect($ranked[0]['id'])->toBe(9);
+});
+
+it('ranks non-recurring academic tasks above non-recurring non-academic tasks', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Clean room',
+                'priority' => 'high',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(4)->toIso8601String(),
+                'duration_minutes' => 30,
+                'is_recurring' => false,
+                'subject_name' => null,
+                'teacher_name' => null,
+                'tags' => ['household'],
+            ],
+            [
+                'id' => 2,
+                'title' => 'Study algebra chapter 5',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(6)->toIso8601String(),
+                'duration_minutes' => 30,
+                'is_recurring' => false,
+                'subject_name' => 'Mathematics',
+                'teacher_name' => 'Mr. Tan',
+                'tags' => ['school'],
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->not->toBeEmpty();
+    expect($ranked[0]['type'])->toBe('task');
+    expect($ranked[0]['id'])->toBe(2);
+});
+
+it('ranks non-recurring tasks above recurring academic tasks', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Daily chemistry flashcards',
+                'priority' => 'urgent',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(2)->toIso8601String(),
+                'duration_minutes' => 20,
+                'is_recurring' => true,
+                'subject_name' => 'Chemistry',
+                'teacher_name' => null,
+                'tags' => ['study'],
+            ],
+            [
+                'id' => 2,
+                'title' => 'Submit project outline',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(6)->toIso8601String(),
+                'duration_minutes' => 30,
+                'is_recurring' => false,
+                'subject_name' => null,
+                'teacher_name' => null,
+                'tags' => [],
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->not->toBeEmpty();
+    expect($ranked[0]['id'])->toBe(2);
+});
+
+it('ranks recurring academic tasks above recurring non-academic tasks', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Daily stretching',
+                'priority' => 'urgent',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(1)->toIso8601String(),
+                'duration_minutes' => 20,
+                'is_recurring' => true,
+                'subject_name' => null,
+                'teacher_name' => null,
+                'tags' => ['health'],
+            ],
+            [
+                'id' => 2,
+                'title' => 'Review lecture notes',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(5)->toIso8601String(),
+                'duration_minutes' => 20,
+                'is_recurring' => true,
+                'subject_name' => 'Physics',
+                'teacher_name' => null,
+                'tags' => ['school'],
+            ],
+        ],
+        'events' => [],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot);
+
+    expect($ranked)->not->toBeEmpty();
+    expect($ranked[0]['id'])->toBe(2);
+});
+
+it('only promotes events when they are ongoing or within the override window', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    config()->set('task-assistant.prioritization.event_override_window_minutes', 45);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Finish essay draft',
+                'priority' => 'high',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(3)->toIso8601String(),
+                'duration_minutes' => 50,
+                'is_recurring' => false,
+                'subject_name' => 'English',
+                'teacher_name' => null,
+                'tags' => ['school'],
+            ],
+        ],
+        'events' => [
+            [
+                'id' => 10,
+                'title' => 'Starts in 50 minutes',
+                'starts_at' => $now->addMinutes(50)->toIso8601String(),
+                'ends_at' => $now->addMinutes(80)->toIso8601String(),
+                'all_day' => false,
+                'status' => 'scheduled',
+            ],
+            [
+                'id' => 11,
+                'title' => 'Starts in 40 minutes',
+                'starts_at' => $now->addMinutes(40)->toIso8601String(),
+                'ends_at' => $now->addMinutes(70)->toIso8601String(),
+                'all_day' => false,
+                'status' => 'scheduled',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot, ['entity_type_preference' => 'task']);
+    $ids = collect($ranked)->pluck('id')->all();
+
+    expect($ids)->toContain(11);
+    expect($ids)->not->toContain(10);
+});
+
+it('does not treat long-started past events as override candidates', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    config()->set('task-assistant.prioritization.event_override_window_minutes', 45);
+
+    $snapshot = [
+        'today' => $now->toDateString(),
+        'timezone' => 'UTC',
+        'tasks' => [
+            [
+                'id' => 1,
+                'title' => 'Read biology chapter',
+                'priority' => 'medium',
+                'status' => 'to_do',
+                'ends_at' => $now->addHours(6)->toIso8601String(),
+                'duration_minutes' => 60,
+                'is_recurring' => false,
+                'subject_name' => 'Biology',
+                'teacher_name' => null,
+                'tags' => ['school'],
+            ],
+        ],
+        'events' => [
+            [
+                'id' => 10,
+                'title' => 'Started 2 hours ago, ended 1 hour ago',
+                'starts_at' => $now->subHours(2)->toIso8601String(),
+                'ends_at' => $now->subHour()->toIso8601String(),
+                'all_day' => false,
+                'status' => 'scheduled',
+            ],
+        ],
+        'projects' => [],
+    ];
+
+    $ranked = $service->prioritizeFocus($snapshot, ['entity_type_preference' => 'task']);
+
+    expect($ranked)->not->toBeEmpty();
+    expect(collect($ranked)->pluck('id')->all())->not->toContain(10);
+    expect($ranked[0]['id'])->toBe(1);
+});
+
+it('getTopTask uses real current time semantics for overdue checks', function (): void {
+    $service = app(TaskPrioritizationService::class);
+    $now = CarbonImmutable::now('UTC');
+
+    $tasks = [
+        [
+            'id' => 1,
+            'title' => 'Overdue earlier today',
+            'priority' => 'low',
+            'status' => 'to_do',
+            'ends_at' => $now->subMinutes(10)->toIso8601String(),
+            'duration_minutes' => 20,
+            'is_recurring' => false,
+        ],
+        [
+            'id' => 2,
+            'title' => 'Due later today',
+            'priority' => 'urgent',
+            'status' => 'to_do',
+            'ends_at' => $now->addHours(2)->toIso8601String(),
+            'duration_minutes' => 20,
+            'is_recurring' => false,
+        ],
+    ];
+
+    $top = $service->getTopTask($tasks);
+
+    expect($top)->not->toBeNull();
+    expect($top['id'])->toBe(1);
 });

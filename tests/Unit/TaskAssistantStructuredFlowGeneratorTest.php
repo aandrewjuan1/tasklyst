@@ -934,3 +934,84 @@ it('spills placements across multiple days when horizon is a multi-day range and
 
     expect(count($daysUsed))->toBeGreaterThanOrEqual(2);
 });
+
+it('treats events with missing end time as busy using fallback duration', function (): void {
+    config([
+        'task-assistant.schedule.event_fallback_duration_minutes' => 60,
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-10',
+        'time_window' => ['start' => '18:00', 'end' => '22:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-10',
+            'end_date' => '2026-04-10',
+            'label' => 'today',
+        ],
+        'tasks' => [
+            ['id' => 1, 'title' => 'Fallback busy check', 'priority' => 'high', 'duration_minutes' => 60, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [
+            ['id' => 7001, 'title' => 'Open event', 'starts_at' => '2026-04-10T18:00:00+00:00', 'ends_at' => null, 'all_day' => false],
+        ],
+        'projects' => [],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->not->toBe([]);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T19:00:00');
+});
+
+it('allows scheduling through lunch when lunch block is disabled in user preferences', function (): void {
+    config([
+        'task-assistant.schedule.lunch_block.enabled' => true,
+        'task-assistant.schedule.lunch_block.start' => '12:00',
+        'task-assistant.schedule.lunch_block.end' => '13:00',
+    ]);
+
+    $generator = app(TaskAssistantStructuredFlowGenerator::class);
+    $method = new ReflectionMethod(TaskAssistantStructuredFlowGenerator::class, 'generateProposalsChunkedSpill');
+    $method->setAccessible(true);
+
+    $snapshot = [
+        'timezone' => 'UTC',
+        'today' => '2026-04-10',
+        'time_window' => ['start' => '12:00', 'end' => '14:00'],
+        'schedule_horizon' => [
+            'mode' => 'single_day',
+            'start_date' => '2026-04-10',
+            'end_date' => '2026-04-10',
+            'label' => 'today',
+        ],
+        'tasks' => [
+            ['id' => 2, 'title' => 'Lunch slot task', 'priority' => 'high', 'duration_minutes' => 30, 'ends_at' => null, 'is_recurring' => false],
+        ],
+        'events' => [],
+        'events_for_busy' => [],
+        'projects' => [],
+        'schedule_preferences' => [
+            'lunch_block' => [
+                'enabled' => false,
+                'start' => '12:00',
+                'end' => '13:00',
+            ],
+        ],
+    ];
+
+    $context = ['schedule_horizon' => $snapshot['schedule_horizon']];
+
+    [$proposals] = $method->invoke($generator, $snapshot, $context, 1);
+
+    expect($proposals)->not->toBe([]);
+    expect((string) ($proposals[0]['start_datetime'] ?? ''))->toContain('T12:00:00');
+});

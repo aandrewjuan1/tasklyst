@@ -141,6 +141,21 @@ return [
         // top1_only allows partial fit only for highest-priority item.
         'partial_policy' => env('TASK_ASSISTANT_SCHEDULE_PARTIAL_POLICY', 'top1_only'),
         /**
+         * When {@see ScheduleConfirmationSignalsBuilder} sets triggers, require user confirmation if
+         * any trigger is listed here. Legacy digest without confirmation_signals still uses
+         * {@see ScheduleFallbackPolicy::legacyShouldRequireConfirmation}.
+         */
+        'confirmation_triggers' => [
+            'empty_placement',
+            'unplaced_units',
+            'adaptive_relaxed_placement',
+            'strict_window_no_fit',
+            'requested_window_unsatisfied',
+            'hinted_window_unsatisfied',
+            'placement_outside_horizon',
+            'top_n_shortfall',
+        ],
+        /**
          * When the user gives a vague schedule request (horizon label default_today), search this many
          * consecutive local days starting from today, capped by max_horizon_days.
          */
@@ -150,6 +165,31 @@ return [
          * Set to 0 to disable the extra prep/travel margin.
          */
         'school_class_buffer_minutes' => (int) env('TASK_ASSISTANT_SCHOOL_CLASS_BUFFER_MINUTES', 15),
+        /**
+         * Fallback duration for timed events missing an explicit end datetime.
+         */
+        'event_fallback_duration_minutes' => (int) env('TASK_ASSISTANT_SCHEDULE_EVENT_FALLBACK_DURATION_MINUTES', 60),
+        /**
+         * Default lunch block applied as busy time during placement.
+         * Can be overridden per-user via users.schedule_preferences.lunch_block.
+         */
+        'lunch_block' => [
+            'enabled' => (bool) env('TASK_ASSISTANT_SCHEDULE_LUNCH_BLOCK_ENABLED', true),
+            'start' => (string) env('TASK_ASSISTANT_SCHEDULE_LUNCH_BLOCK_START', '12:00'),
+            'end' => (string) env('TASK_ASSISTANT_SCHEDULE_LUNCH_BLOCK_END', '13:00'),
+        ],
+        /**
+         * Candidate start-time scoring weights for deterministic window placement.
+         */
+        'window_scoring' => [
+            'weights' => [
+                'earlier_start_bonus' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_EARLIER_START', 1.0),
+                'due_soon_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_DUE_SOON', 1.0),
+                'complexity_fit_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_COMPLEXITY_FIT', 1.0),
+                'class_adjacency_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_CLASS_ADJACENCY', 1.0),
+                'energy_bias_multiplier' => (float) env('TASK_ASSISTANT_SCHEDULE_WEIGHT_ENERGY_BIAS', 1.0),
+            ],
+        ],
         /**
          * When the deterministic planner cannot place real tasks (calendar full, no candidates, etc.).
          * Tone aligns with listing.empty_workspace (@see TaskAssistantStructuredFlowGenerator).
@@ -165,6 +205,25 @@ return [
          */
         'refinement' => [
             'llm_fallback_enabled' => (bool) env('TASK_ASSISTANT_SCHEDULE_REFINEMENT_LLM_FALLBACK', true),
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Prioritization (student-first defaults)
+    |--------------------------------------------------------------------------
+    */
+    'prioritization' => [
+        // When true, mixed prioritize requests default to task-led ordering.
+        'student_first_global_task_dominance' => (bool) env('TASK_ASSISTANT_STUDENT_FIRST_GLOBAL_TASK_DOMINANCE', true),
+        // Events can only outrank tasks if ongoing or starting within this window.
+        'event_override_window_minutes' => (int) env('TASK_ASSISTANT_EVENT_OVERRIDE_WINDOW_MINUTES', 45),
+        // Tier weights for deterministic student-first ranking.
+        'student_focus_tier' => [
+            'non_recurring_academic' => (int) env('TASK_ASSISTANT_TIER_NON_RECURRING_ACADEMIC', 400),
+            'non_recurring_general' => (int) env('TASK_ASSISTANT_TIER_NON_RECURRING_GENERAL', 300),
+            'recurring_academic' => (int) env('TASK_ASSISTANT_TIER_RECURRING_ACADEMIC', 200),
+            'recurring_general' => (int) env('TASK_ASSISTANT_TIER_RECURRING_GENERAL', 100),
         ],
     ],
     /*

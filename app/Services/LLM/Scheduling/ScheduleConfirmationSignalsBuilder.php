@@ -1,0 +1,348 @@
+<?php
+
+namespace App\Services\LLM\Scheduling;
+
+/**
+ * Builds {@see $placementDigest}['confirmation_signals'] for schedule UX policy and LLM facts.
+ * Placement truth remains in the generator; this only summarizes scope vs actuals.
+ */
+final class ScheduleConfirmationSignalsBuilder
+{
+    /**
+     * @param  array<string, mixed>  $snapshot  Contextual snapshot (timezone, schedule_horizon, time_window, …)
+     * @param  array<string, mixed>  $context  Schedule context from {@see TaskAssistantScheduleContextBuilder}
+     * @param  array<string, mixed>  $digest  Placement digest from the spill engine
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $scheduleOptions  Options passed to {@see TaskAssistantStructuredFlowGenerator::generateDailySchedule}
+     * @return array<string, mixed>
+     */
+    public function enrich(
+        array $snapshot,
+        array $context,
+        array $digest,
+        array $proposals,
+        array $scheduleOptions,
+    ): array {
+        $timezoneName = (string) ($snapshot['timezone'] ?? config('app.timezone', 'UTC'));
+        try {
+            $timezone = new \DateTimeZone($timezoneName);
+        } catch (\Throwable) {
+            $timezone = new \DateTimeZone('UTC');
+        }
+
+        $requestedScope = $this->buildRequestedScope($snapshot, $context, $scheduleOptions);
+        $engineNotes = $this->buildEngineNotes($digest);
+        $placementTimeCheck = $this->buildPlacementTimeCheck($snapshot, $proposals, $timezone);
+
+        $triggers = $this->collectTriggers(
+            $snapshot,
+            $context,
+            $digest,
+            $proposals,
+            $placementTimeCheck,
+            $scheduleOptions
+        );
+
+        $digest['confirmation_signals'] = [
+            'triggers' => array_values(array_unique($triggers)),
+            'requested_scope' => $requestedScope,
+            'engine_notes' => $engineNotes,
+            'placement_time_check' => $placementTimeCheck,
+        ];
+
+        return $digest;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array<string, mixed>
+     */
+    private function buildRequestedScope(array $snapshot, array $context, array $scheduleOptions): array
+    {
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $tw = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
+
+        return [
+            'schedule_horizon' => [
+                'mode' => (string) ($horizon['mode'] ?? ''),
+                'start_date' => (string) ($horizon['start_date'] ?? ''),
+                'end_date' => (string) ($horizon['end_date'] ?? ''),
+                'label' => (string) ($horizon['label'] ?? ''),
+            ],
+            'time_window' => is_array($tw) ? [
+                'start' => (string) ($tw['start'] ?? ''),
+                'end' => (string) ($tw['end'] ?? ''),
+            ] : null,
+            'time_window_strict' => (bool) ($context['time_window_strict'] ?? false),
+            'time_window_hint' => is_string($scheduleOptions['time_window_hint'] ?? null)
+                ? (string) $scheduleOptions['time_window_hint']
+                : null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $digest
+     * @return array<string, mixed>
+     */
+    private function buildEngineNotes(array $digest): array
+    {
+        $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+
+        return [
+            'fallback_mode' => (string) ($digest['fallback_mode'] ?? ''),
+            'fallback_trigger_reason' => (string) ($digest['fallback_trigger_reason'] ?? ''),
+            'unplaced_units_count' => count($unplaced),
+            'partial_placed_count' => (int) ($digest['partial_placed_count'] ?? 0),
+            'top_n_shortfall' => (bool) ($digest['top_n_shortfall'] ?? false),
+            'count_shortfall' => (int) ($digest['count_shortfall'] ?? 0),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @return array<string, mixed>
+     */
+    private function buildPlacementTimeCheck(array $snapshot, array $proposals, \DateTimeZone $timezone): array
+    {
+        $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : null;
+        $winStart = is_array($window) && is_string($window['start'] ?? null) ? trim((string) $window['start']) : '';
+        $winEnd = is_array($window) && is_string($window['end'] ?? null) ? trim((string) $window['end']) : '';
+
+        $meaningful = $this->isMeaningfulTimeWindow($winStart, $winEnd);
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $hStart = trim((string) ($horizon['start_date'] ?? ''));
+        $hEnd = trim((string) ($horizon['end_date'] ?? ''));
+
+        $rows = [];
+        $anyOutsideWindow = false;
+        $anyOutsideHorizon = false;
+
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
+                continue;
+            }
+            $startRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+            if ($startRaw === '') {
+                continue;
+            }
+            try {
+                $start = new \DateTimeImmutable($startRaw);
+            } catch (\Throwable) {
+                continue;
+            }
+            $local = $start->setTimezone($timezone);
+            $day = $local->format('Y-m-d');
+            $timeLabel = $local->format('H:i');
+
+            $insideWindow = true;
+            if ($meaningful && $winStart !== '' && $winEnd !== '') {
+                $insideWindow = $this->isLocalTimeWithinWindow($local, $winStart, $winEnd);
+            }
+            if (! $insideWindow) {
+                $anyOutsideWindow = true;
+            }
+
+            $insideHorizon = true;
+            if ($hStart !== '' && $day < $hStart) {
+                $insideHorizon = false;
+            }
+            if ($hEnd !== '' && $day > $hEnd) {
+                $insideHorizon = false;
+            }
+            if (! $insideHorizon) {
+                $anyOutsideHorizon = true;
+            }
+
+            $rows[] = [
+                'title' => (string) ($proposal['title'] ?? ''),
+                'start_local_date' => $day,
+                'start_local_time' => $timeLabel,
+                'inside_requested_time_window' => $insideWindow,
+                'inside_schedule_horizon_dates' => $insideHorizon,
+            ];
+        }
+
+        return [
+            'meaningful_time_window' => $meaningful,
+            'window_start' => $winStart,
+            'window_end' => $winEnd,
+            'horizon_start_date' => $hStart,
+            'horizon_end_date' => $hEnd,
+            'rows' => $rows,
+            'any_placement_outside_requested_time_window' => $anyOutsideWindow,
+            'any_placement_outside_horizon_dates' => $anyOutsideHorizon,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $digest
+     * @param  array<int, array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $placementTimeCheck
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return list<string>
+     */
+    private function collectTriggers(
+        array $snapshot,
+        array $context,
+        array $digest,
+        array $proposals,
+        array $placementTimeCheck,
+        array $scheduleOptions,
+    ): array {
+        $triggers = [];
+
+        $empty = $this->isEmptyPlacement($proposals);
+        if ($empty) {
+            $triggers[] = 'empty_placement';
+        }
+
+        $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        if ($unplaced !== [] && ! $empty && $this->unplacedHasExplicitTargetFailure($unplaced, $scheduleOptions)) {
+            $triggers[] = 'unplaced_units';
+        }
+
+        $fallbackMode = (string) ($digest['fallback_mode'] ?? '');
+        if ($fallbackMode === 'auto_relaxed_today_or_tomorrow') {
+            $triggers[] = 'adaptive_relaxed_placement';
+        }
+
+        $strict = (bool) ($context['time_window_strict'] ?? false);
+        if ($strict && ($empty || $unplaced !== [])) {
+            $triggers[] = 'strict_window_no_fit';
+        }
+
+        if ((bool) ($digest['top_n_shortfall'] ?? false)) {
+            $triggers[] = 'top_n_shortfall';
+        }
+
+        if (
+            ($placementTimeCheck['meaningful_time_window'] ?? false)
+            && ($placementTimeCheck['any_placement_outside_requested_time_window'] ?? false)
+            && ! $empty
+        ) {
+            $triggers[] = 'requested_window_unsatisfied';
+        }
+
+        if (
+            ($placementTimeCheck['any_placement_outside_horizon_dates'] ?? false)
+            && ! $empty
+        ) {
+            $triggers[] = 'placement_outside_horizon';
+        }
+
+        $hint = is_string($scheduleOptions['time_window_hint'] ?? null) ? (string) $scheduleOptions['time_window_hint'] : '';
+        if ($hint !== '' && ($placementTimeCheck['any_placement_outside_requested_time_window'] ?? false) && ! $empty) {
+            $triggers[] = 'hinted_window_unsatisfied';
+        }
+
+        return $triggers;
+    }
+
+    /**
+     * @param  array<int, mixed>  $unplaced
+     * @param  array<string, mixed>  $scheduleOptions
+     */
+    private function unplacedHasExplicitTargetFailure(array $unplaced, array $scheduleOptions): bool
+    {
+        $targets = is_array($scheduleOptions['target_entities'] ?? null) ? $scheduleOptions['target_entities'] : [];
+        $wanted = [];
+        foreach ($targets as $target) {
+            if (! is_array($target)) {
+                continue;
+            }
+            if ((string) ($target['entity_type'] ?? '') !== 'task') {
+                continue;
+            }
+            $id = (int) ($target['entity_id'] ?? 0);
+            if ($id > 0) {
+                $wanted[$id] = true;
+            }
+        }
+
+        if ($wanted === []) {
+            return false;
+        }
+
+        foreach ($unplaced as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            if ((string) ($row['reason'] ?? '') !== 'horizon_exhausted') {
+                continue;
+            }
+            $eid = (int) ($row['entity_id'] ?? 0);
+            if ($eid > 0 && isset($wanted[$eid])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proposals
+     */
+    private function isEmptyPlacement(array $proposals): bool
+    {
+        if ($proposals === []) {
+            return true;
+        }
+
+        foreach ($proposals as $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            if (trim((string) ($proposal['title'] ?? '')) === 'No schedulable items found') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isMeaningfulTimeWindow(string $start, string $end): bool
+    {
+        if ($start === '' || $end === '') {
+            return false;
+        }
+
+        $s = $this->timeStringToMinutes($start);
+        $e = $this->timeStringToMinutes($end);
+
+        if ($s <= 5 && $e >= 24 * 60 - 5) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function timeStringToMinutes(string $t): int
+    {
+        $t = trim($t);
+        $parts = explode(':', $t);
+        $h = (int) ($parts[0] ?? 0);
+        $m = (int) ($parts[1] ?? 0);
+        $s = isset($parts[2]) ? (int) $parts[2] : 0;
+
+        return max(0, $h * 60 + $m + (int) floor($s / 60));
+    }
+
+    private function isLocalTimeWithinWindow(\DateTimeImmutable $local, string $winStart, string $winEnd): bool
+    {
+        $cur = $this->timeStringToMinutes($local->format('H:i:s'));
+        $a = $this->timeStringToMinutes($winStart);
+        $b = $this->timeStringToMinutes($winEnd);
+
+        if ($b < $a) {
+            return $cur >= $a || $cur <= $b;
+        }
+
+        return $cur >= $a && $cur <= $b;
+    }
+}
