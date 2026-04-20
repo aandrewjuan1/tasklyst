@@ -21,7 +21,7 @@
     @endphp
 
     {{-- Main Content: 80/20 Split Layout --}}
-    <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,4fr)_minmax(260px,1fr)]">
+    <div class="grid w-full gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(260px,1fr)]">
         {{-- Left Side: List (80%) --}}
         <div class="order-2 min-w-0 space-y-6 overflow-visible lg:order-1">
             {{-- Workspace hero panel (same shell + inner rhythm as dashboard hero) --}}
@@ -325,7 +325,7 @@
 
         {{-- Right Side: Calendar (20%) --}}
         <div class="order-1 hidden lg:order-2 lg:block lg:min-w-[260px]">
-            <div class="sticky top-6" data-focus-lock-viewport>
+            <div data-focus-lock-viewport>
                 <x-workspace.calendar
                     agenda-context="workspace"
                     :selected-date="$this->selectedDate"

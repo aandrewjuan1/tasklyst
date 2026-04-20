@@ -194,31 +194,6 @@
                 @endforeach
             </div>
 
-            {{-- Dot legend (touch + screen readers; matches cell tooltips) --}}
-            <div
-                class="mb-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-0.5 text-[9px] leading-tight text-muted-foreground sm:text-[10px]"
-                data-testid="calendar-dot-legend"
-                role="group"
-                aria-label="{{ __('Calendar day indicators') }}"
-            >
-                <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
-                    <span>{{ __('Overdue') }}</span>
-                </span>
-                <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
-                    <span>{{ __('Due (not overdue)') }}</span>
-                </span>
-                <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-green-600 dark:bg-green-500" aria-hidden="true"></span>
-                    <span>{{ __('Starts / scheduled') }}</span>
-                </span>
-                <span class="inline-flex items-center gap-1.5">
-                    <span class="inline-flex size-1.5 shrink-0 rounded-full bg-violet-500 dark:bg-violet-400" aria-hidden="true"></span>
-                    <span>{{ __('Classes') }}</span>
-                </span>
-            </div>
-
             {{-- Calendar Days Grid --}}
             <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
                 {{-- Server-rendered first paint (visible by default) --}}
@@ -227,7 +202,7 @@
                         {{-- Adjacent month: muted day number (aligns grid visually) --}}
                         <div
                             x-show="!alpineReady"
-                            class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35 sm:min-h-11"
+                            class="flex aspect-square min-h-12 min-w-0 w-full items-center justify-center rounded-lg border border-border/20 dark:border-zinc-600/35 sm:min-h-14"
                             style="display: flex;"
                             aria-hidden="true"
                         >
@@ -254,7 +229,7 @@
                             style="display: flex;"
                             @click="if (typeof $wire !== 'undefined') { $wire.set('selectedDate', '{{ $dayData['dateString'] }}'); }"
                             :disabled="calendarNavBusy || dateSelectBusy"
-                            class="group relative box-border flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm {{ $dayData['isSelected'] ? 'border-white/25 bg-brand-blue text-white shadow-md' : ($dayData['isToday'] ? 'border-brand-blue/30 bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:border-brand-blue/35 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
+                            class="group relative box-border flex min-h-12 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-1 py-1 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-14 sm:text-sm {{ $dayData['isSelected'] ? 'border-white/25 bg-brand-blue/85 text-white shadow-md' : ($dayData['isToday'] ? 'border-brand-blue/30 bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:border-brand-blue/35 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25' : 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300') }}"
                             data-date="{{ $dayData['dateString'] }}"
                             aria-label="{{ __('Select date') }}: {{ $dayData['ariaLabelDate'] }}"
                         >
@@ -269,7 +244,7 @@
                                 $hasClassesToday = (($meta['school_class_count'] ?? 0) > 0);
                             @endphp
                             @if ($hasOverdue || $hasDueToday || $hasStartsToday || $hasClassesToday)
-                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
+                                <div class="pointer-events-none absolute inset-x-1 bottom-1 z-20 inline-flex items-center justify-center gap-0.5">
                                     @if ($hasOverdue)
                                         <flux:tooltip content="{{ __('Overdue items') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500"></span>
@@ -293,16 +268,13 @@
                                 </div>
                             @endif
                             
-                            @if (!$dayData['isSelected'] && !$dayData['isToday'])
-                                <span class="absolute inset-0 rounded-lg bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"></span>
-                            @endif
                         </button>
                     @endif
                 @endforeach
                 
                 {{-- Alpine reactive (shown when Alpine ready) --}}
                 <template x-for="dayData in days" :key="`day-${year}-${month}-${dayData.day}-${dayData.month}`">
-                    <div class="flex aspect-square min-h-10 min-w-0 w-full items-center justify-center sm:min-h-11" x-show="alpineReady" x-cloak>
+                    <div class="flex aspect-square min-h-12 min-w-0 w-full items-center justify-center sm:min-h-14" x-show="alpineReady" x-cloak>
                         {{-- Grid padding only (no adjacent-month day labels) --}}
                         <div
                             x-show="dayData.month !== 'current'"
@@ -321,11 +293,11 @@
                             type="button"
                             @click="selectDay(dayData)"
                             :disabled="calendarNavBusy || dateSelectBusy"
-                            class="group relative box-border flex min-h-10 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-0.5 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-11 sm:text-sm"
+                            class="group relative box-border flex min-h-12 h-full w-full min-w-0 items-center justify-center rounded-lg border border-border/25 px-1 py-1 text-xs font-medium tabular-nums transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-brand-blue/40 focus:ring-offset-1 dark:border-zinc-600/40 dark:focus:ring-offset-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-14 sm:text-sm"
                             :data-date="dayData.dateString"
                             :aria-label="`{{ __('Select date') }}: ${dayData.dateString}`"
                             :class="{
-                                'border-white/25 bg-brand-blue text-white shadow-md': dayData.isSelected,
+                                'border-white/25 bg-brand-blue/85 text-white shadow-md': dayData.isSelected,
                                 'border-brand-blue/30 bg-brand-light-blue text-brand-navy-blue ring-2 ring-brand-blue/30 dark:border-brand-blue/35 dark:bg-muted/40 dark:text-foreground dark:ring-brand-blue/25': !dayData.isSelected && dayData.isToday,
                                 'text-foreground hover:bg-muted/60 hover:text-foreground dark:text-zinc-300': !dayData.isSelected && !dayData.isToday,
                             }"
@@ -340,7 +312,7 @@
                                 || (dayData.meta?.event_count ?? 0) > 0
                                 || (dayData.meta?.school_class_count ?? 0) > 0
                             ">
-                                <div class="pointer-events-none absolute -right-1 -top-1 z-20 flex max-w-[calc(100%+0.25rem)] flex-wrap items-center justify-end gap-0.5 rounded-full bg-background/90 px-0.5 py-0.5 shadow-xs dark:bg-zinc-900/90">
+                                <div class="pointer-events-none absolute inset-x-1 bottom-1 z-20 inline-flex items-center justify-center gap-0.5">
                                     <template x-if="(dayData.meta?.overdue_count ?? 0) > 0">
                                         <flux:tooltip content="{{ __('Overdue items') }}">
                                             <span class="inline-flex size-1.5 shrink-0 rounded-full bg-red-500"></span>
@@ -367,23 +339,40 @@
                                 </div>
                             </template>
                             
-                            {{-- Hover effect indicator --}}
-                            <span 
-                                x-show="!dayData.isSelected && !dayData.isToday"
-                                class="absolute inset-0 rounded-lg bg-foreground/5 opacity-0 transition-opacity group-hover:opacity-100"
-                            ></span>
                         </button>
                     </div>
                 </template>
             </div>
+
+            {{-- Dot legend (touch + screen readers; matches cell tooltips) --}}
+            <div
+                class="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 px-0.5 text-[9px] leading-tight text-muted-foreground sm:text-[10px]"
+                data-testid="calendar-dot-legend"
+                role="group"
+                aria-label="{{ __('Calendar day indicators') }}"
+            >
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-2 shrink-0 rounded-full bg-red-500" aria-hidden="true"></span>
+                    <span>{{ __('Overdue') }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-2 shrink-0 rounded-full bg-amber-500" aria-hidden="true"></span>
+                    <span>{{ __('Due (not overdue)') }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-2 shrink-0 rounded-full bg-green-600 dark:bg-green-500" aria-hidden="true"></span>
+                    <span>{{ __('Starts / scheduled') }}</span>
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                    <span class="inline-flex size-2 shrink-0 rounded-full bg-violet-500 dark:bg-violet-400" aria-hidden="true"></span>
+                    <span>{{ __('Classes') }}</span>
+                </span>
+            </div>
         </div>
 
         <div class="border-t border-brand-blue/20 px-3 py-3 sm:px-4" data-testid="calendar-selected-day-agenda">
-            <div class="mb-2 flex items-center justify-between">
-                <h3 class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {{ __('Selected day') }}
-                </h3>
-                <span class="text-[11px] text-muted-foreground tabular-nums">
+            <div class="mb-3 flex items-center justify-center">
+                <span class="text-center text-base font-bold tracking-tight text-foreground tabular-nums sm:text-lg">
                     {{ ($selectedDateObj ?? $now)->translatedFormat('D, M j') }}
                 </span>
             </div>
