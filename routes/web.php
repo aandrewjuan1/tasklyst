@@ -150,3 +150,28 @@ Route::middleware('throttle:30,1')
             return response()->json($response->json());
         })->name('ai.proxy');
     });
+
+Route::middleware('throttle:60,1')
+    ->withoutMiddleware([VerifyCsrfToken::class])
+    ->prefix('api/ollama')
+    ->group(function (): void {
+        Route::any('{path}', function (Request $request, string $path) {
+            $upstreamUrl = rtrim((string) config('services.ai_proxy.upstream_url', 'http://127.0.0.1:11434'), '/').'/'.ltrim($path, '/');
+            $method = strtoupper($request->method());
+
+            $client = Http::timeout((int) config('prism.request_timeout', 120));
+            $contentType = $request->header('Content-Type');
+
+            if (is_string($contentType) && $contentType !== '' && $request->getContent() !== '') {
+                $client = $client->withBody($request->getContent(), $contentType);
+            }
+
+            $response = $client->send($method, $upstreamUrl, [
+                'query' => $request->query(),
+            ]);
+
+            /** @var \Illuminate\Http\Client\Response $response */
+            return response($response->body(), $response->status())
+                ->header('Content-Type', (string) ($response->header('Content-Type') ?? 'application/json'));
+        })->where('path', '.*')->name('ai.ollama.compat');
+    });
