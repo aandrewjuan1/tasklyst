@@ -447,56 +447,6 @@
                     </div>
                 </div>
             </span>
-            <span
-                class="lic-item-type-pill max-w-full {{ $initialDueStateClass }}"
-                :class="pillClassesDueState()"
-            >
-                <div class="relative min-w-0" @click.outside="closePillMenu('dueState')">
-                    <button
-                        type="button"
-                        class="workspace-filter-pill-trigger"
-                        @click.stop="togglePillMenu('dueState')"
-                        :aria-expanded="menus.dueState"
-                        aria-haspopup="menu"
-                    >
-                        <span
-                            class="truncate"
-                            x-text="pillLabels.dueState + ': ' + (displayFilters.dueState ? (labels.dueState[displayFilters.dueState] || displayFilters.dueState) : '{{ __('Any') }}')"
-                        >{{ $pillLabels['dueState'] }}: {{ $filters['dueState'] ? ($dueStateLabels[$filters['dueState']] ?? __('Any')) : __('Any') }}</span>
-                        <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                        </svg>
-                    </button>
-                    <div
-                        x-cloak
-                        x-show="menus.dueState"
-                        x-transition
-                        class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
-                        role="menu"
-                    >
-                        @foreach ($dueStateLabels as $optValue => $optLabel)
-                            <label
-                                wire:key="pill-due-{{ $optValue === '' ? 'all' : $optValue }}"
-                                class="workspace-filter-option"
-                                @click="closePillMenu('dueState')"
-                            >
-                                <input
-                                    type="radio"
-                                    class="sr-only"
-                                    wire:model.live="filterDueState"
-                                    value="{{ $optValue }}"
-                                    @click="
-                                        const v = '{{ $optValue }}' || null;
-                                        displayFilters.dueState = (v === '' || v === null) ? null : v;
-                                        window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'dueState', value: (v === '' || v === null) ? null : v } }));
-                                    "
-                                />
-                                <span class="min-w-0 flex-1">{{ $optLabel }}</span>
-                            </label>
-                        @endforeach
-                    </div>
-                </div>
-            </span>
         </div>
     @else
         {{-- Kanban: tasks only; item type is display-only (not wired to filterItemType). --}}
@@ -516,6 +466,57 @@
             </span>
         </flux:tooltip>
     @endif
+
+    <span
+        class="lic-item-type-pill max-w-full {{ $initialDueStateClass }}"
+        :class="pillClassesDueState()"
+    >
+        <div class="relative min-w-0" @click.outside="closePillMenu('dueState')">
+            <button
+                type="button"
+                class="workspace-filter-pill-trigger"
+                @click.stop="togglePillMenu('dueState')"
+                :aria-expanded="menus.dueState"
+                aria-haspopup="menu"
+            >
+                <span
+                    class="truncate"
+                    x-text="pillLabels.dueState + ': ' + (displayFilters.dueState ? (labels.dueState[displayFilters.dueState] || displayFilters.dueState) : '{{ __('Any') }}')"
+                >{{ $pillLabels['dueState'] }}: {{ $filters['dueState'] ? ($dueStateLabels[$filters['dueState']] ?? __('Any')) : __('Any') }}</span>
+                <svg class="size-3.5 shrink-0 opacity-70" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+            <div
+                x-cloak
+                x-show="menus.dueState"
+                x-transition
+                class="workspace-filter-panel workspace-filter-panel--start top-full z-[60] mt-1"
+                role="menu"
+            >
+                @foreach ($dueStateLabels as $optValue => $optLabel)
+                    <label
+                        wire:key="pill-due-{{ $optValue === '' ? 'all' : $optValue }}"
+                        class="workspace-filter-option"
+                        @click="closePillMenu('dueState')"
+                    >
+                        <input
+                            type="radio"
+                            class="sr-only"
+                            wire:model.live="filterDueState"
+                            value="{{ $optValue }}"
+                            @click="
+                                const v = '{{ $optValue }}' || null;
+                                displayFilters.dueState = (v === '' || v === null) ? null : v;
+                                window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'dueState', value: (v === '' || v === null) ? null : v } }));
+                            "
+                        />
+                        <span class="min-w-0 flex-1">{{ $optLabel }}</span>
+                    </label>
+                @endforeach
+            </div>
+        </div>
+    </span>
 
     <span
         class="text-[11px] leading-snug text-muted-foreground/80 sm:text-xs dark:text-zinc-500/90"

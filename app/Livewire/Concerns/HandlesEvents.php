@@ -529,7 +529,8 @@ trait HandlesEvents
                 : Carbon::parse($this->selectedDate);
             $eventQuery->activeForDate($date);
 
-            if ($date->isToday()) {
+            $isDueStateFilterActive = method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive();
+            if ($date->isToday() && ! $isDueStateFilterActive) {
                 $eventQuery->where(function (Builder $q): void {
                     $q->whereHas('recurringEvent')
                         ->orWhere(function (Builder $nonRecurring): void {
@@ -538,6 +539,14 @@ trait HandlesEvents
                         });
                 });
             }
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $eventQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (method_exists($this, 'applyEventFilters')) {
@@ -636,6 +645,14 @@ trait HandlesEvents
                 ? $this->getParsedSelectedDate()
                 : Carbon::parse($this->selectedDate);
             $eventQuery->activeForDate($date);
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $eventQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (method_exists($this, 'applyEventFilters')) {

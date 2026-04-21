@@ -375,6 +375,14 @@ trait HandlesProjects
             $query->activeForDate($date);
         }
 
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $query->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
+        }
+
         $query
             ->orderByRaw(
                 'CASE

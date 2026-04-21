@@ -538,7 +538,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.007v.008H12v-.008z" />
                         </svg>
                     </span>
-                    <span class="min-w-0 flex-1 truncate">{{ __('Due state') }}</span>
+                    <span class="min-w-0 flex-1 truncate">{{ __('When') }}</span>
                     <svg class="size-4 shrink-0 text-zinc-400 dark:text-zinc-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                     </svg>

@@ -512,10 +512,10 @@ trait HandlesTasks
                 : Carbon::parse($this->selectedDate);
             $focusTaskId = (int) ($this->focusTaskId ?? 0);
 
-            $taskQuery->where(function (Builder $outer) use ($date, $focusTaskId): void {
-                $outer->where(function (Builder $inner) use ($date): void {
+            $taskQuery->where(function (Builder $outer) use ($date, $focusTaskId, $isDueStateFilterActive): void {
+                $outer->where(function (Builder $inner) use ($date, $isDueStateFilterActive): void {
                     $inner->relevantForDate($date);
-                    if ($date->isToday()) {
+                    if ($date->isToday() && ! $isDueStateFilterActive) {
                         $inner->where(function (Builder $q): void {
                             $q->whereHas('recurringTask')
                                 ->orWhere(function (Builder $nonRecurring): void {
@@ -529,6 +529,14 @@ trait HandlesTasks
                     $outer->orWhere('tasks.id', $focusTaskId);
                 }
             });
+        }
+
+        if ($isDueStateFilterActive) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $taskQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
@@ -671,6 +679,14 @@ trait HandlesTasks
                 ? $this->getParsedSelectedDate()
                 : Carbon::parse($this->selectedDate);
             $taskQuery->relevantForDate($date);
+        }
+
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            $selectedDate = method_exists($this, 'getParsedSelectedDate')
+                ? $this->getParsedSelectedDate()
+                : Carbon::parse($this->selectedDate);
+            $taskQuery->whereNotNull('end_datetime')
+                ->whereDate('end_datetime', $selectedDate->toDateString());
         }
 
         if (property_exists($this, 'listContextProjectId') && $this->listContextProjectId !== null && $this->listContextProjectId !== '') {
