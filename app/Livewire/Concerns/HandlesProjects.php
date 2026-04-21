@@ -131,6 +131,10 @@ trait HandlesProjects
             return false;
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('project', (int) $project->id, 'project_deleted');
+        }
+
         $this->dispatch('toast', ...Project::toastPayload('delete', true, $project->name));
         $this->dispatch('assistant-schedule-plan-updated');
 
@@ -316,6 +320,10 @@ trait HandlesProjects
 
         if (! $silentToasts) {
             $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, true, $project->name));
+        }
+
+        if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('project', (int) $project->id, 'project_datetime_updated');
         }
 
         $this->dispatch('assistant-schedule-plan-updated');

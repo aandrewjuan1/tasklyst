@@ -1163,6 +1163,36 @@ class extends Component
         ]);
     }
 
+    protected function deactivateScheduledFocusForEntity(string $entityType, int $entityId, string $reason = 'entity_updated'): void
+    {
+        $userId = Auth::id();
+        if ($userId === null || $entityId < 1) {
+            return;
+        }
+        if (! in_array($entityType, ['task', 'event', 'project'], true)) {
+            return;
+        }
+
+        AssistantSchedulePlanItem::query()
+            ->forUser($userId)
+            ->active()
+            ->where('entity_type', $entityType)
+            ->where('entity_id', $entityId)
+            ->get()
+            ->each(function (AssistantSchedulePlanItem $planItem) use ($reason): void {
+                $metadata = is_array($planItem->metadata ?? null) ? $planItem->metadata : [];
+                data_set($metadata, 'actions.last_action', 'dismissed');
+                data_set($metadata, 'actions.last_action_reason', $reason);
+                data_set($metadata, 'actions.last_action_at', now()->toIso8601String());
+
+                $planItem->update([
+                    'status' => AssistantSchedulePlanItemStatus::Dismissed,
+                    'dismissed_at' => now(),
+                    'metadata' => $metadata,
+                ]);
+            });
+    }
+
     private function parseScheduledFocusDatetime(?string $value): ?CarbonImmutable
     {
         $normalized = trim((string) $value);

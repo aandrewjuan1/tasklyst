@@ -186,6 +186,10 @@ trait HandlesTasks
             return false;
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_deleted');
+        }
+
         $this->dispatch('toast', ...Task::toastPayload('delete', true, $task->title));
 
         if (method_exists($this, 'syncActiveFocusSessionFromDatabase')) {
@@ -438,6 +442,10 @@ trait HandlesTasks
             $this->dispatch('assistant-schedule-plan-updated');
 
             return ['success' => true, 'recurringTaskId' => $task->recurringTask?->id];
+        }
+
+        if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('task', (int) $task->id, 'task_datetime_updated');
         }
 
         $this->dispatch('assistant-schedule-plan-updated');

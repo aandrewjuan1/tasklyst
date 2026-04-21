@@ -35,7 +35,6 @@
         storageKey: 'workspace-scheduled-focus-collapsed-v1',
         expanded: document.documentElement.dataset.workspaceScheduledFocusCollapsed !== 'true',
         removedEntityKeys: {},
-        reconcileTimer: null,
         lastInfoToastAtMs: 0,
         infoToastCooldownMs: 1200,
         entityKey(kind, entityId) {
@@ -52,6 +51,12 @@
             }
             this.removedEntityKeys[key] = true;
         },
+        restoreEntity(kind, entityId) {
+            const key = this.entityKey(kind, entityId);
+            if (Object.prototype.hasOwnProperty.call(this.removedEntityKeys, key)) {
+                delete this.removedEntityKeys[key];
+            }
+        },
         emitInfoToast(message) {
             const nowMs = Date.now();
             if ((nowMs - Number(this.lastInfoToastAtMs || 0)) < this.infoToastCooldownMs) {
@@ -63,14 +68,6 @@
                 message: message || @js(__('Removed from Scheduled Focus because timing changed.')),
             });
         },
-        requestReconcile() {
-            if (this.reconcileTimer) {
-                clearTimeout(this.reconcileTimer);
-            }
-            this.reconcileTimer = setTimeout(() => {
-                $wire.$parent.$call('onAssistantSchedulePlanUpdated');
-            }, 160);
-        },
         handleWorkspaceTrashed(detail) {
             const kind = String(detail?.kind || '');
             const itemId = Number(detail?.id || 0);
@@ -78,7 +75,6 @@
                 return;
             }
             this.removeEntity(kind, itemId);
-            this.requestReconcile();
         },
         handleWorkspacePropertyUpdated(detail) {
             const kind = String(detail?.kind || '');
@@ -90,11 +86,25 @@
             if (['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property)) {
                 this.removeEntity(kind, itemId);
                 this.emitInfoToast(@js(__('Removed from Scheduled Focus because the scheduled time changed.')));
-                this.requestReconcile();
+            }
+        },
+        handleWorkspaceTrashRollback(detail) {
+            const kind = String(detail?.kind || '');
+            const itemId = Number(detail?.id || 0);
+            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1) {
                 return;
             }
-            if (['recurrence', 'projectId', 'eventId', 'schoolClassId', 'status', 'title', 'name', 'subjectName', 'description'].includes(property)) {
-                this.requestReconcile();
+            this.restoreEntity(kind, itemId);
+        },
+        handleWorkspacePropertyRollback(detail) {
+            const kind = String(detail?.kind || '');
+            const itemId = Number(detail?.itemId || 0);
+            const property = String(detail?.property || '');
+            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1) {
+                return;
+            }
+            if (['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property)) {
+                this.restoreEntity(kind, itemId);
             }
         },
         async focusPlanItem(planItemId, kind, entityId) {
@@ -143,34 +153,34 @@
     role="region"
     aria-labelledby="{{ $panelId }}-title"
     @workspace-item-trashed.window="handleWorkspaceTrashed($event.detail)"
+    @workspace-item-trashed-rollback.window="handleWorkspaceTrashRollback($event.detail)"
     @workspace-item-property-updated.window="handleWorkspacePropertyUpdated($event.detail)"
+    @workspace-item-property-update-rollback.window="handleWorkspacePropertyRollback($event.detail)"
     @assistant-schedule-plan-updated.window="removedEntityKeys = {}"
     @class([
-        'rounded-xl border border-brand-blue/20 bg-white/90 shadow-sm ring-1 ring-brand-blue/10 dark:border-brand-blue/30 dark:bg-zinc-900/55 dark:ring-white/5',
+        'rounded-xl border border-violet-500/45 bg-linear-to-r from-violet-50/95 via-white/95 to-brand-light-blue/55 shadow-md ring-1 ring-violet-300/30 dark:border-violet-400/55 dark:from-violet-950/35 dark:via-zinc-900/65 dark:to-brand-blue/20 dark:ring-violet-300/20',
         'px-2.5 py-2.5 sm:px-3.5 sm:py-3.5' => ! $isCompact,
         'rounded-lg px-2 py-2 sm:px-2.5 sm:py-2.5' => $isCompact,
     ])
 >
     <div class="flex items-center justify-between gap-2.5 sm:gap-3">
-        <div class="min-w-0">
-            <flux:text id="{{ $panelId }}-title" class="{{ $isCompact ? 'text-[9px] sm:text-[10px]' : 'text-[10px] sm:text-[11px]' }} font-semibold uppercase tracking-[0.12em] text-brand-blue dark:text-brand-light-blue">
-                {{ __('Scheduled focus') }}
+        <div class="min-w-0 flex items-center gap-2">
+            <span class="inline-flex size-6 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-700 ring-1 ring-violet-500/25 dark:bg-violet-400/20 dark:text-violet-200 dark:ring-violet-300/35">
+                <flux:icon name="sparkles" class="size-3.5" />
+            </span>
+            <flux:text id="{{ $panelId }}-title" class="{{ $isCompact ? 'text-[10px]' : 'text-[11px] sm:text-xs' }} truncate font-semibold uppercase tracking-[0.12em] text-violet-800 dark:text-violet-200">
+                {{ __('AI Scheduled Focus') }}
             </flux:text>
-            @if (! $isCompact)
-                <flux:heading size="sm" class="mt-0.5 text-sm sm:text-base">
-                    {{ __('Assistant plan') }}
-                </flux:heading>
-            @endif
         </div>
         <div class="inline-flex items-center gap-1.5 sm:gap-2">
-            <span class="inline-flex items-center rounded-full bg-brand-light-blue/70 px-1.5 py-0.5 text-[10px] font-semibold text-brand-navy-blue dark:bg-brand-blue/20 dark:text-brand-light-blue sm:px-2 sm:text-[11px]">
+            <span class="inline-flex items-center rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-violet-800 ring-1 ring-violet-500/20 dark:bg-violet-400/20 dark:text-violet-100 dark:ring-violet-300/30 sm:px-2 sm:text-[11px]">
                 {{ trans_choice(':count item|:count items', (int) $totalCount, ['count' => (int) $totalCount]) }}
             </span>
             <flux:button
                 type="button"
                 size="xs"
                 variant="ghost"
-                class="rounded-lg border border-border/60 bg-white/80 px-2 py-0.5 text-[11px] font-medium text-zinc-700 shadow-none hover:bg-white dark:border-border/60 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-900/50 sm:px-2.5 sm:py-1 sm:text-xs"
+                class="rounded-lg border border-violet-300/40 bg-white/80 px-2 py-0.5 text-[11px] font-medium text-violet-900 shadow-none hover:bg-white dark:border-violet-300/30 dark:bg-zinc-900/35 dark:text-violet-100 dark:hover:bg-zinc-900/55 sm:px-2.5 sm:py-1 sm:text-xs"
                 x-on:click="toggle()"
                 x-bind:aria-expanded="expanded"
                 aria-controls="{{ $panelId }}-content"
@@ -214,7 +224,7 @@
                                 @disabled($planItemId <= 0 || ! in_array($entityType, ['task', 'event', 'project'], true))
                                 x-show="!isEntityRemoved('{{ $entityType }}', {{ $entityId }})"
                                 @class([
-                                    'list-item-card flex w-full flex-col gap-1 rounded-lg text-left transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 dark:focus-visible:ring-brand-light-blue/50 dark:focus-visible:ring-offset-zinc-900',
+                                    'list-item-card border border-violet-400/45 dark:border-violet-400/40 flex w-full flex-col gap-1 rounded-lg text-left transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 dark:focus-visible:ring-violet-300/55 dark:focus-visible:ring-offset-zinc-900',
                                     'px-2 py-1.5 sm:gap-1.5 sm:px-2.5 sm:py-2' => ! $isCompact,
                                     'min-w-[11rem] max-w-[14rem] shrink-0 px-2 py-1.5 sm:min-w-[12rem]' => $isCompact,
                                 ])

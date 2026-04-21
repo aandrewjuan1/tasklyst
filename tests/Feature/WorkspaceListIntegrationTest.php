@@ -238,7 +238,7 @@ test('workspace list shows scheduled focus panel when assistant accepted plan it
 
     $this->get(route('workspace', ['view' => 'list']))
         ->assertSuccessful()
-        ->assertSee('Scheduled focus')
+        ->assertSee('AI Scheduled Focus')
         ->assertSee('AI Planned Task')
         ->assertSee('Task')
         ->assertSee('Time:')
@@ -291,7 +291,7 @@ test('workspace list hides scheduled focus panel when no active assistant plan i
 
     $this->get(route('workspace', ['view' => 'list']))
         ->assertSuccessful()
-        ->assertDontSee('Scheduled focus');
+        ->assertDontSee('AI Scheduled Focus');
 });
 
 test('workspace mark scheduled focus in progress updates both plan item and task', function (): void {

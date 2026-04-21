@@ -94,6 +94,6 @@ test('workspace kanban view shows compact scheduled focus strip when plan items 
 
     $this->get(route('workspace', ['view' => 'kanban']))
         ->assertSuccessful()
-        ->assertSee('Scheduled focus')
+        ->assertSee('AI Scheduled Focus')
         ->assertSee('Kanban Scheduled Focus Row');
 });

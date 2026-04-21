@@ -150,6 +150,10 @@ trait HandlesEvents
             return false;
         }
 
+        if (method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_deleted');
+        }
+
         $this->dispatch('toast', ...Event::toastPayload('delete', true, $event->title));
 
         if (method_exists($this, 'queueWorkspaceCalendarRefresh')) {
@@ -474,6 +478,10 @@ trait HandlesEvents
             $this->dispatch('assistant-schedule-plan-updated');
 
             return ['success' => true, 'recurringEventId' => $event->recurringEvent?->id];
+        }
+
+        if (in_array($property, ['startDatetime', 'endDatetime'], true) && method_exists($this, 'deactivateScheduledFocusForEntity')) {
+            $this->deactivateScheduledFocusForEntity('event', (int) $event->id, 'event_datetime_updated');
         }
 
         $this->dispatch('assistant-schedule-plan-updated');
