@@ -510,6 +510,7 @@ final class TaskAssistantService
             'assistant_message_id' => $assistantMessage->id,
             'count_limit' => $plan->countLimit,
             'prioritize_variant' => TaskAssistantPrioritizeVariant::Rank->value,
+            ...$this->buildInferenceTelemetry($plan),
         ]);
 
         $context = $this->constraintsExtractor->extract($content);
@@ -1647,6 +1648,7 @@ final class TaskAssistantService
             'assistant_message_id' => $assistantMessage->id,
             'target_entities_count' => count($plan->targetEntities),
             'time_window_hint' => $plan->timeWindowHint,
+            ...$this->buildInferenceTelemetry($plan),
         ]);
 
         $historyMessages = collect($this->mapToPrismMessages($this->loadHistoryMessages($thread, $userMessage->id)));
@@ -1897,6 +1899,7 @@ final class TaskAssistantService
             'run_id' => app()->bound('task_assistant.run_id') ? app('task_assistant.run_id') : null,
             'thread_id' => $thread->id,
             'assistant_message_id' => $assistantMessage->id,
+            ...$this->buildInferenceTelemetry($plan),
         ]);
 
         if (
@@ -3567,7 +3570,58 @@ PROMPT)
             'generation_profile' => $plan->generationProfile,
             'prioritize_variant' => $plan->flow === 'prioritize' ? TaskAssistantPrioritizeVariant::Rank->value : null,
             'intent_use_llm' => (bool) config('task-assistant.intent.use_llm', true),
+            ...$this->buildInferenceTelemetry($plan),
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildInferenceTelemetry(ExecutionPlan $plan): array
+    {
+        $provider = (string) config('task-assistant.provider', 'ollama');
+        $model = (string) config('task-assistant.model', 'hermes3:3b');
+        $providerUrl = $this->resolveProviderUrlForLogs($provider);
+
+        return [
+            'inference_mode' => $this->resolveInferenceModeForLogs($plan),
+            'intent_inference_enabled' => (bool) config('task-assistant.intent.use_llm', true),
+            'llm_provider' => $provider,
+            'llm_model' => $model,
+            'llm_endpoint_host' => $providerUrl !== null ? parse_url($providerUrl, PHP_URL_HOST) : null,
+        ];
+    }
+
+    private function resolveInferenceModeForLogs(ExecutionPlan $plan): string
+    {
+        if (
+            $plan->flow === TaskAssistantFlowNames::GENERAL_GUIDANCE
+            && (
+                in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY_DETERMINISTIC, $plan->reasonCodes, true)
+                || in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_GREETING_ONLY, $plan->reasonCodes, true)
+                || in_array(TaskAssistantReasonCodes::GENERAL_GUIDANCE_CLOSING_ONLY, $plan->reasonCodes, true)
+            )
+        ) {
+            return 'deterministic_only';
+        }
+
+        if (in_array($plan->flow, [
+            TaskAssistantFlowNames::SCHEDULE,
+            TaskAssistantFlowNames::PRIORITIZE,
+            TaskAssistantFlowNames::PRIORITIZE_SCHEDULE,
+            TaskAssistantFlowNames::LISTING_FOLLOWUP,
+        ], true)) {
+            return 'hybrid_deterministic_plus_llm';
+        }
+
+        return 'llm_primary';
+    }
+
+    private function resolveProviderUrlForLogs(string $provider): ?string
+    {
+        $providerUrl = config('prism.providers.'.$provider.'.url');
+
+        return is_string($providerUrl) && $providerUrl !== '' ? $providerUrl : null;
     }
 
     private function persistRoutingTrace(

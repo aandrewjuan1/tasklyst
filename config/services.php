@@ -49,4 +49,16 @@ return [
         'session_validation_cache_ttl_minutes' => (int) env('WORKOS_SESSION_VALIDATION_CACHE_TTL_MINUTES', 5),
     ],
 
+    'ai_proxy' => [
+        'token' => env('AI_PROXY_TOKEN', ''),
+        'upstream_url' => env('AI_PROXY_UPSTREAM_URL', 'http://127.0.0.1:11434'),
+        'default_model' => env('AI_PROXY_DEFAULT_MODEL', 'hermes3:3b'),
+    ],
+
+    'ollama_proxy' => [
+        'url' => env('OLLAMA_PROXY_URL', ''),
+        'token' => env('OLLAMA_PROXY_TOKEN', ''),
+        'default_model' => env('OLLAMA_PROXY_DEFAULT_MODEL', env('TASK_ASSISTANT_MODEL', 'hermes3:3b')),
+    ],
+
 ];

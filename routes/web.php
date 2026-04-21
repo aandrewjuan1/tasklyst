@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Middleware\ValidateWorkOSSession;
+use App\Services\LLM\OllamaProxyClient;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
@@ -56,6 +59,45 @@ Route::middleware([
             'raw' => $payload,
         ]);
     })->name('llm.prompt-test');
+
+    Route::get('llm/proxy-test', function (Request $request, OllamaProxyClient $client) {
+        $prompt = trim((string) $request->query('prompt', ''));
+        if ($prompt === '') {
+            return response()->json([
+                'ok' => false,
+                'error' => 'prompt_required',
+            ], 422);
+        }
+
+        try {
+            $response = $client->generate($prompt);
+        } catch (\RuntimeException $exception) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'proxy_not_configured',
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        if ($response->failed()) {
+            return response()->json([
+                'ok' => false,
+                'error' => 'proxy_upstream_failed',
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ], 502);
+        }
+
+        $payload = $response->json();
+
+        return response()->json([
+            'ok' => true,
+            'provider' => 'ollama_proxy',
+            'model' => (string) config('services.ollama_proxy.default_model', 'hermes3:3b'),
+            'prompt' => $prompt,
+            'raw' => is_array($payload) ? $payload : [],
+        ]);
+    })->name('llm.proxy-test');
 });
 
 // Test-only routes for ConnectCalendarFeedJobTest.
@@ -69,3 +111,42 @@ Route::get('/tests/feature/tests/unit/connectcalendarfeedjob', function () {
 
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
+
+Route::middleware('throttle:30,1')
+    ->withoutMiddleware([VerifyCsrfToken::class])
+    ->prefix('api/ai')
+    ->group(function (): void {
+        Route::post('/proxy', function (Request $request) {
+            $validated = $request->validate([
+                'prompt' => ['required', 'string', 'max:10000'],
+                'model' => ['nullable', 'string', 'max:255'],
+                'token' => ['required', 'string'],
+            ]);
+
+            $configuredToken = (string) config('services.ai_proxy.token', '');
+
+            abort_unless(
+                $configuredToken !== '' && hash_equals($configuredToken, $validated['token']),
+                401,
+                'Unauthorized'
+            );
+
+            $response = Http::timeout((int) config('prism.request_timeout', 120))
+                ->post(rtrim((string) config('services.ai_proxy.upstream_url', 'http://127.0.0.1:11434'), '/').'/api/generate', [
+                    'model' => $validated['model'] ?? (string) config('services.ai_proxy.default_model', 'hermes3:3b'),
+                    'prompt' => $validated['prompt'],
+                    'stream' => false,
+                ]);
+
+            /** @var \Illuminate\Http\Client\Response $response */
+            if ($response->failed()) {
+                return response()->json([
+                    'ok' => false,
+                    'status' => $response->status(),
+                    'error' => $response->body(),
+                ], 502);
+            }
+
+            return response()->json($response->json());
+        })->name('ai.proxy');
+    });
