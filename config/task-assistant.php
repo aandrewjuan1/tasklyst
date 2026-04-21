@@ -115,12 +115,14 @@ return [
     */
     'streaming' => [
         'chunk_size' => (int) env('TASK_ASSISTANT_STREAM_CHUNK_SIZE', 40),
-        'enable_typing_effect' => (bool) env('TASK_ASSISTANT_ENABLE_TYPING_EFFECT', true),
+        'enable_typing_effect' => (bool) env('TASK_ASSISTANT_ENABLE_TYPING_EFFECT', false),
         'inter_chunk_delay_ms' => (int) env('TASK_ASSISTANT_INTER_CHUNK_DELAY_MS', 24),
         'max_typing_effect_ms' => (int) env('TASK_ASSISTANT_MAX_TYPING_EFFECT_MS', 900),
         'health_timeout_seconds' => (int) env('TASK_ASSISTANT_STREAM_HEALTH_TIMEOUT_SECONDS', 20),
         // Re-check "stop streaming" signal every N chunks (reduces DB pressure during long streams).
         'stop_check_interval_chunks' => (int) env('TASK_ASSISTANT_STREAM_STOP_CHECK_INTERVAL_CHUNKS', 4),
+        // Minimum elapsed time between cancellation checks to avoid query bursts on very fast chunk loops.
+        'stop_check_min_interval_ms' => (int) env('TASK_ASSISTANT_STREAM_STOP_CHECK_MIN_INTERVAL_MS', 120),
         // Logging full structured envelope can be expensive/noisy in production.
         'log_structured_envelope' => (bool) env('TASK_ASSISTANT_STREAM_LOG_STRUCTURED_ENVELOPE', false),
     ],

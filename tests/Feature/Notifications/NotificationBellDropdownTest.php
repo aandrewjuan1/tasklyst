@@ -61,6 +61,53 @@ test('bell exposes notifications and unreadCount with expected types', function 
         ->and($component->get('hasMoreNotifications'))->toBeBool();
 });
 
+test('notification created event payload updates unread count without full list refresh while panel is closed', function (): void {
+    $user = $this->user;
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'Initial',
+            'message' => 'Initial message',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component = Livewire::actingAs($user)->test('notifications.bell-dropdown');
+
+    expect($component->get('unreadCount'))->toBe(1)
+        ->and($component->get('notifications'))->toHaveCount(1)
+        ->and($component->get('panelOpen'))->toBeFalse();
+
+    DatabaseNotification::query()->create([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'type' => 'App\\Notifications\\TestNotification',
+        'notifiable_type' => User::class,
+        'notifiable_id' => $user->id,
+        'data' => [
+            'title' => 'New unseen',
+            'message' => 'Should appear after open',
+            'route' => 'dashboard',
+            'params' => [],
+        ],
+        'read_at' => null,
+    ]);
+
+    $component->call('onNotificationCreated', ['unread_count' => 2]);
+
+    expect($component->get('unreadCount'))->toBe(2)
+        ->and($component->get('notifications'))->toHaveCount(1);
+
+    $component->call('togglePanel');
+
+    expect($component->get('notifications'))->toHaveCount(2);
+});
+
 test('close panel action closes the notification popover', function (): void {
     $user = $this->user;
 

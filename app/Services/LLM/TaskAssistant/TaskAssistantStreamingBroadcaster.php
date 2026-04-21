@@ -41,6 +41,7 @@ final class TaskAssistantStreamingBroadcaster
         $maxTypingEffectMs = max(0, (int) config('task-assistant.streaming.max_typing_effect_ms', 0));
         $enableTypingEffect = (bool) config('task-assistant.streaming.enable_typing_effect', false);
         $stopCheckIntervalChunks = max(1, (int) config('task-assistant.streaming.stop_check_interval_chunks', 4));
+        $stopCheckMinIntervalMs = max(0, (int) config('task-assistant.streaming.stop_check_min_interval_ms', 120));
         $logStructuredEnvelope = (bool) config('task-assistant.streaming.log_structured_envelope', false);
 
         $assistantMessage->update([
@@ -56,12 +57,23 @@ final class TaskAssistantStreamingBroadcaster
         $content = $assistantMessage->content ?? '';
         $chunkCount = 0;
         $streamStartNs = hrtime(true);
+        $lastStopCheckNs = 0;
         $firstDeltaMarked = false;
         foreach (mb_str_split($content, $chunkSize) as $chunk) {
             $chunkCount++;
-            if ($chunkCount % $stopCheckIntervalChunks === 0 && $this->isCancellationRequested($assistantMessage)) {
-                $this->markCancelled($assistantMessage);
-                break;
+            if ($chunkCount % $stopCheckIntervalChunks === 0) {
+                $nowNs = hrtime(true);
+                $elapsedSinceStopCheckMs = $lastStopCheckNs > 0
+                    ? (int) (($nowNs - $lastStopCheckNs) / 1_000_000)
+                    : PHP_INT_MAX;
+
+                if ($stopCheckMinIntervalMs === 0 || $elapsedSinceStopCheckMs >= $stopCheckMinIntervalMs) {
+                    $lastStopCheckNs = $nowNs;
+                    if ($this->isCancellationRequested($assistantMessage)) {
+                        $this->markCancelled($assistantMessage);
+                        break;
+                    }
+                }
             }
 
             if ($chunk === '') {
@@ -117,6 +129,7 @@ final class TaskAssistantStreamingBroadcaster
             'inter_chunk_delay_ms' => $interChunkDelayMs,
             'max_typing_effect_ms' => $maxTypingEffectMs,
             'stop_check_interval_chunks' => $stopCheckIntervalChunks,
+            'stop_check_min_interval_ms' => $stopCheckMinIntervalMs,
             'assistant_text_bytes' => mb_strlen($content),
             'structured_envelope_json' => $envelopeJson,
             'structured_envelope_truncated' => $truncated,

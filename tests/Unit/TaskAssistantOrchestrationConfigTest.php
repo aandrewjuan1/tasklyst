@@ -17,3 +17,19 @@ test('legacy chat flow configuration is absent', function (): void {
     expect($generation)->toBeArray();
     expect($generation)->not->toHaveKey('chat');
 });
+
+test('streaming configuration exposes optimization toggles', function (): void {
+    $streaming = config('task-assistant.streaming');
+
+    expect($streaming)->toBeArray();
+    expect($streaming)->toHaveKeys([
+        'chunk_size',
+        'enable_typing_effect',
+        'inter_chunk_delay_ms',
+        'max_typing_effect_ms',
+        'health_timeout_seconds',
+        'stop_check_interval_chunks',
+        'stop_check_min_interval_ms',
+        'log_structured_envelope',
+    ]);
+});

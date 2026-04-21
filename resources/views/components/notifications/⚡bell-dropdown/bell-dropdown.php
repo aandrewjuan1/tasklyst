@@ -60,9 +60,14 @@ new class extends Component
     }
 
     #[On('echo-private:App.Models.User.{userId},.notification_created')]
-    public function onNotificationCreated(): void
+    public function onNotificationCreated(array $payload = []): void
     {
-        $this->syncNotificationStateFromDatabase();
+        $unreadCount = (int) ($payload['unread_count'] ?? $this->unreadCount);
+        $this->unreadCount = max(0, $unreadCount);
+
+        if ($this->panelOpen) {
+            $this->syncNotificationStateFromDatabase();
+        }
     }
 
     public function togglePanel(): void

@@ -1,6 +1,5 @@
 <div
     class="relative isolate grid h-full min-h-[min(400px,80dvh)] grid-rows-[auto_1fr_auto] overflow-hidden rounded-xl bg-linear-to-r from-brand-light-blue via-white to-white text-zinc-900 shadow-sm ring-1 ring-black/5 dark:bg-zinc-900 dark:text-zinc-100 dark:ring-white/5"
-    wire:poll.5s="checkStreamingTimeout"
     x-data="{
         loadingPhrases: [
             @js(__('Thinking through this for you...')),
@@ -10,6 +9,7 @@
         ],
         loadingPhraseIndex: 0,
         loadingTimer: null,
+        streamingTimeoutPollTimer: null,
         scrollQueued: false,
         pendingScrollBehavior: 'smooth',
         currentLoadingPhrase() {
@@ -32,6 +32,27 @@
             }
 
             this.loadingPhraseIndex = 0;
+        },
+        startStreamingTimeoutPolling() {
+            if (this.streamingTimeoutPollTimer) {
+                return;
+            }
+
+            this.streamingTimeoutPollTimer = setInterval(() => {
+                if (!this.$wire.isStreaming) {
+                    this.stopStreamingTimeoutPolling();
+
+                    return;
+                }
+
+                this.$wire.checkStreamingTimeout();
+            }, 5000);
+        },
+        stopStreamingTimeoutPolling() {
+            if (this.streamingTimeoutPollTimer) {
+                clearInterval(this.streamingTimeoutPollTimer);
+                this.streamingTimeoutPollTimer = null;
+            }
         },
         isNearBottom(thresholdPx = 80) {
             const container = this.$refs.messagesContainer ?? null;
@@ -80,14 +101,21 @@
             this.$watch('$wire.isStreaming', (value) => {
                 if (value) {
                     this.startLoadingPhraseRotation();
+                    this.startStreamingTimeoutPolling();
                 } else {
                     this.stopLoadingPhraseRotation();
+                    this.stopStreamingTimeoutPolling();
                 }
             });
 
             if (this.$wire.isStreaming) {
                 this.startLoadingPhraseRotation();
+                this.startStreamingTimeoutPolling();
             }
+        },
+        destroy() {
+            this.stopLoadingPhraseRotation();
+            this.stopStreamingTimeoutPolling();
         },
     }"
 >
