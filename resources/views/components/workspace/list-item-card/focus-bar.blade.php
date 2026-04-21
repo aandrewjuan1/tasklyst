@@ -114,10 +114,10 @@
                             variant="ghost"
                             size="sm"
                             icon="x-mark"
-                            class="focus-modal-btn focus-modal-btn--secondary shrink-0"
+                            class="focus-modal-btn focus-modal-btn--secondary focus-modal-btn--exit shrink-0"
                             @click="closeFocusModal()"
                         >
-                            {{ __('Cancel') }}
+                            {{ __('Exit') }}
                         </flux:button>
                     </div>
                     <div class="focus-modal-action-group flex shrink-0 items-center gap-1.5" x-show="showFocusStartChoice" x-cloak>

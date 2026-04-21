@@ -483,6 +483,10 @@ trait HandlesEvents
     #[Computed]
     public function events(): Collection
     {
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
+
         // Early return: Skip if filtered to other item types (before any work)
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         if ($filterItemType !== null && $filterItemType !== 'events') {
@@ -500,7 +504,9 @@ trait HandlesEvents
         $visibleLimit = $eventsPerPage * $eventsPage;
         $queryLimit = $visibleLimit + 1;
 
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isDueStateFilterActive') || ! $this->isDueStateFilterActive());
 
         $eventQuery = Event::query()
             ->with([
@@ -590,6 +596,9 @@ trait HandlesEvents
         if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
             return collect();
         }
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         if ($filterItemType !== null && $filterItemType !== 'events') {
             return collect();
@@ -603,7 +612,9 @@ trait HandlesEvents
         $visibleLimit = (property_exists($this, 'eventsPerPage') ? (int) $this->eventsPerPage : 10)
             * (property_exists($this, 'eventsPage') ? max(1, (int) $this->eventsPage) : 1);
         $queryLimit = $visibleLimit + 1;
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isDueStateFilterActive') || ! $this->isDueStateFilterActive());
 
         $eventQuery = Event::query()
             ->with([

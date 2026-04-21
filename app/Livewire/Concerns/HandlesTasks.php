@@ -447,11 +447,17 @@ trait HandlesTasks
     #[Computed]
     public function tasks(): Collection
     {
+        $isOverdueStateFilterActive = method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive();
+        $isDueStateFilterActive = method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive();
+
         // Early return: Skip if filtered to other item types (before any work). Kanban is tasks-only but
         // still loads tasks when list is filtered to events/projects so the board stays meaningful.
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         $isKanban = property_exists($this, 'viewMode') && $this->viewMode === 'kanban';
         if (! $isKanban && $filterItemType !== null && $filterItemType !== 'tasks') {
+            return collect();
+        }
+        if ($isOverdueStateFilterActive && ! $isKanban) {
             return collect();
         }
 
@@ -466,7 +472,10 @@ trait HandlesTasks
         $visibleLimit = $tasksPerPage * $tasksPage;
         $queryLimit = $visibleLimit + 1;
 
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && ! $isDueStateFilterActive
+            && ! $isOverdueStateFilterActive;
         $statusFilter = method_exists($this, 'normalizeFilterValue')
             ? $this->normalizeFilterValue($this->filterTaskStatus ?? null)
             : null;
@@ -534,6 +543,10 @@ trait HandlesTasks
                 $this->authorize('view', $event);
                 $taskQuery->forEvent($event);
             }
+        }
+
+        if ($isOverdueStateFilterActive) {
+            $taskQuery->overdue(now())->where('status', '!=', TaskStatus::Done->value)->whereDoesntHave('recurringTask');
         }
 
         if (method_exists($this, 'applyTaskFilters')) {
@@ -605,6 +618,9 @@ trait HandlesTasks
     public function completedTasks(): Collection
     {
         if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
+            return collect();
+        }
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
             return collect();
         }
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;

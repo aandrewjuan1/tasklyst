@@ -1532,8 +1532,16 @@ class extends Component
             return collect();
         }
 
+        if (method_exists($this, 'isDueStateFilterActive') && $this->isDueStateFilterActive()) {
+            return collect();
+        }
+
         // When search scope is "all items", main list shows all matching items; skip overdue bucket to avoid duplicates.
-        if (method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems()) {
+        if (
+            method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isOverdueStateFilterActive') || ! $this->isOverdueStateFilterActive())
+        ) {
             return collect();
         }
 

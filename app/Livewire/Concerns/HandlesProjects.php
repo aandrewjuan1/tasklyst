@@ -327,6 +327,10 @@ trait HandlesProjects
     #[Computed]
     public function projects(): Collection
     {
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
+            return collect();
+        }
+
         // Early return: Skip if filtered to other item types (before any work)
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;
         if ($filterItemType !== null && $filterItemType !== 'projects') {
@@ -344,7 +348,9 @@ trait HandlesProjects
         $visibleLimit = $projectsPerPage * $projectsPage;
         $queryLimit = $visibleLimit + 1;
 
-        $searchAllItems = method_exists($this, 'shouldSearchAllItems') && $this->shouldSearchAllItems();
+        $searchAllItems = method_exists($this, 'shouldSearchAllItems')
+            && $this->shouldSearchAllItems()
+            && (! method_exists($this, 'isDueStateFilterActive') || ! $this->isDueStateFilterActive());
 
         /** @var \Illuminate\Database\Eloquent\Builder $query */
         /** @var \Illuminate\Database\Eloquent\Builder $query */
@@ -409,6 +415,9 @@ trait HandlesProjects
     public function completedProjects(): Collection
     {
         if (! method_exists($this, 'shouldShowCompleted') || ! $this->shouldShowCompleted()) {
+            return collect();
+        }
+        if (method_exists($this, 'isOverdueStateFilterActive') && $this->isOverdueStateFilterActive()) {
             return collect();
         }
         $filterItemType = property_exists($this, 'filterItemType') ? $this->normalizeFilterValue($this->filterItemType) : null;

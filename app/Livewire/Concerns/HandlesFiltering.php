@@ -44,6 +44,9 @@ trait HandlesFiltering
     #[Url(as: 'source')]
     public ?string $filterTaskSource = null;
 
+    #[Url(as: 'due')]
+    public ?string $filterDueState = null;
+
     #[Url(as: 'q')]
     public ?string $searchQuery = null;
 
@@ -101,6 +104,7 @@ trait HandlesFiltering
             'tagIds' => 'filterTagIds',
             'recurring' => 'filterRecurring',
             'taskSource' => 'filterTaskSource',
+            'dueState' => 'filterDueState',
         ];
     }
 
@@ -194,6 +198,15 @@ trait HandlesFiltering
 
         if ($key === 'taskSource') {
             $allowed = ['all', 'brightspace', 'manual'];
+            if ($value === null || $value === '' || $value === 'all') {
+                $value = null;
+            } elseif (! in_array($value, $allowed, true)) {
+                return;
+            }
+        }
+
+        if ($key === 'dueState') {
+            $allowed = ['all', 'overdue', 'due'];
             if ($value === null || $value === '' || $value === 'all') {
                 $value = null;
             } elseif (! in_array($value, $allowed, true)) {
@@ -335,6 +348,17 @@ trait HandlesFiltering
         $this->refreshListAfterFilterChange();
     }
 
+    public function updatedFilterDueState(?string $value): void
+    {
+        if ($value === '' || $value === 'all') {
+            $this->filterDueState = null;
+        } elseif ($value !== 'overdue' && $value !== 'due') {
+            $this->filterDueState = null;
+        }
+
+        $this->refreshListAfterFilterChange();
+    }
+
     /**
      * Clear all filters.
      */
@@ -362,6 +386,23 @@ trait HandlesFiltering
     public function shouldShowCompleted(): bool
     {
         return $this->showCompleted === '1';
+    }
+
+    public function getNormalizedDueStateFilter(): ?string
+    {
+        $value = $this->normalizeFilterValue($this->filterDueState);
+
+        return in_array($value, ['overdue', 'due'], true) ? $value : null;
+    }
+
+    public function isOverdueStateFilterActive(): bool
+    {
+        return $this->getNormalizedDueStateFilter() === 'overdue';
+    }
+
+    public function isDueStateFilterActive(): bool
+    {
+        return $this->getNormalizedDueStateFilter() === 'due';
     }
 
     /**
@@ -625,7 +666,8 @@ trait HandlesFiltering
             || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
             || $this->normalizeFilterValue($this->filterEventStatus) !== null
             || $this->normalizeFilterValue($this->filterRecurring) !== null
-            || $this->normalizeFilterValue($this->filterTaskSource) !== null;
+            || $this->normalizeFilterValue($this->filterTaskSource) !== null
+            || $this->getNormalizedDueStateFilter() !== null;
     }
 
     /**
@@ -638,7 +680,8 @@ trait HandlesFiltering
             || $this->normalizeFilterValue($this->filterTaskComplexity) !== null
             || ($this->filterTagIds !== null && $this->filterTagIds !== [])
             || $this->normalizeFilterValue($this->filterRecurring) !== null
-            || $this->normalizeFilterValue($this->filterTaskSource) !== null;
+            || $this->normalizeFilterValue($this->filterTaskSource) !== null
+            || $this->getNormalizedDueStateFilter() !== null;
     }
 
     /**
@@ -666,6 +709,7 @@ trait HandlesFiltering
             'tagIds' => $this->filterTagIds ?? [],
             'recurring' => $this->normalizeFilterValue($this->filterRecurring),
             'taskSource' => $this->normalizeFilterValue($this->filterTaskSource),
+            'dueState' => $this->getNormalizedDueStateFilter(),
             'hasActiveFilters' => $this->hasActiveFilters(),
             'hasActiveTaskBoardFilters' => $this->hasActiveTaskBoardFilters(),
             'searchQuery' => $this->getTrimmedSearchQuery(),

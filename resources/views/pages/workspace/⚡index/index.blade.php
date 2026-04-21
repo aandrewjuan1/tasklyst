@@ -14,7 +14,7 @@
         trash restore (same: afterTrashRestored bumps workspaceItemsVersion; no full-area skeleton).
     --}}
     @php
-        $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,setFilter,clearFilter,setTagFilter,clearAllFilters';
+        $listHeavyLoadingTargets = 'searchQuery,searchScope,showCompleted,viewMode,filterItemType,filterTaskStatus,filterTaskPriority,filterTaskComplexity,filterTaskSource,filterEventStatus,filterTagId,filterRecurring,filterDueState,setFilter,clearFilter,setTagFilter,clearAllFilters';
         $selectedDateLoadingTarget = 'selectedDate,jumpCalendarToToday';
         $listRegionLoadingTargets = $listHeavyLoadingTargets.','.$selectedDateLoadingTarget;
         $workspaceMobileSelectedLabel = \Illuminate\Support\Carbon::parse($this->selectedDate)->translatedFormat('D, M j, Y');

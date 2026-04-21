@@ -29,6 +29,11 @@
         'brightspace' => TaskSourceType::Brightspace->label(),
         'manual' => TaskSourceType::Manual->label(),
     ];
+    $dueStateOptions = [
+        '' => __('Any'),
+        'overdue' => __('Overdue'),
+        'due' => __('Due'),
+    ];
 @endphp
 
 <div
@@ -49,7 +54,8 @@
                     $wire.filterTaskStatus || $wire.filterTaskPriority ||
                     $wire.filterTaskComplexity ||
                     $wire.filterTaskSource ||
-                    ($wire.filterTagIds?.length > 0) || $wire.filterRecurring);
+                    ($wire.filterTagIds?.length > 0) || $wire.filterRecurring ||
+                    $wire.filterDueState);
             };
             const onFilterOptimistic = (e) => {
                 if (e?.detail?.key === 'clearAll') {
@@ -79,6 +85,7 @@
             this.$watch('$wire.filterTagIds', onWireFilterChanged);
             this.$watch('$wire.filterRecurring', onWireFilterChanged);
             this.$watch('$wire.filterTaskSource', onWireFilterChanged);
+            this.$watch('$wire.filterDueState', onWireFilterChanged);
             this._filterOptimisticCleanup = () => window.removeEventListener('filter-optimistic', onFilterOptimistic);
         },
         destroy() {
@@ -505,6 +512,53 @@
                                 wire:model.live="filterTaskSource"
                                 value="{{ $value }}"
                                 @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'taskSource', value: @js($value === '' ? null : $value) } }))"
+                            />
+                            <span class="min-w-0 flex-1">{{ $label }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </div>
+
+            <div
+                class="workspace-filter-category-wrap"
+                @mouseenter="openSubmenuFine('dueState')"
+                @mouseleave="prefersFineHover && scheduleCloseSubmenu()"
+            >
+                <button
+                    type="button"
+                    class="workspace-filter-category-row workspace-filter-category-row--task-status"
+                    :class="activeSubmenu === 'dueState' ? 'workspace-filter-category-row--active' : ''"
+                    @click="handleCategoryActivate('dueState', $event)"
+                    :aria-expanded="activeSubmenu === 'dueState'"
+                    aria-controls="wff-flyout-due-state"
+                    id="wff-row-due-state"
+                >
+                    <span class="workspace-filter-category-icon bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-200" aria-hidden="true">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.007v.008H12v-.008z" />
+                        </svg>
+                    </span>
+                    <span class="min-w-0 flex-1 truncate">{{ __('Due state') }}</span>
+                    <svg class="size-4 shrink-0 text-zinc-400 dark:text-zinc-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                </button>
+                <div
+                    x-cloak
+                    x-show="activeSubmenu === 'dueState'"
+                    id="wff-flyout-due-state"
+                    role="group"
+                    aria-labelledby="wff-row-due-state"
+                    class="workspace-filter-flyout"
+                >
+                    @foreach ($dueStateOptions as $value => $label)
+                        <label wire:key="fb-due-{{ $value === '' ? 'all' : $value }}" class="workspace-filter-option" @click="closeFlyoutOnly()">
+                            <input
+                                type="radio"
+                                class="sr-only"
+                                wire:model.live="filterDueState"
+                                value="{{ $value }}"
+                                @click="window.dispatchEvent(new CustomEvent('filter-optimistic', { detail: { key: 'dueState', value: @js($value === '' ? null : $value) } }))"
                             />
                             <span class="min-w-0 flex-1">{{ $label }}</span>
                         </label>
