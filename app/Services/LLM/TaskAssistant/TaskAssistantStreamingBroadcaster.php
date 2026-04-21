@@ -40,6 +40,8 @@ final class TaskAssistantStreamingBroadcaster
         $interChunkDelayMs = max(0, (int) config('task-assistant.streaming.inter_chunk_delay_ms', 0));
         $maxTypingEffectMs = max(0, (int) config('task-assistant.streaming.max_typing_effect_ms', 0));
         $enableTypingEffect = (bool) config('task-assistant.streaming.enable_typing_effect', false);
+        $stopCheckIntervalChunks = max(1, (int) config('task-assistant.streaming.stop_check_interval_chunks', 4));
+        $logStructuredEnvelope = (bool) config('task-assistant.streaming.log_structured_envelope', false);
 
         $assistantMessage->update([
             'metadata' => array_merge($assistantMessage->metadata ?? [], [
@@ -56,7 +58,8 @@ final class TaskAssistantStreamingBroadcaster
         $streamStartNs = hrtime(true);
         $firstDeltaMarked = false;
         foreach (mb_str_split($content, $chunkSize) as $chunk) {
-            if ($this->isCancellationRequested($assistantMessage) || $this->isMessageStopped($assistantMessage)) {
+            $chunkCount++;
+            if ($chunkCount % $stopCheckIntervalChunks === 0 && $this->isCancellationRequested($assistantMessage)) {
                 $this->markCancelled($assistantMessage);
                 break;
             }
@@ -64,7 +67,6 @@ final class TaskAssistantStreamingBroadcaster
             if ($chunk === '') {
                 continue;
             }
-            $chunkCount++;
             if (! $firstDeltaMarked) {
                 $firstDeltaMarked = true;
                 $this->markStreamPhase($assistantMessage, 'first_delta');
@@ -90,12 +92,15 @@ final class TaskAssistantStreamingBroadcaster
             }
         }
 
-        $envelopeJson = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
-        $envelopeJson = is_string($envelopeJson) ? $envelopeJson : '';
+        $envelopeJson = null;
         $truncated = false;
-        if (strlen($envelopeJson) > self::LOG_ENVELOPE_JSON_MAX) {
-            $envelopeJson = substr($envelopeJson, 0, self::LOG_ENVELOPE_JSON_MAX).'…';
-            $truncated = true;
+        if ($logStructuredEnvelope) {
+            $serialized = json_encode($envelope, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+            $envelopeJson = is_string($serialized) ? $serialized : '';
+            if (strlen($envelopeJson) > self::LOG_ENVELOPE_JSON_MAX) {
+                $envelopeJson = substr($envelopeJson, 0, self::LOG_ENVELOPE_JSON_MAX).'…';
+                $truncated = true;
+            }
         }
 
         Log::debug('task-assistant.broadcast', [
@@ -111,6 +116,7 @@ final class TaskAssistantStreamingBroadcaster
             'typing_effect_enabled' => $enableTypingEffect,
             'inter_chunk_delay_ms' => $interChunkDelayMs,
             'max_typing_effect_ms' => $maxTypingEffectMs,
+            'stop_check_interval_chunks' => $stopCheckIntervalChunks,
             'assistant_text_bytes' => mb_strlen($content),
             'structured_envelope_json' => $envelopeJson,
             'structured_envelope_truncated' => $truncated,
