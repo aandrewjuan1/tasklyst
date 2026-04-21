@@ -19,6 +19,7 @@ use App\Services\LLM\Scheduling\ScheduleEditTargetResolver;
 use App\Services\LLM\Scheduling\ScheduleEditTemporalParser;
 use App\Services\LLM\Scheduling\ScheduleFallbackConfirmationService;
 use App\Services\LLM\Scheduling\ScheduleFallbackPolicy;
+use App\Services\LLM\Scheduling\ScheduleFallbackReasonExplainer;
 use App\Services\LLM\Scheduling\ScheduleProposalReferenceService;
 use App\Services\LLM\Scheduling\ScheduleRefinementClauseSplitter;
 use App\Services\LLM\Scheduling\ScheduleRefinementIntentResolver;
@@ -81,6 +82,7 @@ final class TaskAssistantService
         private readonly SchoolClassBusyIntervalResolver $schoolClassBusyIntervalResolver,
         private readonly ScheduleProposalReferenceService $scheduleProposalReferenceService,
         private readonly ScheduleFallbackConfirmationService $scheduleFallbackConfirmationService,
+        private readonly ScheduleFallbackReasonExplainer $scheduleFallbackReasonExplainer,
         private readonly TaskAssistantFlowHandlerRegistry $flowHandlerRegistry,
         private readonly TaskAssistantProcessingGuard $processingGuard,
         private readonly ScheduleFallbackPolicy $scheduleFallbackPolicy,
@@ -247,11 +249,14 @@ final class TaskAssistantService
 
             $pendingScheduleFallback = $this->conversationState->pendingScheduleFallback($thread);
             if ($pendingScheduleFallback !== null) {
+                $pendingActionId = $this->extractClientActionId($userMessage);
                 $handled = $this->handlePendingScheduleFallbackDecision(
                     thread: $thread,
+                    userMessage: $userMessage,
                     assistantMessage: $assistantMessage,
                     userMessageContent: $content,
                     pendingState: $pendingScheduleFallback,
+                    pendingActionId: $pendingActionId,
                 );
                 if ($handled) {
                     return;
@@ -569,7 +574,14 @@ final class TaskAssistantService
                 if (($raw['status'] ?? '') === TaskStatus::Doing->value) {
                     continue;
                 }
-                $allItems[] = $this->buildPrioritizeListingTaskRowFromRawTask($raw, $id, $title, $now, $timezone);
+                $allItems[] = $this->buildPrioritizeListingTaskRowFromRawTask(
+                    $raw,
+                    $id,
+                    $title,
+                    $now,
+                    $timezone,
+                    is_array($candidate['explainability'] ?? null) ? $candidate['explainability'] : []
+                );
 
                 continue;
             }
@@ -578,11 +590,15 @@ final class TaskAssistantService
                 'entity_type' => $type,
                 'entity_id' => $id,
                 'title' => $title,
+                'rank_explainability' => is_array($candidate['explainability'] ?? null) ? $candidate['explainability'] : null,
+                'rank_reason' => $this->studentRankReasonFromCandidate($candidate),
             ];
         }
 
         $limit = max(1, min($plan->countLimit, 10));
         $items = array_values(array_slice($allItems, 0, $limit));
+        $rankingMethodSummary = $this->buildPrioritizeRankingMethodSummary();
+        $orderingRationale = $this->buildPrioritizeOrderingRationale($items);
         $hasMoreUnseen = count($allItems) > count($items);
         $explicitRequestedCount = $this->extractExplicitRequestedCount($content);
         $countMismatchContext = [
@@ -640,6 +656,8 @@ final class TaskAssistantService
                 'filter_interpretation' => $narrative['filter_interpretation'] ?? null,
                 'assumptions' => $narrative['assumptions'] ?? null,
                 'count_mismatch_explanation' => null,
+                'ranking_method_summary' => $rankingMethodSummary,
+                'ordering_rationale' => $orderingRationale,
             ];
         } elseif ($items === []) {
             $framingText = trim((string) $deterministicSummary);
@@ -668,6 +686,8 @@ final class TaskAssistantService
                 'filter_interpretation' => null,
                 'assumptions' => null,
                 'count_mismatch_explanation' => null,
+                'ranking_method_summary' => $rankingMethodSummary,
+                'ordering_rationale' => $orderingRationale,
             ];
         } else {
             $narrative = $this->hybridNarrative->refinePrioritizeListing(
@@ -710,6 +730,8 @@ final class TaskAssistantService
                 'filter_interpretation' => $narrative['filter_interpretation'] ?? null,
                 'assumptions' => $narrative['assumptions'] ?? null,
                 'count_mismatch_explanation' => $countMismatchExplanation,
+                'ranking_method_summary' => $rankingMethodSummary,
+                'ordering_rationale' => $orderingRationale,
             ];
         }
 
@@ -1036,8 +1058,14 @@ final class TaskAssistantService
      * @param  array<string, mixed>  $rawTask
      * @return array<string, mixed>
      */
-    private function buildPrioritizeListingTaskRowFromRawTask(array $rawTask, int $id, string $title, CarbonImmutable $now, string $timezone): array
-    {
+    private function buildPrioritizeListingTaskRowFromRawTask(
+        array $rawTask,
+        int $id,
+        string $title,
+        CarbonImmutable $now,
+        string $timezone,
+        array $explainability = []
+    ): array {
         $dueBucket = 'no_deadline';
         $dueOn = '—';
         $duePhrase = 'no due date';
@@ -1103,7 +1131,67 @@ final class TaskAssistantService
             'due_phrase' => $duePhrase,
             'due_on' => $dueOn,
             'complexity_label' => $complexityLabel,
+            'rank_explainability' => $explainability === [] ? null : $explainability,
+            'rank_reason' => $this->studentRankReasonForTaskRow($priority, $duePhrase, $complexityLabel),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $candidate
+     */
+    private function studentRankReasonFromCandidate(array $candidate): string
+    {
+        $reasoning = trim((string) ($candidate['reasoning'] ?? ''));
+        if ($reasoning !== '') {
+            return $reasoning;
+        }
+
+        $type = strtolower(trim((string) ($candidate['type'] ?? 'task')));
+
+        return match ($type) {
+            'event' => 'This is time-sensitive and should be handled in its current time window.',
+            'project' => 'This project has meaningful momentum value and should stay on your radar.',
+            default => 'This is one of your strongest next actions right now.',
+        };
+    }
+
+    private function studentRankReasonForTaskRow(string $priority, string $duePhrase, string $complexityLabel): string
+    {
+        $priorityLabel = $priority === '' ? 'medium' : $priority;
+        $dueDetail = $duePhrase === '' ? 'no due date' : $duePhrase;
+
+        return "This task stands out because it's {$priorityLabel} priority, {$dueDetail}, and {$complexityLabel} complexity.";
+    }
+
+    private function buildPrioritizeRankingMethodSummary(): string
+    {
+        return TaskAssistantPrioritizeOutputDefaults::defaultRankingMethodSummary();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<string>
+     */
+    private function buildPrioritizeOrderingRationale(array $items): array
+    {
+        $lines = [];
+        foreach ($items as $index => $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $title = trim((string) ($item['title'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            $rank = $index + 1;
+            $rankReason = trim((string) ($item['rank_reason'] ?? ''));
+            if ($rankReason === '') {
+                $rankReason = 'This is one of your clearest next moves right now.';
+            }
+            $lines[] = "#{$rank} {$title}: {$rankReason}";
+        }
+
+        return array_slice($lines, 0, 10);
     }
 
     private function maybeRewritePlanForScheduleRefinement(
@@ -1499,7 +1587,10 @@ final class TaskAssistantService
                     }
                     break;
                 }
-                $partialFailureNotes[] = trim((string) ($resolution['clarification_message'] ?? 'Please tell me which item to edit and the exact change.'));
+                $partialFailureNotes[] = $this->buildRefinementClarificationMessage(
+                    resolution: $resolution,
+                    fallbackMessage: 'Please tell me which item to edit and the exact change.',
+                );
 
                 continue;
             }
@@ -2275,6 +2366,7 @@ final class TaskAssistantService
         if (count($exampleList) === 1) {
             $exampleList[] = $defaultExamples[1];
         }
+        $clarification = $this->applyScheduleClarificationVariation($thread, trim($clarification));
         $content = trim($clarification).sprintf(
             ' For example: "%s" or "%s".',
             $exampleList[0],
@@ -2291,6 +2383,10 @@ final class TaskAssistantService
             'confirmation' => 'Tell me the exact item and change, and I will update it.',
             'schedule_empty_placement' => false,
             'placement_digest' => [],
+            'window_selection_explanation' => '',
+            'ordering_rationale' => [],
+            'blocking_reasons' => [],
+            'fallback_choice_explanation' => null,
         ];
         $normalized = $this->scheduleDraftMetadataNormalizer->normalizeAndValidate(['schedule' => $data, 'structured' => ['data' => $data]]);
         $canonicalData = is_array($normalized['canonical_data'] ?? null) ? $normalized['canonical_data'] : $data;
@@ -2317,6 +2413,104 @@ final class TaskAssistantService
                 ok: true,
             )
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $resolution
+     */
+    private function buildRefinementClarificationMessage(
+        array $resolution,
+        string $fallbackMessage,
+    ): string {
+        $base = trim((string) ($resolution['clarification_message'] ?? $fallbackMessage));
+        $context = is_array($resolution['clarification_context'] ?? null)
+            ? $resolution['clarification_context']
+            : [];
+
+        if ($context === []) {
+            return $base !== '' ? $base : $fallbackMessage;
+        }
+
+        $targetSummary = trim((string) ($context['target_summary'] ?? ''));
+        $parsedDate = trim((string) ($context['parsed_date_ymd'] ?? ''));
+        $parsedTime = trim((string) ($context['parsed_time_hhmm'] ?? ''));
+        $parsedDaypart = trim((string) ($context['parsed_part_of_day_hhmm'] ?? ''));
+        $candidates = is_array($context['candidate_titles'] ?? null) ? $context['candidate_titles'] : [];
+
+        $understoodParts = [];
+        if ($targetSummary !== '' && $targetSummary !== 'unresolved target') {
+            $understoodParts[] = 'target: '.$targetSummary;
+        }
+        if ($parsedDate !== '') {
+            $understoodParts[] = 'date: '.$parsedDate;
+        }
+        $timeToUse = $parsedTime !== '' ? $parsedTime : $parsedDaypart;
+        if ($timeToUse !== '') {
+            $understoodParts[] = 'time: '.$this->formatHhmmForClarification($timeToUse);
+        }
+
+        $prefix = $understoodParts !== []
+            ? 'I understood '.implode(', ', $understoodParts).'. '
+            : '';
+        $candidateHint = $candidates !== []
+            ? ' If you mean a different item, mention the exact title or position.'
+            : '';
+
+        return trim($prefix.$base.$candidateHint);
+    }
+
+    private function formatHhmmForClarification(string $hhmm): string
+    {
+        if (preg_match('/^(\d{1,2}):(\d{2})$/', trim($hhmm), $matches) !== 1) {
+            return $hhmm;
+        }
+        $hour24 = (int) ($matches[1] ?? 0);
+        $minute = (int) ($matches[2] ?? 0);
+        if ($hour24 < 0 || $hour24 > 23 || $minute < 0 || $minute > 59) {
+            return $hhmm;
+        }
+        $ampm = $hour24 >= 12 ? 'PM' : 'AM';
+        $hour12 = $hour24 % 12;
+        if ($hour12 === 0) {
+            $hour12 = 12;
+        }
+
+        return $hour12.':'.str_pad((string) $minute, 2, '0', STR_PAD_LEFT).' '.$ampm;
+    }
+
+    private function applyScheduleClarificationVariation(TaskAssistantThread $thread, string $message): string
+    {
+        $normalized = trim(preg_replace('/\s+/u', ' ', $message) ?? $message);
+        if ($normalized === '') {
+            return '';
+        }
+
+        $state = $this->conversationState->get($thread);
+        $previousHash = trim((string) ($state['schedule_refinement']['last_clarification_hash'] ?? ''));
+        $currentHash = sha1(mb_strtolower($normalized));
+        $repeatCount = (int) ($state['schedule_refinement']['clarification_repeat_count'] ?? 0);
+        if ($previousHash === $currentHash) {
+            $repeatCount++;
+        } else {
+            $repeatCount = 0;
+        }
+
+        $state['schedule_refinement']['last_clarification_hash'] = $currentHash;
+        $state['schedule_refinement']['clarification_repeat_count'] = $repeatCount;
+        $this->conversationState->put($thread, $state);
+
+        if ($repeatCount <= 0) {
+            return $normalized;
+        }
+
+        $variations = [
+            ' You can also say: "move #2 to 8 pm tomorrow".',
+            ' Quick format: "move <item> to <time> <day>".',
+            ' I can apply it immediately once you share item + exact time/day.',
+        ];
+        $suffix = $variations[min($repeatCount - 1, count($variations) - 1)];
+
+        return $normalized.$suffix;
     }
 
     /**
@@ -2488,15 +2682,15 @@ final class TaskAssistantService
         $requestedCountSource = $this->detectRequestedCountSourceForConfirmation($userMessageContent, $scheduleData);
         $attemptedHorizon = $this->attemptedHorizonDescriptorFromScheduleData($scheduleData);
         $fallbackHorizon = $this->fallbackHorizonDescriptorFromScheduleData($scheduleData);
+        $reasonDetails = $this->scheduleFallbackReasonExplainer->summarize($scheduleData, $plan->timeWindowHint);
 
         $signals = is_array($digest['confirmation_signals'] ?? null) ? $digest['confirmation_signals'] : [];
         $triggers = is_array($signals['triggers'] ?? null) ? $signals['triggers'] : [];
 
-        $defaultOptions = [
-            'Use this draft',
-            'Pick another time window',
-            'Cancel scheduling for now',
-        ];
+        $hasDraftToKeep = $proposalsCount > 0;
+        $defaultOptions = $hasDraftToKeep
+            ? ['Use this draft', 'Pick another time window', 'Cancel scheduling for now']
+            : ['Try tomorrow morning', 'Pick another time window', 'Cancel scheduling for now'];
 
         if ($strictDate !== null) {
             $datePhrase = CarbonImmutable::parse($strictDate)->format('M j, Y');
@@ -2507,6 +2701,11 @@ final class TaskAssistantService
                 "Keep {$datePhrase} only",
                 'Widen to nearby days',
                 'Cancel scheduling for now',
+            ];
+            $optionActions = [
+                ['id' => 'pick_another_time_window', 'label' => "Keep {$datePhrase} only"],
+                ['id' => 'pick_another_time_window', 'label' => 'Widen to nearby days'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
             ];
         } elseif ($topNShortfall) {
             $taskNoun = $proposalsCount === 1 ? 'task' : 'tasks';
@@ -2522,11 +2721,21 @@ final class TaskAssistantService
                 'Pick another time window',
                 'Cancel scheduling for now',
             ];
+            $optionActions = [
+                ['id' => 'pick_another_time_window', 'label' => 'Keep this current draft'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif (in_array('empty_placement', $triggers, true)) {
             $reasonCode = 'empty_placement_no_fit';
             $reasonMessage = "I could not find open time that fits {$requestedWindowLabel} with your classes and events as they are.";
-            $prompt = 'Want me to try a different day or widen the time window, or pause scheduling for now?';
+            $prompt = 'I can try tomorrow morning or widen your time window. What would you prefer?';
             $options = $defaultOptions;
+            $optionActions = [
+                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif (in_array('adaptive_relaxed_placement', $triggers, true)) {
             $reasonCode = 'adaptive_relaxed_placement';
             $reasonMessage = 'Your first-choice window was too tight, so I drafted times on another part of the day or the next day.';
@@ -2536,40 +2745,77 @@ final class TaskAssistantService
                 'Pick another time window',
                 'Cancel scheduling for now',
             ];
+            $optionActions = [
+                ['id' => 'pick_another_time_window', 'label' => 'Use this draft'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif (in_array('requested_window_unsatisfied', $triggers, true) || in_array('hinted_window_unsatisfied', $triggers, true)) {
             $reasonCode = 'alternative_outside_requested_window';
             $reasonMessage = "The best open slots I found do not fall inside {$requestedWindowLabel}.";
             $prompt = 'Do you want to go with these suggested times, try a different window, or stop here?';
             $options = $defaultOptions;
+            $optionActions = [
+                ['id' => 'pick_another_time_window', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif (in_array('placement_outside_horizon', $triggers, true)) {
             $reasonCode = 'placement_outside_horizon';
             $reasonMessage = 'The draft uses at least one time outside the day range you originally asked for.';
             $prompt = 'Should I keep this draft, adjust the day range, or cancel scheduling for now?';
             $options = $defaultOptions;
+            $optionActions = [
+                ['id' => 'pick_another_time_window', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif (in_array('unplaced_units', $triggers, true)) {
             $reasonCode = 'unplaced_explicit_targets';
             $reasonMessage = 'Something you asked to schedule could not be placed in the available time.';
-            $prompt = 'Should I keep what fit, try a different window for the rest, or stop here?';
+            $prompt = $hasDraftToKeep
+                ? 'Should I keep what already fits, try a different window for the rest, or stop here?'
+                : 'Should I try tomorrow morning, try a different window, or stop here?';
             $options = $defaultOptions;
+            $optionActions = [
+                ['id' => $hasDraftToKeep ? 'pick_another_time_window' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif (in_array('strict_window_no_fit', $triggers, true)) {
             $reasonCode = 'strict_window_no_fit';
             $reasonMessage = "Nothing fit inside {$requestedWindowLabel} with the strict time limits you set.";
-            $prompt = 'Relax the window, try another day, or cancel scheduling for now?';
+            $prompt = 'I can try tomorrow morning or adjust your window. Which one should I do?';
             $options = $defaultOptions;
+            $optionActions = [
+                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         } elseif ($plan->timeWindowHint === 'later') {
-            $prompt = "I could not fit everything later today, but I can place these on {$datePhrase}. Would you like me to use this plan?";
+            $prompt = $hasDraftToKeep
+                ? "I could not fit everything later today, but I can place these on {$datePhrase}. Would you like me to use this plan?"
+                : 'There is no open slot left later today. Do you want me to try tomorrow morning or another time window?';
             $reasonMessage = 'There is not enough free time left in your requested "later today" window.';
             $reasonCode = 'later_window_not_feasible';
-            $options = [
-                'Yes, continue with tomorrow',
-                'Pick another time window',
-                'Cancel scheduling for now',
+            $options = $hasDraftToKeep
+                ? ['Yes, continue with tomorrow', 'Pick another time window', 'Cancel scheduling for now']
+                : ['Try tomorrow morning', 'Pick another time window', 'Cancel scheduling for now'];
+            $optionActions = [
+                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
             ];
         } else {
             $reasonCode = 'schedule_confirmation_needed';
             $reasonMessage = 'This draft needs your confirmation before anything is finalized.';
             $prompt = 'Use these suggested times, try a different window, or cancel scheduling for now?';
             $options = $defaultOptions;
+            $optionActions = [
+                ['id' => $hasDraftToKeep ? 'pick_another_time_window' : 'try_tomorrow_morning', 'label' => $hasDraftToKeep ? 'Use this draft' : 'Try tomorrow morning'],
+                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+            ];
         }
 
         $scheduleData['confirmation_required'] = true;
@@ -2583,8 +2829,10 @@ final class TaskAssistantService
             'requested_window' => $requestedWindow,
             'attempted_horizon' => $attemptedHorizon,
             'fallback_horizon' => $fallbackHorizon,
+            'reason_details' => $reasonDetails,
             'prompt' => $prompt,
             'options' => $options,
+            'option_actions' => $optionActions,
             'approved_narrative' => [
                 'framing' => (string) ($scheduleData['framing'] ?? ''),
                 'reasoning' => (string) ($scheduleData['reasoning'] ?? ''),
@@ -2596,6 +2844,7 @@ final class TaskAssistantService
             'days_used' => $daysUsed,
             'placement_dates' => $placementDates,
             'summary' => (string) ($digest['summary'] ?? ''),
+            'reason_details' => $reasonDetails,
         ];
         $narrative = $this->generateFallbackConfirmationNarrative(
             thread: $thread,
@@ -2609,6 +2858,7 @@ final class TaskAssistantService
             reasonMessage: $reasonMessage,
             prompt: $prompt,
             options: $options,
+            reasonDetails: $reasonDetails,
             scheduleData: $scheduleData,
         );
         $scheduleData['framing'] = $narrative['framing'];
@@ -2633,6 +2883,8 @@ final class TaskAssistantService
 
     /**
      * @param  list<string>  $options
+     * @param  list<string>  $options
+     * @param  list<string>  $reasonDetails
      * @return array{framing: string, reasoning: string, confirmation: string, reason_message: string}
      */
     private function generateFallbackConfirmationNarrative(
@@ -2647,6 +2899,7 @@ final class TaskAssistantService
         string $reasonMessage,
         string $prompt,
         array $options,
+        array $reasonDetails,
         ?array $scheduleData = null,
     ): array {
         $fallback = $this->deterministicFallbackConfirmationNarrative(
@@ -2677,6 +2930,7 @@ final class TaskAssistantService
                 'reason_message' => $reasonMessage,
                 'decision_prompt' => $prompt,
                 'options' => $options,
+                'reason_details' => $reasonDetails,
                 'confirmation_signals' => is_array($confirmationSignals) ? $confirmationSignals : null,
                 'draft_placements' => $draftPlacements,
             ];
@@ -2721,6 +2975,10 @@ PROMPT)
 
             if ($requestedCountSource !== 'explicit_user'
                 && preg_match('/\byou\s+asked\s+for\s+top\s+\d+\b/i', $framing.' '.$reasoning.' '.$confirmation.' '.$reasonMessageCandidate) === 1) {
+                return $fallback;
+            }
+
+            if ($this->containsRoboticFallbackPhrase($framing.' '.$reasoning.' '.$confirmation.' '.$reasonMessageCandidate)) {
                 return $fallback;
             }
 
@@ -2794,8 +3052,12 @@ PROMPT)
             'schedule_confirmation_needed',
             'later_window_not_feasible',
         ], true)) {
+            $framing = $proposalsCount > 0
+                ? 'I set up a draft, and I want your go-ahead before finalizing it.'
+                : 'I could not fit this in your current time window.';
+
             return [
-                'framing' => 'I lined up a draft, but I want your go-ahead before treating it as final.',
+                'framing' => $framing,
                 'reasoning' => $reasonMessage,
                 'confirmation' => $prompt,
                 'reason_message' => $reasonMessage,
@@ -2808,6 +3070,26 @@ PROMPT)
             'confirmation' => $prompt,
             'reason_message' => $reasonMessage,
         ];
+    }
+
+    private function containsRoboticFallbackPhrase(string $text): bool
+    {
+        $content = mb_strtolower($text);
+        $bannedFragments = [
+            'confidence:',
+            'open time slots were available',
+            'request was made explicitly by the user',
+            'horizon dates',
+            'placement digest',
+        ];
+
+        foreach ($bannedFragments as $fragment) {
+            if (str_contains($content, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -3050,10 +3332,24 @@ PROMPT)
      */
     private function handlePendingScheduleFallbackDecision(
         TaskAssistantThread $thread,
+        TaskAssistantMessage $userMessage,
         TaskAssistantMessage $assistantMessage,
         string $userMessageContent,
         array $pendingState,
+        ?string $pendingActionId = null,
     ): bool {
+        $actionId = $this->normalizeFallbackActionId($pendingActionId);
+        if ($actionId !== null) {
+            return $this->executePendingFallbackAction(
+                thread: $thread,
+                userMessage: $userMessage,
+                assistantMessage: $assistantMessage,
+                userMessageContent: $userMessageContent,
+                pendingState: $pendingState,
+                actionId: $actionId,
+            );
+        }
+
         $decision = $this->classifyScheduleFallbackDecision($userMessageContent);
         if ($decision === 'confirm') {
             $data = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
@@ -3143,9 +3439,11 @@ PROMPT)
 
         $windowChangeDetected = $this->isLikelyScheduleWindowChangeRequest($userMessageContent);
         $replanDetected = $this->isLikelyScheduleReplanRequest($userMessageContent, $pendingState);
-        if ($windowChangeDetected || $replanDetected) {
+        $freshPrioritizeDetected = $this->isLikelyFreshPrioritizeRequest($userMessageContent);
+        if ($windowChangeDetected || $replanDetected || $freshPrioritizeDetected) {
             // Treat natural "change/adjust the window" replies as a fresh scheduling
             // request instead of trapping the user in confirm/decline only handling.
+            // Also release when the user clearly pivots to a fresh prioritize ask.
             // We clear pending state and let normal routing handle this message.
             $this->conversationState->clearPendingScheduleFallback($thread);
 
@@ -3157,7 +3455,10 @@ PROMPT)
                 'message_preview' => $this->previewForLogs($userMessageContent),
                 'pending_fallback_replan_detected' => $replanDetected,
                 'pending_fallback_window_change_detected' => $windowChangeDetected,
-                'pending_fallback_release_reason' => $replanDetected ? 'replan_request' : 'window_change_request',
+                'pending_fallback_fresh_prioritize_detected' => $freshPrioritizeDetected,
+                'pending_fallback_release_reason' => $freshPrioritizeDetected
+                    ? 'fresh_prioritize_request'
+                    : ($replanDetected ? 'replan_request' : 'window_change_request'),
             ]);
 
             return false;
@@ -3175,6 +3476,109 @@ PROMPT)
         );
 
         return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $pendingState
+     */
+    private function executePendingFallbackAction(
+        TaskAssistantThread $thread,
+        TaskAssistantMessage $userMessage,
+        TaskAssistantMessage $assistantMessage,
+        string $userMessageContent,
+        array $pendingState,
+        string $actionId,
+    ): bool {
+        if ($actionId === 'cancel_scheduling') {
+            $this->conversationState->clearPendingScheduleFallback($thread);
+            $this->publishScheduleClarificationResponse(
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                proposals: [],
+                clarification: 'Got it. I cancelled this scheduling draft. If you want, share a new time window and I can try again.',
+                examples: [
+                    'schedule tomorrow morning',
+                    'schedule these this week',
+                ],
+            );
+
+            return true;
+        }
+
+        if ($actionId === 'pick_another_time_window') {
+            $this->conversationState->clearPendingScheduleFallback($thread);
+            $this->publishScheduleClarificationResponse(
+                thread: $thread,
+                assistantMessage: $assistantMessage,
+                proposals: [],
+                clarification: 'Sure - tell me the exact time window you want (for example: tomorrow 8 AM to 12 PM).',
+                examples: [
+                    'tomorrow 8am to 12pm',
+                    'this week evenings',
+                ],
+            );
+
+            return true;
+        }
+
+        if ($actionId !== 'try_tomorrow_morning') {
+            return false;
+        }
+
+        $pendingData = is_array($pendingState['schedule_data'] ?? null) ? $pendingState['schedule_data'] : [];
+        $pendingContext = is_array($pendingData['confirmation_context'] ?? null) ? $pendingData['confirmation_context'] : [];
+        $requestedCount = max(
+            1,
+            (int) ($pendingContext['requested_count'] ?? data_get($pendingData, 'placement_digest.requested_count', 3))
+        );
+        $targets = $this->targetEntitiesFromScheduleProposals(
+            is_array($pendingData['proposals'] ?? null) ? $pendingData['proposals'] : []
+        );
+
+        $constraints = $this->routingPolicy->extractConstraintsForFlow($thread, $userMessageContent, TaskAssistantFlowNames::SCHEDULE);
+        $constraints['time_window_hint'] = 'morning';
+        $constraints['count_limit'] = $requestedCount;
+        $constraints['target_entities'] = $targets;
+
+        $this->conversationState->clearPendingScheduleFallback($thread);
+
+        $plan = new ExecutionPlan(
+            flow: TaskAssistantFlowNames::SCHEDULE,
+            confidence: 1.0,
+            clarificationNeeded: false,
+            clarificationQuestion: null,
+            reasonCodes: ['fallback_action_try_tomorrow_morning'],
+            constraints: $constraints,
+            targetEntities: $targets,
+            timeWindowHint: 'morning',
+            countLimit: $requestedCount,
+            generationProfile: 'schedule',
+        );
+        $this->persistRoutingTrace($assistantMessage, $plan, $plan);
+        $this->logRoutingDecision($thread, $assistantMessage, $plan);
+        $this->runScheduleFlow($thread, $userMessage, $assistantMessage, $userMessageContent, $plan);
+
+        return true;
+    }
+
+    private function normalizeFallbackActionId(?string $actionId): ?string
+    {
+        $normalized = trim((string) $actionId);
+
+        return match ($normalized) {
+            'try_tomorrow_morning',
+            'pick_another_time_window',
+            'cancel_scheduling' => $normalized,
+            default => null,
+        };
+    }
+
+    private function extractClientActionId(TaskAssistantMessage $userMessage): ?string
+    {
+        $metadata = is_array($userMessage->metadata ?? null) ? $userMessage->metadata : [];
+        $actionId = trim((string) data_get($metadata, 'client_action.id', ''));
+
+        return $actionId !== '' ? $actionId : null;
     }
 
     private function isLikelyScheduleWindowChangeRequest(string $content): bool
@@ -3225,6 +3629,33 @@ PROMPT)
         return ($hasReplanVerb && ($hasPluralTarget || $hasCountPhrase || $hasWindowCue || $mentionsPendingCount))
             || ($hasPluralTarget && $hasWindowCue)
             || ($mentionsPendingCount && $hasReplanVerb);
+    }
+
+    private function isLikelyFreshPrioritizeRequest(string $content): bool
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $content) ?? $content));
+        if ($normalized === '') {
+            return false;
+        }
+
+        // Preserve explicit schedule-window edits and replan requests in their dedicated branches.
+        if ($this->isLikelyScheduleWindowChangeRequest($normalized) || $this->isLikelyScheduleReplanRequest($normalized)) {
+            return false;
+        }
+
+        $hasPrioritizeCue = preg_match(
+            '/\b(priorit(?:y|ize)|rank|ranking|what should i do first|which should i do first|top\s+\d+|top\s+tasks?|most urgent|most important|first task)\b/u',
+            $normalized
+        ) === 1;
+        if (! $hasPrioritizeCue) {
+            return false;
+        }
+
+        $hasFreshIntentCue = preg_match('/\b(new|instead|forget|skip|different|now|right now)\b/u', $normalized) === 1
+            || preg_match('/\b(what|which)\b.{0,30}\b(first|next)\b/u', $normalized) === 1;
+        $hasTaskDomainCue = preg_match('/\b(task|tasks|item|items|priority|priorities)\b/u', $normalized) === 1;
+
+        return $hasTaskDomainCue || $hasFreshIntentCue;
     }
 
     private function classifyScheduleFallbackDecision(string $content): string

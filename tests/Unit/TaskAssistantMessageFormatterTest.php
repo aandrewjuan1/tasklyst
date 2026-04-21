@@ -841,10 +841,38 @@ class TaskAssistantMessageFormatterTest extends TestCase
         ]);
 
         $this->assertStringContainsString('I drafted a plan for today and paused so you can choose next.', $out);
-        $this->assertStringContainsString('Options:', $out);
-        $this->assertStringContainsString('1) Keep this current draft', $out);
-        $this->assertStringContainsString('2) Pick another time window', $out);
+        $this->assertStringNotContainsString('Options:', $out);
+        $this->assertStringNotContainsString('1) Keep this current draft', $out);
+        $this->assertStringNotContainsString('2) Pick another time window', $out);
         $this->assertStringNotContainsString('Decision needed before finalizing:', $out);
+    }
+
+    public function test_daily_schedule_confirmation_message_renders_reason_details_and_sanitizes_robotic_phrases(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'confirmation_required' => true,
+            'framing' => 'I checked your request and paused before finalizing.',
+            'confirmation_context' => [
+                'reason_message' => 'Confidence: 0 of 1 open time slots were available.',
+                'prompt' => 'Should I try tomorrow morning instead?',
+                'options' => [
+                    'Use this draft',
+                    'Pick another time window',
+                ],
+                'reason_details' => [
+                    'It is already late, and the remaining free blocks are too short for this task duration.',
+                ],
+            ],
+            'fallback_preview' => [
+                'proposals_count' => 0,
+            ],
+            'items' => [],
+            'blocks' => [],
+        ]);
+
+        $this->assertStringNotContainsString('Confidence:', $out);
+        $this->assertStringContainsString('What blocked scheduling:', $out);
+        $this->assertStringContainsString('• It is already late, and the remaining free blocks are too short for this task duration.', $out);
     }
 
     public function test_daily_schedule_narrative_date_mentions_align_to_actual_item_date(): void
@@ -873,5 +901,108 @@ class TaskAssistantMessageFormatterTest extends TestCase
 
         $this->assertStringContainsString('Apr 19, 2026', $out);
         $this->assertStringNotContainsString('April 20', $out);
+    }
+
+    public function test_daily_schedule_soft_correction_rewrites_today_claim_for_multi_day_plan(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'Here is how 3 pieces land in your open window today.',
+            'reasoning' => 'This keeps you steady today.',
+            'confirmation' => 'Do these times work today?',
+            'blocks' => [
+                ['start_time' => '08:00', 'end_time' => '08:30'],
+                ['start_time' => '15:00', 'end_time' => '17:00'],
+            ],
+            'items' => [
+                [
+                    'title' => 'Task A',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-04-22T08:00:00+08:00',
+                    'end_datetime' => '2026-04-22T08:30:00+08:00',
+                    'duration_minutes' => 30,
+                ],
+                [
+                    'title' => 'Task B',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-04-24T15:00:00+08:00',
+                    'end_datetime' => '2026-04-24T17:00:00+08:00',
+                    'duration_minutes' => 120,
+                ],
+            ],
+        ]);
+
+        $this->assertStringNotContainsString('open window today', $out);
+        $this->assertStringContainsString('across Apr 22, 2026 to Apr 24, 2026', $out);
+        $this->assertStringNotContainsString('work today?', $out);
+    }
+
+    public function test_daily_schedule_soft_correction_aligns_evening_claim_to_dominant_daypart(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'framing' => 'I planned your evening blocks.',
+            'reasoning' => 'Evening focus should keep this manageable.',
+            'confirmation' => 'Do these evening times work for you?',
+            'blocks' => [[
+                'start_time' => '08:00',
+                'end_time' => '09:00',
+            ]],
+            'items' => [[
+                'title' => 'Task A',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-22T08:00:00+08:00',
+                'end_datetime' => '2026-04-22T09:00:00+08:00',
+                'duration_minutes' => 60,
+            ]],
+        ]);
+
+        $this->assertStringNotContainsString('evening', mb_strtolower($out));
+        $this->assertStringContainsString('morning', mb_strtolower($out));
+    }
+
+    public function test_daily_schedule_renders_why_this_plan_and_blocking_reasons_sections(): void
+    {
+        $out = $this->formatter->format('daily_schedule', [
+            'proposals' => [[
+                'proposal_id' => 'p1',
+                'status' => 'pending',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'title' => 'Math worksheet',
+                'start_datetime' => '2026-04-04T09:00:00+00:00',
+                'end_datetime' => '2026-04-04T09:45:00+00:00',
+                'duration_minutes' => 45,
+            ]],
+            'items' => [[
+                'title' => 'Math worksheet',
+                'entity_type' => 'task',
+                'entity_id' => 1,
+                'start_datetime' => '2026-04-04T09:00:00+00:00',
+                'end_datetime' => '2026-04-04T09:45:00+00:00',
+                'duration_minutes' => 45,
+            ]],
+            'blocks' => [[
+                'start_time' => '09:00',
+                'end_time' => '09:45',
+                'label' => 'Math worksheet',
+            ]],
+            'framing' => 'I mapped a plan for your morning.',
+            'reasoning' => 'This keeps your highest-impact work early.',
+            'confirmation' => 'Do these times work for you?',
+            'window_selection_explanation' => 'I used your morning window first.',
+            'ordering_rationale' => ['#1 Math worksheet: early slot keeps momentum.'],
+            'blocking_reasons' => [[
+                'title' => 'Chemistry lab',
+                'blocked_window' => '9:30 AM-11:00 AM',
+                'reason' => 'This overlaps your requested slot.',
+            ]],
+            'fallback_choice_explanation' => 'I kept this as the closest feasible fit.',
+        ]);
+
+        $this->assertStringContainsString('Why this plan:', $out);
+        $this->assertStringContainsString('What blocked your requested time:', $out);
+        $this->assertStringContainsString('Chemistry lab', $out);
     }
 }

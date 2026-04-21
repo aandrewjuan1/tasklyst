@@ -603,6 +603,64 @@ test('schedule them all prefers broader prioritize listing over last single sche
     expect($decision->constraints['count_limit'])->toBe(3);
 });
 
+test('fresh explicit top n schedule request does not inherit stale single schedule target', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $stateService = app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class);
+
+    $stateService->rememberLastListing(
+        $thread,
+        'prioritize',
+        [
+            ['entity_type' => 'task', 'entity_id' => 1001, 'title' => 'A'],
+            ['entity_type' => 'task', 'entity_id' => 1002, 'title' => 'B'],
+            ['entity_type' => 'task', 'entity_id' => 1003, 'title' => 'C'],
+            ['entity_type' => 'task', 'entity_id' => 1004, 'title' => 'D'],
+        ],
+        null,
+    );
+
+    $stateService->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 1001, 'title' => 'A'],
+        ],
+        'later'
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide(
+        $thread,
+        'im overwhelmed right now i have so many tasks schedule my top 3 for this week spread them out'
+    );
+
+    expect($decision->flow)->toBe('prioritize_schedule');
+    expect($decision->constraints['count_limit'])->toBe(3);
+    expect($decision->constraints['target_entities'])->toBe([]);
+});
+
+test('deictic explicit count schedule follow-up still aligns with resolved targets', function (): void {
+    config()->set('task-assistant.intent.use_llm', false);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    app(\App\Services\LLM\TaskAssistant\TaskAssistantConversationStateService::class)->rememberScheduleContext(
+        $thread,
+        [
+            ['entity_type' => 'task', 'entity_id' => 1201, 'title' => 'A'],
+        ],
+        'later'
+    );
+
+    $decision = app(IntentRoutingPolicy::class)->decide($thread, 'schedule those 3 this week');
+
+    expect($decision->flow)->toBe('schedule');
+    expect($decision->constraints['target_entities'])->toHaveCount(1);
+    expect($decision->constraints['count_limit'])->toBe(1);
+});
+
 test('schedule 1 and 2 for later afternoon resolves numeric index targets', function (): void {
     config()->set('task-assistant.intent.use_llm', false);
 

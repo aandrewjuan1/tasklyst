@@ -499,6 +499,92 @@ class TaskAssistantResponseProcessorTest extends TestCase
         $this->assertSame([], $result['errors']);
     }
 
+    public function test_daily_schedule_process_response_applies_soft_narrative_corrections_to_structured_data(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [
+                [
+                    'proposal_id' => 'p1',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Task A',
+                    'start_datetime' => '2026-03-29T09:00:00+00:00',
+                    'end_datetime' => '2026-03-29T09:30:00+00:00',
+                    'duration_minutes' => 30,
+                    'apply_payload' => [
+                        'action' => 'update_task',
+                        'arguments' => ['taskId' => 1, 'updates' => []],
+                    ],
+                ],
+                [
+                    'proposal_id' => 'p2',
+                    'status' => 'pending',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'title' => 'Task B',
+                    'start_datetime' => '2026-03-30T15:00:00+00:00',
+                    'end_datetime' => '2026-03-30T15:30:00+00:00',
+                    'duration_minutes' => 30,
+                    'apply_payload' => [
+                        'action' => 'update_task',
+                        'arguments' => ['taskId' => 2, 'updates' => []],
+                    ],
+                ],
+            ],
+            'items' => [
+                [
+                    'title' => 'Task A',
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'start_datetime' => '2026-03-29T09:00:00+00:00',
+                    'end_datetime' => '2026-03-29T09:30:00+00:00',
+                    'duration_minutes' => 30,
+                ],
+                [
+                    'title' => 'Task B',
+                    'entity_type' => 'task',
+                    'entity_id' => 2,
+                    'start_datetime' => '2026-03-30T15:00:00+00:00',
+                    'end_datetime' => '2026-03-30T15:30:00+00:00',
+                    'duration_minutes' => 30,
+                ],
+            ],
+            'blocks' => [
+                [
+                    'start_time' => '09:00',
+                    'end_time' => '09:30',
+                    'label' => 'Task A',
+                    'task_id' => 1,
+                    'event_id' => null,
+                    'note' => null,
+                ],
+                [
+                    'start_time' => '15:00',
+                    'end_time' => '15:30',
+                    'label' => 'Task B',
+                    'task_id' => 2,
+                    'event_id' => null,
+                    'note' => null,
+                ],
+            ],
+            'schedule_variant' => 'range',
+            'framing' => 'Here is your schedule today.',
+            'reasoning' => 'Today is a good time for this.',
+            'confirmation' => 'Do these evening blocks work?',
+        ], [
+            'tasks' => [['id' => 1], ['id' => 2]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertTrue($result['valid']);
+        $this->assertStringNotContainsString('today', mb_strtolower((string) $result['structured_data']['framing']));
+        $this->assertStringNotContainsString('evening', mb_strtolower((string) $result['structured_data']['confirmation']));
+    }
+
     public function test_daily_schedule_validation_allows_empty_schedule_when_nothing_can_be_placed(): void
     {
         $processor = app(TaskAssistantResponseProcessor::class);
@@ -520,6 +606,11 @@ class TaskAssistantResponseProcessorTest extends TestCase
                     'reason' => 'horizon_exhausted',
                 ]],
             ],
+            'blocking_reasons' => [[
+                'title' => 'Impossible 5h study block before quiz',
+                'blocked_window' => '2026-04-02 to 2026-04-03',
+                'reason' => 'No free slot was available inside the requested schedule window.',
+            ]],
             'framing' => 'Nothing in this slice could be placed cleanly in open time.',
             'reasoning' => 'Getting one concrete item on your list is enough to start.',
             'confirmation' => 'Want to widen the window or try a different time?',
@@ -874,5 +965,41 @@ class TaskAssistantResponseProcessorTest extends TestCase
 
         $this->assertTrue($result['valid']);
         $this->assertSame([], $result['errors']);
+    }
+
+    public function test_daily_schedule_validation_requires_blocking_reasons_when_unplaced_units_exist(): void
+    {
+        $processor = app(TaskAssistantResponseProcessor::class);
+
+        $result = $processor->processResponse('daily_schedule', [
+            'proposals' => [],
+            'items' => [],
+            'blocks' => [],
+            'schedule_variant' => 'daily',
+            'schedule_empty_placement' => true,
+            'placement_digest' => [
+                'unplaced_units' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 31,
+                    'title' => 'Physics review',
+                    'minutes' => 90,
+                    'reason' => 'horizon_exhausted',
+                ]],
+            ],
+            'window_selection_explanation' => 'No available slot remained in the requested window.',
+            'ordering_rationale' => [],
+            'blocking_reasons' => [],
+            'fallback_choice_explanation' => null,
+            'framing' => 'I could not place this cleanly right now.',
+            'reasoning' => 'Your requested window is currently full.',
+            'confirmation' => 'Want me to try another time window?',
+        ], [
+            'tasks' => [['id' => 31]],
+            'events' => [],
+            'projects' => [],
+        ]);
+
+        $this->assertFalse($result['valid']);
+        $this->assertNotEmpty($result['errors']);
     }
 }

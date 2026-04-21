@@ -177,6 +177,37 @@ final class TaskAssistantSchemas
                     items: new StringSchema(name: 'assumption', description: 'Assumption item.'),
                     nullable: true
                 ),
+                new StringSchema(
+                    name: 'window_selection_explanation',
+                    description: 'Short plain-language explanation of why these time windows were chosen.',
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'ordering_rationale',
+                    description: 'One concise explanation per shown schedule row, matching the displayed order.',
+                    items: new StringSchema(name: 'ordering_reason', description: 'One per-row rationale line.'),
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'blocking_reasons',
+                    description: 'Specific blockers when requested windows are not available.',
+                    items: new ObjectSchema(
+                        name: 'blocking_reason',
+                        description: 'One blocking row containing title, window, and plain reason.',
+                        properties: [
+                            new StringSchema(name: 'title', description: 'Blocking item title.'),
+                            new StringSchema(name: 'blocked_window', description: 'Blocked time window label.'),
+                            new StringSchema(name: 'reason', description: 'Why this item blocks placement.'),
+                        ],
+                        requiredFields: ['title', 'blocked_window', 'reason']
+                    ),
+                    nullable: true
+                ),
+                new StringSchema(
+                    name: 'fallback_choice_explanation',
+                    description: 'Optional explanation of why fallback placement mode was used.',
+                    nullable: true
+                ),
             ],
             requiredFields: [
                 'blocks',
@@ -239,6 +270,17 @@ final class TaskAssistantSchemas
                     name: 'reasoning',
                     description: 'Required: appears after filter_interpretation and before next_options—main coaching paragraph: motivation, empathy, why row #1 is first using ITEMS_JSON when LISTED_ITEM_COUNT >= 1, and one concrete micro-step or habit when helpful. Mention the first row\'s exact title at least once. Describe the work using words grounded in that row\'s title and fields (priority, due_phrase, complexity_label)—do not invent assignment types (e.g. "programming exercise", "lab hand-in") not supported by the title. When LISTED_ITEM_COUNT is 1 and DOING_COACH_REQUIRED is true, do not drag in other task titles from in-progress work; stay on row #1. Do not repeat the same overdue/complex/status points as framing or filter_interpretation; do not repeat scheduling lines that belong in next_options. When LISTED_ITEM_COUNT > 1, add one short phrase for row 2\'s role vs row 1 using only entity_type, titles, and due fields—no invented times. Direct address (I/You/Let\'s); no "the user". Singular grammar when LISTED_ITEM_COUNT is 1. Avoid rhetorical "Today," unless due_phrase supports calendar-today wording. No "ordered list" boilerplate.',
                     nullable: false
+                ),
+                new StringSchema(
+                    name: 'ranking_method_summary',
+                    description: 'Required: one short, student-friendly sentence that explains the ranking method in plain language (urgency -> priority -> practical effort).',
+                    nullable: true
+                ),
+                new ArraySchema(
+                    name: 'ordering_rationale',
+                    description: 'Required: one short explanation line per displayed row, grounded in the exact row title/priority/due data. No invented subjects.',
+                    items: new StringSchema(name: 'ordering_reason_line', description: 'One grounded per-rank explanation line.'),
+                    nullable: true
                 ),
             ],
             requiredFields: [

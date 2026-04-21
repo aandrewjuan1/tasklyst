@@ -34,6 +34,69 @@
     x-data="{
         storageKey: 'workspace-scheduled-focus-collapsed-v1',
         expanded: document.documentElement.dataset.workspaceScheduledFocusCollapsed !== 'true',
+        removedEntityKeys: {},
+        reconcileTimer: null,
+        lastInfoToastAtMs: 0,
+        infoToastCooldownMs: 1200,
+        entityKey(kind, entityId) {
+            return String(kind || '') + ':' + String(Number(entityId) || 0);
+        },
+        isEntityRemoved(kind, entityId) {
+            const key = this.entityKey(kind, entityId);
+            return this.removedEntityKeys[key] === true;
+        },
+        removeEntity(kind, entityId) {
+            const key = this.entityKey(kind, entityId);
+            if (key.endsWith(':0')) {
+                return;
+            }
+            this.removedEntityKeys[key] = true;
+        },
+        emitInfoToast(message) {
+            const nowMs = Date.now();
+            if ((nowMs - Number(this.lastInfoToastAtMs || 0)) < this.infoToastCooldownMs) {
+                return;
+            }
+            this.lastInfoToastAtMs = nowMs;
+            $wire.$dispatch('toast', {
+                type: 'info',
+                message: message || @js(__('Removed from Scheduled Focus because timing changed.')),
+            });
+        },
+        requestReconcile() {
+            if (this.reconcileTimer) {
+                clearTimeout(this.reconcileTimer);
+            }
+            this.reconcileTimer = setTimeout(() => {
+                $wire.$parent.$call('onAssistantSchedulePlanUpdated');
+            }, 160);
+        },
+        handleWorkspaceTrashed(detail) {
+            const kind = String(detail?.kind || '');
+            const itemId = Number(detail?.id || 0);
+            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1) {
+                return;
+            }
+            this.removeEntity(kind, itemId);
+            this.requestReconcile();
+        },
+        handleWorkspacePropertyUpdated(detail) {
+            const kind = String(detail?.kind || '');
+            const itemId = Number(detail?.itemId || 0);
+            const property = String(detail?.property || '');
+            if (! ['task', 'event', 'project'].includes(kind) || itemId < 1 || property === '') {
+                return;
+            }
+            if (['startDatetime', 'endDatetime', 'startTime', 'endTime'].includes(property)) {
+                this.removeEntity(kind, itemId);
+                this.emitInfoToast(@js(__('Removed from Scheduled Focus because the scheduled time changed.')));
+                this.requestReconcile();
+                return;
+            }
+            if (['recurrence', 'projectId', 'eventId', 'schoolClassId', 'status', 'title', 'name', 'subjectName', 'description'].includes(property)) {
+                this.requestReconcile();
+            }
+        },
         async focusPlanItem(planItemId, kind, entityId) {
             const normalizedKind = String(kind || '');
             const normalizedEntityId = Number(entityId);
@@ -79,6 +142,9 @@
     }"
     role="region"
     aria-labelledby="{{ $panelId }}-title"
+    @workspace-item-trashed.window="handleWorkspaceTrashed($event.detail)"
+    @workspace-item-property-updated.window="handleWorkspacePropertyUpdated($event.detail)"
+    @assistant-schedule-plan-updated.window="removedEntityKeys = {}"
     @class([
         'rounded-xl border border-brand-blue/20 bg-white/90 shadow-sm ring-1 ring-brand-blue/10 dark:border-brand-blue/30 dark:bg-zinc-900/55 dark:ring-white/5',
         'px-2.5 py-2.5 sm:px-3.5 sm:py-3.5' => ! $isCompact,
@@ -146,6 +212,7 @@
                                 type="button"
                                 wire:key="scheduled-focus-{{ $planItemId }}"
                                 @disabled($planItemId <= 0 || ! in_array($entityType, ['task', 'event', 'project'], true))
+                                x-show="!isEntityRemoved('{{ $entityType }}', {{ $entityId }})"
                                 @class([
                                     'list-item-card flex w-full flex-col gap-1 rounded-lg text-left transition-all duration-200 ease-out hover:scale-[1.01] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:scale-100 dark:focus-visible:ring-brand-light-blue/50 dark:focus-visible:ring-offset-zinc-900',
                                     'px-2 py-1.5 sm:gap-1.5 sm:px-2.5 sm:py-2' => ! $isCompact,

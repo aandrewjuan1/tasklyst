@@ -297,8 +297,9 @@ test('chat flyout can accept all schedule proposals and apply updates', function
         ],
     ]);
 
-    Livewire::test('assistant.chat-flyout')
-        ->call('acceptAllScheduleProposals', $assistantMessage->id);
+    $component = Livewire::test('assistant.chat-flyout')
+        ->call('acceptAllScheduleProposals', $assistantMessage->id)
+        ->assertSee('Done. I applied 1 schedule update. What should we do next?');
 
     $assistantMessage->refresh();
     $task->refresh();
@@ -334,6 +335,31 @@ test('chat flyout can accept all schedule proposals and apply updates', function
     expect($planItem)->not->toBeNull();
     expect($planItem?->entity_type)->toBe('task');
     expect((int) $planItem?->entity_id)->toBe($task->id);
+
+    $followupMessage = $thread->messages()
+        ->where('role', \App\Enums\MessageRole::Assistant)
+        ->where('content', 'Done. I applied 1 schedule update. What should we do next?')
+        ->first();
+
+    expect($followupMessage)->not->toBeNull();
+    expect((string) ($followupMessage?->content ?? ''))->toBe('Done. I applied 1 schedule update. What should we do next?');
+    $followupChips = data_get($followupMessage?->metadata, 'schedule.next_options_chip_texts', []);
+    expect($followupChips)->toBeArray();
+    expect(count($followupChips))->toBe(3);
+    expect($followupChips)->each->toBeString();
+    expect(array_values(array_unique($followupChips)))->toBe($followupChips);
+
+    $supportedPostAcceptChips = [
+        'Show my next 3 priorities',
+        'Create a plan for today',
+        'Plan tomorrow for me',
+        'Schedule my most important task',
+    ];
+
+    foreach ($followupChips as $chip) {
+        expect(in_array($chip, $supportedPostAcceptChips, true))->toBeTrue();
+        $component->assertSee($chip);
+    }
 });
 
 test('chat flyout accept all applies multiple pending task proposals', function () {

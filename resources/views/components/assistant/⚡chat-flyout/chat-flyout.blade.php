@@ -12,6 +12,9 @@
         streamingTimeoutPollTimer: null,
         scrollQueued: false,
         pendingScrollBehavior: 'smooth',
+        wasStreaming: false,
+        scrollStateRaf: null,
+        allowAutoScrollOnStreamEnd: true,
         currentLoadingPhrase() {
             return this.loadingPhrases[this.loadingPhraseIndex] ?? this.loadingPhrases[0];
         },
@@ -85,8 +88,23 @@
                 this.scrollQueued = false;
             });
         },
+        handleMessagesScroll() {
+            if (this.scrollStateRaf) {
+                return;
+            }
+
+            this.scrollStateRaf = requestAnimationFrame(() => {
+                this.scrollStateRaf = null;
+
+                if (this.$wire.isStreaming && !this.isNearBottom(180)) {
+                    this.allowAutoScrollOnStreamEnd = false;
+                }
+            });
+        },
         init() {
             this.$nextTick(() => this.queueScrollToBottom('auto'));
+            this.wasStreaming = !! this.$wire.isStreaming;
+            this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
             this.$watch('$wire.streamingContent', () => {
                 // Streaming content updates frequently; only auto-scroll when the user is near the bottom.
                 if (this.isNearBottom()) {
@@ -99,12 +117,21 @@
                 }
             });
             this.$watch('$wire.isStreaming', (value) => {
+                const wasStreaming = this.wasStreaming;
+                this.wasStreaming = !! value;
+
                 if (value) {
+                    this.allowAutoScrollOnStreamEnd = this.isNearBottom(180);
                     this.startLoadingPhraseRotation();
                     this.startStreamingTimeoutPolling();
                 } else {
                     this.stopLoadingPhraseRotation();
                     this.stopStreamingTimeoutPolling();
+
+                    // Stream just finished; only snap if user did not scroll away while waiting.
+                    if (wasStreaming && this.allowAutoScrollOnStreamEnd) {
+                        this.queueScrollToBottom('smooth');
+                    }
                 }
             });
 
@@ -116,6 +143,10 @@
         destroy() {
             this.stopLoadingPhraseRotation();
             this.stopStreamingTimeoutPolling();
+            if (this.scrollStateRaf) {
+                cancelAnimationFrame(this.scrollStateRaf);
+                this.scrollStateRaf = null;
+            }
         },
     }"
 >
@@ -190,6 +221,8 @@
         class="relative z-10 flex min-h-0 flex-col gap-4 overflow-y-auto p-4"
         wire:key="messages-container"
         x-ref="messagesContainer"
+        x-on:scroll.passive="handleMessagesScroll()"
+        x-on:assistant-chat-open-requested.window="$nextTick(() => queueScrollToBottom('auto'))"
     >
         @if ($chatMessages->isEmpty() && ! $isStreaming)
             <div class="flex flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -208,7 +241,7 @@
                             type="button"
                             size="sm"
                             variant="ghost"
-                            class="rounded-full border border-brand-blue/18 bg-white/90 px-4 py-2 text-sm font-medium text-zinc-800 shadow-sm transition-colors hover:border-brand-blue/28 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-border/70 dark:bg-zinc-900/30 dark:text-zinc-200 dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-sm font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                             x-on:click.prevent="$dispatch('quick-prompt', { value: $event.currentTarget.textContent.trim() })"
                         >
                             {{ $chipText }}
@@ -224,7 +257,7 @@
                         class="flex justify-end"
                     >
                         <div class="max-w-[85%] min-w-0 rounded-xl border border-brand-blue/20 bg-brand-blue/15 px-3 py-2 shadow-sm ring-1 ring-brand-blue/10 dark:border-brand-blue/30 dark:bg-brand-blue/20 dark:ring-white/5">
-                            <flux:text class="wrap-break-word text-sm text-zinc-900 dark:text-zinc-100">{{ $message->content }}</flux:text>
+                            <flux:text class="wrap-break-word text-base text-black dark:text-black">{{ $message->content }}</flux:text>
                         </div>
                     </div>
                 @elseif ($message->role->value === 'assistant' && $message->id !== $streamingMessageId)
@@ -245,12 +278,22 @@
                                 $scheduleConfirmationRequired = (bool) data_get($message->metadata, 'schedule.confirmation_required', data_get($message->metadata, 'structured.data.confirmation_required', false));
                                 $scheduleAwaitingDecision = (bool) data_get($message->metadata, 'schedule.awaiting_user_decision', data_get($message->metadata, 'structured.data.awaiting_user_decision', false));
                                 $hideScheduleProposalCards = $scheduleConfirmationRequired || $scheduleAwaitingDecision;
+                                $fallbackOptionActions = data_get($message->metadata, 'schedule.confirmation_context.option_actions', []);
+                                if (! is_array($fallbackOptionActions)) {
+                                    $fallbackOptionActions = [];
+                                }
+                                $fallbackOptionChips = array_values(array_filter(array_map(
+                                    static fn (mixed $option): string => is_array($option) ? trim((string) ($option['label'] ?? '')) : '',
+                                    $fallbackOptionActions
+                                ), static fn (string $label): bool => $label !== ''));
                                 $prioritizeChips = data_get($message->metadata, 'prioritize.next_options_chip_texts', []);
                                 $guidanceChips = data_get($message->metadata, 'general_guidance.next_options_chip_texts', []);
                                 $scheduleChips = data_get($message->metadata, 'schedule.next_options_chip_texts', []);
                                 $listingFollowupChips = data_get($message->metadata, 'listing_followup.next_options_chip_texts', []);
                                 $structuredChips = data_get($message->metadata, 'structured.data.next_options_chip_texts', []);
-                                $nextOptionChips = is_array($prioritizeChips) && count($prioritizeChips) > 0
+                                $nextOptionChips = count($fallbackOptionChips) > 0
+                                    ? $fallbackOptionChips
+                                    : (is_array($prioritizeChips) && count($prioritizeChips) > 0
                                     ? $prioritizeChips
                                     : (is_array($guidanceChips) && count($guidanceChips) > 0
                                         ? $guidanceChips
@@ -258,7 +301,7 @@
                                             ? $scheduleChips
                                             : (is_array($listingFollowupChips) && count($listingFollowupChips) > 0
                                                 ? $listingFollowupChips
-                                                : (is_array($structuredChips) ? $structuredChips : []))));
+                                                : (is_array($structuredChips) ? $structuredChips : [])))));
                                 if (! is_array($nextOptionChips)) {
                                     $nextOptionChips = [];
                                 }
@@ -281,7 +324,7 @@
                                 </div>
                             @endif
                             @if ($display !== '')
-                                <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $display }}</flux:text>
+                                <flux:text class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black">{{ $display }}</flux:text>
                             @endif
 
                             @if (! $hideScheduleProposalCards && is_array($proposals) && count($proposals) > 0)
@@ -405,7 +448,7 @@
                                         <flux:button
                                             size="xs"
                                             variant="ghost"
-                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-brand-light-blue dark:hover:bg-zinc-800/50 dark:hover:text-zinc-100 dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
+                                            class="rounded-full border border-brand-blue/18 bg-white/90 px-3 py-1 text-sm font-medium text-black shadow-sm transition-colors hover:border-brand-blue/30 hover:bg-brand-light-blue/70 hover:text-black focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 focus-visible:ring-offset-1 dark:border-brand-blue/30 dark:bg-zinc-900/30 dark:text-black dark:hover:bg-zinc-800/50 dark:hover:text-black dark:focus-visible:ring-offset-zinc-900 disabled:pointer-events-none disabled:opacity-60"
                                             wire:click="submitNextOptionChip({{ $message->id }}, {{ $chipIndex }})"
                                             wire:loading.attr="disabled"
                                             wire:target="submitNextOptionChip,submitMessage"
@@ -470,7 +513,7 @@
                                 </div>
                             </div>
                         </div>
-                        <flux:text class="wrap-break-word whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">{{ $streamingContent }}</flux:text>
+                        <flux:text class="wrap-break-word whitespace-pre-wrap text-base text-black dark:text-black">{{ $streamingContent }}</flux:text>
                         </div>
                     </div>
                 </div>

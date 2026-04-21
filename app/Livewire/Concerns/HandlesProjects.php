@@ -132,6 +132,7 @@ trait HandlesProjects
         }
 
         $this->dispatch('toast', ...Project::toastPayload('delete', true, $project->name));
+        $this->dispatch('assistant-schedule-plan-updated');
 
         return true;
     }
@@ -316,6 +317,8 @@ trait HandlesProjects
         if (! $silentToasts) {
             $this->dispatch('toast', ...Project::toastPayloadForPropertyUpdate($property, $result->oldValue, $result->newValue, true, $project->name));
         }
+
+        $this->dispatch('assistant-schedule-plan-updated');
 
         return true;
     }

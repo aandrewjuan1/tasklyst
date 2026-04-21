@@ -132,6 +132,13 @@ final class TaskAssistantStructuredFlowGenerator
             && $horizon['start_date'] !== $horizon['end_date']) {
             $scheduleVariant = 'range';
         }
+        $scheduleExplainability = $this->buildScheduleExplainability(
+            snapshot: $contextualSnapshot,
+            context: $context,
+            proposals: $proposals,
+            digest: $placementDigest,
+            scheduleOptions: $options,
+        );
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
@@ -144,6 +151,10 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $placementDigest,
+            'window_selection_explanation' => $scheduleExplainability['window_selection_explanation'],
+            'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
+            'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
+            'fallback_choice_explanation' => $scheduleExplainability['fallback_choice_explanation'],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -337,6 +348,13 @@ final class TaskAssistantStructuredFlowGenerator
             && $horizon['start_date'] !== $horizon['end_date']) {
             $scheduleVariant = 'range';
         }
+        $scheduleExplainability = $this->buildScheduleExplainability(
+            snapshot: $contextualSnapshot,
+            context: $context,
+            proposals: $proposals,
+            digest: $digestForPrompt,
+            scheduleOptions: [],
+        );
 
         $data = [
             'schema_version' => self::SCHEDULE_SCHEMA_VERSION,
@@ -349,6 +367,10 @@ final class TaskAssistantStructuredFlowGenerator
             'confirmation' => $narrative['confirmation'],
             'schedule_empty_placement' => $isEmptyPlacement,
             'placement_digest' => $digestForPrompt,
+            'window_selection_explanation' => $scheduleExplainability['window_selection_explanation'],
+            'ordering_rationale' => $scheduleExplainability['ordering_rationale'],
+            'blocking_reasons' => $scheduleExplainability['blocking_reasons'],
+            'fallback_choice_explanation' => $scheduleExplainability['fallback_choice_explanation'],
             'confirmation_required' => false,
             'awaiting_user_decision' => false,
             'confirmation_context' => null,
@@ -371,6 +393,191 @@ final class TaskAssistantStructuredFlowGenerator
             'data' => $data,
             'errors' => [],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $context
+     * @param  list<array<string, mixed>>  $proposals
+     * @param  array<string, mixed>  $digest
+     * @param  array<string, mixed>  $scheduleOptions
+     * @return array{
+     *   window_selection_explanation: string,
+     *   ordering_rationale: list<string>,
+     *   blocking_reasons: list<array{title:string,blocked_window:string,reason:string}>,
+     *   fallback_choice_explanation: string|null
+     * }
+     */
+    private function buildScheduleExplainability(
+        array $snapshot,
+        array $context,
+        array $proposals,
+        array $digest,
+        array $scheduleOptions,
+    ): array {
+        $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
+        $windowStart = is_string($window['start'] ?? null) ? (string) $window['start'] : '';
+        $windowEnd = is_string($window['end'] ?? null) ? (string) $window['end'] : '';
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $horizonStart = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
+        $horizonEnd = is_string($horizon['end_date'] ?? null) ? (string) $horizon['end_date'] : '';
+        $meaningfulWindow = $windowStart !== '' && $windowEnd !== '' && ! ($windowStart === '00:00' && $windowEnd === '23:59');
+
+        $windowSelectionExplanation = $meaningfulWindow
+            ? "I prioritized slots between {$windowStart} and {$windowEnd} so this plan fits the time window you asked for."
+            : 'I chose the earliest realistic windows that avoid conflicts and keep your top items moving.';
+        if ($horizonStart !== '' && $horizonEnd !== '' && $horizonStart !== $horizonEnd) {
+            $windowSelectionExplanation .= " I spread placements across {$horizonStart} to {$horizonEnd} when needed.";
+        }
+
+        $orderingRationale = [];
+        foreach ($proposals as $index => $proposal) {
+            if (! is_array($proposal)) {
+                continue;
+            }
+            $title = trim((string) ($proposal['title'] ?? ''));
+            if ($title === '' || $title === 'No schedulable items found') {
+                continue;
+            }
+            $startRaw = trim((string) ($proposal['start_datetime'] ?? ''));
+            $startLabel = '';
+            if ($startRaw !== '') {
+                try {
+                    $startLabel = (new \DateTimeImmutable($startRaw))->format('M j g:i A');
+                } catch (\Throwable) {
+                    $startLabel = '';
+                }
+            }
+            $orderingRationale[] = $startLabel !== ''
+                ? '#'.($index + 1)." {$title}: placed at {$startLabel} as one of the strongest fit windows."
+                : '#'.($index + 1)." {$title}: placed in the next strongest fit window.";
+        }
+
+        $blockingReasons = [];
+        $unplacedUnits = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+        foreach ($unplacedUnits as $unit) {
+            if (! is_array($unit)) {
+                continue;
+            }
+            $title = trim((string) ($unit['title'] ?? 'Unplaced item'));
+            $reason = (string) ($unit['reason'] ?? 'horizon_exhausted');
+            $humanReason = match ($reason) {
+                'count_limit' => 'Not scheduled yet because we reached the current item limit.',
+                default => 'No free slot was available inside the requested schedule window.',
+            };
+            $blockedWindow = $meaningfulWindow
+                ? "{$windowStart}-{$windowEnd}"
+                : (($horizonStart !== '' && $horizonEnd !== '') ? "{$horizonStart} to {$horizonEnd}" : 'current planning window');
+            $blockingReasons[] = [
+                'title' => $title !== '' ? $title : 'Unplaced item',
+                'blocked_window' => $blockedWindow,
+                'reason' => $humanReason,
+            ];
+        }
+
+        $busyBlockers = $this->collectRequestedWindowBusyBlockers($snapshot);
+        foreach ($busyBlockers as $blocker) {
+            $blockingReasons[] = $blocker;
+        }
+        $blockingReasons = array_slice($blockingReasons, 0, 8);
+
+        $fallbackChoiceExplanation = null;
+        $fallbackMode = trim((string) ($digest['fallback_mode'] ?? ''));
+        if ($fallbackMode !== '') {
+            $fallbackChoiceExplanation = match ($fallbackMode) {
+                'auto_relaxed_today_or_tomorrow' => 'I widened placement to nearby days because the original window had no valid opening.',
+                default => 'I used a safer fallback schedule strategy to keep your plan realistic.',
+            };
+        }
+
+        return [
+            'window_selection_explanation' => $windowSelectionExplanation,
+            'ordering_rationale' => $orderingRationale,
+            'blocking_reasons' => $blockingReasons,
+            'fallback_choice_explanation' => $fallbackChoiceExplanation,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return list<array{title:string,blocked_window:string,reason:string}>
+     */
+    private function collectRequestedWindowBusyBlockers(array $snapshot): array
+    {
+        $window = is_array($snapshot['time_window'] ?? null) ? $snapshot['time_window'] : [];
+        $windowStart = is_string($window['start'] ?? null) ? trim((string) $window['start']) : '';
+        $windowEnd = is_string($window['end'] ?? null) ? trim((string) $window['end']) : '';
+        if ($windowStart === '' || $windowEnd === '' || ($windowStart === '00:00' && $windowEnd === '23:59')) {
+            return [];
+        }
+        $horizon = is_array($snapshot['schedule_horizon'] ?? null) ? $snapshot['schedule_horizon'] : [];
+        $day = is_string($horizon['start_date'] ?? null) ? (string) $horizon['start_date'] : '';
+        if ($day === '') {
+            return [];
+        }
+
+        $out = [];
+        $events = is_array($snapshot['events_for_busy'] ?? null) ? $snapshot['events_for_busy'] : [];
+        foreach ($events as $event) {
+            if (! is_array($event)) {
+                continue;
+            }
+            $title = trim((string) ($event['title'] ?? 'Busy event'));
+            $start = trim((string) ($event['starts_at'] ?? ''));
+            $end = trim((string) ($event['ends_at'] ?? ''));
+            if ($start === '' || $end === '') {
+                continue;
+            }
+            try {
+                $startDt = new \DateTimeImmutable($start);
+                $endDt = new \DateTimeImmutable($end);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
+                continue;
+            }
+            $windowLabel = $startDt->format('g:i A').'-'.$endDt->format('g:i A');
+            $out[] = [
+                'title' => $title !== '' ? $title : 'Busy event',
+                'blocked_window' => $windowLabel,
+                'reason' => 'This event overlaps your requested time window.',
+            ];
+            if (count($out) >= 4) {
+                break;
+            }
+        }
+
+        $classIntervals = is_array($snapshot['school_class_busy_intervals'] ?? null) ? $snapshot['school_class_busy_intervals'] : [];
+        foreach ($classIntervals as $interval) {
+            if (! is_array($interval)) {
+                continue;
+            }
+            $start = trim((string) ($interval['start'] ?? ''));
+            $end = trim((string) ($interval['end'] ?? ''));
+            if ($start === '' || $end === '') {
+                continue;
+            }
+            try {
+                $startDt = new \DateTimeImmutable($start);
+                $endDt = new \DateTimeImmutable($end);
+            } catch (\Throwable) {
+                continue;
+            }
+            if ($startDt->format('Y-m-d') !== $day && $endDt->format('Y-m-d') !== $day) {
+                continue;
+            }
+            $out[] = [
+                'title' => 'School class',
+                'blocked_window' => $startDt->format('g:i A').'-'.$endDt->format('g:i A'),
+                'reason' => 'This class window overlaps your requested time.',
+            ];
+            if (count($out) >= 6) {
+                break;
+            }
+        }
+
+        return $out;
     }
 
     /**

@@ -19,7 +19,15 @@ final class TaskPrioritizationService
      *
      * @param  array<string, mixed>  $snapshot  Expected keys: tasks, events, projects, today, timezone
      * @param  array<string, mixed>  $context
-     * @return array<int, array{type: 'task'|'event'|'project', id: int, title: string, score: int, reasoning: string, raw: array<string, mixed>}>
+     * @return array<int, array{
+     *   type: 'task'|'event'|'project',
+     *   id: int,
+     *   title: string,
+     *   score: int,
+     *   reasoning: string,
+     *   explainability: array<string, mixed>,
+     *   raw: array<string, mixed>
+     * }>
      */
     public function prioritizeFocus(array $snapshot, array $context = []): array
     {
@@ -194,6 +202,17 @@ final class TaskPrioritizationService
                 'deadline_epoch' => $deadlineEpoch,
                 'duration_minutes' => (int) ($task['duration_minutes'] ?? 0),
                 'reasoning' => $this->generateReasoning($task, $now),
+                'explainability' => $this->buildExplainability(
+                    type: 'task',
+                    urgencyBucket: $this->urgencyBucketLabel($deadlineScore),
+                    priorityLabel: (string) ($task['priority'] ?? 'medium'),
+                    quickWinLabel: $this->durationExplainabilityLabel((int) ($task['duration_minutes'] ?? 0)),
+                    score: $deadlineScore + $priorityScore + $durationScore,
+                    deadlineScore: $deadlineScore,
+                    priorityScore: $priorityScore,
+                    durationScore: $durationScore,
+                    studentFocusTierScore: (int) ($task['student_focus_tier_score'] ?? 0),
+                ),
                 'raw' => $task,
             ];
         }
@@ -217,6 +236,17 @@ final class TaskPrioritizationService
                 'deadline_epoch' => (int) ($event['deadline_epoch'] ?? PHP_INT_MAX),
                 'duration_minutes' => 0,
                 'reasoning' => (string) ($event['reasoning'] ?? 'Upcoming event'),
+                'explainability' => $this->buildExplainability(
+                    type: 'event',
+                    urgencyBucket: $this->urgencyBucketLabel((int) ($event['deadline_score'] ?? ($event['score'] ?? 0))),
+                    priorityLabel: 'time-bound event',
+                    quickWinLabel: 'n/a',
+                    score: (int) ($event['score'] ?? 0),
+                    deadlineScore: (int) ($event['deadline_score'] ?? ($event['score'] ?? 0)),
+                    priorityScore: (int) ($event['priority_score'] ?? 0),
+                    durationScore: (int) ($event['duration_score'] ?? 0),
+                    studentFocusTierScore: 0,
+                ),
                 'raw' => $event,
             ];
         }
@@ -240,6 +270,17 @@ final class TaskPrioritizationService
                 'deadline_epoch' => (int) ($project['deadline_epoch'] ?? PHP_INT_MAX),
                 'duration_minutes' => 0,
                 'reasoning' => (string) ($project['reasoning'] ?? 'Active project'),
+                'explainability' => $this->buildExplainability(
+                    type: 'project',
+                    urgencyBucket: $this->urgencyBucketLabel((int) ($project['deadline_score'] ?? ($project['score'] ?? 0))),
+                    priorityLabel: 'active project',
+                    quickWinLabel: 'n/a',
+                    score: (int) ($project['score'] ?? 0),
+                    deadlineScore: (int) ($project['deadline_score'] ?? ($project['score'] ?? 0)),
+                    priorityScore: (int) ($project['priority_score'] ?? 0),
+                    durationScore: (int) ($project['duration_score'] ?? 0),
+                    studentFocusTierScore: 0,
+                ),
                 'raw' => $project,
             ];
         }
@@ -249,7 +290,15 @@ final class TaskPrioritizationService
 
     /**
      * @param  list<array<string, mixed>>  $candidates
-     * @return array<int, array{type: 'task'|'event'|'project', id: int, title: string, score: int, reasoning: string, raw: array<string, mixed>}>
+     * @return array<int, array{
+     *   type: 'task'|'event'|'project',
+     *   id: int,
+     *   title: string,
+     *   score: int,
+     *   reasoning: string,
+     *   explainability: array<string, mixed>,
+     *   raw: array<string, mixed>
+     * }>
      */
     private function sortAndStripCandidates(array $candidates): array
     {
@@ -299,6 +348,68 @@ final class TaskPrioritizationService
 
             return $c;
         }, $candidates);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildExplainability(
+        string $type,
+        string $urgencyBucket,
+        string $priorityLabel,
+        string $quickWinLabel,
+        int $score,
+        int $deadlineScore,
+        int $priorityScore,
+        int $durationScore,
+        int $studentFocusTierScore,
+    ): array {
+        return [
+            'entity_type' => $type,
+            'urgency_bucket' => $urgencyBucket,
+            'priority_label' => $priorityLabel,
+            'quick_win' => $quickWinLabel,
+            'score_total' => $score,
+            'score_breakdown' => [
+                'deadline' => $deadlineScore,
+                'priority' => $priorityScore,
+                'duration' => $durationScore,
+                'student_focus_tier' => $studentFocusTierScore,
+            ],
+        ];
+    }
+
+    private function urgencyBucketLabel(int $deadlineScore): string
+    {
+        if ($deadlineScore >= 1000) {
+            return 'overdue';
+        }
+        if ($deadlineScore >= 900) {
+            return 'due_today';
+        }
+        if ($deadlineScore >= 800) {
+            return 'due_tomorrow';
+        }
+        if ($deadlineScore >= 350) {
+            return 'due_this_week';
+        }
+
+        return 'due_later';
+    }
+
+    private function durationExplainabilityLabel(int $durationMinutes): string
+    {
+        if ($durationMinutes <= 0) {
+            return 'unknown';
+        }
+        if ($durationMinutes <= 30) {
+            return 'quick';
+        }
+        if ($durationMinutes <= 90) {
+            return 'moderate';
+        }
+
+        return 'long';
     }
 
     private function normalizeEntityTypePreference(mixed $value): string

@@ -140,3 +140,24 @@ it('enrichOperationsWithProposalUuids fills missing proposal_uuid from index', f
 
     expect($enriched[0]['proposal_uuid'] ?? null)->toBe('row-b');
 });
+
+it('returns clarification context with parsed time and date signals', function (): void {
+    $pipeline = new ScheduleEditUnderstandingPipeline(
+        new ScheduleEditLexicon,
+        new ScheduleEditTargetResolver(new ScheduleEditLexicon),
+        new ScheduleEditTemporalParser,
+    );
+
+    $proposals = [
+        ['proposal_uuid' => 'a', 'title' => 'Task A'],
+        ['proposal_uuid' => 'b', 'title' => 'Task B'],
+    ];
+
+    $result = $pipeline->resolve('move this to 8 pm tomorrow', $proposals, 'Asia/Manila');
+
+    expect($result['clarification_required'])->toBeTrue();
+    expect($result['clarification_context'] ?? null)->toBeArray();
+    expect($result['clarification_context']['parsed_time_hhmm'] ?? null)->toBe('20:00');
+    expect($result['clarification_context']['parsed_date_ymd'] ?? null)->not->toBeNull();
+    expect($result['clarification_context']['target_summary'] ?? null)->toBe('unresolved target');
+});

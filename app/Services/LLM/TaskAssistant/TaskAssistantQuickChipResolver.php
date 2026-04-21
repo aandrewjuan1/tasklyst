@@ -13,6 +13,74 @@ final class TaskAssistantQuickChipResolver
     /**
      * @return array<int, string>
      */
+    public function resolveForPostScheduleAccept(User $user, ?TaskAssistantThread $thread = null, int $limit = 3): array
+    {
+        $limit = max(1, min(4, $limit));
+        $now = CarbonImmutable::now((string) config('app.timezone', 'UTC'));
+        $bucket = $this->resolveTimeBucket($now);
+        $signals = $this->collectTaskSignals($user, $now);
+
+        $candidates = [
+            ['intent' => 'next_priorities', 'label' => __('Show my next 3 priorities'), 'score' => 50],
+            ['intent' => 'plan_today', 'label' => __('Create a plan for today'), 'score' => 35],
+            ['intent' => 'plan_tomorrow', 'label' => __('Plan tomorrow for me'), 'score' => 40],
+            ['intent' => 'schedule_most_important', 'label' => __('Schedule my most important task'), 'score' => 30],
+        ];
+
+        foreach ($candidates as $key => &$candidate) {
+            $score = (int) ($candidate['score'] ?? 0);
+            $intent = (string) ($candidate['intent'] ?? '');
+
+            if ($intent === 'plan_tomorrow' && in_array($bucket, ['evening', 'late_night'], true)) {
+                $score += 90;
+            }
+
+            if ($intent === 'plan_today' && in_array($bucket, ['morning', 'afternoon'], true)) {
+                $score += 65;
+            }
+
+            if ($intent === 'schedule_most_important' && $signals['high_priority_unscheduled_count'] > 0) {
+                $score += 80;
+            }
+
+            if ($intent === 'next_priorities' && ($signals['overdue_count'] > 0 || $signals['due_today_count'] > 0)) {
+                $score += 60;
+            }
+
+            $candidate['score'] = $score;
+            $candidate['stable_order'] = $key;
+        }
+        unset($candidate);
+
+        usort($candidates, function (array $left, array $right): int {
+            $leftScore = (int) ($left['score'] ?? 0);
+            $rightScore = (int) ($right['score'] ?? 0);
+
+            if ($leftScore === $rightScore) {
+                return (int) (($left['stable_order'] ?? 0) <=> ($right['stable_order'] ?? 0));
+            }
+
+            return $rightScore <=> $leftScore;
+        });
+
+        $chips = [];
+        foreach ($candidates as $candidate) {
+            $label = trim((string) ($candidate['label'] ?? ''));
+            if ($label === '' || in_array($label, $chips, true)) {
+                continue;
+            }
+            $chips[] = $label;
+            if (count($chips) >= $limit) {
+                break;
+            }
+        }
+
+        return $chips;
+    }
+
+    /**
+     * @return array<int, string>
+     */
     public function resolveForEmptyState(User $user, ?TaskAssistantThread $thread = null, int $limit = 4): array
     {
         $limit = max(1, min(6, $limit));

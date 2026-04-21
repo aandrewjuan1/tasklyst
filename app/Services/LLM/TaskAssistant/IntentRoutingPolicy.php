@@ -150,6 +150,7 @@ final class IntentRoutingPolicy
 
         if ($this->isLikelyPrioritizeScheduleCombinedPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+            $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -179,6 +180,7 @@ final class IntentRoutingPolicy
 
         if ($this->isLikelyFreshDayPlanningPrompt($normalized)) {
             $constraints = $this->extractConstraintsForFlow($thread, $normalized, 'prioritize_schedule');
+            $constraints = $this->applyFreshTopNConstraintOverride($normalized, 'prioritize_schedule', $constraints);
 
             Log::info('task-assistant.intent.policy', [
                 'layer' => 'intent_policy',
@@ -331,6 +333,7 @@ final class IntentRoutingPolicy
 
         $decision = $this->resolution->resolve($thread, $normalized, $inference, $signals);
         $constraints = $this->extractConstraintsForFlow($thread, $normalized, $decision->flow);
+        $constraints = $this->applyFreshTopNConstraintOverride($normalized, $decision->flow, $constraints);
 
         Log::info('task-assistant.intent.policy', [
             'layer' => 'intent_policy',
@@ -388,7 +391,12 @@ final class IntentRoutingPolicy
             $targetEntities = $selected;
         }
 
-        $countLimit = $this->extractCountLimit($normalized);
+        [$countLimit, $countLimitExplicitlyRequested] = $this->extractCountLimitWithSource($normalized);
+        $hasDirectTopNRequest = preg_match(
+            '/(?:top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)/i',
+            $normalized
+        ) === 1;
+        $countLimitExplicitlyRequested = $countLimitExplicitlyRequested || $hasDirectTopNRequest;
 
         if ($resolvedFlow === 'listing_followup' && $targetEntities === [] && is_array($listing)) {
             $targetEntities = $this->targetsFromListingHead($listing, $countLimit);
@@ -397,8 +405,26 @@ final class IntentRoutingPolicy
         // If we resolved explicit schedule targets from the user's last ordered listing
         // ("those/the above"/sliced subsets), align how many we schedule with that resolved set.
         // This prevents unintentionally truncating the user's requested batch size.
+        if (
+            ($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule')
+            && $targetEntities !== []
+            && ! $this->isLikelyDeicticScheduleFollowup($normalized)
+            && $countLimit > count($targetEntities)
+        ) {
+            $targetEntities = [];
+        }
+
         if (($resolvedFlow === 'schedule' || $resolvedFlow === 'prioritize_schedule' || $resolvedFlow === 'listing_followup') && $targetEntities !== []) {
-            $countLimit = max(1, count($targetEntities));
+            $isDeicticFollowup = $this->isLikelyDeicticScheduleFollowup($normalized);
+            $shouldAlignWithResolvedTargets = ! $countLimitExplicitlyRequested
+                || $isDeicticFollowup;
+            if ($resolvedFlow === 'prioritize_schedule' && ! $isDeicticFollowup) {
+                $shouldAlignWithResolvedTargets = false;
+            }
+
+            if ($shouldAlignWithResolvedTargets) {
+                $countLimit = max(1, count($targetEntities));
+            }
         }
 
         return [
@@ -473,10 +499,13 @@ final class IntentRoutingPolicy
         return preg_match('/\b(all|them all|those all|all of them|all those)\b/u', $normalized) === 1;
     }
 
-    private function extractCountLimit(string $normalized): int
+    /**
+     * @return array{0: int, 1: bool}
+     */
+    private function extractCountLimitWithSource(string $normalized): array
     {
         if (preg_match('/\b(top|first)\s+(task|item)\b/u', $normalized) === 1) {
-            return 1;
+            return [1, true];
         }
 
         // Word-based ordinal singles like:
@@ -486,7 +515,7 @@ final class IntentRoutingPolicy
             '/\b(?:schedule|put|plan)\b.{0,40}\b(only\s+)?(?:the\s+)?(first|top|last|bottom)\b.{0,40}\bone\b/iu',
             $normalized
         ) === 1) {
-            return 1;
+            return [1, true];
         }
 
         $wordNumbers = [
@@ -530,40 +559,149 @@ final class IntentRoutingPolicy
         ) === 1) {
             $n = $parseToken((string) ($matches[1] ?? ''));
             if ($n !== null) {
-                return max(1, min($n, 10));
+                return [max(1, min($n, 10)), true];
             }
         }
 
         if (preg_match('/\b(those|them)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/iu', $normalized, $matches) === 1) {
             $n = $parseToken((string) ($matches[2] ?? ''));
             if ($n !== null) {
-                return max(1, min($n, 10));
+                return [max(1, min($n, 10)), true];
             }
         }
 
         if (preg_match('/\b(top|first|next|only|limit)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)\b/iu', $normalized, $matches) === 1) {
             $n = $parseToken((string) ($matches[2] ?? ''));
             if ($n !== null) {
-                return max(1, min($n, 10));
+                return [max(1, min($n, 10)), true];
             }
         }
 
         if ($this->isSingleFocusRequest($normalized)) {
-            return 1;
+            return [1, true];
         }
 
         $defaultMulti = (int) config('task-assistant.intent.prioritize_default_multi_count', 3);
         $defaultMulti = max(2, min($defaultMulti, 10));
 
         if (TaskAssistantWhatToDoFirstIntent::impliesMultiplePrioritizedRows($normalized)) {
-            return $defaultMulti;
+            return [$defaultMulti, false];
         }
 
         if (TaskAssistantWhatToDoFirstIntent::matchesSingleFocusPrioritizeFirst($normalized)) {
-            return 1;
+            return [1, true];
         }
 
-        return 3;
+        return [3, false];
+    }
+
+    private function extractCountLimit(string $normalized): int
+    {
+        return $this->extractCountLimitWithSource($normalized)[0];
+    }
+
+    private function isLikelyDeicticScheduleFollowup(string $normalized): bool
+    {
+        return preg_match(
+            '/\b(it|them|those|the above|same one|this\s+one|that(?:\s+one)?|first|second|third|last|\d+(?:st|nd|rd|th)|item\s*#?\d+|task\s*#?\d+|\d+\s*(?:,|and)\s*\d+)\b/u',
+            $normalized
+        ) === 1;
+    }
+
+    private function isLikelyFreshBatchScheduleRequest(string $normalized): bool
+    {
+        $hasScheduleVerb = preg_match('/\b(schedule|plan|organi[sz]e|map\s*out|line\s*up)\b/u', $normalized) === 1;
+        $hasBatchCue = preg_match('/\b(top|first|next|\d+|two|three|four|five|six|seven|eight|nine|ten)\b/u', $normalized) === 1;
+        $hasPluralScope = preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1;
+
+        return $hasScheduleVerb && $hasBatchCue && $hasPluralScope;
+    }
+
+    private function extractDirectTopNCount(string $normalized): ?int
+    {
+        if (preg_match('/top[^0-9]{0,3}(\d{1,2})/i', $normalized, $digitMatch) === 1) {
+            return max(1, min((int) ($digitMatch[1] ?? 0), 10));
+        }
+
+        if (preg_match('/(?:first|next)\s+(\d{1,2})/i', $normalized, $digitMatch) === 1) {
+            return max(1, min((int) ($digitMatch[1] ?? 0), 10));
+        }
+
+        if (preg_match(
+            '/(?:top|first|next)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|couple)/i',
+            $normalized,
+            $matches
+        ) !== 1) {
+            return null;
+        }
+
+        $token = mb_strtolower(trim((string) ($matches[2] ?? '')));
+        if ($token === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d+$/u', $token) === 1) {
+            return max(1, min((int) $token, 10));
+        }
+
+        $wordNumbers = [
+            'one' => 1,
+            'two' => 2,
+            'three' => 3,
+            'four' => 4,
+            'five' => 5,
+            'six' => 6,
+            'seven' => 7,
+            'eight' => 8,
+            'nine' => 9,
+            'ten' => 10,
+            'couple' => 2,
+        ];
+
+        return $wordNumbers[$token] ?? null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $constraints
+     * @return array<string, mixed>
+     */
+    private function applyFreshTopNConstraintOverride(string $normalized, string $flow, array $constraints): array
+    {
+        if (! in_array($flow, ['schedule', 'prioritize_schedule'], true)) {
+            return $constraints;
+        }
+
+        if (
+            $flow === 'prioritize_schedule'
+            && str_contains($normalized, 'schedule')
+            && str_contains($normalized, 'top')
+            && preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1
+            && preg_match('/(\d{1,2})/', $normalized, $fallbackDigits) === 1
+        ) {
+            $fallbackN = max(1, min((int) ($fallbackDigits[1] ?? 3), 10));
+            $constraints['count_limit'] = $fallbackN;
+        }
+
+        $explicitTopN = $this->extractDirectTopNCount($normalized);
+        if ($explicitTopN === null && preg_match('/top.*?(\d{1,2})/i', $normalized, $fallbackTopN) === 1) {
+            $explicitTopN = max(1, min((int) ($fallbackTopN[1] ?? 0), 10));
+        }
+        if ($explicitTopN === null) {
+            return $constraints;
+        }
+
+        $hasPluralScope = preg_match('/\b(tasks?|items?|priorities)\b/u', $normalized) === 1;
+        if (! $hasPluralScope) {
+            return $constraints;
+        }
+
+        $constraints['count_limit'] = $explicitTopN;
+        $targets = is_array($constraints['target_entities'] ?? null) ? $constraints['target_entities'] : [];
+        if ($targets !== [] && $explicitTopN > count($targets)) {
+            $constraints['target_entities'] = [];
+        }
+
+        return $constraints;
     }
 
     private function isSingleFocusRequest(string $normalized): bool

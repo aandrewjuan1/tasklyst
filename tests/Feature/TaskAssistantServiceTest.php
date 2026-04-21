@@ -1519,7 +1519,85 @@ test('non-ideal later scheduling emits confirmation-required fallback payload', 
     expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
     expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
     expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['window_selection_explanation'] ?? null)->toBeString();
+    expect($assistantMessage->metadata['schedule']['ordering_rationale'] ?? null)->toBeArray();
+    expect($assistantMessage->metadata['schedule']['blocking_reasons'] ?? null)->toBeArray();
     expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeArray();
+    CarbonImmutable::setTestNow();
+});
+
+test('robotic fallback narrative is rejected in favor of deterministic student-friendly confirmation copy', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-02 21:58:00', config('app.timezone', 'UTC')));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prepared a schedule.',
+                'reasoning' => 'Using the available window.',
+                'confirmation' => 'Does this work?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I understand that I could not find a suitable time slot.',
+                'reasoning' => 'Confidence: 0 of 1 open time slots were available for the horizon dates.',
+                'confirmation' => 'The request was made explicitly by the user.',
+                'reason_message' => 'Confidence: 0 of 1 open time slots were available.',
+            ])
+            ->withUsage(new Usage(3, 8)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 60,
+        'start_datetime' => null,
+        'end_datetime' => now()->addDay(),
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'last_listing' => [
+                    'source_flow' => 'prioritize',
+                    'items' => [[
+                        'entity_type' => 'task',
+                        'entity_id' => $task->id,
+                        'title' => $task->title,
+                        'position' => 0,
+                    ]],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'schedule top 1 for later',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+
+    expect($assistantMessage->metadata['schedule']['confirmation_required'] ?? null)->toBeTrue();
+    expect($assistantMessage->metadata['schedule']['confirmation_context']['reason_details'] ?? [])->not->toBe([]);
+    $options = $assistantMessage->metadata['schedule']['confirmation_context']['options'] ?? [];
+    expect($options)->toContain('Pick another time window');
+    expect($options)->toContain('Cancel scheduling for now');
+    expect($options)->not->toContain('Split it into shorter blocks today');
+    expect((string) $assistantMessage->content)->not->toContain('Confidence:');
+    expect((string) $assistantMessage->content)->not->toContain('explicitly by the user');
+    expect((string) $assistantMessage->content)->toContain('What blocked scheduling:');
+    expect((string) $assistantMessage->content)->toContain('I set up a draft, and I want your go-ahead before finalizing it.');
+
     CarbonImmutable::setTestNow();
 });
 
@@ -2288,6 +2366,173 @@ test('pending schedule fallback fit-all follow-ups reroute instead of looping cl
         expect($assistantMessage->metadata['schedule']['awaiting_user_decision'] ?? false)->toBeFalse();
         expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
     }
+
+    CarbonImmutable::setTestNow();
+});
+
+test('pending schedule fallback releases when user pivots to fresh prioritize request', function (): void {
+    config([
+        'task-assistant.intent.use_llm' => false,
+    ]);
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'items' => [[
+                    'entity_type' => 'task',
+                    'entity_id' => 1,
+                    'title' => 'Top task',
+                    'reason' => 'Most urgent right now.',
+                ]],
+                'limit_used' => 1,
+                'doing_progress_coach' => false,
+                'focus' => 'Start with the highest urgency.',
+                'acknowledgment' => 'Got it.',
+                'framing' => 'Here is your top priority.',
+                'reasoning' => 'I ranked by urgency and due pressure.',
+                'next_options' => [],
+                'next_options_chip_texts' => [],
+                'filter_interpretation' => null,
+                'assumptions' => [],
+                'count_mismatch_explanation' => null,
+                'prioritize_variant' => 'rank',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+
+    Task::factory()->for($user)->count(3)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'start_datetime' => null,
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'time_window_hint' => 'later',
+                    'initial_user_message' => 'schedule my top 3 later',
+                    'schedule_data' => [
+                        'schema_version' => 2,
+                        'proposals' => [],
+                        'blocks' => [],
+                        'items' => [],
+                        'confirmation_required' => true,
+                        'awaiting_user_decision' => true,
+                        'confirmation_context' => [
+                            'requested_count' => 3,
+                            'prompt' => 'Keep draft or adjust window?',
+                            'options' => ['Use this draft', 'Pick another time window', 'Cancel scheduling for now'],
+                        ],
+                        'placement_digest' => [
+                            'requested_count' => 3,
+                            'top_n_shortfall' => true,
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'what should i do first right now',
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect((string) $assistantMessage->content)->not->toContain('Please confirm first');
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('prioritize');
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+});
+
+test('pending fallback chip action try_tomorrow_morning executes deterministic schedule path', function (): void {
+    config(['task-assistant.intent.use_llm' => false]);
+    $timezone = (string) config('app.timezone', 'UTC');
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-04-17 21:30:00', $timezone));
+
+    Prism::fake([
+        StructuredResponseFake::make()
+            ->withStructured([
+                'framing' => 'I prepared a schedule for tomorrow morning.',
+                'reasoning' => 'I used your selected fallback option and placed what could fit.',
+                'confirmation' => 'Want me to adjust anything else?',
+            ])
+            ->withUsage(new Usage(5, 10)),
+    ]);
+
+    $user = User::factory()->create();
+    $thread = TaskAssistantThread::factory()->create(['user_id' => $user->id]);
+    $task = Task::factory()->for($user)->create([
+        'status' => TaskStatus::ToDo,
+        'priority' => TaskPriority::High,
+        'duration' => 30,
+        'start_datetime' => null,
+        'end_datetime' => CarbonImmutable::parse('2026-04-18 18:00:00', $timezone),
+    ]);
+
+    $thread->update([
+        'metadata' => [
+            'conversation_state' => [
+                'pending_schedule_fallback' => [
+                    'time_window_hint' => 'later',
+                    'schedule_data' => [
+                        'schema_version' => 2,
+                        'proposals' => [],
+                        'blocks' => [],
+                        'items' => [],
+                        'placement_digest' => [
+                            'requested_count' => 1,
+                        ],
+                        'confirmation_context' => [
+                            'requested_count' => 1,
+                            'option_actions' => [
+                                ['id' => 'try_tomorrow_morning', 'label' => 'Try tomorrow morning'],
+                                ['id' => 'pick_another_time_window', 'label' => 'Pick another time window'],
+                                ['id' => 'cancel_scheduling', 'label' => 'Cancel scheduling for now'],
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    $userMessage = $thread->messages()->create([
+        'role' => MessageRole::User,
+        'content' => 'Try tomorrow morning',
+        'metadata' => [
+            'client_action' => [
+                'id' => 'try_tomorrow_morning',
+                'source' => 'fallback_option_chip',
+            ],
+        ],
+    ]);
+    $assistantMessage = $thread->messages()->create([
+        'role' => MessageRole::Assistant,
+        'content' => '',
+    ]);
+
+    app(TaskAssistantService::class)->processQueuedMessage($thread, $userMessage->id, $assistantMessage->id);
+
+    $assistantMessage->refresh();
+    $thread->refresh();
+
+    expect($thread->metadata['conversation_state']['pending_schedule_fallback'] ?? null)->toBeNull();
+    expect($assistantMessage->metadata['structured']['flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['final_flow'] ?? null)->toBe('schedule');
+    expect($assistantMessage->metadata['routing_trace']['initial_reason_codes'] ?? [])
+        ->toContain('fallback_action_try_tomorrow_morning');
 
     CarbonImmutable::setTestNow();
 });

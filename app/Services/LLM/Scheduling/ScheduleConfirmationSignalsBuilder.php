@@ -49,8 +49,51 @@ final class ScheduleConfirmationSignalsBuilder
             'engine_notes' => $engineNotes,
             'placement_time_check' => $placementTimeCheck,
         ];
+        $digest['explainability'] = [
+            'window_selection_explanation' => $this->buildWindowSelectionExplanation($requestedScope, $engineNotes),
+            'fallback_choice_explanation' => $this->buildFallbackChoiceExplanation($engineNotes),
+        ];
 
         return $digest;
+    }
+
+    /**
+     * @param  array<string, mixed>  $requestedScope
+     * @param  array<string, mixed>  $engineNotes
+     */
+    private function buildWindowSelectionExplanation(array $requestedScope, array $engineNotes): string
+    {
+        $window = is_array($requestedScope['time_window'] ?? null) ? $requestedScope['time_window'] : null;
+        $start = is_array($window) ? trim((string) ($window['start'] ?? '')) : '';
+        $end = is_array($window) ? trim((string) ($window['end'] ?? '')) : '';
+        $countShortfall = (int) ($engineNotes['count_shortfall'] ?? 0);
+
+        if ($start !== '' && $end !== '') {
+            $line = "Plan first targets {$start} to {$end} to match your requested availability.";
+            if ($countShortfall > 0) {
+                $line .= ' Some rows could not fit there, so follow-up options are offered.';
+            }
+
+            return $line;
+        }
+
+        return 'Plan uses the earliest conflict-free windows across your active horizon.';
+    }
+
+    /**
+     * @param  array<string, mixed>  $engineNotes
+     */
+    private function buildFallbackChoiceExplanation(array $engineNotes): ?string
+    {
+        $fallbackMode = trim((string) ($engineNotes['fallback_mode'] ?? ''));
+        if ($fallbackMode === '') {
+            return null;
+        }
+
+        return match ($fallbackMode) {
+            'auto_relaxed_today_or_tomorrow' => 'Fallback widened placement to nearby days when the original window had no valid fit.',
+            default => 'Fallback mode was used to keep a feasible schedule draft.',
+        };
     }
 
     /**

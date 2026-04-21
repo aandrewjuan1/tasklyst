@@ -25,6 +25,25 @@ final class TaskAssistantResponseProcessor
         array $data,
         array $snapshot = [],
     ): array {
+        $narrativeCorrections = [];
+        if ($flow === 'daily_schedule') {
+            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+            $blocks = is_array($data['blocks'] ?? null) ? $data['blocks'] : [];
+            $normalizedNarrative = $this->messageFormatter->normalizeDailyScheduleNarrativeFields(
+                $items,
+                $blocks,
+                (string) ($data['framing'] ?? ''),
+                (string) ($data['reasoning'] ?? ''),
+                (string) ($data['confirmation'] ?? ''),
+            );
+            $data['framing'] = $normalizedNarrative['framing'];
+            $data['reasoning'] = $normalizedNarrative['reasoning'];
+            $data['confirmation'] = $normalizedNarrative['confirmation'];
+            $narrativeCorrections = is_array($normalizedNarrative['corrections'] ?? null)
+                ? $normalizedNarrative['corrections']
+                : [];
+        }
+
         $validation = $this->validateFlowData($flow, $data, $snapshot);
         $formattedContent = $this->messageFormatter->format($flow, $data, $snapshot);
 
@@ -47,6 +66,7 @@ final class TaskAssistantResponseProcessor
             'formatted_message_truncated' => $truncated,
             'formatted_message_sha256' => hash('sha256', $formattedContent),
             'formatted_message' => $loggedBody,
+            'narrative_corrections' => $narrativeCorrections,
         ]);
 
         Log::info('task-assistant.validation', [
@@ -279,6 +299,18 @@ final class TaskAssistantResponseProcessor
      */
     private function validatePrioritizeListingData(array $data): array
     {
+        $itemsForDefaults = is_array($data['items'] ?? null) ? $data['items'] : [];
+        if (! isset($data['ranking_method_summary']) || ! is_string($data['ranking_method_summary']) || trim((string) $data['ranking_method_summary']) === '') {
+            $data['ranking_method_summary'] = TaskAssistantPrioritizeOutputDefaults::defaultRankingMethodSummary();
+        }
+        if (! isset($data['ordering_rationale']) || ! is_array($data['ordering_rationale'])) {
+            $data['ordering_rationale'] = array_map(
+                static fn (array $row, int $index): string => '#'.($index + 1).' '.trim((string) ($row['title'] ?? 'Item')).': '.trim((string) ($row['rank_reason'] ?? 'This is one of your clearest next moves right now.')),
+                $itemsForDefaults,
+                array_keys($itemsForDefaults),
+            );
+        }
+
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxDoingCoach = TaskAssistantPrioritizeOutputDefaults::maxDoingProgressCoachChars();
@@ -297,6 +329,9 @@ final class TaskAssistantResponseProcessor
             // Empty array is allowed (e.g. deterministic empty-workspace reply has no follow-up chips).
             'next_options_chip_texts' => ['present', 'array', 'max:3'],
             'next_options_chip_texts.*' => ['string', 'min:2', 'max:120'],
+            'ranking_method_summary' => ['required', 'string', 'min:12', 'max:260'],
+            'ordering_rationale' => ['present', 'array', 'max:10'],
+            'ordering_rationale.*' => ['required', 'string', 'min:8', 'max:260'],
             'items.*.entity_type' => ['required', 'string', 'in:task,event,project'],
             'items.*.entity_id' => ['required', 'integer', 'min:1'],
             'items.*.title' => ['required', 'string', 'max:200'],
@@ -305,6 +340,8 @@ final class TaskAssistantResponseProcessor
             'items.*.due_phrase' => ['nullable', 'string', 'max:64'],
             'items.*.due_on' => ['nullable', 'string', 'max:64'],
             'items.*.complexity_label' => ['nullable', 'string', 'max:64'],
+            'items.*.rank_reason' => ['nullable', 'string', 'max:260'],
+            'items.*.rank_explainability' => ['nullable', 'array'],
             'acknowledgment' => ['nullable', 'string', 'max:'.$maxFraming],
             'reasoning' => ['required', 'string', 'min:3', 'max:'.$maxReasoning],
             'filter_interpretation' => ['nullable', 'string', 'max:280'],
@@ -339,6 +376,13 @@ final class TaskAssistantResponseProcessor
                     $validator->errors()->add('framing', 'framing is required when doing_progress_coach is empty or null.');
                 }
             }
+
+            $items = is_array($data['items'] ?? null) ? $data['items'] : [];
+            $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+            if ($items !== [] && count($orderingRationale) !== count($items)) {
+                $validator->errors()->add('ordering_rationale', 'ordering_rationale must have one explanation line per ranked item.');
+            }
+
         });
 
         if ($validator->fails()) {
@@ -359,6 +403,18 @@ final class TaskAssistantResponseProcessor
     private function validateDailyScheduleData(array $data, array $snapshot): array
     {
         $data = $this->normalizeApplyPayloadActions($data);
+        if (! is_string($data['window_selection_explanation'] ?? null)) {
+            $data['window_selection_explanation'] = '';
+        }
+        if (! is_array($data['ordering_rationale'] ?? null)) {
+            $data['ordering_rationale'] = [];
+        }
+        if (! is_array($data['blocking_reasons'] ?? null)) {
+            $data['blocking_reasons'] = [];
+        }
+        if (! array_key_exists('fallback_choice_explanation', $data)) {
+            $data['fallback_choice_explanation'] = null;
+        }
 
         $maxFraming = TaskAssistantPrioritizeOutputDefaults::maxFramingChars();
         $maxReasoning = TaskAssistantPrioritizeOutputDefaults::maxReasoningChars();
@@ -423,6 +479,14 @@ final class TaskAssistantResponseProcessor
             'placement_digest.partial_placed_count' => ['nullable', 'integer', 'min:0', 'max:200'],
             'placement_digest.count_shortfall' => ['nullable', 'integer', 'min:0', 'max:200'],
             'placement_digest.top_n_shortfall' => ['nullable', 'boolean'],
+            'window_selection_explanation' => ['present', 'string', 'max:500'],
+            'ordering_rationale' => ['present', 'array', 'max:100'],
+            'ordering_rationale.*' => ['required', 'string', 'min:8', 'max:260'],
+            'blocking_reasons' => ['present', 'array', 'max:40'],
+            'blocking_reasons.*.title' => ['required', 'string', 'min:1', 'max:200'],
+            'blocking_reasons.*.blocked_window' => ['required', 'string', 'min:1', 'max:120'],
+            'blocking_reasons.*.reason' => ['required', 'string', 'min:4', 'max:280'],
+            'fallback_choice_explanation' => ['nullable', 'string', 'max:320'],
             'confirmation_required' => ['nullable', 'boolean'],
             'awaiting_user_decision' => ['nullable', 'boolean'],
             'confirmation_context' => ['nullable', 'array'],
@@ -478,6 +542,16 @@ final class TaskAssistantResponseProcessor
                 $validator->errors()->add('blocks', 'blocks must have the same length as proposals.');
 
                 return;
+            }
+            $orderingRationale = is_array($data['ordering_rationale'] ?? null) ? $data['ordering_rationale'] : [];
+            if ($items !== [] && $orderingRationale !== [] && count($orderingRationale) !== count($items)) {
+                $validator->errors()->add('ordering_rationale', 'ordering_rationale must have one explanation line per scheduled row when provided.');
+            }
+            $blockingReasons = is_array($data['blocking_reasons'] ?? null) ? $data['blocking_reasons'] : [];
+            $digest = is_array($data['placement_digest'] ?? null) ? $data['placement_digest'] : [];
+            $unplaced = is_array($digest['unplaced_units'] ?? null) ? $digest['unplaced_units'] : [];
+            if ($unplaced !== [] && $blockingReasons === []) {
+                $validator->errors()->add('blocking_reasons', 'blocking_reasons must be present when unplaced_units exist.');
             }
 
             foreach ($proposals as $i => $proposal) {
