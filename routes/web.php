@@ -2,9 +2,7 @@
 
 use App\Http\Middleware\ValidateWorkOSSession;
 use App\Services\LLM\OllamaProxyClient;
-use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Prism\Prism\Enums\Provider;
 use Prism\Prism\Facades\Prism;
@@ -111,67 +109,3 @@ Route::get('/tests/feature/tests/unit/connectcalendarfeedjob', function () {
 
 require __DIR__.'/settings.php';
 require __DIR__.'/auth.php';
-
-Route::middleware('throttle:30,1')
-    ->withoutMiddleware([VerifyCsrfToken::class])
-    ->prefix('api/ai')
-    ->group(function (): void {
-        Route::post('/proxy', function (Request $request) {
-            $validated = $request->validate([
-                'prompt' => ['required', 'string', 'max:10000'],
-                'model' => ['nullable', 'string', 'max:255'],
-                'token' => ['required', 'string'],
-            ]);
-
-            $configuredToken = (string) config('services.ai_proxy.token', '');
-
-            abort_unless(
-                $configuredToken !== '' && hash_equals($configuredToken, $validated['token']),
-                401,
-                'Unauthorized'
-            );
-
-            $response = Http::timeout((int) config('prism.request_timeout', 120))
-                ->post(rtrim((string) config('services.ai_proxy.upstream_url', 'http://127.0.0.1:11434'), '/').'/api/generate', [
-                    'model' => $validated['model'] ?? (string) config('services.ai_proxy.default_model', 'hermes3:3b'),
-                    'prompt' => $validated['prompt'],
-                    'stream' => false,
-                ]);
-
-            /** @var \Illuminate\Http\Client\Response $response */
-            if ($response->failed()) {
-                return response()->json([
-                    'ok' => false,
-                    'status' => $response->status(),
-                    'error' => $response->body(),
-                ], 502);
-            }
-
-            return response()->json($response->json());
-        })->name('ai.proxy');
-    });
-
-Route::middleware('throttle:60,1')
-    ->withoutMiddleware([VerifyCsrfToken::class])
-    ->prefix('api/ollama')
-    ->group(function (): void {
-        Route::any('{path}', function (Request $request, string $path) {
-            $upstreamUrl = rtrim((string) config('services.ai_proxy.upstream_url', 'http://127.0.0.1:11434'), '/').'/'.ltrim($path, '/');
-            $method = strtoupper($request->method());
-
-            $client = Http::timeout((int) config('prism.request_timeout', 120));
-            $contentType = $request->header('Content-Type');
-
-            if (is_string($contentType) && $contentType !== '' && $request->getContent() !== '') {
-                $client = $client->withBody($request->getContent(), $contentType);
-            }
-
-            $response = $client->send($method, $upstreamUrl, [
-                'query' => $request->query(),
-            ]);
-
-            /** @var \Illuminate\Http\Client\Response $response */
-            return response($response->body(), $response->status())
-                ->header('Content-Type', (string) ($response->header('Content-Type') ?? 'application/json'));
-        })->where('path', '.*')->name('ai.ollama.compat');
-    });
